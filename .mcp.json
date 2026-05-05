@@ -1,0 +1,16 @@
+﻿{
+  "mcpServers": {
+    "filesystem": {
+      "command": "node",
+      "args": ["C:\Users\bhara\AppData\Roaming\npm\node_modules\\@modelcontextprotocol\\server-filesystem\\dist\\index.js", "C:\Vidya"]
+    },
+    "memory": {
+      "command": "node",
+      "args": ["C:\Users\bhara\AppData\Roaming\npm\node_modules\\@modelcontextprotocol\\server-memory\\dist\\index.js"]
+    },
+    "sequential-thinking": {
+      "command": "node",
+      "args": ["C:\Users\bhara\AppData\Roaming\npm\node_modules\\@modelcontextprotocol\\server-sequential-thinking\\dist\\index.js"]
+    }
+  }
+}

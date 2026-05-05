@@ -1,0 +1,83 @@
+﻿version: "3.9"
+
+services:
+  vidya-api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+      - minio
+      - qdrant
+
+  vidya-worker:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker -Q celery --loglevel=info
+    env_file: .env
+    depends_on:
+      - redis
+      - postgres
+
+  vidya-worker-heavy:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker -Q celery-heavy --loglevel=info
+    env_file: .env
+    depends_on:
+      - redis
+      - postgres
+
+  vidya-frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    env_file: .env
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: vidya
+      POSTGRES_PASSWORD: vidya_dev
+      POSTGRES_DB: vidya
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  flower:
+    image: mher/flower
+    command: celery flower --broker=redis://redis:6379/0 --port=5555
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+
+volumes:
+  postgres_data:
+  minio_data:
+  qdrant_data:
