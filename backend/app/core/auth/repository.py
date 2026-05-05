@@ -193,6 +193,12 @@ class PublicRepository:
         await db.execute(stmt)
 
     @staticmethod
+    async def get_tenant_by_schema_name(schema_name: str, db: AsyncSession):
+        stmt = select(Tenant).where(Tenant.schema_name == schema_name)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
     async def get_index_entry_by_hash(token_hash: str, db: AsyncSession):
         stmt = select(RefreshTokenIndex).where(RefreshTokenIndex.token_hash == token_hash)
         result = await db.execute(stmt)

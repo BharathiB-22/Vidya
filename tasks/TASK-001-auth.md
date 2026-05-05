@@ -906,7 +906,7 @@ Sub-agents report back:
 
 Plan: Complete — brainstorm done, D-01 confirmed schema-per-tenant, full 14-step plan updated.
 Approved: YES — 2026-05-05. All 5 decisions locked (D-01 through D-05). Plan reviewed and signed off by Srinivas. Ready for superpowers execute plan.
-Do:
+Do: STEP-01 through STEP-07 complete (2026-05-05). STEP-13 complete (2026-05-05). STEP-08 complete (2026-05-06). Next: STEP-09 dependencies.py.
 Check:
 Act:
 
@@ -950,9 +950,9 @@ Git Commit:
 Notes:
 
 Step: STEP-08 Auth service
-Status:
-Git Commit:
-Notes:
+Status: COMPLETE
+Git Commit: pending
+Notes: service.py created — PlatformAuthService (7 methods) + TenantAuthService (8 methods) + AuthError + _open_tenant_session. Approved deviations applied: D-A get_tenant_by_schema_name added to PublicRepository; D-B verify_otp_and_issue_reset_token takes schema_name param. Import check passed.
 
 Step: STEP-09 FastAPI dependencies
 Status:
