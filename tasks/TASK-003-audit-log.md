@@ -1275,6 +1275,6 @@ Git Commit: TASK-003 STEP-06 auth integration
 Notes: AuditService.log calls added to all TenantAuthService and PlatformAuthService methods. TenantAuthService.update_user() promoted to service layer. All four router files updated to pass ip_address and user_agent.
 
 Step: STEP-07 Tenants integration + tests
-Status: PENDING
-Git Commit:
-Notes:
+Status: COMPLETE
+Git Commit: a9e766c TASK-003 STEP-07 tenants integration and audit log tests
+Notes: TenantService audit calls added. db.begin() replaced with explicit db.commit()/db.rollback(). models.py native_enum=False fix for TenantStatus. conftest.py: ON CONFLICT no longer updates tenant PK; unique ASGITransport IP per test to avoid rate-limit bleed. test_audit_log.py: .test TLD changed to .com. 15/15 tests pass.

@@ -38,6 +38,11 @@ def get_version_locations() -> str:
         )
 
 
+if ALEMBIC_TARGET in ("public", "tenant"):
+    from pathlib import Path
+    context.script._version_locations = [Path(get_version_locations())]
+
+
 def run_migrations_offline() -> None:
     url = settings.DATABASE_URL
     context.configure(
@@ -52,11 +57,14 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(
+    kw: dict = dict(
         connection=connection,
         target_metadata=target_metadata,
         version_locations=get_version_locations(),
     )
+    if ALEMBIC_TARGET == "tenant" and TENANT_SCHEMA:
+        kw["version_table_schema"] = TENANT_SCHEMA
+    context.configure(**kw)
     with context.begin_transaction():
         context.run_migrations()
 
