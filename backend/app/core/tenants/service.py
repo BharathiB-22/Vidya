@@ -2,6 +2,8 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit_log.models import AuditEventType
+from app.core.audit_log.service import AuditService
 from app.core.auth.models import TenantStatus
 from app.core.auth.security import hash_password
 from app.core.tenants.provisioner import (
@@ -28,6 +30,9 @@ class TenantService:
     async def create_tenant(
         body: CreateTenantRequest,
         db: AsyncSession,
+        actor_user_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> TenantResponse:
         slug = generate_slug(body.name)
 
@@ -44,13 +49,13 @@ class TenantService:
 
         # Commit PROVISIONING record before running migrations so the row is
         # visible even if provisioning fails (enables retry / investigation).
-        async with db.begin():
-            tenant = await TenantRepository.create_tenant(
-                name=body.name,
-                slug=slug,
-                schema_name=schema_name,
-                db=db,
-            )
+        tenant = await TenantRepository.create_tenant(
+            name=body.name,
+            slug=slug,
+            schema_name=schema_name,
+            db=db,
+        )
+        await db.commit()
 
         tenant_id = tenant.id
 
@@ -67,23 +72,36 @@ class TenantService:
                 full_name=body.admin_full_name,
             )
 
-            async with db.begin():
-                tenant = await TenantRepository.update_tenant(
-                    tenant_id,
-                    {"status": TenantStatus.ACTIVE, "is_active": True},
-                    db,
-                )
+            tenant = await TenantRepository.update_tenant(
+                tenant_id,
+                {"status": TenantStatus.ACTIVE, "is_active": True},
+                db,
+            )
+            await db.commit()
+            await AuditService.log(
+                AuditEventType.TENANT_PROVISIONED,
+                actor_user_id=actor_user_id,
+                actor_role="SUPER_ADMIN",
+                tenant_id=tenant.id,
+                schema_name=tenant.schema_name,
+                target_entity="Tenant",
+                target_id=str(tenant.id),
+                metadata={"name": tenant.name, "slug": tenant.slug},
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
 
         except TenantError:
             raise
 
         except Exception as exc:
-            async with db.begin():
-                await TenantRepository.update_tenant(
-                    tenant_id,
-                    {"status": TenantStatus.FAILED},
-                    db,
-                )
+            await db.rollback()
+            await TenantRepository.update_tenant(
+                tenant_id,
+                {"status": TenantStatus.FAILED},
+                db,
+            )
+            await db.commit()
             raise TenantError(
                 "PROVISIONING_FAILED",
                 f"Tenant record created but schema provisioning failed: {exc}",
@@ -112,15 +130,36 @@ class TenantService:
         tenant_id: UUID,
         body: TenantUpdateRequest,
         db: AsyncSession,
+        actor_user_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> TenantResponse:
         updates = body.model_dump(exclude_none=True)
         if not updates:
             raise TenantError("NO_FIELDS", "No fields to update", 422)
 
-        async with db.begin():
-            tenant = await TenantRepository.update_tenant(tenant_id, updates, db)
+        tenant = await TenantRepository.update_tenant(tenant_id, updates, db)
+        await db.commit()
 
         if tenant is None:
             raise TenantError("NOT_FOUND", "Tenant not found", 404)
+
+        event = (
+            AuditEventType.TENANT_DEACTIVATED
+            if updates.get("is_active") is False
+            else AuditEventType.TENANT_UPDATED
+        )
+        await AuditService.log(
+            event,
+            actor_user_id=actor_user_id,
+            actor_role="SUPER_ADMIN",
+            tenant_id=tenant.id,
+            schema_name=tenant.schema_name,
+            target_entity="Tenant",
+            target_id=str(tenant_id),
+            metadata={"changes": updates},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
 
         return TenantResponse.model_validate(tenant)

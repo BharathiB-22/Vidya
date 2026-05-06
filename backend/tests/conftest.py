@@ -1,3 +1,4 @@
+import random
 import subprocess
 import sys
 import uuid
@@ -14,7 +15,11 @@ from app.core.auth.security import create_access_token, hash_password
 from app.main import app
 
 _BACKEND_DIR = str(Path(__file__).parent.parent)
-_engine = create_async_engine(settings.DATABASE_URL, echo=False)
+_engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    connect_args={"statement_cache_size": 0},
+)
 _Session = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
 
 SCHEMA_A = "tenant_test_a"
@@ -44,7 +49,7 @@ def setup_public_schema():
 
 @pytest_asyncio.fixture
 async def test_tenant_a(setup_public_schema):
-    tenant_id = uuid.uuid4()
+    new_id = uuid.uuid4()
     _run_alembic("tenant", SCHEMA_A)
     async with _Session() as session:
         async with session.begin():
@@ -53,10 +58,15 @@ async def test_tenant_a(setup_public_schema):
                     "INSERT INTO public.tenants (id, slug, name, schema_name, is_active) "
                     "VALUES (:id, :slug, :name, :schema, true) "
                     "ON CONFLICT (slug) DO UPDATE SET is_active = true, "
-                    "schema_name = EXCLUDED.schema_name, id = EXCLUDED.id"
+                    "schema_name = EXCLUDED.schema_name"
                 ),
-                {"id": str(tenant_id), "slug": SLUG_A, "name": "Test Tenant A", "schema": SCHEMA_A},
+                {"id": str(new_id), "slug": SLUG_A, "name": "Test Tenant A", "schema": SCHEMA_A},
             )
+            result = await session.execute(
+                text("SELECT id FROM public.tenants WHERE slug = :slug"),
+                {"slug": SLUG_A},
+            )
+            tenant_id = uuid.UUID(str(result.scalar()))
     yield {"id": tenant_id, "slug": SLUG_A, "schema_name": SCHEMA_A}
     async with _Session() as session:
         async with session.begin():
@@ -72,7 +82,7 @@ async def test_tenant_a(setup_public_schema):
 
 @pytest_asyncio.fixture
 async def test_tenant_b(setup_public_schema):
-    tenant_id = uuid.uuid4()
+    new_id = uuid.uuid4()
     _run_alembic("tenant", SCHEMA_B)
     async with _Session() as session:
         async with session.begin():
@@ -81,10 +91,15 @@ async def test_tenant_b(setup_public_schema):
                     "INSERT INTO public.tenants (id, slug, name, schema_name, is_active) "
                     "VALUES (:id, :slug, :name, :schema, true) "
                     "ON CONFLICT (slug) DO UPDATE SET is_active = true, "
-                    "schema_name = EXCLUDED.schema_name, id = EXCLUDED.id"
+                    "schema_name = EXCLUDED.schema_name"
                 ),
-                {"id": str(tenant_id), "slug": SLUG_B, "name": "Test Tenant B", "schema": SCHEMA_B},
+                {"id": str(new_id), "slug": SLUG_B, "name": "Test Tenant B", "schema": SCHEMA_B},
             )
+            result = await session.execute(
+                text("SELECT id FROM public.tenants WHERE slug = :slug"),
+                {"slug": SLUG_B},
+            )
+            tenant_id = uuid.UUID(str(result.scalar()))
     yield {"id": tenant_id, "slug": SLUG_B, "schema_name": SCHEMA_B}
     async with _Session() as session:
         async with session.begin():
@@ -196,7 +211,9 @@ async def db():
 
 @pytest_asyncio.fixture
 async def async_client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    ip = f"10.{random.randint(1, 254)}.{random.randint(1, 254)}.1"
+    transport = ASGITransport(app=app, client=(ip, 9000))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import require_super_admin
@@ -21,12 +21,19 @@ def _tenant_error(e: TenantError) -> HTTPException:
 
 @router.post("", response_model=TenantResponse, status_code=201)
 async def create_tenant(
+    request: Request,
     body: CreateTenantRequest,
-    _: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> TenantResponse:
     try:
-        return await TenantService.create_tenant(body, db)
+        return await TenantService.create_tenant(
+            body,
+            db,
+            actor_user_id=current_user.user_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
     except TenantError as e:
         raise _tenant_error(e)
 
@@ -54,12 +61,20 @@ async def get_tenant(
 
 @router.patch("/{tenant_id}", response_model=TenantResponse)
 async def update_tenant(
+    request: Request,
     tenant_id: UUID,
     body: TenantUpdateRequest,
-    _: CurrentUser = Depends(require_super_admin),
+    current_user: CurrentUser = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> TenantResponse:
     try:
-        return await TenantService.update_tenant(tenant_id, body, db)
+        return await TenantService.update_tenant(
+            tenant_id,
+            body,
+            db,
+            actor_user_id=current_user.user_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
     except TenantError as e:
         raise _tenant_error(e)
