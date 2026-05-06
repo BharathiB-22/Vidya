@@ -1,7 +1,7 @@
 from typing import AsyncGenerator
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,11 +34,22 @@ router = APIRouter(tags=["admin"])
 
 @router.post("/users", response_model=UserResponse, status_code=201)
 async def create_user(
+    request: Request,
     body: CreateUserRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
     db: AsyncSession = Depends(_get_admin_db),
 ) -> UserResponse:
     try:
-        return await TenantAuthService.create_user(body, db)
+        return await TenantAuthService.create_user(
+            body,
+            current_user.user_id,
+            current_user.role,
+            current_user.tenant_id,
+            current_user.schema_name,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
+        )
     except AuthError as e:
         raise HTTPException(
             status_code=e.status_code,
@@ -56,20 +67,25 @@ async def list_users(
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
 async def update_user(
+    request: Request,
     user_id: UUID,
     body: UpdateUserRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
     db: AsyncSession = Depends(_get_admin_db),
 ) -> UserResponse:
-    updates = body.model_dump(exclude_none=True)
-    if not updates:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "VALIDATION_ERROR", "message": "No fields to update"},
+    try:
+        return await TenantAuthService.update_user(
+            user_id, body,
+            current_user.user_id,
+            current_user.role,
+            current_user.tenant_id,
+            current_user.schema_name,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
         )
-    user = await TenantRepository.update_user(user_id, updates, db)
-    if not user:
+    except AuthError as e:
         raise HTTPException(
-            status_code=404,
-            detail={"error": "USER_NOT_FOUND", "message": "User not found"},
+            status_code=e.status_code,
+            detail={"error": e.code, "message": e.message},
         )
-    return UserResponse.model_validate(user)

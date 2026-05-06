@@ -78,12 +78,22 @@ async def refresh_tokens(
 
 @router.post("/logout", status_code=200)
 async def logout(
+    request: Request,
     body: RefreshRequest,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await TenantAuthService.logout(body.refresh_token, db)
+        await TenantAuthService.logout(
+            body.refresh_token,
+            current_user.user_id,
+            current_user.role,
+            current_user.tenant_id,
+            current_user.schema_name,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
+        )
     except AuthError as e:
         raise _auth_error(e)
     return {"message": "Logged out"}
@@ -91,15 +101,29 @@ async def logout(
 
 @router.post("/logout-all", status_code=200)
 async def logout_all(
+    request: Request,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         if current_user.is_super_admin:
             from app.core.auth.service import PlatformAuthService
-            await PlatformAuthService.logout_all(current_user.user_id, db)
+            await PlatformAuthService.logout_all(
+                current_user.user_id,
+                request.client.host if request.client else None,
+                request.headers.get("user-agent"),
+                db,
+            )
         else:
-            await TenantAuthService.logout_all(current_user.user_id, current_user.schema_name, db)
+            await TenantAuthService.logout_all(
+                current_user.user_id,
+                current_user.role,
+                current_user.tenant_id,
+                current_user.schema_name,
+                request.client.host if request.client else None,
+                request.headers.get("user-agent"),
+                db,
+            )
     except AuthError as e:
         raise _auth_error(e)
     return {"message": "All sessions terminated"}
@@ -146,19 +170,32 @@ async def request_reset(
     tenant: TenantInfo = Depends(resolve_tenant),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
-    await TenantAuthService.request_password_reset(body.email, db)
+    await TenantAuthService.request_password_reset(
+        body.email,
+        tenant.id,
+        tenant.schema_name,
+        request.client.host if request.client else None,
+        request.headers.get("user-agent"),
+        db,
+    )
     return {"message": "If that email exists, an OTP has been sent"}
 
 
 @router.post("/password-reset/verify", status_code=200)
 async def verify_otp(
+    request: Request,
     body: PasswordResetVerifyIn,
     tenant: TenantInfo = Depends(resolve_tenant),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
         return await TenantAuthService.verify_otp_and_issue_reset_token(
-            body.email, body.otp, tenant.schema_name, db
+            body.email, body.otp,
+            tenant.schema_name,
+            tenant.id,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
         )
     except AuthError as e:
         raise _auth_error(e)
@@ -166,11 +203,17 @@ async def verify_otp(
 
 @router.post("/password-reset/confirm", status_code=200)
 async def confirm_reset(
+    request: Request,
     body: PasswordResetConfirmIn,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await TenantAuthService.confirm_password_reset(body.reset_token, body.new_password, db)
+        await TenantAuthService.confirm_password_reset(
+            body.reset_token, body.new_password,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
+        )
     except AuthError as e:
         raise _auth_error(e)
     return {"message": "Password reset successful"}

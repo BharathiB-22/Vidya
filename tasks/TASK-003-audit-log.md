@@ -1270,9 +1270,9 @@ Git Commit:
 Notes:
 
 Step: STEP-06 Auth integration
-Status: PENDING
-Git Commit:
-Notes:
+Status: COMPLETE
+Git Commit: TASK-003 STEP-06 auth integration
+Notes: AuditService.log calls added to all TenantAuthService and PlatformAuthService methods. TenantAuthService.update_user() promoted to service layer. All four router files updated to pass ip_address and user_agent.
 
 Step: STEP-07 Tenants integration + tests
 Status: PENDING
