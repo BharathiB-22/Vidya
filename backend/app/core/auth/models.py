@@ -16,6 +16,12 @@ class TenantRole(str, enum.Enum):
     GUIDE = "GUIDE"
 
 
+class TenantStatus(str, enum.Enum):
+    PROVISIONING = "PROVISIONING"
+    ACTIVE = "ACTIVE"
+    FAILED = "FAILED"
+
+
 class OTPPurpose(str, enum.Enum):
     PASSWORD_RESET = "PASSWORD_RESET"
 
@@ -32,7 +38,8 @@ class Tenant(Base):
     slug = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
     schema_name = Column(String, unique=True, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    status = Column(Enum(TenantStatus), nullable=False, default=TenantStatus.PROVISIONING)
+    is_active = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 

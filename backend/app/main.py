@@ -13,6 +13,7 @@ from app.core.auth.router import limiter as auth_limiter
 from app.core.auth.router import router as auth_router
 from app.core.auth.platform_router import router as platform_router
 from app.core.auth.admin_router import router as admin_router
+from app.core.tenants.router import router as tenants_router
 
 logger = logging.getLogger("vidya.access")
 logging.basicConfig(level=logging.INFO)
@@ -97,6 +98,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 app.include_router(auth_router, prefix="/auth")
 app.include_router(platform_router, prefix="/platform/auth")
 app.include_router(admin_router, prefix="/admin")
+app.include_router(tenants_router, prefix="/tenants")
 
 
 # ---------------------------------------------------------------------------
