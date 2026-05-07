@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRY_MINUTES_GET: int = 60
     STORAGE_ASSET_RETENTION_YEARS: int = 3
 
+    # Gemini AI
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-1.5-pro"
+
     # Storage MIME whitelist per entity type
     STORAGE_MIME_WHITELIST: dict = {
         "submission": [
@@ -52,6 +56,10 @@ class Settings(BaseSettings):
         ],
         "viva_recording": ["video/mp4", "video/webm"],
         "course_kit": ["application/pdf"],
+        "program_export": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ],
     }
 
     @property

@@ -12,6 +12,7 @@ class StorageEntityType(str, enum.Enum):
     RESEARCH_DOC = "research_doc"
     COURSE_KIT = "course_kit"
     VIVA_RECORDING = "viva_recording"
+    PROGRAM_EXPORT = "program_export"
 
 
 class StorageAsset(Base):

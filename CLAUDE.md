@@ -27,7 +27,7 @@ One Claude session per module boundary.
 
 ### Phase 0 - Core Infrastructure
 
-auth:
+auh:
 backend/app/core/auth/
 
 tenants:
