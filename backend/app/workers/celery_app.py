@@ -3,6 +3,7 @@ from kombu import Queue
 from celery import Celery
 
 from app.config import settings
+from app.core.monitoring.celery_logging import setup_celery_logging
 
 celery_app = Celery(
     "vidya",
@@ -40,3 +41,5 @@ celery_app.conf.update(
     task_acks_late=True,           # ack after task body completes, not on pickup
     worker_prefetch_multiplier=1,  # fair dispatch; prevents heavy tasks being hoarded
 )
+
+setup_celery_logging()

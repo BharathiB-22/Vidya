@@ -3,6 +3,8 @@ import logging
 
 from celery import Task
 
+from app.core.monitoring import request_id_ctx
+
 logger = logging.getLogger("vidya.worker")
 
 _TRANSIENT_ERRORS: tuple = (
@@ -50,9 +52,28 @@ class VidyaTask(Task):
 
     def on_retry(self, exc, task_id, args, kwargs, einfo):
         job_id = kwargs.get("job_id")
+        request_id = kwargs.get("request_id")
+
+        if request_id:
+            request_id_ctx.set(request_id)
+
         logger.warning(
             "VidyaTask retry: job=%s task=%s attempt=%d/%d error=%s",
-            job_id, self.name, self.request.retries, self.max_retries, exc,
+            job_id,
+            self.name,
+            self.request.retries,
+            self.max_retries,
+            exc,
+            extra={
+                "event": "task_retry",
+                "task_id": task_id,
+                "task_name": self.name,
+                "request_id": request_id,
+                "job_id": str(job_id) if job_id else None,
+                "attempt": self.request.retries,
+                "max_retries": self.max_retries,
+                "exception": str(exc),
+            },
         )
 
     def _write_status(

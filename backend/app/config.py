@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = 3
     BCRYPT_ROUNDS: int = 12
 
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    JSON_LOGGING: bool = True
+    HEALTH_CHECK_TIMEOUT_SECONDS: float = 2.0
+
     # SMTP — leave SMTP_USER/SMTP_PASSWORD unset in dev to enable console mode
     SMTP_HOST: str = "localhost"
     SMTP_PORT: int = 587
