@@ -50,14 +50,15 @@ async def platform_login(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def platform_refresh(
+    request: Request,
     body: RefreshRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     try:
         return await PlatformAuthService.refresh_tokens(
             body.refresh_token,
-            None,
-            None,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
             db,
         )
     except AuthError as e:
@@ -66,12 +67,19 @@ async def platform_refresh(
 
 @router.post("/logout", status_code=200)
 async def platform_logout(
+    request: Request,
     body: RefreshRequest,
     current_user: CurrentUser = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await PlatformAuthService.logout(body.refresh_token, db)
+        await PlatformAuthService.logout(
+            body.refresh_token,
+            current_user.user_id,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
+        )
     except AuthError as e:
         raise _auth_error(e)
     return {"message": "Logged out"}
@@ -79,11 +87,17 @@ async def platform_logout(
 
 @router.post("/logout-all", status_code=200)
 async def platform_logout_all(
+    request: Request,
     current_user: CurrentUser = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await PlatformAuthService.logout_all(current_user.user_id, db)
+        await PlatformAuthService.logout_all(
+            current_user.user_id,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
+        )
     except AuthError as e:
         raise _auth_error(e)
     return {"message": "All sessions terminated"}
@@ -113,21 +127,31 @@ async def platform_me(
 
 @router.post("/password-reset/request", status_code=200)
 async def platform_request_reset(
+    request: Request,
     body: PasswordResetRequestIn,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await PlatformAuthService.request_password_reset(body.email, db)
+    await PlatformAuthService.request_password_reset(
+        body.email,
+        request.client.host if request.client else None,
+        request.headers.get("user-agent"),
+        db,
+    )
     return {"message": "If that email exists, an OTP has been sent"}
 
 
 @router.post("/password-reset/verify", status_code=200)
 async def platform_verify_otp(
+    request: Request,
     body: PasswordResetVerifyIn,
     db: AsyncSession = Depends(get_db),
 ):
     try:
         return await PlatformAuthService.verify_otp_and_issue_reset_token(
-            body.email, body.otp, db
+            body.email, body.otp,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
         )
     except AuthError as e:
         raise _auth_error(e)
@@ -135,12 +159,16 @@ async def platform_verify_otp(
 
 @router.post("/password-reset/confirm", status_code=200)
 async def platform_confirm_reset(
+    request: Request,
     body: PasswordResetConfirmIn,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         await PlatformAuthService.confirm_password_reset(
-            body.reset_token, body.new_password, db
+            body.reset_token, body.new_password,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
         )
     except AuthError as e:
         raise _auth_error(e)

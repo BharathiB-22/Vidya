@@ -336,8 +336,11 @@ class TenantRepository:
         token.replaced_by = replaced_by_id
         await db.flush()
 
-        del_stmt = delete(RefreshTokenIndex).where(RefreshTokenIndex.token_hash == old_hash)
-        await db.execute(del_stmt)
+        # Only purge the index entry on explicit revocation (logout/cascade).
+        # During rotation (replaced_by_id is set) keep it so reuse detection can fire.
+        if replaced_by_id is None:
+            del_stmt = delete(RefreshTokenIndex).where(RefreshTokenIndex.token_hash == old_hash)
+            await db.execute(del_stmt)
 
     @staticmethod
     async def revoke_all_user_refresh_tokens(

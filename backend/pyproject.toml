@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.2.0",
     "slowapi>=0.1.9",
     "email-validator>=2.1.0",
+    "boto3>=1.28.0",
 ]
 
 [project.optional-dependencies]
@@ -29,4 +30,5 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]

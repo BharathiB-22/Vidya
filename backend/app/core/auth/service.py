@@ -9,12 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import AsyncSessionLocal
+from app.core.audit_log.models import AuditEventType
+from app.core.audit_log.service import AuditService
 from app.core.auth.models import OTPPurpose
 from app.core.auth.repository import PublicRepository, TenantRepository
 from app.core.auth.schemas import (
     CreateUserRequest,
     PasswordResetTokenResponse,
     TokenResponse,
+    UpdateUserRequest,
     UserResponse,
 )
 from app.core.auth.security import (
@@ -71,8 +74,18 @@ class PlatformAuthService:
     ) -> TokenResponse:
         user = await PublicRepository.get_platform_user_by_email(email, db)
         if not user or not user.is_active:
+            await AuditService.log(
+                AuditEventType.PLATFORM_LOGIN_FAILURE,
+                metadata={"attempted_email": email},
+                ip_address=ip, user_agent=user_agent,
+            )
             raise AuthError("INVALID_CREDENTIALS", "Invalid credentials")
         if not verify_password(password, user.password_hash):
+            await AuditService.log(
+                AuditEventType.PLATFORM_LOGIN_FAILURE,
+                metadata={"attempted_email": email},
+                ip_address=ip, user_agent=user_agent,
+            )
             raise AuthError("INVALID_CREDENTIALS", "Invalid credentials")
 
         expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -95,6 +108,11 @@ class PlatformAuthService:
         await PublicRepository.update_platform_user(
             user.id, {"last_login_at": datetime.now(timezone.utc)}, db
         )
+        await AuditService.log(
+            AuditEventType.PLATFORM_LOGIN_SUCCESS,
+            actor_user_id=user.id, actor_role="SUPER_ADMIN",
+            ip_address=ip, user_agent=user_agent,
+        )
         return TokenResponse(
             access_token=access_token,
             refresh_token=raw_refresh,
@@ -114,6 +132,11 @@ class PlatformAuthService:
             raise AuthError("INVALID_TOKEN", "Invalid refresh token")
         if record.is_revoked:
             await PublicRepository.revoke_all_platform_user_refresh_tokens(record.user_id, db)
+            await AuditService.log(
+                AuditEventType.PLATFORM_TOKEN_REUSE_DETECTED,
+                actor_user_id=record.user_id, actor_role="SUPER_ADMIN",
+                ip_address=ip, user_agent=user_agent,
+            )
             raise AuthError("INVALID_TOKEN", "Refresh token reuse detected")
         if _as_utc(record.expires_at) < datetime.now(timezone.utc):
             raise AuthError("INVALID_TOKEN", "Refresh token expired")
@@ -141,6 +164,11 @@ class PlatformAuthService:
             },
             expires_delta=expires,
         )
+        await AuditService.log(
+            AuditEventType.PLATFORM_TOKEN_REFRESH,
+            actor_user_id=user.id, actor_role="SUPER_ADMIN",
+            ip_address=ip, user_agent=user_agent,
+        )
         return TokenResponse(
             access_token=access_token,
             refresh_token=new_raw,
@@ -148,18 +176,44 @@ class PlatformAuthService:
         )
 
     @staticmethod
-    async def logout(raw_token: str, db: AsyncSession) -> None:
+    async def logout(
+        raw_token: str,
+        actor_user_id: UUID | None,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
         token_hash = hash_token(raw_token)
         record = await PublicRepository.get_platform_refresh_token_by_hash(token_hash, db)
         if record and not record.is_revoked:
             await PublicRepository.revoke_platform_refresh_token(record.id, None, db)
+        await AuditService.log(
+            AuditEventType.PLATFORM_LOGOUT,
+            actor_user_id=actor_user_id, actor_role="SUPER_ADMIN",
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
     @staticmethod
-    async def logout_all(user_id: UUID, db: AsyncSession) -> None:
+    async def logout_all(
+        user_id: UUID,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
         await PublicRepository.revoke_all_platform_user_refresh_tokens(user_id, db)
+        await AuditService.log(
+            AuditEventType.PLATFORM_LOGOUT_ALL,
+            actor_user_id=user_id, actor_role="SUPER_ADMIN",
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
     @staticmethod
-    async def request_password_reset(email: str, db: AsyncSession) -> None:
+    async def request_password_reset(
+        email: str,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
         user = await PublicRepository.get_platform_user_by_email(email, db)
         if not user or not user.is_active:
             return  # silent — no enumeration
@@ -171,11 +225,18 @@ class PlatformAuthService:
             user.id, otp_hash_val, OTPPurpose.PASSWORD_RESET, expires_at, db
         )
         print(f"[DEV] Platform OTP for {email}: {plain_otp}")  # Phase 0: email not wired
+        await AuditService.log(
+            AuditEventType.PLATFORM_PASSWORD_RESET_REQUESTED,
+            actor_user_id=user.id, actor_role="SUPER_ADMIN",
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
     @staticmethod
     async def verify_otp_and_issue_reset_token(
         email: str,
         otp_plain: str,
+        ip_address: str | None,
+        user_agent: str | None,
         db: AsyncSession,
     ) -> PasswordResetTokenResponse:
         user = await PublicRepository.get_platform_user_by_email(email, db)
@@ -189,6 +250,12 @@ class PlatformAuthService:
         await PublicRepository.increment_platform_otp_attempts(otp_record.id, db)
         if otp_record.attempts + 1 > settings.OTP_MAX_ATTEMPTS:
             await PublicRepository.consume_platform_otp(otp_record.id, db)
+            await AuditService.log(
+                AuditEventType.PLATFORM_PASSWORD_RESET_OTP_FAILED,
+                actor_user_id=user.id, actor_role="SUPER_ADMIN",
+                metadata={"attempts": otp_record.attempts + 1},
+                ip_address=ip_address, user_agent=user_agent,
+            )
             raise AuthError("OTP_MAX_ATTEMPTS", "OTP max attempts exceeded")
         if not verify_otp(otp_plain, otp_record.otp_hash):
             raise AuthError("OTP_INVALID", "Invalid OTP")
@@ -204,12 +271,19 @@ class PlatformAuthService:
             iat_cutoff=iat_cutoff,
             expires_delta=timedelta(minutes=15),
         )
+        await AuditService.log(
+            AuditEventType.PLATFORM_PASSWORD_RESET_VERIFIED,
+            actor_user_id=user.id, actor_role="SUPER_ADMIN",
+            ip_address=ip_address, user_agent=user_agent,
+        )
         return PasswordResetTokenResponse(reset_token=reset_token)
 
     @staticmethod
     async def confirm_password_reset(
         reset_token_str: str,
         new_password: str,
+        ip_address: str | None,
+        user_agent: str | None,
         db: AsyncSession,
     ) -> None:
         try:
@@ -236,6 +310,12 @@ class PlatformAuthService:
             user_id, {"password_hash": new_hash, "password_changed_at": now}, db
         )
         await PublicRepository.revoke_all_platform_user_refresh_tokens(user_id, db)
+        await AuditService.log(
+            AuditEventType.PLATFORM_PASSWORD_RESET_COMPLETED,
+            actor_user_id=user_id, actor_role="SUPER_ADMIN",
+            target_entity="PlatformUser", target_id=str(user_id),
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -256,8 +336,22 @@ class TenantAuthService:
     ) -> TokenResponse:
         user = await TenantRepository.get_user_by_email(email, db)
         if not user or not user.is_active:
+            await AuditService.log(
+                AuditEventType.AUTH_LOGIN_FAILURE,
+                actor_role=None, tenant_id=tenant_id, schema_name=schema_name,
+                metadata={"attempted_email": email, "reason": "user_not_found_or_inactive"},
+                ip_address=ip, user_agent=user_agent,
+            )
             raise AuthError("INVALID_CREDENTIALS", "Invalid credentials")
         if not verify_password(password, user.password_hash):
+            await AuditService.log(
+                AuditEventType.AUTH_LOGIN_FAILURE,
+                actor_user_id=user.id, actor_role=user.role.value,
+                tenant_id=tenant_id, schema_name=schema_name,
+                target_entity="User", target_id=str(user.id),
+                metadata={"reason": "invalid_password"},
+                ip_address=ip, user_agent=user_agent,
+            )
             raise AuthError("INVALID_CREDENTIALS", "Invalid credentials")
 
         expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -279,6 +373,13 @@ class TenantAuthService:
         )
         await TenantRepository.update_user(
             user.id, {"last_login_at": datetime.now(timezone.utc)}, db
+        )
+        await AuditService.log(
+            AuditEventType.AUTH_LOGIN_SUCCESS,
+            actor_user_id=user.id, actor_role=user.role.value,
+            tenant_id=tenant_id, schema_name=schema_name,
+            target_entity="User", target_id=str(user.id),
+            ip_address=ip, user_agent=user_agent,
         )
         return TokenResponse(
             access_token=access_token,
@@ -311,6 +412,11 @@ class TenantAuthService:
                 raise AuthError("INVALID_TOKEN", "Invalid refresh token")
             if record.is_revoked:
                 await TenantRepository.revoke_all_user_refresh_tokens(record.user_id, schema_name, tenant_db)
+                await AuditService.log(
+                    AuditEventType.AUTH_TOKEN_REUSE_DETECTED,
+                    actor_user_id=record.user_id, schema_name=schema_name,
+                    tenant_id=tenant.id, ip_address=ip, user_agent=user_agent,
+                )
                 raise AuthError("INVALID_TOKEN", "Refresh token reuse detected")
             if _as_utc(record.expires_at) < datetime.now(timezone.utc):
                 raise AuthError("INVALID_TOKEN", "Refresh token expired")
@@ -338,6 +444,12 @@ class TenantAuthService:
                 },
                 expires_delta=expires,
             )
+            await AuditService.log(
+                AuditEventType.AUTH_TOKEN_REFRESH,
+                actor_user_id=user.id, actor_role=user.role.value,
+                tenant_id=tenant.id, schema_name=schema_name,
+                ip_address=ip, user_agent=user_agent,
+            )
             return TokenResponse(
                 access_token=access_token,
                 refresh_token=new_raw,
@@ -345,27 +457,62 @@ class TenantAuthService:
             )
 
     @staticmethod
-    async def logout(raw_token: str, db: AsyncSession) -> None:
+    async def logout(
+        raw_token: str,
+        actor_user_id: UUID | None,
+        actor_role: str | None,
+        tenant_id: UUID | None,
+        schema_name: str | None,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
         token_hash = hash_token(raw_token)
         index_entry = await PublicRepository.get_index_entry_by_hash(token_hash, db)
         if not index_entry:
             return  # idempotent
         if index_entry.schema_name is None:
-            await PlatformAuthService.logout(raw_token, db)
+            await PlatformAuthService.logout(raw_token, actor_user_id, ip_address, user_agent, db)
             return
-        schema_name = index_entry.schema_name
-        async with _open_tenant_session(schema_name) as tenant_db:
+        async with _open_tenant_session(index_entry.schema_name) as tenant_db:
             record = await TenantRepository.get_refresh_token_by_hash(token_hash, tenant_db)
             if record and not record.is_revoked:
                 await TenantRepository.revoke_refresh_token(record.id, None, tenant_db)
+        await AuditService.log(
+            AuditEventType.AUTH_LOGOUT,
+            actor_user_id=actor_user_id, actor_role=actor_role,
+            tenant_id=tenant_id, schema_name=schema_name,
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
     @staticmethod
-    async def logout_all(user_id: UUID, schema_name: str, db: AsyncSession) -> None:
+    async def logout_all(
+        user_id: UUID,
+        actor_role: str | None,
+        tenant_id: UUID | None,
+        schema_name: str,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
         async with _open_tenant_session(schema_name) as tenant_db:
             await TenantRepository.revoke_all_user_refresh_tokens(user_id, schema_name, tenant_db)
+        await AuditService.log(
+            AuditEventType.AUTH_LOGOUT_ALL,
+            actor_user_id=user_id, actor_role=actor_role,
+            tenant_id=tenant_id, schema_name=schema_name,
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
     @staticmethod
-    async def request_password_reset(email: str, db: AsyncSession) -> None:
+    async def request_password_reset(
+        email: str,
+        tenant_id: UUID,
+        schema_name: str,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
         user = await TenantRepository.get_user_by_email(email, db)
         if not user or not user.is_active:
             return  # silent — no enumeration
@@ -377,12 +524,22 @@ class TenantAuthService:
             user.id, otp_hash_val, OTPPurpose.PASSWORD_RESET, expires_at, db
         )
         print(f"[DEV] Tenant OTP for {email}: {plain_otp}")  # Phase 0: email not wired
+        await AuditService.log(
+            AuditEventType.AUTH_PASSWORD_RESET_REQUESTED,
+            actor_user_id=user.id, actor_role=user.role.value,
+            tenant_id=tenant_id, schema_name=schema_name,
+            target_entity="User", target_id=str(user.id),
+            ip_address=ip_address, user_agent=user_agent,
+        )
 
     @staticmethod
     async def verify_otp_and_issue_reset_token(
         email: str,
         otp_plain: str,
         schema_name: str,
+        tenant_id: UUID,
+        ip_address: str | None,
+        user_agent: str | None,
         db: AsyncSession,
     ) -> PasswordResetTokenResponse:
         user = await TenantRepository.get_user_by_email(email, db)
@@ -396,6 +553,13 @@ class TenantAuthService:
         await TenantRepository.increment_otp_attempts(otp_record.id, db)
         if otp_record.attempts + 1 > settings.OTP_MAX_ATTEMPTS:
             await TenantRepository.consume_otp(otp_record.id, db)
+            await AuditService.log(
+                AuditEventType.AUTH_PASSWORD_RESET_OTP_FAILED,
+                actor_user_id=user.id, actor_role=user.role.value,
+                tenant_id=tenant_id, schema_name=schema_name,
+                metadata={"attempts": otp_record.attempts + 1},
+                ip_address=ip_address, user_agent=user_agent,
+            )
             raise AuthError("OTP_MAX_ATTEMPTS", "OTP max attempts exceeded")
         if not verify_otp(otp_plain, otp_record.otp_hash):
             raise AuthError("OTP_INVALID", "Invalid OTP")
@@ -411,12 +575,20 @@ class TenantAuthService:
             iat_cutoff=iat_cutoff,
             expires_delta=timedelta(minutes=15),
         )
+        await AuditService.log(
+            AuditEventType.AUTH_PASSWORD_RESET_VERIFIED,
+            actor_user_id=user.id, actor_role=user.role.value,
+            tenant_id=tenant_id, schema_name=schema_name,
+            ip_address=ip_address, user_agent=user_agent,
+        )
         return PasswordResetTokenResponse(reset_token=reset_token)
 
     @staticmethod
     async def confirm_password_reset(
         reset_token_str: str,
         new_password: str,
+        ip_address: str | None,
+        user_agent: str | None,
         db: AsyncSession,
     ) -> None:
         try:
@@ -447,14 +619,75 @@ class TenantAuthService:
                 user_id, {"password_hash": new_hash, "password_changed_at": now}, tenant_db
             )
             await TenantRepository.revoke_all_user_refresh_tokens(user_id, schema_name, tenant_db)
+            tenant = await PublicRepository.get_tenant_by_schema_name(schema_name, tenant_db)
+            await AuditService.log(
+                AuditEventType.AUTH_PASSWORD_RESET_COMPLETED,
+                actor_user_id=user_id, schema_name=schema_name,
+                tenant_id=tenant.id if tenant else None,
+                target_entity="User", target_id=str(user_id),
+                ip_address=ip_address, user_agent=user_agent,
+            )
 
     @staticmethod
-    async def create_user(payload: CreateUserRequest, db: AsyncSession) -> UserResponse:
+    async def create_user(
+        payload: CreateUserRequest,
+        actor_user_id: UUID,
+        actor_role: str,
+        tenant_id: UUID,
+        schema_name: str,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> UserResponse:
         existing = await TenantRepository.get_user_by_email(payload.email, db)
         if existing:
             raise AuthError("EMAIL_EXISTS", "Email already registered", 409)
         pw_hash = hash_password(payload.password)
         user = await TenantRepository.create_user(
             payload.email, pw_hash, payload.role, payload.full_name, payload.identifier, db
+        )
+        await AuditService.log(
+            AuditEventType.USER_CREATED,
+            actor_user_id=actor_user_id, actor_role=actor_role,
+            tenant_id=tenant_id, schema_name=schema_name,
+            target_entity="User", target_id=str(user.id),
+            metadata={"email": payload.email, "role": payload.role.value},
+            ip_address=ip_address, user_agent=user_agent,
+        )
+        return UserResponse.model_validate(user)
+
+    @staticmethod
+    async def update_user(
+        user_id: UUID,
+        payload: UpdateUserRequest,
+        actor_user_id: UUID,
+        actor_role: str,
+        tenant_id: UUID,
+        schema_name: str,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> UserResponse:
+        updates = payload.model_dump(exclude_none=True)
+        if not updates:
+            raise AuthError("NO_FIELDS", "No fields to update", 422)
+        user = await TenantRepository.update_user(user_id, updates, db)
+        if not user:
+            raise AuthError("USER_NOT_FOUND", "User not found", 404)
+
+        if "is_active" in updates and updates["is_active"] is False:
+            event = AuditEventType.USER_DEACTIVATED
+        elif "role" in updates:
+            event = AuditEventType.USER_ROLE_CHANGED
+        else:
+            event = AuditEventType.USER_UPDATED
+
+        await AuditService.log(
+            event,
+            actor_user_id=actor_user_id, actor_role=actor_role,
+            tenant_id=tenant_id, schema_name=schema_name,
+            target_entity="User", target_id=str(user_id),
+            metadata={"changes": updates},
+            ip_address=ip_address, user_agent=user_agent,
         )
         return UserResponse.model_validate(user)

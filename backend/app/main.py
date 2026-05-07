@@ -1,5 +1,4 @@
 import logging
-import time
 import traceback
 
 from fastapi import FastAPI, HTTPException, Request
@@ -9,16 +8,38 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
+from app.core.monitoring import setup_logging
+from app.core.monitoring.middleware import MonitoringMiddleware
+from app.core.monitoring.router import router as monitoring_router
 from app.core.auth.router import limiter as auth_limiter
 from app.core.auth.router import router as auth_router
 from app.core.auth.platform_router import router as platform_router
 from app.core.auth.admin_router import router as admin_router
 from app.core.tenants.router import router as tenants_router
+from app.core.audit_log.router import router as audit_log_router
+from app.core.notifications.router import router as notifications_router
+from app.core.storage.router import router as storage_router
+from app.core.storage.provisioner import ensure_bucket_exists
 
+setup_logging(log_level=settings.LOG_LEVEL, json_logging=settings.JSON_LOGGING)
 logger = logging.getLogger("vidya.access")
-logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Vidya Backend")
+
+
+# ---------------------------------------------------------------------------
+# Startup event
+# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize storage bucket on app startup."""
+    try:
+        await ensure_bucket_exists()
+    except Exception as e:
+        logger.exception("Failed to ensure storage bucket exists: %s", e)
+        raise
+
 
 # ---------------------------------------------------------------------------
 # slowapi rate limiter
@@ -36,8 +57,10 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 
 
 # ---------------------------------------------------------------------------
-# CORS
+# Middleware stack
 # ---------------------------------------------------------------------------
+
+app.add_middleware(MonitoringMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,18 +69,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ---------------------------------------------------------------------------
-# Request logger
-# ---------------------------------------------------------------------------
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration_ms = (time.perf_counter() - start) * 1000
-    logger.info("%s %s %d %.1fms", request.method, request.url.path, response.status_code, duration_ms)
-    return response
 
 
 # ---------------------------------------------------------------------------
@@ -95,16 +106,11 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 # Routers
 # ---------------------------------------------------------------------------
 
+app.include_router(monitoring_router)
 app.include_router(auth_router, prefix="/auth")
 app.include_router(platform_router, prefix="/platform/auth")
 app.include_router(admin_router, prefix="/admin")
 app.include_router(tenants_router, prefix="/tenants")
-
-
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
-
-@app.get("/healthz", tags=["health"])
-async def healthz():
-    return {"status": "ok", "environment": settings.ENVIRONMENT}
+app.include_router(audit_log_router, prefix="/audit-logs")
+app.include_router(notifications_router, prefix="/notifications")
+app.include_router(storage_router, prefix="/storage")
