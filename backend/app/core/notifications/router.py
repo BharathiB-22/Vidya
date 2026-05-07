@@ -5,6 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
+
+_ALL_TENANT_ROLES = (
+    TenantRole.STUDENT,
+    TenantRole.FACULTY,
+    TenantRole.ADMIN,
+    TenantRole.DEAN,
+    TenantRole.BOARD,
+    TenantRole.GUIDE,
+)
 from app.core.auth.schemas import CurrentUser
 from app.core.notifications.schemas import (
     MarkReadResponse,
@@ -27,7 +36,7 @@ async def list_notifications(
     is_read:  bool | None = Query(None, description="Filter by read status"),
     page:     int         = Query(1,   ge=1,          description="Page number (1-based)"),
     page_size: int        = Query(50,  ge=1, le=200,  description="Items per page"),
-    current_user: CurrentUser  = Depends(require_roles(TenantRole.STUDENT)),
+    current_user: CurrentUser  = Depends(require_roles(*_ALL_TENANT_ROLES)),
     db: AsyncSession           = Depends(get_tenant_db_dep),
 ) -> NotificationListResponse:
     return await NotificationService.query(
@@ -42,7 +51,7 @@ async def list_notifications(
 @router.patch("/{notification_id}/read", response_model=MarkReadResponse)
 async def mark_notification_read(
     notification_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    current_user: CurrentUser = Depends(require_roles(*_ALL_TENANT_ROLES)),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> MarkReadResponse:
     try:
@@ -57,7 +66,7 @@ async def mark_notification_read(
 
 @router.post("/read-all", response_model=dict)
 async def mark_all_notifications_read(
-    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    current_user: CurrentUser = Depends(require_roles(*_ALL_TENANT_ROLES)),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> dict:
     return await NotificationService.mark_all_read(
