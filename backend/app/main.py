@@ -16,11 +16,28 @@ from app.core.auth.admin_router import router as admin_router
 from app.core.tenants.router import router as tenants_router
 from app.core.audit_log.router import router as audit_log_router
 from app.core.notifications.router import router as notifications_router
+from app.core.storage.router import router as storage_router
+from app.core.storage.provisioner import ensure_bucket_exists
 
 logger = logging.getLogger("vidya.access")
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Vidya Backend")
+
+
+# ---------------------------------------------------------------------------
+# Startup event
+# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize storage bucket on app startup."""
+    try:
+        await ensure_bucket_exists()
+    except Exception as e:
+        logger.exception("Failed to ensure storage bucket exists: %s", e)
+        raise
+
 
 # ---------------------------------------------------------------------------
 # slowapi rate limiter
@@ -103,6 +120,7 @@ app.include_router(admin_router, prefix="/admin")
 app.include_router(tenants_router, prefix="/tenants")
 app.include_router(audit_log_router, prefix="/audit-logs")
 app.include_router(notifications_router, prefix="/notifications")
+app.include_router(storage_router, prefix="/storage")
 
 
 # ---------------------------------------------------------------------------

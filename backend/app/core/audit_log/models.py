@@ -43,6 +43,11 @@ class AuditEventType(str, enum.Enum):
     TENANT_UPDATED     = "TENANT_UPDATED"
     TENANT_DEACTIVATED = "TENANT_DEACTIVATED"
 
+    # Storage operations (tenant-scoped)
+    STORAGE_ASSET_CREATED    = "STORAGE_ASSET_CREATED"
+    STORAGE_ASSET_DOWNLOADED = "STORAGE_ASSET_DOWNLOADED"
+    STORAGE_ASSET_DELETED    = "STORAGE_ASSET_DELETED"
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
