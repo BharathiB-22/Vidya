@@ -15,6 +15,7 @@ from app.core.auth.platform_router import router as platform_router
 from app.core.auth.admin_router import router as admin_router
 from app.core.tenants.router import router as tenants_router
 from app.core.audit_log.router import router as audit_log_router
+from app.core.task_queue.router import router as task_queue_router
 
 logger = logging.getLogger("vidya.access")
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +102,7 @@ app.include_router(platform_router, prefix="/platform/auth")
 app.include_router(admin_router, prefix="/admin")
 app.include_router(tenants_router, prefix="/tenants")
 app.include_router(audit_log_router, prefix="/audit-logs")
+app.include_router(task_queue_router, prefix="/jobs")
 
 
 # ---------------------------------------------------------------------------
