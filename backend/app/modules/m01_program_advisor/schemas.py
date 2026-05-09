@@ -219,3 +219,14 @@ class ComplianceViolationResponse(BaseModel):
 class ComplianceResultResponse(BaseModel):
     passed:     bool
     violations: list[ComplianceViolationResponse]
+
+
+# ---------------------------------------------------------------------------
+# Export schemas
+# ---------------------------------------------------------------------------
+
+class ProgramExportJobResponse(BaseModel):
+    job_id:     UUID
+    program_id: UUID
+    format:     str
+    status:     str = "queued"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,6 +29,7 @@ from app.modules.m01_program_advisor.schemas import (
     ProgramAIJobResponse,
     ProgramCreate,
     ProgramDetail,
+    ProgramExportJobResponse,
     ProgramListResponse,
     ProgramOutcomeCreate,
     ProgramOutcomeResponse,
@@ -555,3 +557,42 @@ async def list_prerequisites(
 ) -> list[CoursePrerequisiteResponse]:
     prereqs = await CoursePrerequisiteRepository.list_by_course(course_id, db=db)
     return [CoursePrerequisiteResponse.model_validate(p) for p in prereqs]
+
+
+# ---------------------------------------------------------------------------
+# Export  (#23)
+# ---------------------------------------------------------------------------
+
+@router.post("/{program_id}/export", response_model=ProgramExportJobResponse, status_code=202)
+async def export_program(
+    program_id: UUID,
+    format: Literal["pdf", "docx"] = Query("pdf", description="Export format: pdf or docx"),
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ProgramExportJobResponse:
+    try:
+        job_id = await ProgramService.dispatch_export(
+            program_id=program_id,
+            export_format=format,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+            requested_by_user_id=current_user.user_id,
+            db=db,
+        )
+    except ProgramServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.PROGRAM_EXPORT_REQUESTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Program",
+        target_id=str(program_id),
+        metadata={"job_id": str(job_id), "format": format},
+    )
+    return ProgramExportJobResponse(
+        job_id=job_id,
+        program_id=program_id,
+        format=format,
+    )

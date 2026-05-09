@@ -510,6 +510,43 @@ class ProgramService:
         await db.commit()
 
     # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def dispatch_export(
+        program_id: UUID,
+        export_format: str,
+        *,
+        tenant_id: UUID,
+        schema_name: str,
+        requested_by_user_id: UUID,
+        db: AsyncSession,
+    ) -> UUID:
+        await _require_status(program_id, ProgramStatus.APPROVED, db=db)
+        job_id = await TaskJobPublicRepository.create(
+            tenant_id=tenant_id,
+            task_type="export_program",
+            queue_name="heavy",
+            payload={"program_id": str(program_id), "format": export_format},
+            db=db,
+        )
+        await db.commit()
+
+        # Deferred to avoid circular import at module load time.
+        from app.workers.heavy.program_export import export_program  # noqa: PLC0415
+
+        export_program.delay(
+            job_id=str(job_id),
+            program_id=str(program_id),
+            tenant_id=str(tenant_id),
+            schema_name=schema_name,
+            export_format=export_format,
+            requested_by_user_id=str(requested_by_user_id),
+        )
+        return job_id
+
+    # ------------------------------------------------------------------
     # Jobs and compliance  (read-only — no commit)
     # ------------------------------------------------------------------
 

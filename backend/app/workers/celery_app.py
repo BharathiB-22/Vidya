@@ -12,6 +12,7 @@ celery_app = Celery(
     include=[
         "app.workers.tasks.send_email",
         "app.workers.heavy.program_structure",
+        "app.workers.heavy.program_export",
     ],
 )
 
