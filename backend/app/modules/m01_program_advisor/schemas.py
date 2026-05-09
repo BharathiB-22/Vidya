@@ -203,3 +203,19 @@ class ProgramAIJobResponse(BaseModel):
     job_id:     UUID
     program_id: UUID
     status:     str = "queued"
+
+
+# ---------------------------------------------------------------------------
+# Compliance response schemas
+# ---------------------------------------------------------------------------
+
+class ComplianceViolationResponse(BaseModel):
+    rule_id:  str
+    rule_ref: str
+    message:  str
+    severity: str   # "ERROR" | "WARNING"
+
+
+class ComplianceResultResponse(BaseModel):
+    passed:     bool
+    violations: list[ComplianceViolationResponse]
