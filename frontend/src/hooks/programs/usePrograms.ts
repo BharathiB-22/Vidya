@@ -16,6 +16,7 @@ export const programKeys = {
   outcomes:    (id: string) => [...programKeys.all, id, 'outcomes'] as const,
   courses:     (id: string) => [...programKeys.all, id, 'courses'] as const,
   prereqs:     (id: string, courseId: string) => [...programKeys.all, id, 'courses', courseId, 'prerequisites'] as const,
+  allPrereqs:  (id: string, courseIds: string[]) => [...programKeys.all, id, 'all-prereqs', courseIds] as const,
   compliance:  (id: string) => [...programKeys.all, id, 'compliance'] as const,
   job:         (id: string, jobId: string) => [...programKeys.all, id, 'jobs', jobId] as const,
 }

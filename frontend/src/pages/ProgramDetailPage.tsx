@@ -8,6 +8,8 @@ import { ActionBar } from '@/components/programs/ActionBar'
 import { SemesterGrid } from '@/components/programs/SemesterGrid'
 import { OutcomesSection } from '@/components/programs/OutcomesSection'
 import { ComplianceSection } from '@/components/programs/ComplianceSection'
+import { ArticulationMap } from '@/components/programs/ArticulationMap'
+import { ApprovalPanel } from '@/components/programs/ApprovalPanel'
 import { programKeys, useProgramCourses } from '@/hooks/programs'
 import * as programsApi from '@/lib/api/programs'
 
@@ -78,6 +80,8 @@ export default function ProgramDetailPage() {
           <TabsTrigger value="structure">Structure</TabsTrigger>
           <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
+          <TabsTrigger value="map">Map</TabsTrigger>
+          <TabsTrigger value="approval">Approval</TabsTrigger>
         </TabsList>
 
         <TabsContent value="structure" className="mt-4">
@@ -90,6 +94,14 @@ export default function ProgramDetailPage() {
 
         <TabsContent value="compliance" className="mt-4">
           <ComplianceSection program={program} />
+        </TabsContent>
+
+        <TabsContent value="map" className="mt-4">
+          <ArticulationMap program={program} courses={courses} />
+        </TabsContent>
+
+        <TabsContent value="approval" className="mt-4">
+          <ApprovalPanel program={program} />
         </TabsContent>
       </Tabs>
     </div>
