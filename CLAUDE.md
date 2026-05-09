@@ -51,33 +51,33 @@ backend/app/core/monitoring/
 ### Phase 1 - Teach and Prepare
 
 m01-program:
-backend/app/modules/m01-program-advisor/
+backend/app/modules/m01_program_advisor/
 
 m02-syllabus:
-backend/app/modules/m02-syllabus-gen/
+backend/app/modules/m02_syllabus_gen/
 
 m03-course-kit:
-backend/app/modules/m03-course-kit/
+backend/app/modules/m03_course_kit/
 
 m05-learning:
-backend/app/modules/m05-learning-materials/
+backend/app/modules/m05_learning_materials/
 
 ### Phase 2 - Assess and Research
 
 m06-labs:
-backend/app/modules/m06-labs-evaluator/
+backend/app/modules/m06_labs_evaluator/
 
 m07-research:
-backend/app/modules/m07-research-supervision/
+backend/app/modules/m07_research_supervision/
 
 m08-exam:
-backend/app/modules/m08-exam-setter/
+backend/app/modules/m08_exam_setter/
 
 m09-paper:
-backend/app/modules/m09-paper-admin/
+backend/app/modules/m09_paper_admin/
 
 m10-bell:
-backend/app/modules/m10-bell-curve/
+backend/app/modules/m10_bell_curve/
 
 ### Special Sessions
 
