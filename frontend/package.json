@@ -14,7 +14,15 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.22.3",
     "@tanstack/react-query": "^5.28.6",
-    "axios": "^1.6.8"
+    "axios": "^1.6.8",
+    "@radix-ui/react-dialog": "^1.1.1",
+    "@radix-ui/react-select": "^2.1.1",
+    "@radix-ui/react-tabs": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.379.0",
+    "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.1",
@@ -24,6 +32,7 @@
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.4.5",
     "vite": "^5.2.10"
   }
