@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     GEMINI_MODEL: str = "gemini-1.5-pro"
 
+    # Reference enrichment (M02)
+    CROSSREF_BASE_URL: str = "https://api.crossref.org"
+    OPENLIBRARY_BASE_URL: str = "https://openlibrary.org"
+    REFERENCE_ENRICHMENT_MAX_PER_QUERY: int = 3
+    REFERENCE_ENRICHMENT_TIMEOUT_SECONDS: float = 10.0
+
     # Storage MIME whitelist per entity type
     STORAGE_MIME_WHITELIST: dict = {
         "submission": [
@@ -59,6 +65,11 @@ class Settings(BaseSettings):
         "program_export": [
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ],
+        "syllabus_export": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/json",
         ],
     }
 
