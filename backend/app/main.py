@@ -20,6 +20,7 @@ from app.core.audit_log.router import router as audit_log_router
 from app.core.notifications.router import router as notifications_router
 from app.core.storage.router import router as storage_router
 from app.core.storage.provisioner import ensure_bucket_exists
+from app.modules.m01_program_advisor.router import router as program_router
 
 setup_logging(log_level=settings.LOG_LEVEL, json_logging=settings.JSON_LOGGING)
 logger = logging.getLogger("vidya.access")
@@ -114,3 +115,4 @@ app.include_router(tenants_router, prefix="/tenants")
 app.include_router(audit_log_router, prefix="/audit-logs")
 app.include_router(notifications_router, prefix="/notifications")
 app.include_router(storage_router, prefix="/storage")
+app.include_router(program_router, prefix="/programs")

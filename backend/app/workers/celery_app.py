@@ -9,6 +9,10 @@ celery_app = Celery(
     "vidya",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
+    include=[
+        "app.workers.tasks.send_email",
+        "app.workers.heavy.program_structure",
+    ],
 )
 
 celery_app.conf.update(
