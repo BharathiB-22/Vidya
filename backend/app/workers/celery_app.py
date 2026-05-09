@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.workers.heavy.program_export",
         "app.workers.heavy.syllabus_generation",
         "app.workers.heavy.reference_enrichment",
+        "app.workers.heavy.syllabus_export",
     ],
 )
 
