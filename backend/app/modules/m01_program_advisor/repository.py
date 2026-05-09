@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import uuid as _uuid
 from uuid import UUID
