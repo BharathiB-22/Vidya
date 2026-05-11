@@ -1,12 +1,13 @@
-import { CheckCircle, Lock, GitFork, FileText } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink } from 'lucide-react'
 import { useSyllabusVersions } from '@/hooks/syllabuses'
 import { SyllabusStatusBadge } from './SyllabusStatusBadge'
 import type { Syllabus } from '@/types/syllabus'
 
 const STEPS = [
-  { key: 'DRAFT',            label: 'Draft',            icon: FileText },
-  { key: 'FACULTY_APPROVED', label: 'Faculty Approved', icon: CheckCircle },
-  { key: 'ADMIN_LOCKED',     label: 'Admin Locked',     icon: Lock },
+  { key: 'DRAFT',            label: 'Draft',            desc: 'Content editing open', icon: FileText },
+  { key: 'FACULTY_APPROVED', label: 'Faculty Approved', desc: 'Immutable — awaiting lock', icon: CheckCircle },
+  { key: 'ADMIN_LOCKED',     label: 'Admin Locked',     desc: 'Frozen for semester', icon: Lock },
 ] as const
 
 const STATUS_STEP: Record<string, number> = {
@@ -17,110 +18,190 @@ const STATUS_STEP: Record<string, number> = {
 }
 
 interface Props {
-  syllabus: Syllabus
+  syllabus:   Syllabus
+  onTabChange?: (tab: string) => void
 }
 
-export function SyllabusApprovalPanel({ syllabus }: Props) {
+export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
+  const navigate   = useNavigate()
   const { data: versions, isLoading } = useSyllabusVersions(syllabus.id)
   const currentStep = STATUS_STEP[syllabus.status] ?? 0
 
   return (
-    <div className="space-y-6">
-      {/* Pipeline stepper */}
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Approval Pipeline</h3>
-        <div className="flex items-center gap-0">
+    <div className="space-y-8">
+
+      {/* ── 3-step pipeline stepper ── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 mb-5">Approval Pipeline</h3>
+        <div className="flex items-start">
           {STEPS.map((step, idx) => {
             const Icon = step.icon
-            const done    = idx < currentStep
-            const active  = idx === currentStep
+            const done   = idx < currentStep
+            const active = idx === currentStep
             return (
-              <div key={step.key} className="flex items-center flex-1 last:flex-none">
-                <div className="flex flex-col items-center gap-1">
-                  <div className={`h-9 w-9 rounded-full flex items-center justify-center border-2 transition-colors ${
+              <div key={step.key} className="flex items-start flex-1 last:flex-none">
+                <div className="flex flex-col items-center gap-1 min-w-0">
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center border-2 transition-colors shrink-0 ${
                     done   ? 'border-green-500 bg-green-50 text-green-600' :
                     active ? 'border-blue-500 bg-blue-50 text-blue-600' :
                              'border-gray-200 bg-white text-gray-300'
                   }`}>
-                    <Icon className="h-4 w-4" />
+                    {done ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-4 w-4" />}
                   </div>
-                  <span className={`text-xs font-medium whitespace-nowrap ${
+                  <span className={`text-xs font-semibold whitespace-nowrap ${
                     done   ? 'text-green-600' :
                     active ? 'text-blue-600' :
                              'text-gray-400'
                   }`}>
                     {step.label}
                   </span>
+                  <span className="text-[10px] text-gray-400 text-center leading-tight px-1 hidden sm:block">
+                    {step.desc}
+                  </span>
+                  {/* Timestamp under active step */}
+                  {idx === 1 && syllabus.approved_at && (
+                    <span className="text-[10px] text-green-600">
+                      {new Date(syllabus.approved_at).toLocaleDateString()}
+                    </span>
+                  )}
+                  {idx === 2 && syllabus.locked_at && (
+                    <span className="text-[10px] text-green-600">
+                      {new Date(syllabus.locked_at).toLocaleDateString()}
+                    </span>
+                  )}
                 </div>
                 {idx < STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-1 mb-5 ${done ? 'bg-green-400' : 'bg-gray-200'}`} />
+                  <div className={`flex-1 h-0.5 mx-2 mt-5 ${done ? 'bg-green-400' : 'bg-gray-200'}`} />
                 )}
               </div>
             )
           })}
         </div>
-      </div>
 
-      {/* Current status */}
-      <div className="flex items-center gap-3 rounded-lg border border-gray-200 px-4 py-3 bg-gray-50">
-        <div className="flex-1">
-          <p className="text-xs text-gray-500 mb-1">Current Status</p>
-          <SyllabusStatusBadge status={syllabus.status} />
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-500 mb-1">Version</p>
-          <p className="text-sm font-semibold text-gray-700">v{syllabus.version}</p>
-        </div>
-        {syllabus.approved_at && (
-          <div className="text-right">
-            <p className="text-xs text-gray-500 mb-1">Approved</p>
-            <p className="text-xs text-gray-700">{new Date(syllabus.approved_at).toLocaleDateString()}</p>
+        {/* AI Generating sub-state note */}
+        {syllabus.status === 'AI_GENERATING' && (
+          <div className="mt-4 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <Bot className="h-4 w-4 shrink-0" />
+            AI generation in progress. Syllabus remains in Draft until complete.
           </div>
         )}
-        {syllabus.locked_at && (
-          <div className="text-right">
-            <p className="text-xs text-gray-500 mb-1">Locked</p>
-            <p className="text-xs text-gray-700">{new Date(syllabus.locked_at).toLocaleDateString()}</p>
+
+        {/* Compliance hint in DRAFT */}
+        {syllabus.status === 'DRAFT' && onTabChange && (
+          <div className="mt-4 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            Before approving, run a{' '}
+            <button
+              type="button"
+              onClick={() => onTabChange('compliance')}
+              className="text-blue-600 underline underline-offset-2 hover:text-blue-700"
+            >
+              compliance check
+            </button>
+            {' '}to verify minimum COs, units, and CO-PO coverage.
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Version history */}
-      <div>
+      {/* ── Metadata card ── */}
+      <section className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-gray-100">
+          <MetaCell label="Status">
+            <SyllabusStatusBadge status={syllabus.status} />
+          </MetaCell>
+          <MetaCell label="Version">
+            <span className="text-sm font-semibold text-gray-800">v{syllabus.version}</span>
+          </MetaCell>
+          <MetaCell label="Created">
+            <span className="text-sm text-gray-700">{new Date(syllabus.created_at).toLocaleDateString()}</span>
+          </MetaCell>
+          <MetaCell label="AI Model">
+            <span className="text-sm text-gray-700">{syllabus.ai_model ?? '—'}</span>
+          </MetaCell>
+        </div>
+        {syllabus.prompt_hash && (
+          <div className="px-4 py-2 flex items-center gap-2">
+            <span className="text-xs text-gray-400">Prompt hash</span>
+            <code className="text-xs font-mono text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+              {syllabus.prompt_hash.substring(0, 16)}…
+            </code>
+          </div>
+        )}
+      </section>
+
+      {/* ── Version history ── */}
+      <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Version History</h3>
+
         {isLoading && (
-          <p className="text-sm text-gray-400 text-center py-4">Loading versions…</p>
+          <p className="text-sm text-gray-400 text-center py-6">Loading versions…</p>
         )}
-        {versions && versions.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-4">No version history.</p>
+
+        {!isLoading && versions && versions.length === 0 && (
+          <p className="text-sm text-gray-400 text-center py-6">
+            No other versions — this is the only revision.
+          </p>
         )}
+
         {versions && versions.length > 0 && (
-          <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
-            {versions.map((v) => (
-              <div key={v.id} className="flex items-center gap-3 px-4 py-3">
-                <GitFork className="h-4 w-4 text-gray-400 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-700">v{v.version}</span>
-                    <SyllabusStatusBadge status={v.status} />
-                    {v.id === syllabus.id && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
-                        current
-                      </span>
+          <div className="rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {[...versions].reverse().map((v) => {
+              const isCurrent = v.id === syllabus.id
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  disabled={isCurrent}
+                  onClick={() => navigate(`/syllabuses/${v.id}`)}
+                  className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-colors ${
+                    isCurrent
+                      ? 'bg-blue-50 cursor-default'
+                      : 'hover:bg-gray-50 cursor-pointer group'
+                  }`}
+                >
+                  <GitFork className="h-4 w-4 text-gray-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-700">v{v.version}</span>
+                      <SyllabusStatusBadge status={v.status} />
+                      {isCurrent && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                          current
+                        </span>
+                      )}
+                    </div>
+                    {v.change_note && (
+                      <p className="text-xs text-gray-500 mt-0.5 truncate">{v.change_note}</p>
                     )}
                   </div>
-                  {v.change_note && (
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{v.change_note}</p>
-                  )}
-                </div>
-                <p className="text-xs text-gray-400 shrink-0">
-                  {new Date(v.created_at).toLocaleDateString()}
-                </p>
-              </div>
-            ))}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-gray-400">
+                      {new Date(v.created_at).toLocaleDateString()}
+                    </span>
+                    {!isCurrent && (
+                      <ExternalLink className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500" />
+                    )}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         )}
-      </div>
+
+        {versions && versions.length > 1 && (
+          <p className="text-xs text-gray-400 mt-2">
+            Click a version to open it. Fork from an approved version to start a new revision.
+          </p>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="px-4 py-3">
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      {children}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, Lock, Unlock } from 'lucide-react'
+import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, Lock, Unlock, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   GenerateSyllabusDialog,
@@ -25,6 +25,8 @@ import type { Syllabus } from '@/types/syllabus'
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 // ADMIN + DEAN: lock, unlock
 const LOCK_ROLES = ['ADMIN', 'DEAN']
+// All authenticated roles can view
+const VIEW_ROLES = ['ADMIN', 'FACULTY', 'DEAN', 'STUDENT']
 
 interface Props {
   syllabus: Syllabus
@@ -32,9 +34,10 @@ interface Props {
 
 export function SyllabusActionBar({ syllabus }: Props) {
   const navigate = useNavigate()
-  const role = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const role     = localStorage.getItem('vidya_role') ?? 'FACULTY'
   const canWrite = WRITE_ROLES.includes(role)
   const canLock  = LOCK_ROLES.includes(role)
+  const canView  = VIEW_ROLES.includes(role)
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [approveOpen,  setApproveOpen]  = useState(false)
@@ -43,13 +46,13 @@ export function SyllabusActionBar({ syllabus }: Props) {
   const [forkOpen,     setForkOpen]     = useState(false)
   const [exportOpen,   setExportOpen]   = useState(false)
 
-  const generate   = useGenerateSyllabus(syllabus.id)
-  const approve    = useApproveSyllabus()
-  const reject     = useRejectSyllabus()
-  const lock       = useLockSyllabus()
-  const unlock     = useUnlockSyllabus()
-  const fork       = useForkSyllabus()
-  const exportJob  = useExportSyllabus()
+  const generate  = useGenerateSyllabus(syllabus.id)
+  const approve   = useApproveSyllabus()
+  const reject    = useRejectSyllabus()
+  const lock      = useLockSyllabus()
+  const unlock    = useUnlockSyllabus()
+  const fork      = useForkSyllabus()
+  const exportJob = useExportSyllabus()
 
   async function handleFork(changeNote?: string) {
     const result = await fork.mutateAsync({ id: syllabus.id, payload: { change_note: changeNote } })
@@ -58,10 +61,26 @@ export function SyllabusActionBar({ syllabus }: Props) {
 
   const canExport = syllabus.status === 'FACULTY_APPROVED' || syllabus.status === 'ADMIN_LOCKED'
 
+  // Unknown / read-only role
+  if (!canView) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+        <Eye className="h-4 w-4 text-gray-400" />
+        <span className="text-sm text-gray-400">Read-only view.</span>
+      </div>
+    )
+  }
+
+  const hasAnyAction =
+    (syllabus.status === 'DRAFT' && canWrite) ||
+    (syllabus.status === 'FACULTY_APPROVED' && (canLock || canWrite)) ||
+    (syllabus.status === 'ADMIN_LOCKED' && canLock) ||
+    canExport
+
   return (
     <div className="flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
 
-      {/* DRAFT */}
+      {/* ── DRAFT ── */}
       {syllabus.status === 'DRAFT' && canWrite && (
         <Button size="sm" onClick={() => setGenerateOpen(true)} disabled={generate.isPending}>
           <Zap className="h-4 w-4 mr-1" />
@@ -79,11 +98,8 @@ export function SyllabusActionBar({ syllabus }: Props) {
           Approve
         </Button>
       )}
-      {syllabus.status === 'DRAFT' && !canWrite && (
-        <span className="text-sm text-gray-400">No actions available for your role.</span>
-      )}
 
-      {/* AI_GENERATING */}
+      {/* ── AI_GENERATING ── */}
       {syllabus.status === 'AI_GENERATING' && (
         <div className="flex items-center gap-2 text-sm text-amber-700">
           <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
@@ -91,7 +107,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </div>
       )}
 
-      {/* FACULTY_APPROVED */}
+      {/* ── FACULTY_APPROVED ── */}
       {syllabus.status === 'FACULTY_APPROVED' && canLock && (
         <Button
           size="sm"
@@ -115,7 +131,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </Button>
       )}
 
-      {/* ADMIN_LOCKED */}
+      {/* ── ADMIN_LOCKED ── */}
       {syllabus.status === 'ADMIN_LOCKED' && canLock && (
         <Button
           size="sm"
@@ -128,7 +144,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </Button>
       )}
 
-      {/* Fork — available on FACULTY_APPROVED + ADMIN_LOCKED for canWrite or canLock */}
+      {/* ── Fork — available on FACULTY_APPROVED + ADMIN_LOCKED ── */}
       {canExport && (canWrite || canLock) && (
         <Button
           size="sm"
@@ -137,11 +153,11 @@ export function SyllabusActionBar({ syllabus }: Props) {
           disabled={fork.isPending}
         >
           <GitFork className="h-4 w-4 mr-1" />
-          Fork Version
+          {fork.isPending ? 'Forking…' : 'Fork Version'}
         </Button>
       )}
 
-      {/* Export — available on FACULTY_APPROVED + ADMIN_LOCKED */}
+      {/* ── Export — available on FACULTY_APPROVED + ADMIN_LOCKED ── */}
       {canExport && (
         <Button
           size="sm"
@@ -153,6 +169,16 @@ export function SyllabusActionBar({ syllabus }: Props) {
           Export
         </Button>
       )}
+
+      {/* No actions for this role/status */}
+      {!hasAnyAction && syllabus.status !== 'AI_GENERATING' && (
+        <span className="text-sm text-gray-400">No actions available for your role.</span>
+      )}
+
+      {/* Role chip */}
+      <span className="ml-auto text-xs font-medium bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">
+        {role}
+      </span>
 
       {/* Dialogs */}
       <GenerateSyllabusDialog
