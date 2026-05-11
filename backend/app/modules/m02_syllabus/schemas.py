@@ -294,6 +294,7 @@ class SyllabusStatusResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     id:         UUID
+    version:    int
     status:     SyllabusStatus
     updated_at: Optional[datetime]
 

@@ -57,7 +57,10 @@ async def tenant_db_a(test_tenant_a):
     async with AsyncSessionLocal() as session:
         async with session.begin():
             await session.execute(text(f"SET search_path = {SCHEMA_A}, public"))
-        yield session
+        try:
+            yield session
+        finally:
+            await session.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -111,11 +114,22 @@ async def force_syllabus_status(
     status: SyllabusStatus,
     tenant_db,
 ) -> None:
-    """In-session status override (same open session, no extra commit)."""
-    await tenant_db.execute(
-        text("UPDATE syllabi SET status = :s WHERE id = :id"),
-        {"s": status.value, "id": str(syllabus_id)},
+    """In-session status override (same open session, no extra commit).
+
+    Uses ORM UPDATE with synchronize_session='evaluate' so SQLAlchemy updates
+    the identity map in-place. Raw text() UPDATE would leave a stale cached
+    object and the next service SELECT would read the wrong status.
+    """
+    from sqlalchemy import update as sa_update
+    from app.modules.m02_syllabus.models import Syllabus as _Syllabus
+
+    stmt = (
+        sa_update(_Syllabus)
+        .where(_Syllabus.id == syllabus_id)
+        .values(status=status)
+        .execution_options(synchronize_session="evaluate")
     )
+    await tenant_db.execute(stmt)
 
 
 async def force_syllabus_status_committed(

@@ -917,7 +917,7 @@ class TaskJobPublicRepository:
         stmt = text(
             "INSERT INTO public.task_jobs "
             "(id, tenant_id, task_type, queue_name, status, payload) "
-            "VALUES (:id::uuid, :tenant_id::uuid, :task_type, :queue_name, 'PENDING', :payload::jsonb)"
+            "VALUES (CAST(:id AS uuid), CAST(:tenant_id AS uuid), :task_type, :queue_name, 'PENDING', CAST(:payload AS jsonb))"
         )
         await db.execute(stmt, {
             "id":         str(job_id),
