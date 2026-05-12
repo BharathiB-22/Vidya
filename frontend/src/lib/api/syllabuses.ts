@@ -262,7 +262,7 @@ export async function searchReferences(
 ): Promise<ReferenceCandidate[]> {
   const { data } = await api.get<ReferenceCandidate[]>(
     `${BASE}/${syllabusId}/references/search`,
-    { params: request },
+    { params: { q: request.query, ref_type: request.ref_type, limit: request.limit } },
   )
   return data
 }

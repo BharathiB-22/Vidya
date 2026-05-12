@@ -18,6 +18,7 @@ import io
 import json
 import logging
 import re
+import sys
 import uuid as uuid_module
 from datetime import timezone
 from uuid import UUID
@@ -63,6 +64,8 @@ def export_syllabus(
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_export(
             syllabus_id=UUID(syllabus_id),

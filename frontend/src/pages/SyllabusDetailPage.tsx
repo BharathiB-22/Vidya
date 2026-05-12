@@ -61,6 +61,16 @@ export default function SyllabusDetailPage() {
   const isGenerating = syllabus?.status === 'AI_GENERATING'
   const isLocked     = syllabus?.status === 'ADMIN_LOCKED'
 
+  // Track whether AI generation was running in this session so we can detect failure
+  const [wasGenerating, setWasGenerating] = useState(false)
+  useEffect(() => {
+    if (isGenerating) setWasGenerating(true)
+  }, [isGenerating])
+  const generationFailed =
+    wasGenerating && !isGenerating &&
+    syllabus?.status === 'DRAFT' &&
+    outcomes.length === 0 && units.length === 0
+
   // Auto-poll the detail query while AI generation is running
   useEffect(() => {
     if (!isGenerating) return
@@ -145,6 +155,17 @@ export default function SyllabusDetailPage() {
           <Loader2 className="h-4 w-4 animate-spin shrink-0" />
           <span>
             AI is generating the syllabus. This page refreshes automatically every 5 s.
+          </span>
+        </div>
+      )}
+
+      {/* ── AI generation failed notice ── */}
+      {generationFailed && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            AI generation did not complete. The syllabus has been reset to Draft.
+            Check the Gemini quota, then use <strong>Generate with AI</strong> to retry.
           </span>
         </div>
       )}
