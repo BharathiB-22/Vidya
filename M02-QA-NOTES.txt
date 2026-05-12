@@ -236,6 +236,47 @@ FIX-3: Gemini failure UX — APPLIED
 
 ---
 
+---
+
+11. Frontend Navigation Integration
+    STATUS: PASS (added 2026-05-12)
+
+Validated:
+
+* From ProgramDetailPage (Structure tab) — each course card now shows a
+  "Syllabus" link button (BookOpen icon). Clicking it navigates to:
+    /syllabuses?course_id=<course.id>&program_id=<program.id>
+
+* SyllabusListPage renders a "Back to Program" button at the top when
+  program_id is present in the query string. Clicking it navigates to:
+    /programs/<program.id>
+
+* SyllabusDetailPage back button uses navigate(-1), which preserves the
+  full URL (including program_id) in the browser history stack.
+  Going back from detail → list → program is a clean two-click path.
+
+Full click path verified:
+  Programs list
+    → click program row
+    → Program Detail / Structure tab
+    → click "Syllabus" on a course card
+    → Syllabus list (with "Back to Program" button visible)
+    → click a syllabus row
+    → Syllabus detail
+    → click back arrow
+    → Syllabus list (with "Back to Program" button still visible)
+    → click "Back to Program"
+    → Program Detail
+
+No backend changes required.
+TypeScript: 0 errors after changes.
+
+Files modified:
+  frontend/src/components/programs/SemesterGrid.tsx  — Syllabus button per course card
+  frontend/src/pages/SyllabusListPage.tsx             — Back to Program button
+
+---
+
 ## FINAL QA SUMMARY
 
 PASSED:

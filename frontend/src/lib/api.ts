@@ -10,11 +10,28 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+function getStoredToken(): string | null {
+  const directToken = localStorage.getItem('vidya_token')
+  if (directToken) return directToken
+
+  const auth = localStorage.getItem('vidya_auth')
+  if (!auth) return null
+
+  try {
+    const parsed = JSON.parse(auth)
+    return parsed.access_token ?? null
+  } catch {
+    return null
+  }
+}
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('vidya_token')
+  const token = getStoredToken()
   const slug = localStorage.getItem('vidya_tenant_slug')
+
   if (token) config.headers.Authorization = `Bearer ${token}`
   if (slug) config.headers['X-Tenant-Slug'] = slug
+
   return config
 })
 
@@ -23,7 +40,8 @@ api.interceptors.response.use(
   (err: AxiosError<{ detail: BackendError | string }>) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('vidya_token')
-      localStorage.removeItem('vidya_tenant_slug')
+      localStorage.removeItem('vidya_auth')
+      // Keep vidya_tenant_slug so QA/testing does not lose tenant context.
       window.location.href = '/login'
     }
     return Promise.reject(err)

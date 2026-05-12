@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, BookOpen, ChevronRight } from 'lucide-react'
+import { Plus, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
 import { CreateSyllabusDialog } from '@/components/syllabus/CreateSyllabusDialog'
@@ -33,6 +33,7 @@ export default function SyllabusListPage() {
   const navigate   = useNavigate()
   const [params]   = useSearchParams()
   const courseId   = params.get('course_id') ?? ''
+  const programId  = params.get('program_id') ?? ''
   const role       = localStorage.getItem('vidya_role') ?? 'FACULTY'
   const canCreate  = WRITE_ROLES.includes(role)
 
@@ -56,6 +57,19 @@ export default function SyllabusListPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+
+      {/* ── Back to Program ── */}
+      {programId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-mt-2 -ml-1"
+          onClick={() => navigate(`/programs/${programId}`)}
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" />
+          Back to Program
+        </Button>
+      )}
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">

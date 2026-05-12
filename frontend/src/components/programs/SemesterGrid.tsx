@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Pencil, Trash2, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CourseDialog } from './CourseDialog'
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function SemesterGrid({ program, courses }: Props) {
+  const navigate = useNavigate()
   const isDraft = program.status === 'DRAFT'
   const maxSem = Math.max(program.duration_years * 2, ...courses.map((c) => c.semester), 0)
   const semesters = Array.from({ length: maxSem }, (_, i) => i + 1)
@@ -61,6 +63,17 @@ export function SemesterGrid({ program, courses }: Props) {
                             </Badge>
                           )}
                         </div>
+                        <button
+                          type="button"
+                          className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`/syllabuses?course_id=${course.id}&program_id=${program.id}`)
+                          }}
+                        >
+                          <BookOpen className="h-3 w-3" />
+                          Syllabus
+                        </button>
                       </div>
                       {isDraft && (
                         <div className="flex gap-0.5 shrink-0">
