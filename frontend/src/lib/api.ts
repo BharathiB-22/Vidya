@@ -41,7 +41,9 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('vidya_token')
       localStorage.removeItem('vidya_auth')
-      // Keep vidya_tenant_slug so QA/testing does not lose tenant context.
+      localStorage.removeItem('vidya_refresh_token')
+      localStorage.removeItem('vidya_role')
+      // Keep vidya_tenant_slug so the login form pre-fills with the institution.
       window.location.href = '/login'
     }
     return Promise.reject(err)
