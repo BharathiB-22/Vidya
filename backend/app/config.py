@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     REFERENCE_ENRICHMENT_MAX_PER_QUERY: int = 3
     REFERENCE_ENRICHMENT_TIMEOUT_SECONDS: float = 10.0
 
+    # Course Kit Builder (M03)
+    M03_MIN_SLIDES_PER_UNIT: int = 8
+    M03_MIN_QUIZLETS_PER_UNIT: int = 2
+    M03_DEFAULT_COMPLEXITY: str = "UG"   # UG or PG; overridable per kit
+
     # Storage MIME whitelist per entity type
     STORAGE_MIME_WHITELIST: dict = {
         "submission": [
@@ -70,6 +75,10 @@ class Settings(BaseSettings):
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/json",
+        ],
+        "course_kit_export": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         ],
     }
 

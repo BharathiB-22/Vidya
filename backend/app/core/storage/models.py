@@ -11,6 +11,7 @@ class StorageEntityType(str, enum.Enum):
     SUBMISSION = "submission"
     RESEARCH_DOC = "research_doc"
     COURSE_KIT = "course_kit"
+    COURSE_KIT_EXPORT = "course_kit_export"
     VIVA_RECORDING = "viva_recording"
     PROGRAM_EXPORT = "program_export"
     SYLLABUS_EXPORT = "syllabus_export"
