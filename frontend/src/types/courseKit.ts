@@ -1,0 +1,337 @@
+// ---------------------------------------------------------------------------
+// Enums — exact values from backend models.py
+// ---------------------------------------------------------------------------
+
+export type CourseKitStatus =
+  | 'DRAFT'
+  | 'AI_GENERATING'
+  | 'PUBLISHED'
+  | 'ARCHIVED'
+
+export type ComplexityLevel = 'UG' | 'PG'
+
+export type QuizletType = 'MCQ' | 'SHORT_ANSWER'
+
+export type AssignmentType = 'CLASSWORK' | 'HOMEWORK' | 'CASE_STUDY'
+
+export type BloomLevel =
+  | 'REMEMBER'
+  | 'UNDERSTAND'
+  | 'APPLY'
+  | 'ANALYSE'
+  | 'EVALUATE'
+  | 'CREATE'
+
+// ---------------------------------------------------------------------------
+// JSONB sub-models
+// ---------------------------------------------------------------------------
+
+export interface SlideContent {
+  bullets:      string[]
+  key_concepts: string[]
+  image_hint:   string | null
+  code_snippet: string | null
+}
+
+export interface QuizletOption {
+  label: string
+  text:  string
+}
+
+export interface RubricCriterion {
+  criterion:   string
+  description: string
+  max_marks:   number
+}
+
+export interface TeachingPlanWeek {
+  week:          number
+  topic:         string
+  objectives:    string[]
+  activities:    string[]
+  hours:         number
+  co_references: string[]
+}
+
+export interface LessonPlanSession {
+  session:          number
+  week:             number
+  duration_minutes: number
+  topic:            string
+  objectives:       string[]
+  opening_activity: string | null
+  main_content:     string
+  closing_activity: string | null
+  materials_needed: string[]
+  bloom_levels:     string[]
+  co_references:    string[]
+}
+
+export interface ResourceItem {
+  title:         string
+  resource_type: string
+  url:           string | null
+  description:   string | null
+}
+
+// ---------------------------------------------------------------------------
+// Response interfaces
+// ---------------------------------------------------------------------------
+
+export interface KitSlide {
+  id:            string
+  kit_id:        string
+  slide_number:  number
+  title:         string
+  content:       Record<string, unknown>
+  speaker_notes: string | null   // null when DEAN role — gated at router
+  bloom_level:   BloomLevel | null
+  co_reference:  string | null
+  created_at:    string
+  updated_at:    string | null
+}
+
+export interface KitQuizlet {
+  id:                 string
+  kit_id:             string
+  question_number:    number
+  question_text:      string
+  question_type:      QuizletType
+  options:            Record<string, unknown>[]
+  answer_key:         Record<string, unknown> | null   // null when DEAN role — gated at router
+  answer_explanation: string | null
+  bloom_level:        BloomLevel | null
+  co_reference:       string | null
+  created_at:         string
+  updated_at:         string | null
+}
+
+export interface KitAssignment {
+  id:                    string
+  kit_id:                string
+  assignment_number:     number
+  title:                 string
+  assignment_type:       AssignmentType
+  question_text:         string
+  complexity_level:      ComplexityLevel
+  current_events_toggle: boolean
+  model_answer:          string | null   // null when DEAN role — gated at router
+  rubric:                Record<string, unknown>[]
+  bloom_level:           BloomLevel | null
+  co_reference:          string | null
+  created_at:            string
+  updated_at:            string | null
+}
+
+export interface CourseKit {
+  id:                   string
+  syllabus_id:          string
+  unit_number:          number
+  version:              number
+  parent_version_id:    string | null
+  status:               CourseKitStatus
+  complexity_level:     ComplexityLevel
+  tone:                 string | null
+  custom_instructions:  string | null
+  ai_model:             string | null
+  created_by_user_id:   string
+  published_by_user_id: string | null
+  published_at:         string | null
+  created_at:           string
+  updated_at:           string | null
+}
+
+export interface CourseKitDetail extends CourseKit {
+  teaching_plan: Record<string, unknown>[]
+  lesson_plans:  Record<string, unknown>[]
+  resources:     Record<string, unknown>[]
+  slides:        KitSlide[]
+  quizlets:      KitQuizlet[]
+  assignments:   KitAssignment[]
+}
+
+export interface CourseKitListResponse {
+  total:     number
+  page:      number
+  page_size: number
+  items:     CourseKit[]
+}
+
+export interface CourseKitStatusResponse {
+  id:         string
+  version:    number
+  status:     CourseKitStatus
+  updated_at: string | null
+}
+
+export interface CourseKitVersionResponse {
+  id:                 string
+  version:            number
+  parent_version_id:  string | null
+  status:             CourseKitStatus
+  created_by_user_id: string
+  published_at:       string | null
+  created_at:         string
+}
+
+export interface KitAIJobResponse {
+  job_id: string
+  kit_id: string
+  status: string
+}
+
+export interface KitJobStatusResponse {
+  id:         string
+  status:     string
+  result:     Record<string, unknown> | null
+  error:      string | null
+  created_at: string
+  updated_at: string | null
+}
+
+export interface KitExportJobResponse {
+  job_id: string
+  kit_id: string
+  format: string
+  status: string
+}
+
+export interface KitExportAsset {
+  id:                string
+  original_filename: string
+  content_type:      string
+  size_bytes:        number
+  created_at:        string
+}
+
+export interface KitExportDownloadResponse {
+  download_url:      string
+  original_filename: string
+  size_bytes:        number
+  expires_in:        number
+}
+
+export interface ComplianceViolation {
+  code:     string
+  message:  string
+  severity: 'ERROR' | 'WARNING'
+}
+
+export interface ComplianceCheckResponse {
+  passed:     boolean
+  violations: ComplianceViolation[]
+}
+
+// ---------------------------------------------------------------------------
+// Request payloads
+// ---------------------------------------------------------------------------
+
+export interface CourseKitCreate {
+  syllabus_id:          string
+  unit_number:          number
+  complexity_level?:    ComplexityLevel
+  tone?:                string
+  custom_instructions?: string
+}
+
+export interface CourseKitUpdate {
+  complexity_level?:    ComplexityLevel
+  tone?:                string
+  custom_instructions?: string
+}
+
+export interface CourseKitListFilters {
+  syllabus_id: string
+  status?:     CourseKitStatus
+  page?:       number
+  page_size?:  number
+}
+
+export interface KitSlideCreate {
+  slide_number:  number
+  title:         string
+  content?:      SlideContent
+  speaker_notes?: string
+  bloom_level?:  BloomLevel
+  co_reference?: string
+}
+
+export interface KitSlideUpdate {
+  title?:         string
+  content?:       SlideContent
+  speaker_notes?: string
+  bloom_level?:   BloomLevel
+  co_reference?:  string
+}
+
+export interface KitSlideReorder {
+  order: [string, number][]
+}
+
+export interface KitQuizletCreate {
+  question_number:     number
+  question_text:       string
+  question_type?:      QuizletType
+  options?:            QuizletOption[]
+  answer_key?:         Record<string, unknown>
+  answer_explanation?: string
+  bloom_level?:        BloomLevel
+  co_reference?:       string
+}
+
+export interface KitQuizletUpdate {
+  question_text?:      string
+  question_type?:      QuizletType
+  options?:            QuizletOption[]
+  answer_key?:         Record<string, unknown>
+  answer_explanation?: string
+  bloom_level?:        BloomLevel
+  co_reference?:       string
+}
+
+export interface KitAssignmentCreate {
+  assignment_number:      number
+  title:                  string
+  assignment_type?:       AssignmentType
+  question_text:          string
+  complexity_level?:      ComplexityLevel
+  current_events_toggle?: boolean
+  model_answer?:          string
+  rubric?:                RubricCriterion[]
+  bloom_level?:           BloomLevel
+  co_reference?:          string
+}
+
+export interface KitAssignmentUpdate {
+  title?:                 string
+  assignment_type?:       AssignmentType
+  question_text?:         string
+  complexity_level?:      ComplexityLevel
+  current_events_toggle?: boolean
+  model_answer?:          string
+  rubric?:                RubricCriterion[]
+  bloom_level?:           BloomLevel
+  co_reference?:          string
+}
+
+export interface GenerateKitRequest {
+  custom_instructions?: string
+  complexity_level?:    ComplexityLevel
+  tone?:                string
+}
+
+export interface PublishRequest {
+  comment?: string
+}
+
+export interface ArchiveRequest {
+  reason?: string
+}
+
+export interface ForkRequest {
+  change_note?: string
+}
+
+export interface KitExportRequest {
+  format: 'pdf' | 'pptx'
+}
