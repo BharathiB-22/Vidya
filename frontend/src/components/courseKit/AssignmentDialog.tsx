@@ -76,7 +76,7 @@ export function AssignmentDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!title.trim() || !questionText.trim()) return
+    if (!title.trim() || title.trim().length < 3 || !questionText.trim() || questionText.trim().length < 10) return
     if (mode === 'add') {
       onAdd({
         assignment_number:      nextNumber,
@@ -117,10 +117,12 @@ export function AssignmentDialog({
             </label>
             <Input
               required
+              minLength={3}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Assignment title"
             />
+            <p className="text-xs text-gray-400 mt-1">Minimum 3 characters required.</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -152,10 +154,12 @@ export function AssignmentDialog({
             <Textarea
               rows={4}
               required
+              minLength={10}
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
               placeholder="Describe the assignment or question…"
             />
+            <p className="text-xs text-gray-400 mt-1">Minimum 10 characters required.</p>
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -204,7 +208,7 @@ export function AssignmentDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={isPending || !title.trim() || !questionText.trim()}>
+            <Button type="submit" disabled={isPending || title.trim().length < 3 || questionText.trim().length < 10}>
               {isPending ? 'Saving…' : mode === 'add' ? 'Add Assignment' : 'Save'}
             </Button>
           </DialogFooter>

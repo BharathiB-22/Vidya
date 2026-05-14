@@ -81,6 +81,7 @@ export default function CourseKitDetailPage() {
   }, [isGenerating])
   const generationFailed =
     wasGenerating && !isGenerating &&
+    !slidesLoading && !quizletsLoading && !assignsLoading &&
     kit?.status === 'DRAFT' &&
     slides.length === 0 && quizlets.length === 0 && assignments.length === 0
 

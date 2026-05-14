@@ -37,18 +37,22 @@ export function CreateCourseKitDialog({ open, onOpenChange, syllabusId }: Props)
     e.preventDefault()
     const unit = parseInt(unitNumber, 10)
     if (!unit || unit < 1) return
-    await create.mutateAsync({
-      syllabus_id:         syllabusId,
-      unit_number:         unit,
-      complexity_level:    complexity,
-      tone:                tone || undefined,
-      custom_instructions: instructions || undefined,
-    })
-    setUnitNumber('')
-    setComplexity('UG')
-    setTone('')
-    setInstructions('')
-    onOpenChange(false)
+    try {
+      await create.mutateAsync({
+        syllabus_id:         syllabusId,
+        unit_number:         unit,
+        complexity_level:    complexity,
+        tone:                tone || undefined,
+        custom_instructions: instructions || undefined,
+      })
+      setUnitNumber('')
+      setComplexity('UG')
+      setTone('')
+      setInstructions('')
+      onOpenChange(false)
+    } catch {
+      // error visible via create.isError — dialog stays open
+    }
   }
 
   return (
@@ -106,6 +110,11 @@ export function CreateCourseKitDialog({ open, onOpenChange, syllabusId }: Props)
               placeholder="e.g. Emphasise hands-on labs and industry tools"
             />
           </div>
+          {create.isError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-1.5">
+              Failed to create kit. Ensure the syllabus is FACULTY_APPROVED or ADMIN_LOCKED.
+            </p>
+          )}
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

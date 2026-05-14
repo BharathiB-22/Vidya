@@ -64,7 +64,8 @@ export function QuizletDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!questionText.trim()) return
+    if (!questionText.trim() || questionText.trim().length < 10) return
+    if (showAnswerKey && !answerText.trim()) return
     const answerKey = showAnswerKey && answerText
       ? { correct_answer: answerText }
       : undefined
@@ -115,16 +116,21 @@ export function QuizletDialog({
             <Textarea
               rows={3}
               required
+              minLength={10}
               value={questionText}
               onChange={(e) => setQuestionText(e.target.value)}
               placeholder="Enter the question…"
             />
+            <p className="text-xs text-gray-400 mt-1">Minimum 10 characters required.</p>
           </div>
           {showAnswerKey && (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Answer Key</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Answer Key <span className="text-red-500">*</span>
+                </label>
                 <Input
+                  required
                   value={answerText}
                   onChange={(e) => setAnswerText(e.target.value)}
                   placeholder={questionType === 'MCQ' ? 'e.g. A' : 'Correct answer…'}
@@ -165,7 +171,7 @@ export function QuizletDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={isPending || !questionText.trim()}>
+            <Button type="submit" disabled={isPending || questionText.trim().length < 10 || (showAnswerKey && !answerText.trim())}>
               {isPending ? 'Saving…' : mode === 'add' ? 'Add Quizlet' : 'Save'}
             </Button>
           </DialogFooter>
