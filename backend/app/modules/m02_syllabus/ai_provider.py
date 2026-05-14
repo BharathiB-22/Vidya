@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger("vidya.m02.ai_provider")
 
@@ -393,6 +394,89 @@ class GeminiSyllabusProvider:
 
 
 # ---------------------------------------------------------------------------
+# Groq response normalizer
+# ---------------------------------------------------------------------------
+
+def _normalize_groq_response(raw: str) -> dict[str, Any]:
+    """
+    Map observed Groq output aliases to the canonical _SyllabusAI field names.
+
+    Called ONLY for Groq responses; the Gemini path is untouched.
+    Raises SyllabusAIParseError if the raw string is not valid JSON.
+
+    Aliases handled
+    ---------------
+    Top-level:
+      course_outcomes  -> outcomes
+
+    Per CO:
+      co               -> description
+      (missing code)   -> CO1, CO2, …  (stable sequential codes)
+      (missing suggested_po_codes) -> []
+
+    Per unit:
+      display_order    -> unit_number  (when unit_number absent)
+      (missing unit_number) -> sequential 1-based index
+      topics[i]: str   -> {"title": str}   (string topics -> topic objects)
+
+    Per reference query:
+      query            -> query_str
+    """
+    try:
+        data: dict[str, Any] = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SyllabusAIParseError(
+            f"Groq response is not valid JSON: {exc}\n"
+            f"Raw (first 300 chars): {raw[:300]}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise SyllabusAIParseError(
+            f"Groq response is not a JSON object (got {type(data).__name__})."
+        )
+
+    # --- top-level key aliases ---
+    if "course_outcomes" in data and "outcomes" not in data:
+        data["outcomes"] = data.pop("course_outcomes")
+
+    # --- CO normalization ---
+    outcomes: list[Any] = data.get("outcomes", [])
+    for i, co in enumerate(outcomes):
+        if not isinstance(co, dict):
+            continue
+        if "co" in co and "description" not in co:
+            co["description"] = co.pop("co")
+        if not co.get("code"):
+            co["code"] = f"CO{i + 1}"
+        if "suggested_po_codes" not in co:
+            co["suggested_po_codes"] = []
+
+    # --- unit normalization ---
+    units: list[Any] = data.get("units", [])
+    for i, unit in enumerate(units):
+        if not isinstance(unit, dict):
+            continue
+        if not unit.get("unit_number"):
+            # accept display_order as a fallback key, else assign sequentially
+            unit["unit_number"] = unit.pop("display_order", None) or (i + 1)
+        raw_topics: list[Any] = unit.get("topics", [])
+        unit["topics"] = [
+            {"title": t} if isinstance(t, str) else t
+            for t in raw_topics
+        ]
+
+    # --- reference_queries normalization ---
+    ref_queries: list[Any] = data.get("reference_queries", [])
+    for rq in ref_queries:
+        if not isinstance(rq, dict):
+            continue
+        if "query" in rq and "query_str" not in rq:
+            rq["query_str"] = rq.pop("query")
+
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Groq implementation (OpenAI-compatible API)
 # ---------------------------------------------------------------------------
 
@@ -434,11 +518,19 @@ class GroqSyllabusProvider:
         if not raw:
             raise SyllabusAIBlockedError("Groq returned an empty response.")
 
+        # Normalize Groq-specific field aliases before schema validation.
+        # _normalize_groq_response raises SyllabusAIParseError on bad JSON.
+        normalized = _normalize_groq_response(raw)
+        logger.debug("Groq normalized payload keys: %s", list(normalized.keys()))
+
         try:
-            parsed = _SyllabusAI.model_validate_json(raw)
+            parsed = _SyllabusAI.model_validate(normalized)
+        except SyllabusAIParseError:
+            raise
         except Exception as exc:
             raise SyllabusAIParseError(
-                f"Groq response did not match the expected schema: {exc}\n"
+                f"Groq response did not match the expected schema after normalization: {exc}\n"
+                f"Normalized keys: {list(normalized.keys())}\n"
                 f"Raw response (first 500 chars): {raw[:500]}"
             ) from exc
 
