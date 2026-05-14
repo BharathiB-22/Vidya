@@ -38,10 +38,14 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRY_MINUTES_GET: int = 60
     STORAGE_ASSET_RETENTION_YEARS: int = 3
 
-    # Gemini AI
+    # Gemini AI (primary)
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-1.5-pro"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
+    # Groq AI (fallback — used when Gemini quota is exhausted)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    
     # Reference enrichment (M02)
     CROSSREF_BASE_URL: str = "https://api.crossref.org"
     OPENLIBRARY_BASE_URL: str = "https://openlibrary.org"

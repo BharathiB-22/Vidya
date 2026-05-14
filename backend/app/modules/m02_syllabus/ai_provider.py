@@ -1,5 +1,5 @@
 """
-M02 AI provider — syllabus generation via Gemini structured output.
+M02 AI provider — syllabus generation via Gemini (primary) with Groq fallback.
 
 Safety contract:
   - AI generates: COs, Bloom levels, units, topics, pedagogy, reference search queries.
@@ -7,13 +7,16 @@ Safety contract:
     bibliographic metadata.  The _RefQueryAI schema has no such fields;
     _validate_result checks the parsed output before returning it.
   - Malformed or under-specified AI responses are rejected with typed exceptions.
-  - Gemini client is imported lazily so the module loads cleanly in test environments.
+  - Gemini and Groq clients are imported lazily so the module loads cleanly in tests.
 """
 from __future__ import annotations
 
 import dataclasses
 import hashlib
+import logging
 from typing import Protocol, runtime_checkable
+
+logger = logging.getLogger("vidya.m02.ai_provider")
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -390,8 +393,153 @@ class GeminiSyllabusProvider:
 
 
 # ---------------------------------------------------------------------------
+# Groq implementation (OpenAI-compatible API)
+# ---------------------------------------------------------------------------
+
+class GroqSyllabusProvider:
+    """Groq llama-3.3-70b-versatile via the OpenAI-compatible API."""
+
+    async def generate_syllabus(
+        self,
+        ctx: SyllabusGenerationContext,
+    ) -> SyllabusGenerationResult:
+        if not settings.GROQ_API_KEY:
+            raise SyllabusAIError(
+                "GROQ_API_KEY is not configured — cannot use Groq fallback. "
+                "Set GROQ_API_KEY in your .env file."
+            )
+
+        # Deferred import — keeps module loadable without openai installed in tests.
+        from openai import AsyncOpenAI
+
+        system, user = _build_prompt(ctx)
+        phash = _prompt_hash(system, user)
+
+        client = AsyncOpenAI(
+            api_key=settings.GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
+        )
+
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.35,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            raise SyllabusAIBlockedError("Groq returned an empty response.")
+
+        try:
+            parsed = _SyllabusAI.model_validate_json(raw)
+        except Exception as exc:
+            raise SyllabusAIParseError(
+                f"Groq response did not match the expected schema: {exc}\n"
+                f"Raw response (first 500 chars): {raw[:500]}"
+            ) from exc
+
+        violations = _validate_result(parsed, ctx)
+        if violations:
+            raise SyllabusAIValidationError(
+                "Groq AI response failed business-rule validation:\n"
+                + "\n".join(f"  - {v}" for v in violations)
+            )
+
+        return SyllabusGenerationResult(
+            outcomes=[
+                {
+                    "code":               co.code,
+                    "description":        co.description,
+                    "bloom_level":        co.bloom_level,
+                    "suggested_po_codes": co.suggested_po_codes,
+                }
+                for co in parsed.outcomes
+            ],
+            units=[
+                {
+                    "unit_number": u.unit_number,
+                    "title":       u.title,
+                    "topics":      [t.model_dump(exclude_none=True) for t in u.topics],
+                    "total_hours": u.total_hours,
+                    "pedagogy":    u.pedagogy,
+                }
+                for u in parsed.units
+            ],
+            reference_queries=[
+                {"query_str": rq.query_str, "ref_type": rq.ref_type}
+                for rq in parsed.reference_queries
+            ],
+            model_used=settings.GROQ_MODEL,
+            prompt_hash=phash,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fallback helpers
+# ---------------------------------------------------------------------------
+
+_QUOTA_SIGNALS = (
+    "resource_exhausted",
+    "429",
+    "quota",
+    "rate_limit",
+    "rate limit",
+    "too many requests",
+)
+
+
+def _is_gemini_quota_error(exc: Exception) -> bool:
+    """Return True when the exception indicates a Gemini quota / rate-limit hit."""
+    msg = str(exc).lower()
+    return any(s in msg for s in _QUOTA_SIGNALS)
+
+
+class FallbackSyllabusProvider:
+    """
+    Tries Gemini first.  Falls back to Groq only on quota / rate-limit errors;
+    all other Gemini errors propagate normally so bugs are not silently swallowed.
+    """
+
+    def __init__(self) -> None:
+        self._gemini = GeminiSyllabusProvider()
+        self._groq = GroqSyllabusProvider()
+
+    async def generate_syllabus(
+        self,
+        ctx: SyllabusGenerationContext,
+    ) -> SyllabusGenerationResult:
+        try:
+            result = await self._gemini.generate_syllabus(ctx)
+            logger.info("AI provider used: gemini (model=%s)", settings.GEMINI_MODEL)
+            return result
+        except SyllabusAIBlockedError as exc:
+            # SyllabusAIBlockedError covers both safety blocks and empty-on-quota.
+            # Only route to fallback when the message contains quota signals.
+            if not _is_gemini_quota_error(exc):
+                raise
+            logger.warning(
+                "Gemini quota / safety block detected (%s) — falling back to Groq.",
+                exc,
+            )
+        except Exception as exc:
+            if not _is_gemini_quota_error(exc):
+                raise
+            logger.warning(
+                "Gemini quota error (%s) — falling back to Groq.", exc
+            )
+
+        result = await self._groq.generate_syllabus(ctx)
+        logger.info("AI provider used: groq (model=%s)", settings.GROQ_MODEL)
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 def get_syllabus_provider() -> SyllabusProvider:
-    return GeminiSyllabusProvider()
+    return FallbackSyllabusProvider()
