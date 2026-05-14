@@ -523,6 +523,106 @@ class CourseKitService:
         )
 
     # =========================================================================
+    # Export
+    # =========================================================================
+
+    @staticmethod
+    async def dispatch_kit_export(
+        kit_id: UUID,
+        export_format: str,
+        requested_by: UUID,
+        requested_by_role: str,
+        tenant_id: UUID,
+        schema_name: str,
+        *,
+        db: AsyncSession,
+    ) -> str:
+        """
+        Queue the export task.  Returns job_id (str).
+
+        Kit must be PUBLISHED or ARCHIVED.  Format must be 'pdf' or 'pptx'.
+        requested_by_role is forwarded to the task for DEAN sensitive-field
+        gating (speaker_notes / answer_key / model_answer omitted for DEAN).
+        """
+        from app.workers.heavy.course_kit_export import export_course_kit  # noqa: PLC0415
+
+        kit = await _require_kit(kit_id, db=db)
+        if kit.status not in (CourseKitStatus.PUBLISHED, CourseKitStatus.ARCHIVED):
+            raise KitServiceError(
+                "INVALID_STATE",
+                f"Export requires PUBLISHED or ARCHIVED kit; kit is {kit.status.value}.",
+                422,
+            )
+        if export_format not in ("pdf", "pptx"):
+            raise KitServiceError(
+                "INVALID_FORMAT",
+                "Export format must be 'pdf' or 'pptx'.",
+                422,
+            )
+
+        job_id = await TaskJobPublicRepository.create(
+            tenant_id=tenant_id,
+            task_type="course_kit_export",
+            queue_name="heavy",
+            payload={
+                "kit_id":        str(kit_id),
+                "format":        export_format,
+                "schema_name":   schema_name,
+            },
+            db=db,
+        )
+        await db.commit()
+
+        export_course_kit.delay(
+            job_id=str(job_id),
+            kit_id=str(kit_id),
+            tenant_id=str(tenant_id),
+            schema_name=schema_name,
+            export_format=export_format,
+            requested_by_user_id=str(requested_by),
+            requested_by_role=requested_by_role,
+        )
+        logger.info(
+            "m03.service: export queued (kit=%s format=%s job=%s)",
+            kit_id, export_format, job_id,
+        )
+        return str(job_id)
+
+    @staticmethod
+    async def list_exports(kit_id: UUID, *, db: AsyncSession) -> list:
+        """Return storage assets for this kit (most-recent-first)."""
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.repository import StorageRepository
+
+        await _require_kit(kit_id, db=db)
+        return await StorageRepository.list_by_entity(
+            StorageEntityType.COURSE_KIT_EXPORT.value,
+            kit_id,
+            db=db,
+        )
+
+    @staticmethod
+    async def get_export_download(
+        kit_id: UUID,
+        asset_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> tuple:
+        """Return (StorageAsset, presigned_download_url) for an export asset."""
+        from app.core.storage.repository import StorageRepository
+
+        await _require_kit(kit_id, db=db)
+        asset = await StorageRepository.get_by_id(asset_id, db=db)
+        if asset is None or asset.entity_id != kit_id:
+            raise KitServiceError("NOT_FOUND", "Export asset not found.", 404)
+
+        url = await StorageRepository.generate_presigned_get_url(
+            object_key=asset.object_key,
+            expires_in_seconds=86_400,
+        )
+        return asset, url
+
+    # =========================================================================
     # Slides
     # =========================================================================
 

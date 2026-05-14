@@ -16,7 +16,9 @@ class StorageRepository:
 
     # Validates object_key format: vidya-assets/tenant_slug/entity_type/entity_id/uuid-filename
     _KEY_PATTERN = re.compile(
-        r"^vidya-assets/[a-z0-9_-]+/(submission|research_doc|course_kit|viva_recording|program_export|syllabus_export)/[a-f0-9\-]{36}/[a-f0-9\-]{36}-[^/]+$"
+        r"^vidya-assets/[a-z0-9_-]+/"
+        r"(submission|research_doc|course_kit|course_kit_export|viva_recording|program_export|syllabus_export)"
+        r"/[a-f0-9\-]{36}/[a-f0-9\-]{36}-[^/]+$"
     )
 
     @staticmethod

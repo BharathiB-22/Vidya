@@ -42,6 +42,8 @@ from app.modules.m03_course_kit.schemas import (
     GenerateKitRequest,
     KitAIJobResponse,
     KitAssignmentCreate,
+    KitExportJobResponse,
+    KitExportRequest,
     KitAssignmentResponse,
     KitAssignmentUpdate,
     KitQuizletCreate,
@@ -429,6 +431,83 @@ async def get_compliance(
         return await CourseKitService.run_compliance_check(kit_id, db=db)
     except KitServiceError as e:
         raise _err(e)
+
+
+# ===========================================================================
+# Export — dispatch, list, and re-download
+# ===========================================================================
+
+@router.post("/{kit_id}/export", response_model=KitExportJobResponse, status_code=202)
+async def request_export(
+    kit_id: UUID,
+    payload: KitExportRequest,
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> KitExportJobResponse:
+    try:
+        job_id = await CourseKitService.dispatch_kit_export(
+            kit_id=kit_id,
+            export_format=payload.format,
+            requested_by=current_user.user_id,
+            requested_by_role=current_user.role,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_EXPORT_REQUESTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="CourseKit",
+        target_id=str(kit_id),
+        metadata={"job_id": job_id, "format": payload.format},
+    )
+    return KitExportJobResponse(job_id=UUID(job_id), kit_id=kit_id, format=payload.format)
+
+
+@router.get("/{kit_id}/exports")
+async def list_exports(
+    kit_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[dict]:
+    try:
+        assets = await CourseKitService.list_exports(kit_id, db=db)
+    except KitServiceError as e:
+        raise _err(e)
+    return [
+        {
+            "id":                str(a.id),
+            "original_filename": a.original_filename,
+            "content_type":      a.content_type,
+            "size_bytes":        a.size_bytes,
+            "created_at":        a.created_at.isoformat(),
+        }
+        for a in assets
+    ]
+
+
+@router.get("/{kit_id}/exports/{asset_id}/download")
+async def get_export_download(
+    kit_id: UUID,
+    asset_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> dict:
+    try:
+        asset, url = await CourseKitService.get_export_download(kit_id, asset_id, db=db)
+    except KitServiceError as e:
+        raise _err(e)
+    return {
+        "download_url":    url,
+        "original_filename": asset.original_filename,
+        "size_bytes":      asset.size_bytes,
+        "expires_in":      86_400,
+    }
 
 
 # ===========================================================================
