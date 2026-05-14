@@ -5,6 +5,8 @@ import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
 import SyllabusDetailPage from '@/pages/SyllabusDetailPage'
+import CourseKitListPage from '@/pages/CourseKitListPage'
+import CourseKitDetailPage from '@/pages/CourseKitDetailPage'
 
 export default function App() {
   return (
@@ -15,6 +17,8 @@ export default function App() {
         <Route path="/programs/:id" element={<ProgramDetailPage />} />
         <Route path="/syllabuses" element={<SyllabusListPage />} />
         <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
+        <Route path="/course-kits" element={<CourseKitListPage />} />
+        <Route path="/course-kits/:id" element={<CourseKitDetailPage />} />
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
     </Routes>
