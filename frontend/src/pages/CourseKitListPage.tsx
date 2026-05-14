@@ -39,7 +39,7 @@ export default function CourseKitListPage() {
   const [statusFilter, setStatusFilter] = useState<CourseKitStatus | ''>('')
   const [createOpen,   setCreateOpen]   = useState(false)
 
-  const { data, isLoading } = useCourseKits({
+  const { data, isLoading, isError } = useCourseKits({
     syllabus_id: syllabusId,
     status:      statusFilter || undefined,
   })
@@ -108,6 +108,13 @@ export default function CourseKitListPage() {
           </button>
         ))}
       </div>
+
+      {/* ── Error ── */}
+      {isError && (
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          Failed to load course kits. Please refresh the page.
+        </div>
+      )}
 
       {/* ── List ── */}
       {isLoading ? (

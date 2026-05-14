@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Lock } from 'lucide-react'
+import { Plus, Pencil, Trash2, Lock, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SlideDialog } from './SlideDialog'
 import {
@@ -14,11 +14,28 @@ interface Props {
   slides:           KitSlide[]
   isEditable:       boolean
   showSpeakerNotes: boolean
+  isLoading?:       boolean
 }
 
-export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes }: Props) {
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<KitSlide | null>(null)
+function SkeletonSlide() {
+  return (
+    <div className="rounded-lg border border-gray-200 px-4 py-3 animate-pulse">
+      <div className="flex items-start gap-3">
+        <div className="h-4 w-6 rounded bg-gray-200 shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-4 w-48 rounded bg-gray-200" />
+          <div className="h-3 w-full rounded bg-gray-100" />
+          <div className="h-3 w-3/4 rounded bg-gray-100" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes, isLoading }: Props) {
+  const [dialogOpen,      setDialogOpen]      = useState(false)
+  const [editTarget,      setEditTarget]      = useState<KitSlide | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
   const addSlide    = useAddSlide(kitId)
   const updateSlide = useUpdateSlide(kitId)
@@ -44,19 +61,42 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes }: P
     updateSlide.mutate({ slideId, payload })
   }
 
+  function handleDeleteClick(slideId: string) {
+    if (pendingDeleteId === slideId) {
+      deleteSlide.mutate(slideId)
+      setPendingDeleteId(null)
+    } else {
+      setPendingDeleteId(slideId)
+    }
+  }
+
+  const mutationError = addSlide.isError || updateSlide.isError || deleteSlide.isError
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">Slides ({slides.length})</h3>
+        <h3 className="text-sm font-semibold text-gray-700">
+          Slides ({isLoading ? '…' : slides.length})
+        </h3>
         {isEditable && (
-          <Button size="sm" variant="outline" onClick={openAdd}>
+          <Button size="sm" variant="outline" onClick={openAdd} disabled={addSlide.isPending}>
             <Plus className="h-4 w-4 mr-1" />
             Add Slide
           </Button>
         )}
       </div>
 
-      {sorted.length === 0 ? (
+      {mutationError && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-1.5">
+          Action failed — please try again.
+        </p>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((n) => <SkeletonSlide key={n} />)}
+        </div>
+      ) : sorted.length === 0 ? (
         <p className="text-sm text-gray-400 py-4 text-center">
           No slides yet.{isEditable ? ' Click "Add Slide" to begin.' : ''}
         </p>
@@ -65,10 +105,13 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes }: P
           {sorted.map((slide) => {
             const content = slide.content as Record<string, unknown>
             const bullets = Array.isArray(content.bullets) ? content.bullets as string[] : []
+            const isConfirmDelete = pendingDeleteId === slide.id
             return (
               <div
                 key={slide.id}
-                className="rounded-lg border border-gray-200 px-4 py-3 hover:bg-gray-50"
+                className={`rounded-lg border px-4 py-3 hover:bg-gray-50 ${
+                  isConfirmDelete ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                }`}
               >
                 <div className="flex items-start gap-3">
                   <span className="min-w-[2rem] text-sm font-bold text-gray-400 shrink-0">
@@ -105,6 +148,9 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes }: P
                         </span>
                       )}
                     </div>
+                    {isConfirmDelete && (
+                      <p className="text-xs text-red-600 mt-1">Click delete again to confirm.</p>
+                    )}
                   </div>
                   {isEditable && (
                     <div className="flex gap-1 shrink-0">
@@ -113,17 +159,19 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes }: P
                         variant="ghost"
                         className="h-7 w-7"
                         onClick={() => openEdit(slide)}
+                        aria-label={`Edit slide ${slide.slide_number}`}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-7 w-7 text-red-500 hover:text-red-700"
-                        onClick={() => deleteSlide.mutate(slide.id)}
+                        className={`h-7 w-7 ${isConfirmDelete ? 'text-red-700' : 'text-red-500 hover:text-red-700'}`}
+                        onClick={() => handleDeleteClick(slide.id)}
                         disabled={deleteSlide.isPending}
+                        aria-label={isConfirmDelete ? `Confirm delete slide ${slide.slide_number}` : `Delete slide ${slide.slide_number}`}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        {deleteSlide.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                       </Button>
                     </div>
                   )}

@@ -49,7 +49,7 @@ export function AssignmentDialog({
   const [complexity,     setComplexity]     = useState<ComplexityLevel>('UG')
   const [currentEvents,  setCurrentEvents]  = useState(false)
   const [modelAnswer,    setModelAnswer]    = useState('')
-  const [bloomLevel,     setBloomLevel]     = useState<BloomLevel | ''>('')
+  const [bloomLevel,     setBloomLevel]     = useState<BloomLevel | 'NONE'>('NONE')
   const [coRef,          setCoRef]          = useState('')
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export function AssignmentDialog({
       setComplexity(initial.complexity_level)
       setCurrentEvents(initial.current_events_toggle)
       setModelAnswer(initial.model_answer ?? '')
-      setBloomLevel(initial.bloom_level ?? '')
+      setBloomLevel(initial.bloom_level ?? 'NONE')
       setCoRef(initial.co_reference ?? '')
     } else if (open && mode === 'add') {
       setTitle('')
@@ -69,7 +69,7 @@ export function AssignmentDialog({
       setComplexity('UG')
       setCurrentEvents(false)
       setModelAnswer('')
-      setBloomLevel('')
+      setBloomLevel('NONE')
       setCoRef('')
     }
   }, [open, mode, initial])
@@ -86,7 +86,7 @@ export function AssignmentDialog({
         complexity_level:       complexity,
         current_events_toggle:  currentEvents,
         model_answer:           showModelAnswer && modelAnswer ? modelAnswer : undefined,
-        bloom_level:            bloomLevel || undefined,
+        bloom_level:            bloomLevel !== 'NONE' ? bloomLevel : undefined,
         co_reference:           coRef || undefined,
       })
     } else if (initial) {
@@ -97,7 +97,7 @@ export function AssignmentDialog({
         complexity_level:       complexity,
         current_events_toggle:  currentEvents,
         model_answer:           showModelAnswer && modelAnswer ? modelAnswer : undefined,
-        bloom_level:            bloomLevel || undefined,
+        bloom_level:            bloomLevel !== 'NONE' ? bloomLevel : undefined,
         co_reference:           coRef || undefined,
       })
     }
@@ -106,7 +106,7 @@ export function AssignmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{mode === 'add' ? 'Add Assignment' : 'Edit Assignment'}</DialogTitle>
         </DialogHeader>
@@ -183,10 +183,10 @@ export function AssignmentDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Bloom Level</label>
-              <Select value={bloomLevel} onValueChange={(v) => setBloomLevel(v as BloomLevel)}>
+              <Select value={bloomLevel} onValueChange={(v) => setBloomLevel(v as BloomLevel | 'NONE')}>
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="NONE">None</SelectItem>
                   {BLOOM_LEVELS.map((b) => (
                     <SelectItem key={b} value={b}>{b}</SelectItem>
                   ))}

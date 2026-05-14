@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, AlertTriangle, Archive } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertTriangle, Archive, CheckCircle2, Circle, Zap } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { CourseKitStatusBadge } from '@/components/courseKit/CourseKitStatusBadge'
@@ -11,6 +11,7 @@ import { AssignmentsSection } from '@/components/courseKit/AssignmentsSection'
 import { TeachingPlanSection } from '@/components/courseKit/TeachingPlanSection'
 import { KitCompliancePanel } from '@/components/courseKit/KitCompliancePanel'
 import { ExportPanel } from '@/components/courseKit/ExportPanel'
+import { KitVersionHistory } from '@/components/courseKit/KitVersionHistory'
 import {
   useCourseKit,
   useKitSlides,
@@ -18,6 +19,7 @@ import {
   useKitAssignments,
 } from '@/hooks/courseKit'
 import { courseKitKeys } from '@/hooks/courseKit/useCourseKit'
+import type { CourseKitStatus } from '@/types/courseKit'
 
 type Tab = 'overview' | 'slides' | 'quizlets' | 'assignments' | 'teaching-plan' | 'compliance' | 'exports'
 
@@ -62,10 +64,10 @@ export default function CourseKitDetailPage() {
   const showAnswerKey    = !isDean
   const showModelAnswer  = !isDean
 
-  const { data: kit, isLoading, isError } = useCourseKit(kitId)
-  const { data: slides      = [] }        = useKitSlides(kitId)
-  const { data: quizlets    = [] }        = useKitQuizlets(kitId)
-  const { data: assignments = [] }        = useKitAssignments(kitId)
+  const { data: kit, isLoading, isError }                      = useCourseKit(kitId)
+  const { data: slides      = [], isLoading: slidesLoading }   = useKitSlides(kitId)
+  const { data: quizlets    = [], isLoading: quizletsLoading } = useKitQuizlets(kitId)
+  const { data: assignments = [], isLoading: assignsLoading }  = useKitAssignments(kitId)
 
   const isGenerating = kit?.status === 'AI_GENERATING'
   const isEditable   = kit?.status === 'DRAFT' && canWrite
@@ -90,6 +92,15 @@ export default function CourseKitDetailPage() {
     }, 5000)
     return () => clearInterval(timer)
   }, [isGenerating, kitId, qc])
+
+  // A2: invalidate child caches once generation completes so slides/quizlets/assignments refresh
+  useEffect(() => {
+    if (wasGenerating && !isGenerating) {
+      qc.invalidateQueries({ queryKey: courseKitKeys.slides(kitId) })
+      qc.invalidateQueries({ queryKey: courseKitKeys.quizlets(kitId) })
+      qc.invalidateQueries({ queryKey: courseKitKeys.assignments(kitId) })
+    }
+  }, [wasGenerating, isGenerating, kitId, qc])
 
   const counts: ContentCounts = {
     slides:      slides.length,
@@ -206,10 +217,13 @@ export default function CourseKitDetailPage() {
       </div>
 
       {/* ── Tab content ── */}
-      <div className="min-h-[24rem]">
+      <div className="min-h-[24rem]" role="tabpanel">
 
         {tab === 'overview' && (
           <div className="space-y-5">
+            {/* E1 — Pipeline stepper */}
+            <KitPipelineStepper status={kit.status} />
+
             {/* Stats grid */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <StatCard label="Slides"      value={counts.slides}      onClick={() => setTab('slides')}      />
@@ -239,6 +253,12 @@ export default function CourseKitDetailPage() {
               <span>Created: {new Date(kit.created_at).toLocaleDateString()}</span>
             </div>
 
+            {/* E2 — Version history */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-2">Version History</p>
+              <KitVersionHistory kitId={kitId} currentKitId={kitId} />
+            </div>
+
             {/* Get started hint */}
             {isEditable && counts.slides === 0 && counts.quizlets === 0 && counts.assignments === 0 && (
               <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-700 space-y-1">
@@ -258,6 +278,7 @@ export default function CourseKitDetailPage() {
             slides={slides}
             isEditable={isEditable}
             showSpeakerNotes={showSpeakerNotes}
+            isLoading={slidesLoading}
           />
         )}
 
@@ -267,6 +288,7 @@ export default function CourseKitDetailPage() {
             quizlets={quizlets}
             isEditable={isEditable}
             showAnswerKey={showAnswerKey}
+            isLoading={quizletsLoading}
           />
         )}
 
@@ -276,11 +298,12 @@ export default function CourseKitDetailPage() {
             assignments={assignments}
             isEditable={isEditable}
             showModelAnswer={showModelAnswer}
+            isLoading={assignsLoading}
           />
         )}
 
         {tab === 'teaching-plan' && (
-          <TeachingPlanSection teachingPlan={kit.teaching_plan ?? []} />
+          <TeachingPlanSection teachingPlan={kit.teaching_plan ?? []} kitStatus={kit.status} />
         )}
 
         {tab === 'compliance' && (
@@ -291,6 +314,55 @@ export default function CourseKitDetailPage() {
           <ExportPanel kit={kit} canExport={canExport} />
         )}
       </div>
+    </div>
+  )
+}
+
+// ── E1: Inline pipeline stepper ──────────────────────────────────────────────
+
+const PIPELINE_STEPS: Array<{ status: CourseKitStatus; label: string }> = [
+  { status: 'DRAFT',         label: 'Draft' },
+  { status: 'AI_GENERATING', label: 'Generating' },
+  { status: 'PUBLISHED',     label: 'Published' },
+  { status: 'ARCHIVED',      label: 'Archived' },
+]
+
+const STATUS_ORDER: Record<CourseKitStatus, number> = {
+  DRAFT: 0, AI_GENERATING: 1, PUBLISHED: 2, ARCHIVED: 3,
+}
+
+function KitPipelineStepper({ status }: { status: CourseKitStatus }) {
+  const current = STATUS_ORDER[status]
+  return (
+    <div className="flex items-center gap-0">
+      {PIPELINE_STEPS.map((step, idx) => {
+        const done    = STATUS_ORDER[step.status] < current
+        const active  = step.status === status
+        return (
+          <div key={step.status} className="flex items-center">
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
+              active ? 'bg-blue-100 text-blue-700'
+              : done  ? 'bg-green-50 text-green-600'
+              :         'text-gray-400'
+            }`}>
+              {done
+                ? <CheckCircle2 className="h-3.5 w-3.5" />
+                : active && step.status === 'AI_GENERATING'
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : active
+                ? <Zap className="h-3.5 w-3.5" />
+                : <Circle className="h-3.5 w-3.5" />
+              }
+              {step.label}
+            </div>
+            {idx < PIPELINE_STEPS.length - 1 && (
+              <div className={`h-px w-4 ${
+                STATUS_ORDER[PIPELINE_STEPS[idx + 1].status] <= current ? 'bg-green-300' : 'bg-gray-200'
+              }`} />
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

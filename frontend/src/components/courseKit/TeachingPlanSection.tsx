@@ -1,16 +1,22 @@
 import { BookOpen, Clock, Target } from 'lucide-react'
-import type { TeachingPlanWeek } from '@/types/courseKit'
+import type { CourseKitStatus, TeachingPlanWeek } from '@/types/courseKit'
 
 interface Props {
   teachingPlan: Record<string, unknown>[]
+  kitStatus?:   CourseKitStatus
 }
 
-export function TeachingPlanSection({ teachingPlan }: Props) {
+export function TeachingPlanSection({ teachingPlan, kitStatus }: Props) {
   if (teachingPlan.length === 0) {
+    const hint = kitStatus === 'DRAFT'
+      ? 'Use Generate with AI to create a teaching plan.'
+      : kitStatus === 'AI_GENERATING'
+      ? 'AI is generating the teaching plan — check back shortly.'
+      : 'No teaching plan was generated for this kit.'
     return (
       <div className="py-10 text-center text-sm text-gray-400">
         <BookOpen className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        Teaching plan has not been generated yet. Use Generate with AI from the Draft state.
+        {hint}
       </div>
     )
   }

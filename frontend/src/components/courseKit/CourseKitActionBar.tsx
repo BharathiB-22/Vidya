@@ -28,7 +28,6 @@ export function CourseKitActionBar({ kit }: Props) {
   const navigate = useNavigate()
   const role     = localStorage.getItem('vidya_role') ?? 'FACULTY'
   const canWrite = WRITE_ROLES.includes(role)
-  const isDean   = role === 'DEAN'
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [publishOpen,  setPublishOpen]  = useState(false)
@@ -54,8 +53,12 @@ export function CourseKitActionBar({ kit }: Props) {
     (kit.status === 'PUBLISHED' && canWrite) ||
     canExport
 
+  const hasError =
+    generate.isError || publish.isError || archive.isError || fork.isError || exportKit.isError
+
   return (
-    <div className="flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
+    <div className="flex items-center gap-2 flex-wrap">
 
       {/* ── DRAFT ── */}
       {kit.status === 'DRAFT' && canWrite && (
@@ -97,14 +100,13 @@ export function CourseKitActionBar({ kit }: Props) {
         </Button>
       )}
 
-      {/* ── Fork — PUBLISHED + ARCHIVED ── */}
-      {canExport && (canWrite || isDean) && (
+      {/* ── Fork — PUBLISHED + ARCHIVED (write roles only) ── */}
+      {canExport && canWrite && (
         <Button
           size="sm"
           variant="outline"
           onClick={() => setForkOpen(true)}
-          disabled={fork.isPending || isDean}
-          title={isDean ? 'DEAN role cannot fork' : undefined}
+          disabled={fork.isPending}
         >
           <GitFork className="h-4 w-4 mr-1" />
           {fork.isPending ? 'Forking…' : 'Fork'}
@@ -133,6 +135,14 @@ export function CourseKitActionBar({ kit }: Props) {
       <span className="ml-auto text-xs font-medium bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">
         {role}
       </span>
+    </div>
+
+    {/* Error banner (B1) */}
+    {hasError && (
+      <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-1.5">
+        Action failed — please try again. Check your connection or provider configuration.
+      </p>
+    )}
 
       {/* Dialogs */}
       <GenerateKitDialog
@@ -168,3 +178,4 @@ export function CourseKitActionBar({ kit }: Props) {
     </div>
   )
 }
+

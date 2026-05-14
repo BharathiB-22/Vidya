@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,14 @@ export function GenerateKitDialog({ open, onOpenChange, onSubmit, isPending }: G
   const [instructions, setInstructions] = useState('')
   const [complexity,   setComplexity]   = useState<ComplexityLevel>('UG')
   const [tone,         setTone]         = useState('')
+
+  useEffect(() => {
+    if (open) {
+      setInstructions('')
+      setComplexity('UG')
+      setTone('')
+    }
+  }, [open])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

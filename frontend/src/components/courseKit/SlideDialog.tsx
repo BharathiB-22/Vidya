@@ -40,7 +40,7 @@ export function SlideDialog({
   const [bullets,      setBullets]      = useState('')
   const [keyConcepts,  setKeyConcepts]  = useState('')
   const [speakerNotes, setSpeakerNotes] = useState('')
-  const [bloomLevel,   setBloomLevel]   = useState<BloomLevel | ''>('')
+  const [bloomLevel,   setBloomLevel]   = useState<BloomLevel | 'NONE'>('NONE')
   const [coRef,        setCoRef]        = useState('')
 
   useEffect(() => {
@@ -50,14 +50,14 @@ export function SlideDialog({
       setBullets(Array.isArray(content.bullets) ? (content.bullets as string[]).join('\n') : '')
       setKeyConcepts(Array.isArray(content.key_concepts) ? (content.key_concepts as string[]).join('\n') : '')
       setSpeakerNotes(initial.speaker_notes ?? '')
-      setBloomLevel(initial.bloom_level ?? '')
+      setBloomLevel(initial.bloom_level ?? 'NONE')
       setCoRef(initial.co_reference ?? '')
     } else if (open && mode === 'add') {
       setTitle('')
       setBullets('')
       setKeyConcepts('')
       setSpeakerNotes('')
-      setBloomLevel('')
+      setBloomLevel('NONE')
       setCoRef('')
     }
   }, [open, mode, initial])
@@ -80,7 +80,7 @@ export function SlideDialog({
         title:         title.trim(),
         content:       buildContent(),
         speaker_notes: showSpeakerNotes && speakerNotes ? speakerNotes : undefined,
-        bloom_level:   bloomLevel || undefined,
+        bloom_level:   bloomLevel !== 'NONE' ? bloomLevel : undefined,
         co_reference:  coRef || undefined,
       })
     } else if (initial) {
@@ -88,7 +88,7 @@ export function SlideDialog({
         title:         title.trim(),
         content:       buildContent(),
         speaker_notes: showSpeakerNotes && speakerNotes ? speakerNotes : undefined,
-        bloom_level:   bloomLevel || undefined,
+        bloom_level:   bloomLevel !== 'NONE' ? bloomLevel : undefined,
         co_reference:  coRef || undefined,
       })
     }
@@ -97,7 +97,7 @@ export function SlideDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{mode === 'add' ? 'Add Slide' : 'Edit Slide'}</DialogTitle>
         </DialogHeader>
@@ -151,10 +151,10 @@ export function SlideDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Bloom Level</label>
-              <Select value={bloomLevel} onValueChange={(v) => setBloomLevel(v as BloomLevel)}>
+              <Select value={bloomLevel} onValueChange={(v) => setBloomLevel(v as BloomLevel | 'NONE')}>
                 <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="NONE">None</SelectItem>
                   {BLOOM_LEVELS.map((b) => (
                     <SelectItem key={b} value={b}>{b}</SelectItem>
                   ))}

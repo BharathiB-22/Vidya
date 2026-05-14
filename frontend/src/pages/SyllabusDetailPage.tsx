@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Lock, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, Loader2, Lock, AlertTriangle, Package } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
@@ -234,6 +234,17 @@ export default function SyllabusDetailPage() {
               )}
               <span>Created: {new Date(syllabus.created_at).toLocaleDateString()}</span>
             </div>
+
+            {/* Course Kits link (G1) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/course-kits?syllabus_id=${syllabusId}`)}
+              className="w-fit"
+            >
+              <Package className="h-4 w-4 mr-1.5" />
+              View Course Kits
+            </Button>
 
             {/* Quick-action hints when empty and editable */}
             {isEditable && counts.outcomes === 0 && counts.units === 0 && (

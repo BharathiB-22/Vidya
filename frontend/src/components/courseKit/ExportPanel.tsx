@@ -61,6 +61,12 @@ export function ExportPanel({ kit, canExport }: Props) {
         </div>
       </div>
 
+      {exportKit.isSuccess && (
+        <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2 text-sm text-green-700">
+          Export job queued — refresh in a few seconds to see the download link.
+        </div>
+      )}
+
       {isLoading && (
         <p className="text-sm text-gray-400 py-4 text-center">Loading exports…</p>
       )}
