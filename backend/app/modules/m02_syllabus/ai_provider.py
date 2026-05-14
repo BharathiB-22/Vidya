@@ -538,8 +538,21 @@ class FallbackSyllabusProvider:
 
 
 # ---------------------------------------------------------------------------
-# Factory
+# Factory — driven by settings.AI_PROVIDER
 # ---------------------------------------------------------------------------
 
+_PROVIDER_MAP: dict[str, type] = {
+    "gemini":   GeminiSyllabusProvider,
+    "groq":     GroqSyllabusProvider,
+    "fallback": FallbackSyllabusProvider,
+}
+
+
 def get_syllabus_provider() -> SyllabusProvider:
-    return FallbackSyllabusProvider()
+    provider_cls = _PROVIDER_MAP.get(settings.AI_PROVIDER)
+    if provider_cls is None:
+        raise ValueError(
+            f"Unknown AI_PROVIDER '{settings.AI_PROVIDER}'. "
+            f"Must be one of: {sorted(_PROVIDER_MAP)}"
+        )
+    return provider_cls()

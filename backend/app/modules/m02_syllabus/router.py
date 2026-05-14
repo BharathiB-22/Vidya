@@ -17,7 +17,6 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -244,11 +243,6 @@ async def generate_syllabus(
             )
         except SyllabusServiceError as e:
             raise _err(e)
-        # update_syllabus committed the previous transaction; re-apply the tenant
-        # search_path so dispatch_ai_generation runs on the correct schema.
-        await db.execute(
-            text(f"SET LOCAL search_path = {current_user.schema_name}, public")
-        )
     try:
         job_id = await SyllabusService.dispatch_ai_generation(
             syllabus_id=syllabus_id,

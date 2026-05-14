@@ -41,11 +41,15 @@ async def get_tenant_db_dep(
     tenant: TenantInfo = Depends(resolve_tenant),
 ) -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
-        async with session.begin():
-            await session.execute(
-                text(f"SET LOCAL search_path = {tenant.schema_name}, public")
-            )
-            yield session
+        # SET search_path TO (without LOCAL) is a connection-level setting that
+        # persists across all transactions on this connection for its lifetime.
+        # Services manage their own commits; no outer begin() context is used so
+        # explicit db.commit() calls inside services never hit a closed-context error.
+        await session.execute(
+            text(f"SET search_path TO {tenant.schema_name}, public")
+        )
+        await session.commit()
+        yield session
 
 
 async def get_current_user(

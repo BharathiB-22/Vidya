@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,11 +40,15 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRY_MINUTES_GET: int = 60
     STORAGE_ASSET_RETENTION_YEARS: int = 3
 
-    # Gemini AI (primary)
-    GEMINI_API_KEY: str
+    # AI provider selection: "groq" | "gemini" | "fallback"
+    # "fallback" tries Gemini first and routes to Groq on quota errors.
+    AI_PROVIDER: Literal["groq", "gemini", "fallback"] = "groq"
+
+    # Gemini AI
+    GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
-    # Groq AI (fallback — used when Gemini quota is exhausted)
+    # Groq AI (OpenAI-compatible endpoint)
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     
