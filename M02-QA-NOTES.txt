@@ -5,7 +5,7 @@ Date:
 12-05-2026
 
 Last Updated:
-12-05-2026 — All three QA fixes applied and committed.
+14-05-2026 — Groq provider end-to-end validation complete. M02 implementation-complete and demo-ready.
 
 Environment:
 
@@ -13,7 +13,7 @@ Environment:
 * Frontend: React + TypeScript
 * Database: PostgreSQL (schema-per-tenant)
 * Queue: Celery + Redis
-* AI: Gemini API
+* AI: Groq (llama-3.3-70b-versatile) — primary for demo; Gemini and fallback modes also wired
 * OS: Windows
 * Tenant Tested: demo-university
 
@@ -277,6 +277,94 @@ Files modified:
 
 ---
 
+---
+
+## GROQ PROVIDER VALIDATION — 2026-05-14
+
+### AI Provider Switch
+
+AI_PROVIDER setting added to backend/app/config.py.
+Valid values: groq | gemini | fallback.
+Default set to groq for demo and dev use.
+Gemini and fallback modes remain fully wired for production.
+
+### End-to-End Generation Validated (Groq)
+
+Tenant: demo-university
+Model: llama-3.3-70b-versatile (Groq API)
+Provider: GroqSyllabusProvider via AI_PROVIDER=groq
+
+Manually confirmed all of the following passed:
+
+* CO generation — COs produced with correct bloom_level, code (CO1–CO4+), description, suggested_po_codes
+* Unit generation — Units produced with unit_number, title, topics, total_hours, pedagogy
+* Reference enrichment — Groq-generated query strings passed to CrossRef/OpenLibrary; references saved
+* Frontend rendering — Outcomes tab, Units tab, References tab all populated correctly
+* Navigation flow — Programs → Syllabus list → Syllabus detail → back stack intact
+* Celery task success — celery-heavy worker completed generation task without error
+* Groq provider selection — confirmed via Celery worker logs (model=llama-3.3-70b-versatile)
+* Session/auth flow — JWT + tenant slug persisted across page reloads; protected routes enforced
+
+### Groq Normalizer
+
+_normalize_groq_response() added to ai_provider.py.
+Maps the following Groq output aliases to canonical _SyllabusAI field names:
+
+  course_outcomes  -> outcomes
+  co_statement     -> description  (primary alias; observed in live output)
+  co_description   -> description  (fallback alias; stripped after co_statement wins)
+  statement        -> description  (fallback alias)
+  co               -> description  (original fallback alias)
+  (missing code)   -> CO1, CO2, …  (stable sequential fill)
+  display_order    -> unit_number  (when unit_number absent)
+  (missing unit_number) -> sequential 1-based index
+  topics[]: str    -> {"title": str}  (string topics promoted to objects)
+  query            -> query_str    (reference query alias)
+
+Unit test suite: 17 tests, all pass in 0.06s (no DB required).
+Test file: backend/tests/unit/test_groq_normalize.py
+
+### Commits Included in Groq Validation
+
+  2e5ff68  feat: add Groq fallback when Gemini quota is exhausted
+  117c12d  fix: replace invalid db.begin() with SET LOCAL search_path re-apply
+  2326e2e  refactor: configurable AI provider + proper session fix
+  3c669a8  fix: absolute env_file path + provider-neutral error banner
+  3aeabea  feat: Groq response normalization + unit tests
+  e959b1f  fix: normalize co_statement/co_description CO aliases from Groq
+
+---
+
+## POST-M02 STABILIZATION ITEMS (Non-Blocking)
+
+### WARN-1: audit_logs / public.tenants NoReferencedTableError during enrichment logging
+
+Symptom:
+  NoReferencedTableError: Foreign key constraint on audit_logs references
+  public.tenants, which does not exist in the tenant schema search path
+  during reference enrichment Celery task.
+
+Impact:
+  Does NOT block syllabus generation.
+  Does NOT block reference enrichment completion.
+  References are saved correctly.
+  Error is logged but swallowed by the enrichment task exception handler.
+
+Classification:
+  Post-M02 stabilization — NOT a release blocker for M02 demo.
+
+Root cause (suspected):
+  Audit log INSERT inside the Celery worker uses a DB session that has
+  the tenant search_path set, but audit_logs has a FK to public.tenants.
+  The public schema is not in the search_path during that session.
+
+Recommended fix (post-M02):
+  Either set search_path to include public explicitly in the Celery worker
+  session, or use schema-qualified table reference (public.tenants) in the
+  audit_logs FK definition.
+
+---
+
 ## FINAL QA SUMMARY
 
 PASSED:
@@ -296,9 +384,18 @@ RESOLVED ISSUES:
 EXTERNAL BLOCKERS:
 
 * Gemini API project quota is 0 — requires Gemini console action, not code fix
+  Workaround in place: AI_PROVIDER=groq routes all generation through Groq.
+
+POST-M02 STABILIZATION (Non-Blocking):
+
+* WARN-1: audit_logs/public.tenants FK error during enrichment logging
+  Does not block generation or enrichment. Fix deferred to post-M02 stabilization.
 
 OVERALL ASSESSMENT:
-M02 Syllabus Generator is functionally complete.
-FIX-1 and FIX-2 are blocking for Windows dev environment.
-FIX-3 is a UX improvement, not a functional regression.
-All three fixes are low-risk and bounded to M02.
+M02 Syllabus Generator is IMPLEMENTATION-COMPLETE and DEMO-READY.
+Groq end-to-end generation validated manually on 2026-05-14.
+All critical workflows pass: CO generation, unit generation, enrichment,
+frontend rendering, session/auth, Celery task completion, navigation.
+FIX-1, FIX-2, FIX-3 resolved during QA.
+Groq provider validated as fully functional demo path.
+One non-blocking audit log warning deferred to stabilization phase.
