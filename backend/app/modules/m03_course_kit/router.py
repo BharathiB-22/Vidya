@@ -130,7 +130,7 @@ async def create_kit(
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
-        AuditEventType.COURSE_KIT_GENERATION_QUEUED,   # reuse until STEP-08 adds CREATED
+        AuditEventType.COURSE_KIT_CREATED,
         actor_user_id=current_user.user_id,
         actor_role=current_user.role,
         tenant_id=current_user.tenant_id,
@@ -141,7 +141,6 @@ async def create_kit(
             "syllabus_id": str(kit.syllabus_id),
             "unit_number": kit.unit_number,
             "version":     kit.version,
-            "action":      "created",
         },
     )
     return CourseKitResponse.model_validate(kit)
@@ -208,14 +207,14 @@ async def update_kit(
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
-        AuditEventType.COURSE_KIT_GENERATION_QUEUED,   # reuse until STEP-08 adds UPDATED
+        AuditEventType.COURSE_KIT_UPDATED,
         actor_user_id=current_user.user_id,
         actor_role=current_user.role,
         tenant_id=current_user.tenant_id,
         schema_name=current_user.schema_name,
         target_entity="CourseKit",
         target_id=str(kit_id),
-        metadata={"changes": payload.model_dump(exclude_none=True), "action": "updated"},
+        metadata={"changes": payload.model_dump(exclude_none=True)},
     )
     return CourseKitResponse.model_validate(kit)
 
@@ -231,14 +230,14 @@ async def delete_kit(
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
-        AuditEventType.COURSE_KIT_GENERATION_QUEUED,   # reuse until STEP-08 adds DELETED
+        AuditEventType.COURSE_KIT_DELETED,
         actor_user_id=current_user.user_id,
         actor_role=current_user.role,
         tenant_id=current_user.tenant_id,
         schema_name=current_user.schema_name,
         target_entity="CourseKit",
         target_id=str(kit_id),
-        metadata={"kit_id": str(kit_id), "action": "deleted"},
+        metadata={"kit_id": str(kit_id)},
     )
     return {"status": "deleted"}
 
@@ -347,14 +346,14 @@ async def publish_kit(
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
-        AuditEventType.COURSE_KIT_GENERATION_COMPLETED,   # reuse until STEP-08 adds PUBLISHED
+        AuditEventType.COURSE_KIT_PUBLISHED,
         actor_user_id=current_user.user_id,
         actor_role=current_user.role,
         tenant_id=current_user.tenant_id,
         schema_name=current_user.schema_name,
         target_entity="CourseKit",
         target_id=str(kit_id),
-        metadata={"version": kit.version, "comment": payload.comment, "action": "published"},
+        metadata={"version": kit.version, "comment": payload.comment},
     )
     return CourseKitStatusResponse.model_validate(kit)
 
@@ -371,14 +370,14 @@ async def archive_kit(
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
-        AuditEventType.COURSE_KIT_GENERATION_QUEUED,   # reuse until STEP-08 adds ARCHIVED
+        AuditEventType.COURSE_KIT_ARCHIVED,
         actor_user_id=current_user.user_id,
         actor_role=current_user.role,
         tenant_id=current_user.tenant_id,
         schema_name=current_user.schema_name,
         target_entity="CourseKit",
         target_id=str(kit_id),
-        metadata={"reason": payload.reason, "action": "archived"},
+        metadata={"reason": payload.reason},
     )
     return CourseKitStatusResponse.model_validate(kit)
 
@@ -400,7 +399,7 @@ async def fork_kit(
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
-        AuditEventType.COURSE_KIT_GENERATION_QUEUED,   # reuse until STEP-08 adds FORKED
+        AuditEventType.COURSE_KIT_FORKED,
         actor_user_id=current_user.user_id,
         actor_role=current_user.role,
         tenant_id=current_user.tenant_id,
@@ -409,10 +408,8 @@ async def fork_kit(
         target_id=str(new_kit.id),
         metadata={
             "source_id":   str(kit_id),
-            "new_id":      str(new_kit.id),
             "new_version": new_kit.version,
             "change_note": payload.change_note,
-            "action":      "forked",
         },
     )
     return CourseKitStatusResponse.model_validate(new_kit)
@@ -466,6 +463,16 @@ async def reorder_slides(
         count = await CourseKitService.reorder_slides(kit_id, order_map, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_SLIDES_REORDERED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="CourseKit",
+        target_id=str(kit_id),
+        metadata={"updated": count},
+    )
     return {"updated": count}
 
 
@@ -480,6 +487,16 @@ async def add_slide(
         slide = await CourseKitService.add_slide(kit_id, payload, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_SLIDE_ADDED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitSlide",
+        target_id=str(slide.id),
+        metadata={"kit_id": str(kit_id), "slide_number": slide.slide_number},
+    )
     return _gate_slide(KitSlideResponse.model_validate(slide), current_user.role)
 
 
@@ -495,6 +512,16 @@ async def update_slide(
         slide = await CourseKitService.update_slide(slide_id, kit_id, payload, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_SLIDE_UPDATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitSlide",
+        target_id=str(slide_id),
+        metadata={"kit_id": str(kit_id), "changes": payload.model_dump(exclude_none=True)},
+    )
     return _gate_slide(KitSlideResponse.model_validate(slide), current_user.role)
 
 
@@ -509,6 +536,16 @@ async def delete_slide(
         await CourseKitService.delete_slide(slide_id, kit_id, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_SLIDE_DELETED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitSlide",
+        target_id=str(slide_id),
+        metadata={"kit_id": str(kit_id)},
+    )
     return {"status": "deleted"}
 
 
@@ -543,6 +580,16 @@ async def add_quizlet(
         quizlet = await CourseKitService.add_quizlet(kit_id, payload, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_QUIZLET_ADDED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitQuizlet",
+        target_id=str(quizlet.id),
+        metadata={"kit_id": str(kit_id), "question_number": quizlet.question_number},
+    )
     return _gate_quizlet(KitQuizletResponse.model_validate(quizlet), current_user.role)
 
 
@@ -560,6 +607,16 @@ async def update_quizlet(
         )
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_QUIZLET_UPDATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitQuizlet",
+        target_id=str(quizlet_id),
+        metadata={"kit_id": str(kit_id), "changes": payload.model_dump(exclude_none=True)},
+    )
     return _gate_quizlet(KitQuizletResponse.model_validate(quizlet), current_user.role)
 
 
@@ -574,6 +631,16 @@ async def delete_quizlet(
         await CourseKitService.delete_quizlet(quizlet_id, kit_id, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_QUIZLET_DELETED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitQuizlet",
+        target_id=str(quizlet_id),
+        metadata={"kit_id": str(kit_id)},
+    )
     return {"status": "deleted"}
 
 
@@ -608,6 +675,20 @@ async def add_assignment(
         assignment = await CourseKitService.add_assignment(kit_id, payload, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_ASSIGNMENT_ADDED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitAssignment",
+        target_id=str(assignment.id),
+        metadata={
+            "kit_id":            str(kit_id),
+            "assignment_number": assignment.assignment_number,
+            "assignment_type":   assignment.assignment_type.value,
+        },
+    )
     return _gate_assignment(
         KitAssignmentResponse.model_validate(assignment), current_user.role
     )
@@ -627,6 +708,16 @@ async def update_assignment(
         )
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_ASSIGNMENT_UPDATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitAssignment",
+        target_id=str(assignment_id),
+        metadata={"kit_id": str(kit_id), "changes": payload.model_dump(exclude_none=True)},
+    )
     return _gate_assignment(
         KitAssignmentResponse.model_validate(assignment), current_user.role
     )
@@ -643,4 +734,14 @@ async def delete_assignment(
         await CourseKitService.delete_assignment(assignment_id, kit_id, db=db)
     except KitServiceError as e:
         raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_ASSIGNMENT_DELETED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="KitAssignment",
+        target_id=str(assignment_id),
+        metadata={"kit_id": str(kit_id)},
+    )
     return {"status": "deleted"}
