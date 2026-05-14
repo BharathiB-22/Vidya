@@ -165,7 +165,7 @@ export default function SyllabusDetailPage() {
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
             AI generation did not complete. The syllabus has been reset to Draft.
-            Check the Gemini quota, then use <strong>Generate with AI</strong> to retry.
+            Check AI provider configuration or quota, then use <strong>Generate with AI</strong> to retry.
           </span>
         </div>
       )}
