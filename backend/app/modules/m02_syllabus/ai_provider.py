@@ -410,7 +410,10 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
       course_outcomes  -> outcomes
 
     Per CO:
-      co               -> description
+      co_statement     -> description  (primary observed alias)
+      co_description   -> description  (fallback alias)
+      statement        -> description  (fallback alias)
+      co               -> description  (original fallback alias)
       (missing code)   -> CO1, CO2, …  (stable sequential codes)
       (missing suggested_po_codes) -> []
 
@@ -444,8 +447,15 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
     for i, co in enumerate(outcomes):
         if not isinstance(co, dict):
             continue
-        if "co" in co and "description" not in co:
-            co["description"] = co.pop("co")
+        # Map description aliases in priority order; leave alone if already present.
+        if "description" not in co:
+            for alias in ("co_statement", "co_description", "statement", "co"):
+                if alias in co:
+                    co["description"] = co.pop(alias)
+                    break
+        # Always strip remaining alias keys so Pydantic sees no unexpected fields.
+        for alias in ("co_statement", "co_description", "statement", "co"):
+            co.pop(alias, None)
         if not co.get("code"):
             co["code"] = f"CO{i + 1}"
         if "suggested_po_codes" not in co:

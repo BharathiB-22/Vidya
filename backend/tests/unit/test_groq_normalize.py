@@ -21,7 +21,7 @@ from app.modules.m02_syllabus.ai_provider import (
 )
 
 # ---------------------------------------------------------------------------
-# Fixture: observed Groq response shape
+# Fixture 1: original observed Groq response shape (co alias)
 # ---------------------------------------------------------------------------
 
 _GROQ_RAW = json.dumps({
@@ -93,7 +93,84 @@ _GROQ_RAW = json.dumps({
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Fixture 2: observed Groq response using co_statement / co_description aliases
+# (the shape that broke generation after the initial normalization commit)
+# ---------------------------------------------------------------------------
+
+_GROQ_RAW_CO_STATEMENT = json.dumps({
+    "course_outcomes": [
+        {
+            "co_id": "CO1",
+            "co_statement": "Apply machine learning algorithms to real-world datasets",
+            "co_description": "Students will apply supervised and unsupervised ML techniques",
+            "bloom_level": "Apply",
+            "suggested_po_codes": ["PO1", "PO2"],
+            # code intentionally absent -> should become CO1
+        },
+        {
+            "co_id": "CO2",
+            "co_statement": "Analyse and evaluate model performance using standard metrics",
+            "co_description": "Students will use ROC, F1, and cross-validation",
+            "bloom_level": "Analyse",
+            "suggested_po_codes": ["PO3"],
+        },
+        {
+            "co_id": "CO3",
+            "co_statement": "Design neural network architectures for classification",
+            "co_description": "Students will implement CNNs and MLPs",
+            "bloom_level": "Create",
+            "suggested_po_codes": ["PO2"],
+        },
+        {
+            "co_id": "CO4",
+            "co_statement": "Understand theoretical foundations of supervised learning",
+            "co_description": "Students will explain bias-variance tradeoff and regularisation",
+            "bloom_level": "Understand",
+            "suggested_po_codes": ["PO1"],
+        },
+    ],
+    "units": [
+        {
+            "unit_number": 1,
+            "title": "Introduction to Machine Learning",
+            "total_hours": 10,
+            "pedagogy": "lecture",
+            "topics": ["History of ML", "Types of learning", "Key terminology"],
+        },
+        {
+            "unit_number": 2,
+            "title": "Linear Models",
+            "total_hours": 8,
+            "pedagogy": "lecture",
+            "topics": ["Linear regression", "Logistic regression"],
+        },
+        {
+            "unit_number": 3,
+            "title": "Neural Networks",
+            "total_hours": 12,
+            "pedagogy": "lab",
+            "topics": ["Perceptron", "Backpropagation"],
+        },
+        {
+            "unit_number": 4,
+            "title": "Model Evaluation",
+            "total_hours": 6,
+            "pedagogy": "seminar",
+            "topics": ["Cross-validation", "ROC curves"],
+        },
+    ],
+    "reference_queries": [
+        {"query": "machine learning fundamentals textbook", "ref_type": "TEXTBOOK"},
+        {"query": "deep learning neural networks", "ref_type": "REFERENCE"},
+        {"query": "scikit-learn python", "ref_type": "TEXTBOOK"},
+        {"query": "statistical learning theory", "ref_type": "JOURNAL"},
+        {"query": "reinforcement learning markov", "ref_type": "TEXTBOOK"},
+    ],
+})
+
+
+# ---------------------------------------------------------------------------
+# Tests — Fixture 1 (co alias)
 # ---------------------------------------------------------------------------
 
 def test_normalize_top_level_key():
@@ -171,3 +248,78 @@ def test_invalid_json_raises_parse_error():
 def test_non_object_json_raises_parse_error():
     with pytest.raises(SyllabusAIParseError, match="not a JSON object"):
         _normalize_groq_response("[1, 2, 3]")
+
+
+# ---------------------------------------------------------------------------
+# Tests — Fixture 2 (co_statement / co_description aliases)
+# ---------------------------------------------------------------------------
+
+def test_co_statement_maps_to_description():
+    """co_statement is the primary observed alias — must become description."""
+    result = _normalize_groq_response(_GROQ_RAW_CO_STATEMENT)
+    for co in result["outcomes"]:
+        assert "description" in co, f"CO missing description: {co}"
+        assert "co_statement" not in co, f"co_statement not removed: {co}"
+
+
+def test_co_description_alias_removed():
+    """co_description is a redundant alias — must be removed after co_statement wins."""
+    result = _normalize_groq_response(_GROQ_RAW_CO_STATEMENT)
+    for co in result["outcomes"]:
+        assert "co_description" not in co, f"co_description not removed: {co}"
+
+
+def test_co_id_does_not_become_description():
+    """co_id must not bleed into description; code should be filled from co_id or sequential."""
+    result = _normalize_groq_response(_GROQ_RAW_CO_STATEMENT)
+    for co in result["outcomes"]:
+        # description must be the human-readable statement, not the co_id string
+        assert not co["description"].startswith("CO"), (
+            f"description looks like a CO ID, not a statement: {co['description']}"
+        )
+
+
+def test_co_statement_codes_filled():
+    """Codes absent in fixture — normalizer must fill CO1..CO4 sequentially."""
+    result = _normalize_groq_response(_GROQ_RAW_CO_STATEMENT)
+    codes = [co["code"] for co in result["outcomes"]]
+    assert codes == ["CO1", "CO2", "CO3", "CO4"]
+
+
+def test_co_statement_full_pydantic_validation_passes():
+    """End-to-end: normalized co_statement shape validates through _SyllabusAI."""
+    normalized = _normalize_groq_response(_GROQ_RAW_CO_STATEMENT)
+    parsed = _SyllabusAI.model_validate(normalized)
+    assert len(parsed.outcomes) == 4
+    assert len(parsed.units) == 4
+    assert len(parsed.reference_queries) == 5
+    assert all(co.code.startswith("CO") for co in parsed.outcomes)
+    # description must be long enough (>= 15 chars per _COAI schema)
+    assert all(len(co.description) >= 15 for co in parsed.outcomes)
+
+
+def test_description_present_takes_priority():
+    """If description is already present, co_statement must not overwrite it."""
+    raw = json.dumps({
+        "outcomes": [
+            {
+                "description": "Existing correct description with enough length",
+                "co_statement": "Should be ignored",
+                "bloom_level": "Apply",
+                "code": "CO1",
+                "suggested_po_codes": [],
+            },
+        ],
+        "units": [
+            {"unit_number": i, "title": f"Unit {i}", "total_hours": 6,
+             "pedagogy": "lecture", "topics": [f"Topic {i}"]}
+            for i in range(1, 5)
+        ],
+        "reference_queries": [
+            {"query_str": f"search term {i} textbook undergraduate", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+    result = _normalize_groq_response(raw)
+    assert result["outcomes"][0]["description"] == "Existing correct description with enough length"
+    assert "co_statement" not in result["outcomes"][0]
