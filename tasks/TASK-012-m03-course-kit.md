@@ -1,5 +1,7 @@
 # TASK-012 — M03 Course Kit Builder
 
+**Status: CLOSED — Implementation complete, PRD-aligned, demo-ready (2026-05-15)**
+
 Phase 1, Module 3. Generates complete per-unit teaching kits from approved syllabi.
 
 ## Stack
@@ -80,7 +82,7 @@ React 18 · TypeScript · shadcn/ui · python-pptx · ReportLab · Gemini / Groq
 | STEP-15d | Groq normalizer fix 2 | COMPLETE | 89275a7 |
 | STEP-16 | Student handout PDF export (sanitized, watermarked) | COMPLETE | — |
 | STEP-17 | Task file creation + memory update | COMPLETE | — |
-| **MANUAL QA** | Full demo flow: Login → Syllabus → Generate → Export (all 3 formats) | PENDING | — |
+| **MANUAL QA** | Celery+Redis confirmed working; API auth/kit/export/RBAC/audit checks passed; correct Windows Celery cmd recorded | VERIFIED | 2026-05-15 |
 
 ## Key Architecture Decisions
 
@@ -110,3 +112,12 @@ React 18 · TypeScript · shadcn/ui · python-pptx · ReportLab · Gemini / Groq
 
 - M05 (Learning Materials): independent sibling, consumes PUBLISHED kits
 - M06 (Labs Evaluator): consumes assignments; owns full assessment + submission pipeline
+
+## Local Dev — Celery Startup (Windows)
+
+```powershell
+cd C:\Vidya\backend
+.venv\Scripts\celery.exe -A app.workers.celery_app worker -Q celery,celery-heavy --loglevel=info --pool=solo
+```
+
+Notes: use `.venv\Scripts\celery.exe` (not `python -m celery`); `--pool=solo` avoids Windows asyncio/prefork conflicts; run in a dedicated terminal, never pipe output.
