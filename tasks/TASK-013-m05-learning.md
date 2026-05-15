@@ -194,7 +194,7 @@ Indexes: (session_id), (session_id, created_at)
 | 10 | RAG Q&A service | `m05_learning_materials/rag_service.py` | [x] |
 | 11 | Package service layer | `m05_learning_materials/service.py` | [x] |
 | 12 | Router + RBAC | `m05_learning_materials/router.py` | [x] |
-| 13 | Config + wiring | `config.py`, `main.py`, `requirements.txt` | [ ] |
+| 13 | Config + wiring | `config.py`, `main.py`, `requirements.txt` | [x] |
 | 14 | Frontend student view + offline PDF | `frontend/src/pages/LearningPackage.tsx` | [ ] |
 | 15 | Frontend Q&A chat | `frontend/src/components/NotebookQA.tsx` | [ ] |
 | 16 | Frontend faculty curation | `frontend/src/pages/FacultyCurate.tsx` | [ ] |
