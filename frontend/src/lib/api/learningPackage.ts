@@ -1,5 +1,9 @@
 import api from '@/lib/api'
 import type {
+  CurationJobResponse,
+  FacultyAddItemPayload,
+  IndexJobResponse,
+  JobStatus,
   LearningPackage,
   LearningPackageListFilters,
   LearningPackageListResponse,
@@ -43,8 +47,8 @@ export async function listItems(
   return data
 }
 
-export async function getJobStatus(jobId: string): Promise<Record<string, unknown>> {
-  const { data } = await api.get<Record<string, unknown>>(`${BASE}/jobs/${jobId}`)
+export async function getJobStatus(jobId: string): Promise<JobStatus> {
+  const { data } = await api.get<JobStatus>(`${BASE}/jobs/${jobId}`)
   return data
 }
 
@@ -53,6 +57,53 @@ export async function listReadyPackages(
   syllabusId: string,
 ): Promise<LearningPackageListResponse> {
   return listPackages({ syllabus_id: syllabusId, status: 'READY' as PackageStatus })
+}
+
+// ---------------------------------------------------------------------------
+// Faculty curation mutations
+// ---------------------------------------------------------------------------
+
+export async function triggerCuration(
+  syllabusId: string,
+  unitNumber: number,
+  topN?: number,
+): Promise<CurationJobResponse> {
+  const body: Record<string, unknown> = {
+    syllabus_id: syllabusId,
+    unit_number: unitNumber,
+  }
+  if (topN) body.top_n = topN
+  const { data } = await api.post<CurationJobResponse>(`${BASE}/curate`, body)
+  return data
+}
+
+export async function triggerIndexing(packageId: string): Promise<IndexJobResponse> {
+  const { data } = await api.post<IndexJobResponse>(`${BASE}/${packageId}/index`)
+  return data
+}
+
+export async function addFacultyItem(
+  packageId: string,
+  payload: FacultyAddItemPayload,
+): Promise<PackageItem> {
+  const { data } = await api.post<PackageItem>(`${BASE}/${packageId}/items`, payload)
+  return data
+}
+
+export async function removeItem(packageId: string, itemId: string): Promise<void> {
+  await api.delete(`${BASE}/${packageId}/items/${itemId}`)
+}
+
+export async function toggleRecommendation(
+  packageId: string,
+  itemId: string,
+  value: boolean,
+): Promise<PackageItem> {
+  const { data } = await api.patch<PackageItem>(
+    `${BASE}/${packageId}/items/${itemId}/recommend`,
+    { faculty_recommended: value },
+  )
+  return data
 }
 
 // ---------------------------------------------------------------------------

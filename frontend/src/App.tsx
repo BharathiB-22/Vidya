@@ -9,6 +9,7 @@ import CourseKitListPage from '@/pages/CourseKitListPage'
 import CourseKitDetailPage from '@/pages/CourseKitDetailPage'
 import LearningPackageListPage from '@/pages/LearningPackageListPage'
 import LearningPackagePage from '@/pages/LearningPackage'
+import FacultyCuratePage from '@/pages/FacultyCurate'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/course-kits/:id" element={<CourseKitDetailPage />} />
         <Route path="/learning-packages" element={<LearningPackageListPage />} />
         <Route path="/learning-packages/:id" element={<LearningPackagePage />} />
+        <Route path="/learning-packages/:id/curate" element={<FacultyCuratePage />} />
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
     </Routes>

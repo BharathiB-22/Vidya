@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   ExternalLink,
   Download,
+  Settings2,
   Star,
   Loader2,
   AlertTriangle,
@@ -186,10 +187,14 @@ function ItemCard({ item }: { item: PackageItem }) {
 // Page
 // ---------------------------------------------------------------------------
 
+const FACULTY_ROLES = ['ADMIN', 'FACULTY']
+
 export default function LearningPackagePage() {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL')
+  const role = localStorage.getItem('vidya_role') ?? ''
+  const canCurate = FACULTY_ROLES.includes(role)
 
   const packageId = id ?? ''
 
@@ -279,18 +284,31 @@ export default function LearningPackagePage() {
           </div>
         </div>
 
-        {/* ── PDF download placeholder ── */}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled
-          title="PDF export is not yet available for this module"
-          className="shrink-0 gap-1.5"
-        >
-          <Download className="h-4 w-4" />
-          Download PDF
-          <span className="ml-1 text-[10px] font-normal text-gray-400">(coming soon)</span>
-        </Button>
+        {/* ── Actions ── */}
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          {canCurate && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => navigate(`/learning-packages/${packageId}/curate`)}
+            >
+              <Settings2 className="h-4 w-4" />
+              Faculty Curation
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled
+            title="PDF export is not yet available for this module"
+            className="gap-1.5"
+          >
+            <Download className="h-4 w-4" />
+            Download PDF
+            <span className="ml-1 text-[10px] font-normal text-gray-400">(coming soon)</span>
+          </Button>
+        </div>
       </div>
 
       {/* ── Non-ready notice ── */}

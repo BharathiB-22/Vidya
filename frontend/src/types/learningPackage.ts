@@ -125,3 +125,31 @@ export interface RAGAnswerResponse {
   sources:    RAGSourceCitation[]
   model_used: string | null
 }
+
+// ---------------------------------------------------------------------------
+// Faculty curation types
+// ---------------------------------------------------------------------------
+
+export interface CurationJobResponse {
+  job_id:     string
+  package_id: string
+  status:     string
+}
+
+export interface IndexJobResponse {
+  job_id: string
+  status: string
+}
+
+export interface JobStatus {
+  job_id:   string
+  status:   'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+  message?: string | null
+  error?:   string | null
+}
+
+export interface FacultyAddItemPayload {
+  source_type: MaterialSourceType
+  title:       string
+  url?:        string | null
+}

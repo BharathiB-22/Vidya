@@ -7,4 +7,9 @@ export {
   useQASessions,
   useQASession,
   useAskQuestion,
+  useTriggerCuration,
+  useTriggerIndexing,
+  useAddFacultyItem,
+  useRemoveItem,
+  useToggleRecommendation,
 } from './useLearningPackage'
