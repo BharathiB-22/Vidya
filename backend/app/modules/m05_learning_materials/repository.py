@@ -214,6 +214,36 @@ class LearningPackageRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def count_by_syllabus(
+        syllabus_id: UUID,
+        *,
+        status_filter: PackageStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        stmt = select(func.count(LearningPackage.id)).where(
+            LearningPackage.syllabus_id == syllabus_id
+        )
+        if status_filter is not None:
+            stmt = stmt.where(LearningPackage.status == status_filter)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
+    async def update_item_count(
+        package_id: UUID,
+        item_count: int,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Update the denormalized item_count (called by service after add/remove)."""
+        stmt = (
+            update(LearningPackage)
+            .where(LearningPackage.id == package_id)
+            .values(item_count=item_count, updated_at=func.now())
+        )
+        await db.execute(stmt)
+
+    @staticmethod
     async def list_by_syllabus(
         syllabus_id: UUID,
         *,
@@ -315,6 +345,23 @@ class PackageItemRepository:
             update(PackageItem)
             .where(PackageItem.id == item_id)
             .values(qdrant_indexed=True, updated_at=func.now())
+            .returning(PackageItem)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def set_faculty_recommended(
+        item_id: UUID,
+        value: bool,
+        *,
+        db: AsyncSession,
+    ) -> PackageItem | None:
+        """Set or clear the faculty_recommended flag on a single item."""
+        stmt = (
+            update(PackageItem)
+            .where(PackageItem.id == item_id)
+            .values(faculty_recommended=value, updated_at=func.now())
             .returning(PackageItem)
         )
         result = await db.execute(stmt)

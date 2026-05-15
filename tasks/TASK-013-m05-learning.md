@@ -192,7 +192,7 @@ Indexes: (session_id), (session_id, created_at)
 | 08 | Curation Celery task | `workers/heavy/curate_learning_package.py` | [x] |
 | 09 | Qdrant RAG indexer Celery task | `workers/heavy/index_package_rag.py` | [x] |
 | 10 | RAG Q&A service | `m05_learning_materials/rag_service.py` | [x] |
-| 11 | Package service layer | `m05_learning_materials/service.py` | [ ] |
+| 11 | Package service layer | `m05_learning_materials/service.py` | [x] |
 | 12 | Router + RBAC | `m05_learning_materials/router.py` | [ ] |
 | 13 | Config + wiring | `config.py`, `main.py`, `requirements.txt` | [ ] |
 | 14 | Frontend student view + offline PDF | `frontend/src/pages/LearningPackage.tsx` | [ ] |
