@@ -5,6 +5,9 @@ import type {
   LearningPackageListResponse,
   PackageItem,
   PackageStatus,
+  QASession,
+  QASessionWithMessages,
+  RAGAnswerResponse,
 } from '@/types/learningPackage'
 
 const BASE = '/learning-packages'
@@ -50,4 +53,38 @@ export async function listReadyPackages(
   syllabusId: string,
 ): Promise<LearningPackageListResponse> {
   return listPackages({ syllabus_id: syllabusId, status: 'READY' as PackageStatus })
+}
+
+// ---------------------------------------------------------------------------
+// Q&A
+// ---------------------------------------------------------------------------
+
+export async function askQuestion(
+  packageId: string,
+  question: string,
+  sessionId?: string,
+): Promise<RAGAnswerResponse> {
+  const params: Record<string, string> = {}
+  if (sessionId) params.session_id = sessionId
+  const { data } = await api.post<RAGAnswerResponse>(
+    `${BASE}/${packageId}/ask`,
+    { question },
+    { params },
+  )
+  return data
+}
+
+export async function listQASessions(packageId: string): Promise<QASession[]> {
+  const { data } = await api.get<QASession[]>(`${BASE}/${packageId}/qa/sessions`)
+  return data
+}
+
+export async function getQASession(
+  packageId: string,
+  sessionId: string,
+): Promise<QASessionWithMessages> {
+  const { data } = await api.get<QASessionWithMessages>(
+    `${BASE}/${packageId}/qa/sessions/${sessionId}`,
+  )
+  return data
 }

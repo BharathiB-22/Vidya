@@ -82,3 +82,46 @@ export interface LearningPackageListFilters {
   page?:       number
   page_size?:  number
 }
+
+// ---------------------------------------------------------------------------
+// Q&A types
+// ---------------------------------------------------------------------------
+
+export type QARole = 'USER' | 'ASSISTANT'
+
+export interface RAGSourceCitation {
+  item_id:         string
+  title:           string
+  url:             string | null
+  snippet:         string
+  relevance_score: number | null
+}
+
+export interface QAMessage {
+  id:         string
+  session_id: string
+  role:       QARole
+  content:    string
+  sources:    RAGSourceCitation[]
+  created_at: string
+}
+
+export interface QASession {
+  id:              string
+  package_id:      string
+  student_user_id: string
+  created_at:      string
+  updated_at:      string | null
+}
+
+export interface QASessionWithMessages extends QASession {
+  messages: QAMessage[]
+}
+
+export interface RAGAnswerResponse {
+  session_id: string
+  message_id: string
+  answer:     string
+  sources:    RAGSourceCitation[]
+  model_used: string | null
+}

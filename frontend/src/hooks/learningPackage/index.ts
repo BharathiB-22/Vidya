@@ -4,4 +4,7 @@ export {
   useLearningPackage,
   usePackageItems,
   usePackageJob,
+  useQASessions,
+  useQASession,
+  useAskQuestion,
 } from './useLearningPackage'

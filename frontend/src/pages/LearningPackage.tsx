@@ -30,6 +30,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PackageStatusBadge } from '@/components/learningPackage/PackageStatusBadge'
+import { NotebookQA } from '@/components/NotebookQA'
 import { useLearningPackage, usePackageItems } from '@/hooks/learningPackage'
 import type { MaterialSourceType, PackageItem } from '@/types/learningPackage'
 
@@ -370,6 +371,14 @@ export default function LearningPackagePage() {
           {sourceFilter !== 'ALL' && ` · ${SOURCE_CONFIG[sourceFilter as MaterialSourceType]?.label ?? sourceFilter} only`}
         </p>
       )}
+
+      {/* ── Q&A ── */}
+      <div className="pt-2">
+        <NotebookQA
+          packageId={packageId}
+          qdrantIndexed={pkg.qdrant_indexed}
+        />
+      </div>
     </div>
   )
 }
