@@ -190,7 +190,7 @@ Indexes: (session_id), (session_id, created_at)
 | 06 | Embedder + ranker | `m05_learning_materials/embedder.py` | [x] |
 | 07 | Repository | `m05_learning_materials/repository.py` | [x] |
 | 08 | Curation Celery task | `workers/heavy/curate_learning_package.py` | [x] |
-| 09 | Qdrant RAG indexer Celery task | `workers/heavy/index_package_rag.py` | [ ] |
+| 09 | Qdrant RAG indexer Celery task | `workers/heavy/index_package_rag.py` | [x] |
 | 10 | RAG Q&A service | `m05_learning_materials/rag_service.py` | [ ] |
 | 11 | Package service layer | `m05_learning_materials/service.py` | [ ] |
 | 12 | Router + RBAC | `m05_learning_materials/router.py` | [ ] |
