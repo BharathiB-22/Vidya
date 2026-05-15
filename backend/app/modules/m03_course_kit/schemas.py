@@ -348,8 +348,12 @@ class ComplianceCheckResponse(BaseModel):
 
 class KitExportRequest(BaseModel):
     format: str = Field(
-        default="pdf",
-        description="Export format: 'pdf' (slide handout) or 'pptx' (full deck with notes).",
+        default="pptx",
+        description=(
+            "Export format: 'pptx' (full deck with speaker notes, faculty only fields),"
+            " 'pdf' (faculty slide deck, role-aware), or"
+            " 'handout' (student PDF — sanitized, no answer keys / notes / rubrics)."
+        ),
     )
 
 

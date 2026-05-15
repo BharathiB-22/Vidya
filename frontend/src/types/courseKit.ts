@@ -333,5 +333,5 @@ export interface ForkRequest {
 }
 
 export interface KitExportRequest {
-  format: 'pdf' | 'pptx'
+  format: 'pdf' | 'pptx' | 'handout'
 }

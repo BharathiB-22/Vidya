@@ -271,12 +271,12 @@ export function ForkKitDialog({ open, onOpenChange, onSubmit, isPending }: ForkD
 interface ExportDialogProps {
   open:         boolean
   onOpenChange: (open: boolean) => void
-  onSubmit:     (format: 'pdf' | 'pptx') => void
+  onSubmit:     (format: 'pdf' | 'pptx' | 'handout') => void
   isPending?:   boolean
 }
 
 export function ExportKitDialog({ open, onOpenChange, onSubmit, isPending }: ExportDialogProps) {
-  const [format, setFormat] = useState<'pdf' | 'pptx'>('pptx')
+  const [format, setFormat] = useState<'pdf' | 'pptx' | 'handout'>('pptx')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -291,11 +291,12 @@ export function ExportKitDialog({ open, onOpenChange, onSubmit, isPending }: Exp
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Format</label>
-            <Select value={format} onValueChange={(v) => setFormat(v as 'pdf' | 'pptx')}>
+            <Select value={format} onValueChange={(v) => setFormat(v as 'pdf' | 'pptx' | 'handout')}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="pptx">PowerPoint (PPTX)</SelectItem>
-                <SelectItem value="pdf">PDF</SelectItem>
+                <SelectItem value="pptx">PowerPoint (PPTX) — faculty deck with notes</SelectItem>
+                <SelectItem value="pdf">PDF — faculty slide deck</SelectItem>
+                <SelectItem value="handout">Student Handout (PDF) — sanitized, no answer keys</SelectItem>
               </SelectContent>
             </Select>
           </div>

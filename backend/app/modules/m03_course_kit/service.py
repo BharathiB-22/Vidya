@@ -540,9 +540,11 @@ class CourseKitService:
         """
         Queue the export task.  Returns job_id (str).
 
-        Kit must be PUBLISHED or ARCHIVED.  Format must be 'pdf' or 'pptx'.
+        Kit must be PUBLISHED or ARCHIVED.  Format must be 'pdf', 'pptx', or 'handout'.
+        'handout' always produces a sanitized student PDF (no speaker_notes / answer_key /
+        model_answer / rubric) regardless of role.
         requested_by_role is forwarded to the task for DEAN sensitive-field
-        gating (speaker_notes / answer_key / model_answer omitted for DEAN).
+        gating on 'pdf' and 'pptx' exports.
         """
         from app.workers.heavy.course_kit_export import export_course_kit  # noqa: PLC0415
 
@@ -553,10 +555,10 @@ class CourseKitService:
                 f"Export requires PUBLISHED or ARCHIVED kit; kit is {kit.status.value}.",
                 422,
             )
-        if export_format not in ("pdf", "pptx"):
+        if export_format not in ("pdf", "pptx", "handout"):
             raise KitServiceError(
                 "INVALID_FORMAT",
-                "Export format must be 'pdf' or 'pptx'.",
+                "Export format must be 'pdf', 'pptx', or 'handout'.",
                 422,
             )
 

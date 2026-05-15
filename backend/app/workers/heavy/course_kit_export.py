@@ -141,7 +141,11 @@ async def _run_export(
                 )
                 ext = "pptx"
                 _generate_pptx(buf, kit, course, is_dean=is_dean)
-            else:
+            elif export_format == "handout":
+                content_type = "application/pdf"
+                ext = "pdf"
+                _generate_handout_pdf(buf, kit, course)
+            else:  # "pdf"
                 content_type = "application/pdf"
                 ext = "pdf"
                 _generate_pdf(buf, kit, course, is_dean=is_dean)
@@ -151,7 +155,8 @@ async def _run_export(
             size_bytes = len(file_bytes)
 
             safe_code = re.sub(r"[^a-z0-9_-]", "_", course.code.lower())[:20].strip("_")
-            filename   = f"kit_{safe_code}_u{kit.unit_number}_v{kit.version}.{ext}"
+            suffix    = "_handout" if export_format == "handout" else ""
+            filename  = f"kit_{safe_code}_u{kit.unit_number}_v{kit.version}{suffix}.{ext}"
             file_uuid  = uuid_module.uuid4()
             object_key = (
                 f"vidya-assets/{tenant_slug}/course_kit_export"
@@ -581,3 +586,190 @@ def _generate_pdf(buf, kit, course, *, is_dean: bool) -> None:
                 story.append(Paragraph(f"  {url}", tiny))
 
     doc.build(story)
+
+
+# ---------------------------------------------------------------------------
+# Student handout PDF (sanitized — no speaker_notes, answer_key, model_answer, rubric)
+# ---------------------------------------------------------------------------
+
+def _generate_handout_pdf(buf, kit, course) -> None:
+    """
+    Produces a student-facing A4 PDF with a diagonal watermark.
+    All faculty-sensitive fields are excluded:
+      - KitSlide.speaker_notes
+      - KitQuizlet.answer_key and answer_explanation
+      - KitAssignment.model_answer and rubric
+    Available to ADMIN, FACULTY, and DEAN roles.
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    _BLUE   = colors.HexColor("#2E4057")
+    _ACCENT = colors.HexColor("#4472C4")
+    _ALT    = colors.HexColor("#EBF0FA")
+    _WMARK  = colors.Color(0.80, 0.80, 0.80, alpha=0.30)
+
+    watermark_text = f"STUDENT HANDOUT — {course.code}"
+
+    def _draw_watermark(canv, doc):
+        canv.saveState()
+        canv.setFont("Helvetica", 36)
+        canv.setFillColor(_WMARK)
+        canv.translate(A4[0] / 2, A4[1] / 2)
+        canv.rotate(45)
+        canv.drawCentredString(0, 0, watermark_text)
+        canv.restoreState()
+
+    HO_GRID = TableStyle([
+        ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
+        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 8),
+        ("BACKGROUND",    (0, 0), (-1, 0),  _ACCENT),
+        ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, _ALT]),
+        ("BOX",           (0, 0), (-1, -1), 0.5, colors.grey),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.grey),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+        ("TOPPADDING",    (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ])
+
+    styles = getSampleStyleSheet()
+    ho_small = ParagraphStyle("ho_small", parent=styles["Normal"], fontSize=8,  leading=10)
+    ho_tiny  = ParagraphStyle("ho_tiny",  parent=styles["Normal"], fontSize=7,  leading=9)
+    ho_h1    = ParagraphStyle("ho_h1",    parent=styles["Heading1"], textColor=_BLUE)
+    ho_h2    = ParagraphStyle("ho_h2",    parent=styles["Heading2"], textColor=_ACCENT)
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=2*cm, bottomMargin=2*cm,
+        leftMargin=2*cm, rightMargin=2*cm,
+    )
+    story = []
+
+    # ── Cover ─────────────────────────────────────────────────────────────
+    story.append(Paragraph(f"{course.code}: {course.title}", styles["Title"]))
+    story.append(Spacer(1, 0.2*cm))
+    story.append(Paragraph(f"Unit {kit.unit_number} — Student Handout", styles["Heading2"]))
+    story.append(Spacer(1, 0.3*cm))
+    story.append(HRFlowable(width="100%", thickness=2, color=_BLUE))
+    story.append(Spacer(1, 0.4*cm))
+
+    meta_rows = [
+        ["Course Code",  course.code],
+        ["Course Title", course.title],
+        ["Unit",         str(kit.unit_number)],
+        ["Complexity",   kit.complexity_level.value],
+    ]
+    if kit.published_at:
+        meta_rows.append(["Published At", kit.published_at.strftime("%Y-%m-%d")])
+
+    meta_t = Table(meta_rows, colWidths=[4.5*cm, 10*cm])
+    meta_t.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#F2F2F2")),
+        ("FONTNAME",      (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [colors.whitesmoke, colors.white]),
+        ("BOX",           (0, 0), (-1, -1), 0.5, colors.grey),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.grey),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(meta_t)
+    story.append(Spacer(1, 1*cm))
+
+    # ── Slides (content only — no speaker_notes) ──────────────────────────
+    slides_sorted = sorted(kit.slides or [], key=lambda s: s.slide_number)
+    if slides_sorted:
+        story.append(Paragraph("Slides", ho_h1))
+        story.append(Spacer(1, 0.3*cm))
+        for kit_slide in slides_sorted:
+            story.append(Paragraph(
+                f"Slide {kit_slide.slide_number}: {kit_slide.title or '(untitled)'}",
+                ho_h2,
+            ))
+            content      = kit_slide.content or {}
+            bullets      = content.get("bullets") or []
+            key_concepts = content.get("key_concepts") or []
+            for bullet in bullets:
+                story.append(Paragraph(f"• {bullet}", ho_small))
+            if key_concepts:
+                story.append(Paragraph(
+                    "Key concepts: " + "  |  ".join(key_concepts), ho_tiny,
+                ))
+            footer_parts = []
+            if kit_slide.bloom_level:
+                footer_parts.append(f"Bloom: {kit_slide.bloom_level.value}")
+            if kit_slide.co_reference:
+                footer_parts.append(f"CO: {kit_slide.co_reference}")
+            if footer_parts:
+                story.append(Paragraph(" | ".join(footer_parts), ho_tiny))
+            story.append(Spacer(1, 0.4*cm))
+        story.append(PageBreak())
+
+    # ── Quizlets (questions + options only — no answer_key, no explanation) ──
+    quizlets_sorted = sorted(kit.quizlets or [], key=lambda q: q.question_number)
+    if quizlets_sorted:
+        story.append(Paragraph("Quizlets", ho_h1))
+        story.append(Spacer(1, 0.3*cm))
+        for qz in quizlets_sorted:
+            story.append(Paragraph(
+                f"Q{qz.question_number}. [{qz.question_type.value}] {qz.question_text}",
+                ho_small,
+            ))
+            for opt in (qz.options or []):
+                if isinstance(opt, dict):
+                    story.append(Paragraph(
+                        f"  ({opt.get('label','?')}) {opt.get('text','')}", ho_tiny,
+                    ))
+            if qz.question_type.value == "SHORT_ANSWER":
+                for _ in range(3):
+                    story.append(Paragraph("_" * 80, ho_tiny))
+            story.append(Spacer(1, 0.3*cm))
+        story.append(PageBreak())
+
+    # ── Assignments (question text only — no model_answer, no rubric) ─────
+    assignments_sorted = sorted(
+        kit.assignments or [], key=lambda a: a.assignment_number
+    )
+    if assignments_sorted:
+        story.append(Paragraph("Assignments", ho_h1))
+        story.append(Spacer(1, 0.3*cm))
+        for asn in assignments_sorted:
+            story.append(Paragraph(
+                f"Assignment {asn.assignment_number}: {asn.title}", ho_h2,
+            ))
+            story.append(Paragraph(
+                f"Type: {asn.assignment_type.value}  |  "
+                f"Complexity: {asn.complexity_level.value}",
+                ho_tiny,
+            ))
+            story.append(Paragraph(asn.question_text, ho_small))
+            story.append(Spacer(1, 0.5*cm))
+
+    # ── Teaching resources ────────────────────────────────────────────────
+    resources = kit.resources or []
+    if resources:
+        story.append(Paragraph("Teaching Resources", ho_h1))
+        story.append(Spacer(1, 0.3*cm))
+        for res in resources:
+            rtype     = res.get("resource_type", "")
+            title_str = res.get("title", "")
+            url       = res.get("url")
+            desc      = res.get("description")
+            story.append(Paragraph(f"• [{rtype}] {title_str}", ho_small))
+            if desc:
+                story.append(Paragraph(f"  {desc}", ho_tiny))
+            if url:
+                story.append(Paragraph(f"  {url}", ho_tiny))
+
+    doc.build(story, onFirstPage=_draw_watermark, onLaterPages=_draw_watermark)
