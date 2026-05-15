@@ -280,6 +280,18 @@ class LearningPackageService:
         )
         return total, items
 
+    @staticmethod
+    async def list_items(
+        package_id: UUID,
+        *,
+        faculty_only: bool = False,
+        db: AsyncSession,
+    ) -> list[PackageItem]:
+        """Return items for a package ordered by display_order."""
+        return await PackageItemRepository.list_by_package(
+            package_id, faculty_only=faculty_only, db=db
+        )
+
     # =========================================================================
     # Faculty item management
     # =========================================================================
@@ -397,6 +409,33 @@ class LearningPackageService:
 
         await db.commit()
         return updated
+
+    # =========================================================================
+    # Q&A session reads
+    # =========================================================================
+
+    @staticmethod
+    async def list_qa_sessions(
+        package_id: UUID,
+        student_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> list:
+        from app.modules.m05_learning_materials.repository import PackageQARepository
+
+        return await PackageQARepository.list_sessions_for_student(
+            package_id, student_user_id, db=db
+        )
+
+    @staticmethod
+    async def get_qa_session(
+        session_id: UUID,
+        *,
+        db: AsyncSession,
+    ):
+        from app.modules.m05_learning_materials.repository import PackageQARepository
+
+        return await PackageQARepository.get_session_with_messages(session_id, db=db)
 
     # =========================================================================
     # Q&A
