@@ -698,6 +698,31 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             asgn["title"] = asgn.pop("task")
         if "solution" in asgn and "model_answer" not in asgn:
             asgn["model_answer"] = asgn.pop("solution")
+        # Groq returns rubric as a flat dict; _RubricAI expects list[{criterion,...}]
+        rubric = asgn.get("rubric")
+        if isinstance(rubric, dict):
+            asgn["rubric"] = [
+                {"criterion": str(v), "description": "", "max_marks": 5}
+                for v in rubric.values() if v
+            ]
+
+    # --- teaching_plan list-field normalization: Groq returns str, model expects list[str] ---
+    for week in data.get("teaching_plan", []):
+        if not isinstance(week, dict):
+            continue
+        for field in ("objectives", "activities", "co_references"):
+            val = week.get(field)
+            if isinstance(val, str):
+                week[field] = [val] if val else []
+
+    # --- lesson_plans list-field normalization: Groq returns str, model expects list[str] ---
+    for session in data.get("lesson_plans", []):
+        if not isinstance(session, dict):
+            continue
+        for field in ("objectives", "materials_needed", "bloom_levels", "co_references"):
+            val = session.get(field)
+            if isinstance(val, str):
+                session[field] = [val] if val else []
 
     return data
 
