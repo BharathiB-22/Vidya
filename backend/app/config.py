@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     M03_MIN_QUIZLETS_PER_UNIT: int = 2
     M03_DEFAULT_COMPLEXITY: str = "UG"   # UG or PG; overridable per kit
 
+    # Learning Material Packager (M05)
+    YOUTUBE_API_KEY: str = ""
+    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_API_KEY: str = ""
+    M05_TOP_N_PER_UNIT: int = 10
+    M05_EMBED_BATCH_SIZE: int = 64
+    M05_RAG_TOP_K: int = 5
+    M05_RAG_CHUNK_TOKENS: int = 512
+    M05_RAG_CHUNK_OVERLAP: int = 128
+
     # Storage MIME whitelist per entity type
     STORAGE_MIME_WHITELIST: dict = {
         "submission": [

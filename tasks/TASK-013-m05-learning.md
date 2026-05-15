@@ -185,8 +185,8 @@ Indexes: (session_id), (session_id, created_at)
 | 01 | DB models | `m05_learning_materials/models.py` | [x] |
 | 02 | Alembic migration | `alembic/tenant_versions/0008_tenant_create_m05_learning.py` | [x] |
 | 03 | Pydantic schemas | `m05_learning_materials/schemas.py` | [x] |
-| 04 | Source adapter base | `source_adapters/base.py` | [ ] |
-| 05 | Source adapter implementations | `source_adapters/{youtube,arxiv,nptel,mit_ocw}.py` | [ ] |
+| 04 | Source adapter base | `source_adapters/base.py` | [x] |
+| 05 | Source adapter implementations | `source_adapters/{youtube,arxiv,nptel,mit_ocw}.py` | [x] |
 | 06 | Embedder + ranker | `m05_learning_materials/embedder.py` | [ ] |
 | 07 | Repository | `m05_learning_materials/repository.py` | [ ] |
 | 08 | Curation Celery task | `workers/heavy/curate_learning_package.py` | [ ] |
