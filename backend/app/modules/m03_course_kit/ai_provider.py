@@ -653,11 +653,26 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             continue
         if not slide.get("slide_number"):
             slide["slide_number"] = i + 1
-        # If content is a plain string, wrap it as bullets
-        if isinstance(slide.get("content"), str):
-            slide["content"] = {"bullets": [slide["content"]]}
-        elif not isinstance(slide.get("content"), dict):
+        # Normalize content to a dict (Groq returns str, list, or dict)
+        content = slide.get("content")
+        if isinstance(content, str):
+            slide["content"] = {"bullets": [content]}
+        elif isinstance(content, list):
+            slide["content"] = {"bullets": content}
+        elif not isinstance(content, dict):
             slide["content"] = {}
+        # key_concepts inside content dict: str → list[str]
+        content_dict = slide["content"]
+        kc = content_dict.get("key_concepts")
+        if isinstance(kc, str):
+            content_dict["key_concepts"] = [kc] if kc else []
+        # Hoist slide-level key_concepts into content when Groq puts it outside the content object
+        slide_kc = slide.get("key_concepts")
+        if slide_kc is not None and not content_dict.get("key_concepts"):
+            if isinstance(slide_kc, str):
+                content_dict["key_concepts"] = [slide_kc] if slide_kc else []
+            elif isinstance(slide_kc, list):
+                content_dict["key_concepts"] = slide_kc
 
     # --- quizlet normalization ---
     for i, q in enumerate(data.get("quizlets", [])):
@@ -698,31 +713,57 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             asgn["title"] = asgn.pop("task")
         if "solution" in asgn and "model_answer" not in asgn:
             asgn["model_answer"] = asgn.pop("solution")
-        # Groq returns rubric as a flat dict; _RubricAI expects list[{criterion,...}]
+        # Groq returns rubric as a flat dict OR a list with aliased keys;
+        # _RubricAI expects list[{criterion, description, max_marks}]
         rubric = asgn.get("rubric")
         if isinstance(rubric, dict):
             asgn["rubric"] = [
                 {"criterion": str(v), "description": "", "max_marks": 5}
                 for v in rubric.values() if v
             ]
+        elif isinstance(rubric, list):
+            for item in rubric:
+                if not isinstance(item, dict):
+                    continue
+                # "criteria" → "criterion"
+                if "criteria" in item and "criterion" not in item:
+                    item["criterion"] = item.pop("criteria")
+                # "weight" (0.0–1.0) → "max_marks" (int)
+                if "weight" in item and "max_marks" not in item:
+                    try:
+                        item["max_marks"] = max(1, round(float(item.pop("weight")) * 10))
+                    except (TypeError, ValueError):
+                        item.pop("weight", None)
+                        item["max_marks"] = 5
+                # ensure description exists
+                item.setdefault("description", "")
 
     # --- teaching_plan list-field normalization: Groq returns str, model expects list[str] ---
     for week in data.get("teaching_plan", []):
         if not isinstance(week, dict):
             continue
-        for field in ("objectives", "activities", "co_references"):
+        for field in ("objectives", "activities"):
             val = week.get(field)
             if isinstance(val, str):
                 week[field] = [val] if val else []
+        # co_references: split "CO1, CO3" → ["CO1", "CO3"]
+        val = week.get("co_references")
+        if isinstance(val, str):
+            week["co_references"] = [v.strip() for v in val.split(",") if v.strip()]
 
     # --- lesson_plans list-field normalization: Groq returns str, model expects list[str] ---
     for session in data.get("lesson_plans", []):
         if not isinstance(session, dict):
             continue
-        for field in ("objectives", "materials_needed", "bloom_levels", "co_references"):
+        for field in ("objectives", "materials_needed"):
             val = session.get(field)
             if isinstance(val, str):
                 session[field] = [val] if val else []
+        # bloom_levels and co_references: split comma-separated strings
+        for field in ("bloom_levels", "co_references"):
+            val = session.get(field)
+            if isinstance(val, str):
+                session[field] = [v.strip() for v in val.split(",") if v.strip()]
 
     return data
 
