@@ -40,8 +40,7 @@ async def startup_event():
     try:
         await ensure_bucket_exists()
     except Exception as e:
-        logger.exception("Failed to ensure storage bucket exists: %s", e)
-        raise
+        logger.warning("Storage bucket unavailable at startup (MinIO not running?): %s", e)
 
 
 # ---------------------------------------------------------------------------
