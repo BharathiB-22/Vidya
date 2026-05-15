@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.workers.heavy.syllabus_export",
         "app.workers.heavy.course_kit_generation",
         "app.workers.heavy.course_kit_export",
+        "app.workers.heavy.curate_learning_package",
     ],
 )
 
