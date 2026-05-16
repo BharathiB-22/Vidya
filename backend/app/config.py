@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     M03_MIN_QUIZLETS_PER_UNIT: int = 2
     M03_DEFAULT_COMPLEXITY: str = "UG"   # UG or PG; overridable per kit
 
+    # Labs & Assignment Evaluator (M06)
+    M06_AI_SCAN_THRESHOLD: float = 0.75       # flag if AI probability >= this
+    M06_PLAGIARISM_THRESHOLD: float = 0.85    # flag if cosine similarity >= this
+    M06_CODE_TIMEOUT_SECONDS: int = 10        # subprocess sandbox timeout
+    M06_MAX_CODE_OUTPUT_CHARS: int = 4096     # truncate stdout/stderr beyond this
+
     # Learning Material Packager (M05)
     YOUTUBE_API_KEY: str = ""
     QDRANT_URL: str = "http://localhost:6333"

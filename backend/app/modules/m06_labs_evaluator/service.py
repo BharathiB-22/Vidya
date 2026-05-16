@@ -343,8 +343,12 @@ class SubmissionService:
         # Dispatch Celery task after commit (idempotent: task reads submission by id)
         from app.workers.heavy.evaluate_lab_submission import evaluate_lab_submission
         evaluate_lab_submission.apply_async(
-            args=[str(job.id), str(submission.id), str(assignment_id), schema_name],
-            task_id=str(job.id),
+            kwargs={
+                "job_id":        str(job.id),
+                "submission_id": str(submission.id),
+                "assignment_id": str(assignment_id),
+                "schema_name":   schema_name,
+            }
         )
         logger.info("Evaluation job %s dispatched for submission %s", job.id, submission.id)
         return submission, job.id

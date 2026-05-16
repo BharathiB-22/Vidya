@@ -352,6 +352,47 @@ async def ratify_submission(
 
 
 # ===========================================================================
+# Moderation report
+# ===========================================================================
+
+@router.get("/assignments/{assignment_id}/report")
+async def get_moderation_report(
+    assignment_id: UUID,
+    current_user: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Generate and return the moderation report CSV for an assignment."""
+    try:
+        assignment = await AssignmentService.get(assignment_id, db=db)
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+
+    from app.modules.m06_labs_evaluator.report_export import generate_csv_report
+    from fastapi.responses import Response
+
+    csv_content = await generate_csv_report(
+        assignment_id, assignment.rubric or [], db=db
+    )
+
+    await AuditService.log(
+        AuditEventType.LAB_REPORT_REQUESTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="lab_assignment",
+        target_id=str(assignment_id),
+    )
+
+    filename = f"moderation_report_{assignment_id}.csv"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ===========================================================================
 # Job status poll
 # ===========================================================================
 

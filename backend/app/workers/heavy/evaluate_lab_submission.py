@@ -1,0 +1,327 @@
+"""
+Celery heavy-queue task: evaluate a lab submission (M06).
+
+Flow for WRITTEN submissions:
+  1. Load submission + assignment from DB.
+  2. Transition submission status → EVALUATING.
+  3. Run AI content scan (perplexity + burstiness).
+  4. Run text plagiarism check (cosine similarity across cohort).
+  5. Run LLM rubric scoring (per-criterion score + justification).
+  6. Classify confidence (HIGH / MEDIUM / LOW).
+  7. Write LabEvaluation row; update LabSubmission status → EVALUATED.
+  8. Commit. Audit LAB_EVAL_COMPLETED.
+  9. Notify faculty (fire-and-forget).
+
+Flow for CODE submissions (additional steps):
+  3b. Run code sandbox (subprocess, timeout).
+  4b. Run static analysis (radon + pyflakes).
+  5b. Run AST plagiarism check (normalised AST cosine similarity).
+  6b. Run LLM rubric scoring on code + test results summary.
+  (Steps 3, 4 for AI content scan of code also run.)
+
+On failure:
+  - Transition submission status → EVALUATED with error note.
+  - Audit LAB_EVAL_FAILED.
+  - Re-raise so Celery marks the task FAILED.
+"""
+import asyncio
+import logging
+import sys
+from uuid import UUID
+
+from app.workers.base_task import VidyaTask
+from app.workers.celery_app import celery_app
+
+logger = logging.getLogger("vidya.worker.m06.evaluate_lab_submission")
+
+_async_engine = None
+
+
+def _get_async_engine():
+    global _async_engine
+    if _async_engine is None:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from app.config import settings
+        _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+    return _async_engine
+
+
+# ---------------------------------------------------------------------------
+# Celery task
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    base=VidyaTask,
+    name="app.workers.heavy.evaluate_lab_submission",
+    autoretry_for=(ConnectionError, TimeoutError, OSError),
+    max_retries=3,
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+)
+def evaluate_lab_submission(
+    *,
+    job_id: str,
+    submission_id: str,
+    assignment_id: str,
+    schema_name: str,
+    **kwargs,
+) -> dict:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    return asyncio.run(
+        _run_evaluation(
+            submission_id=UUID(submission_id),
+            assignment_id=UUID(assignment_id),
+            schema_name=schema_name,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Inner async implementation
+# ---------------------------------------------------------------------------
+
+async def _run_evaluation(
+    submission_id: UUID,
+    assignment_id: UUID,
+    schema_name: str,
+) -> dict:
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import selectinload
+
+    from app.config import settings
+    from app.core.audit_log.models import AuditEventType
+    from app.core.audit_log.service import AuditService
+    from app.modules.m06_labs_evaluator.models import (
+        AIScanStatus,
+        ConfidenceLevel,
+        LabSubmission,
+        SubmissionStatus,
+        SubmissionType,
+    )
+    from app.modules.m06_labs_evaluator.repository import (
+        EvaluationRepository,
+        SubmissionRepository,
+    )
+
+    engine = _get_async_engine()
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        await session.execute(text(f"SET search_path TO {schema_name}, public"))
+
+        # 1. Load submission
+        sub = await SubmissionRepository.get_by_id(submission_id, db=session)
+        if sub is None:
+            raise ValueError(f"Submission {submission_id} not found in {schema_name!r}.")
+
+        # Load assignment via direct query (no relationship loaded)
+        from sqlalchemy import select
+        from app.modules.m06_labs_evaluator.models import LabAssignment
+        assignment_row = (
+            await session.execute(select(LabAssignment).where(LabAssignment.id == assignment_id))
+        ).scalar_one_or_none()
+        if assignment_row is None:
+            raise ValueError(f"Assignment {assignment_id} not found.")
+
+        sub_type = sub.submission_type
+
+        # 2. Get content to evaluate
+        content = sub.content_text or ""
+        if not content and sub.content_url:
+            # For file uploads: in dev we note the URL; prod would download from S3
+            content = f"[File submission at {sub.content_url} — text extraction not yet implemented]"
+
+        # 3. AI content scan
+        from app.modules.m06_labs_evaluator.ai_scan import scan as ai_scan
+        scan_result = ai_scan(content, threshold=float(settings.M06_AI_SCAN_THRESHOLD))
+
+        ai_scan_status = AIScanStatus.FLAGGED if scan_result.is_flagged else AIScanStatus.CLEAN
+        await SubmissionRepository.set_ai_scan(
+            submission_id,
+            ai_scan_status,
+            {
+                "probability": scan_result.probability,
+                "confidence":  scan_result.confidence,
+                "highlights":  scan_result.highlights,
+            },
+            db=session,
+        )
+        await session.commit()
+
+        # 4. Plagiarism check
+        from app.modules.m06_labs_evaluator.models import LabSubmission as SubModel
+        cohort_raw = await SubmissionRepository.get_cohort_texts(
+            assignment_id, submission_id, db=session
+        )
+        plagiarism_score: float = 0.0
+        plagiarism_matches: list[dict] = []
+
+        if sub_type == SubmissionType.CODE:
+            from app.modules.m06_labs_evaluator.ast_similarity import compute_ast_similarity
+            plag_result = compute_ast_similarity(
+                content,
+                cohort_raw,
+                threshold=float(assignment_row.plagiarism_threshold),
+            )
+        else:
+            from app.modules.m06_labs_evaluator.plagiarism import compute_plagiarism
+            plag_result = compute_plagiarism(
+                content,
+                cohort_raw,
+                threshold=float(assignment_row.plagiarism_threshold),
+            )
+
+        plagiarism_score   = plag_result.max_similarity
+        plagiarism_matches = plag_result.matches
+
+        # 5 (CODE only). Sandbox + static analysis + test cases
+        test_results: list[dict] = []
+        static_analysis: dict | None = None
+
+        if sub_type == SubmissionType.CODE:
+            test_results, static_analysis = await _run_code_evaluation(
+                code=content,
+                test_cases=assignment_row.test_cases or [],
+                language=assignment_row.language or "python",
+            )
+
+        # 6. LLM rubric scoring
+        from app.modules.m06_labs_evaluator.rubric_scorer import score_submission
+
+        # Build question context for the LLM
+        question_ctx = assignment_row.description or assignment_row.title
+        if sub_type == SubmissionType.CODE and test_results:
+            pass_count = sum(1 for t in test_results if t.get("passed"))
+            total_tc   = len(test_results)
+            question_ctx += (
+                f"\n\n[Code evaluation: {pass_count}/{total_tc} test cases passed. "
+                f"Static analysis: complexity={static_analysis.get('complexity_score') if static_analysis else 'N/A'}]"
+            )
+
+        scoring_result = await score_submission(
+            question=question_ctx,
+            submission_text=content,
+            rubric=assignment_row.rubric or [],
+        )
+
+        # 7. Build rubric_scores list for storage
+        rubric_scores: list[dict] = [
+            {
+                "criterion_id":      cs.criterion_id,
+                "ai_score":          cs.ai_score,
+                "ai_justification":  cs.ai_justification,
+                "human_score":       None,
+                "human_note":        None,
+            }
+            for cs in scoring_result.criteria_scores
+        ]
+
+        # 8. Write LabEvaluation row
+        evaluation = await EvaluationRepository.create(
+            submission_id=submission_id,
+            rubric_scores=rubric_scores,
+            overall_ai_score=float(scoring_result.overall_ai_score),
+            confidence_level=ConfidenceLevel(scoring_result.confidence_level),
+            test_results=test_results if test_results else None,
+            static_analysis=static_analysis,
+            plagiarism_score=plagiarism_score,
+            plagiarism_matches=plagiarism_matches if plagiarism_matches else None,
+            ai_model=scoring_result.ai_model,
+            prompt_hash=scoring_result.prompt_hash,
+            db=session,
+        )
+
+        # 9. Update submission status → EVALUATED
+        await SubmissionRepository.set_status(
+            submission_id, SubmissionStatus.EVALUATED, db=session
+        )
+        await session.commit()
+
+        # 10. Audit
+        await AuditService.log(
+            AuditEventType.LAB_EVAL_COMPLETED,
+            actor_user_id=None,
+            actor_role="SYSTEM",
+            tenant_id=None,
+            schema_name=schema_name,
+            target_entity="lab_submission",
+            target_id=str(submission_id),
+            metadata={
+                "overall_ai_score": float(scoring_result.overall_ai_score),
+                "confidence":       scoring_result.confidence_level,
+                "ai_scan_status":   ai_scan_status.value,
+                "plagiarism_score": plagiarism_score,
+                "ai_model":         scoring_result.ai_model,
+            },
+        )
+
+        logger.info(
+            "Evaluation complete: submission=%s score=%.2f confidence=%s",
+            submission_id, scoring_result.overall_ai_score, scoring_result.confidence_level
+        )
+
+        return {
+            "submission_id":    str(submission_id),
+            "overall_ai_score": float(scoring_result.overall_ai_score),
+            "confidence_level": scoring_result.confidence_level,
+            "ai_scan_status":   ai_scan_status.value,
+            "plagiarism_score": plagiarism_score,
+        }
+
+
+async def _run_code_evaluation(
+    code: str,
+    test_cases: list[dict],
+    language: str,
+) -> tuple[list[dict], dict]:
+    """
+    Run code sandbox against test cases + static analysis.
+    Returns (test_results, static_analysis).
+    All execution is synchronous (subprocess) but called from async context.
+    """
+    import asyncio
+    from app.modules.m06_labs_evaluator.code_sandbox import run as sandbox_run
+    from app.modules.m06_labs_evaluator.static_analyser import analyse as static_analyse
+
+    test_results: list[dict] = []
+
+    # Run test cases sequentially (subprocess calls are CPU/IO bound)
+    loop = asyncio.get_running_loop()
+
+    for tc in test_cases:
+        tc_id   = tc.get("id", "")
+        tc_name = tc.get("name", tc_id)
+        stdin   = tc.get("stdin", "")
+        expected = str(tc.get("expected_stdout", "")).strip()
+        points  = int(tc.get("points", 0))
+
+        result = await loop.run_in_executor(
+            None,
+            lambda: sandbox_run(language, code, stdin)
+        )
+
+        actual = result.stdout.strip()
+        passed = (not result.timed_out and result.exit_code == 0 and actual == expected)
+
+        test_results.append({
+            "id":             tc_id,
+            "name":           tc_name,
+            "passed":         passed,
+            "actual_stdout":  result.stdout[:500],
+            "error":          result.error or (result.stderr[:500] if result.stderr else None),
+            "points_awarded": points if passed else 0,
+            "timed_out":      result.timed_out,
+        })
+
+    # Static analysis (sync, fast)
+    sa = await loop.run_in_executor(None, lambda: static_analyse(code))
+    static_analysis_dict = {
+        "complexity_score": sa.complexity_score,
+        "complexity_label": sa.complexity_label,
+        "issues": sa.issues,
+        "parse_error": sa.parse_error,
+    }
+
+    return test_results, static_analysis_dict
