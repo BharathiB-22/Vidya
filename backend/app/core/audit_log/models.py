@@ -161,6 +161,30 @@ class AuditEventType(str, enum.Enum):
     LEARNING_PACKAGE_ITEM_REMOVED                  = "LEARNING_PACKAGE_ITEM_REMOVED"
     LEARNING_PACKAGE_ITEM_RECOMMENDATION_TOGGLED   = "LEARNING_PACKAGE_ITEM_RECOMMENDATION_TOGGLED"
 
+    # Labs & Assignment Evaluator — M06 assignment lifecycle
+    LAB_ASSIGNMENT_CREATED   = "LAB_ASSIGNMENT_CREATED"
+    LAB_ASSIGNMENT_UPDATED   = "LAB_ASSIGNMENT_UPDATED"
+    LAB_ASSIGNMENT_PUBLISHED = "LAB_ASSIGNMENT_PUBLISHED"
+    LAB_ASSIGNMENT_CLOSED    = "LAB_ASSIGNMENT_CLOSED"
+    LAB_ASSIGNMENT_ARCHIVED  = "LAB_ASSIGNMENT_ARCHIVED"
+
+    # Labs & Assignment Evaluator — M06 submission lifecycle
+    LAB_SUBMISSION_RECEIVED  = "LAB_SUBMISSION_RECEIVED"
+    LAB_SUBMISSION_FLAGGED   = "LAB_SUBMISSION_FLAGGED"   # AI content scan result
+
+    # Labs & Assignment Evaluator — M06 evaluation
+    LAB_EVAL_QUEUED          = "LAB_EVAL_QUEUED"
+    LAB_EVAL_COMPLETED       = "LAB_EVAL_COMPLETED"
+    LAB_EVAL_FAILED          = "LAB_EVAL_FAILED"
+
+    # Labs & Assignment Evaluator — M06 faculty review actions
+    LAB_SCORES_UPDATED       = "LAB_SCORES_UPDATED"      # human score override
+    LAB_SUBMISSION_RATIFIED  = "LAB_SUBMISSION_RATIFIED"  # grade_ledger written
+
+    # Labs & Assignment Evaluator — M06 moderation report
+    LAB_REPORT_REQUESTED     = "LAB_REPORT_REQUESTED"
+    LAB_REPORT_COMPLETED     = "LAB_REPORT_COMPLETED"
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
