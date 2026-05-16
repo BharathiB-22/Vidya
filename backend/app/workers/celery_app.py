@@ -20,6 +20,7 @@ celery_app = Celery(
         "app.workers.heavy.course_kit_export",
         "app.workers.heavy.curate_learning_package",
         "app.workers.heavy.index_package_rag",
+        "app.workers.heavy.evaluate_lab_submission",
     ],
 )
 
