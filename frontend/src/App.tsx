@@ -10,6 +10,12 @@ import CourseKitDetailPage from '@/pages/CourseKitDetailPage'
 import LearningPackageListPage from '@/pages/LearningPackageListPage'
 import LearningPackagePage from '@/pages/LearningPackage'
 import FacultyCuratePage from '@/pages/FacultyCurate'
+import LabAssignmentListPage from '@/pages/LabAssignmentListPage'
+import LabAssignmentDetailPage from '@/pages/LabAssignmentDetailPage'
+import LabReviewPanel from '@/pages/LabReviewPanel'
+import StudentLabListPage from '@/pages/StudentLabListPage'
+import StudentSubmitPage from '@/pages/StudentSubmitPage'
+import StudentResultPage from '@/pages/StudentResultPage'
 
 export default function App() {
   return (
@@ -25,6 +31,17 @@ export default function App() {
         <Route path="/learning-packages" element={<LearningPackageListPage />} />
         <Route path="/learning-packages/:id" element={<LearningPackagePage />} />
         <Route path="/learning-packages/:id/curate" element={<FacultyCuratePage />} />
+
+        {/* M06 — Labs (faculty) */}
+        <Route path="/labs" element={<LabAssignmentListPage />} />
+        <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
+        <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
+
+        {/* M06 — Labs (student) */}
+        <Route path="/student/labs" element={<StudentLabListPage />} />
+        <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
+        <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
+
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
     </Routes>
