@@ -21,6 +21,9 @@ celery_app = Celery(
         "app.workers.heavy.curate_learning_package",
         "app.workers.heavy.index_package_rag",
         "app.workers.heavy.evaluate_lab_submission",
+        "app.workers.heavy.evaluate_research_proposal",
+        "app.workers.heavy.evaluate_research_document",
+        "app.workers.heavy.process_viva_session",
     ],
 )
 
