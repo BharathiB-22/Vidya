@@ -618,7 +618,7 @@ class TaskJobPublicRepository:
         stmt = text(
             "INSERT INTO public.task_jobs "
             "(id, tenant_id, task_type, queue_name, status, payload) "
-            "VALUES (:id::uuid, :tenant_id::uuid, :task_type, :queue_name, 'PENDING', :payload::jsonb)"
+            "VALUES (CAST(:id AS uuid), CAST(:tenant_id AS uuid), :task_type, :queue_name, 'PENDING', CAST(:payload AS jsonb))"
         )
         await db.execute(stmt, {
             "id":          str(job_id),
@@ -645,7 +645,7 @@ class TaskJobPublicRepository:
             "SELECT id, tenant_id, task_type, queue_name, status, payload, result, "
             "error, created_at, started_at, completed_at "
             "FROM public.task_jobs "
-            "WHERE id = :job_id::uuid AND tenant_id = :tenant_id::uuid"
+            "WHERE id = CAST(:job_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)"
         )
         result = await db.execute(stmt, {
             "job_id":    str(job_id),

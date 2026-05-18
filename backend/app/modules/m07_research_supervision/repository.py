@@ -501,7 +501,7 @@ class VivaRepository:
         await db.execute(
             sa_text(
                 "UPDATE viva_sessions "
-                "SET ai_responses = ai_responses || :resp::jsonb "
+                "SET ai_responses = ai_responses || CAST(:resp AS jsonb) "
                 "WHERE id = :vid"
             ),
             {"resp": json.dumps([new_response]), "vid": str(viva_id)},
