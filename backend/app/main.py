@@ -27,6 +27,7 @@ from app.modules.m05_learning_materials.router import router as learning_router
 from app.modules.m06_labs_evaluator.router import router as labs_router
 from app.modules.m07_research_supervision.router import router as research_router
 from app.modules.m08_exam_setter.router import router as exam_router
+from app.modules.m09_paper_admin.router import router as paper_admin_router
 
 setup_logging(log_level=settings.LOG_LEVEL, json_logging=settings.JSON_LOGGING)
 logger = logging.getLogger("vidya.access")
@@ -126,4 +127,5 @@ app.include_router(course_kit_router, prefix="/course-kits")
 app.include_router(learning_router, prefix="/learning-packages")
 app.include_router(labs_router, prefix="/labs")
 app.include_router(research_router, prefix="/research")
-app.include_router(exam_router,     prefix="/exams")
+app.include_router(exam_router,        prefix="/exams")
+app.include_router(paper_admin_router, prefix="/scripts")
