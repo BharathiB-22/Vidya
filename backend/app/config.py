@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     M06_CODE_TIMEOUT_SECONDS: int = 10        # subprocess sandbox timeout
     M06_MAX_CODE_OUTPUT_CHARS: int = 4096     # truncate stdout/stderr beyond this
 
+    # Research Supervision (M07)
+    M07_WHISPER_ENDPOINT: str = ""              # blank = mock transcription in dev
+    M07_MAX_VIVA_DURATION_MINS: int = 45
+    M07_NOVELTY_SEARCH_MAX_RESULTS: int = 10
+    M07_AI_CONTENT_THRESHOLD: float = 0.75
+    M07_PLAGIARISM_THRESHOLD: float = 0.80
+    M07_VIVA_SESSION_TTL_HOURS: int = 72
+    M07_VIVA_RETENTION_YEARS: int = 3
+
     # Learning Material Packager (M05)
     YOUTUBE_API_KEY: str = ""
     QDRANT_URL: str = "http://localhost:6333"
