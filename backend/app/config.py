@@ -82,6 +82,15 @@ class Settings(BaseSettings):
     M07_VIVA_SESSION_TTL_HOURS: int = 72
     M07_VIVA_RETENTION_YEARS: int = 3
 
+    # Exam Setter (M08)
+    # Fernet key (32 url-safe base64-encoded bytes) used to seal exam papers.
+    # In dev: generate with Fernet.generate_key(). In prod: wrap via KMS.
+    # NEVER store the actual key in DB — only encryption_key_ref is stored.
+    EXAM_FERNET_KEY: str = ""                   # blank = auto-generate ephemeral key in dev
+    M08_MIN_PAPER_SETS: int = 2                 # minimum number of question paper sets
+    M08_BLOOM_COMPLIANCE_TOLERANCE: float = 5.0 # acceptable ± percent deviation per level
+    M08_MAX_QUESTIONS_PER_PAPER: int = 50       # guard against runaway generation
+
     # Learning Material Packager (M05)
     YOUTUBE_API_KEY: str = ""
     QDRANT_URL: str = "http://localhost:6333"
