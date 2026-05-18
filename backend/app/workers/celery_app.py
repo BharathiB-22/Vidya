@@ -24,6 +24,8 @@ celery_app = Celery(
         "app.workers.heavy.evaluate_research_proposal",
         "app.workers.heavy.evaluate_research_document",
         "app.workers.heavy.process_viva_session",
+        "app.workers.heavy.generate_exam_paper",
+        "app.workers.heavy.release_exam_paper",
     ],
 )
 
