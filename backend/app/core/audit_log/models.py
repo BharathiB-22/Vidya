@@ -205,6 +205,26 @@ class AuditEventType(str, enum.Enum):
     VIVA_AI_EVALUATED       = "VIVA_AI_EVALUATED"
     VIVA_GUIDE_RATIFIED     = "VIVA_GUIDE_RATIFIED"
 
+    # Exam Setter — M08 paper lifecycle
+    EXAM_PAPER_CREATED                = "EXAM_PAPER_CREATED"
+    EXAM_PAPER_GENERATION_QUEUED      = "EXAM_PAPER_GENERATION_QUEUED"
+    EXAM_PAPER_GENERATION_COMPLETED   = "EXAM_PAPER_GENERATION_COMPLETED"
+    EXAM_PAPER_GENERATION_FAILED      = "EXAM_PAPER_GENERATION_FAILED"
+
+    # Exam Setter — M08 faculty edits
+    EXAM_PAPER_QUESTION_EDITED        = "EXAM_PAPER_QUESTION_EDITED"
+    EXAM_PAPER_QUESTION_REPLACED      = "EXAM_PAPER_QUESTION_REPLACED"
+
+    # Exam Setter — M08 human gates
+    EXAM_PAPER_SUBMITTED              = "EXAM_PAPER_SUBMITTED"       # Gate 1
+    EXAM_PAPER_BOARD_APPROVED         = "EXAM_PAPER_BOARD_APPROVED"  # Gate 2
+    EXAM_PAPER_BOARD_RETURNED         = "EXAM_PAPER_BOARD_RETURNED"  # Gate 2 return
+    EXAM_PAPER_SEALED                 = "EXAM_PAPER_SEALED"          # Gate 3
+
+    # Exam Setter — M08 release and export
+    EXAM_PAPER_RELEASED               = "EXAM_PAPER_RELEASED"
+    EXAM_PAPER_EXPORTED               = "EXAM_PAPER_EXPORTED"
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
