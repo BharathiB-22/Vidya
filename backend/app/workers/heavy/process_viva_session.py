@@ -128,7 +128,7 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
         eval_result = await evaluate_responses(qa_pairs)
 
         # 4. Build ai_evaluation JSONB
-        per_question = [
+        pq = [
             {
                 "question_id": re_.question_id,
                 "coherence":   re_.coherence,
@@ -136,24 +136,22 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
                 "depth":       re_.depth,
                 "comment":     re_.comment,
             }
-            for re_ in eval_result.evaluations
+            for re_ in eval_result.per_question
         ]
 
         # Overall score = mean of per-question mean scores
-        if eval_result.evaluations:
+        if eval_result.per_question:
             overall = sum(
                 (re_.coherence + re_.accuracy + re_.depth) / 3.0
-                for re_ in eval_result.evaluations
-            ) / len(eval_result.evaluations)
+                for re_ in eval_result.per_question
+            ) / len(eval_result.per_question)
         else:
-            overall = 0.0
+            overall = eval_result.overall_score
 
         ai_evaluation = {
-            "per_question":  per_question,
+            "per_question":  pq,
             "overall_score": round(overall, 2),
             "ai_model":      eval_result.ai_model,
-            "prompt_hash":   eval_result.prompt_hash,
-            "summary":       eval_result.summary,
         }
 
         # 5. Write evaluation — status → EVALUATED (human gate holds here)
@@ -178,7 +176,7 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
             target_id=str(viva_id),
             metadata={
                 "overall_ai_score": round(overall, 2),
-                "num_questions":    len(eval_result.evaluations),
+                "num_questions":    len(eval_result.per_question),
                 "transcript_len":   len(transcript),
                 "ai_model":         eval_result.ai_model,
                 "consent_recorded": bool(viva.consent_recorded),
@@ -193,5 +191,5 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
         return {
             "viva_id":          str(viva_id),
             "overall_ai_score": round(overall, 2),
-            "num_questions":    len(eval_result.evaluations),
+            "num_questions":    len(eval_result.per_question),
         }

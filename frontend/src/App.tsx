@@ -16,6 +16,11 @@ import LabReviewPanel from '@/pages/LabReviewPanel'
 import StudentLabListPage from '@/pages/StudentLabListPage'
 import StudentSubmitPage from '@/pages/StudentSubmitPage'
 import StudentResultPage from '@/pages/StudentResultPage'
+import ResearchProblemListPage from '@/pages/ResearchProblemListPage'
+import ResearchDocumentPage from '@/pages/ResearchDocumentPage'
+import VivaRatifyPage from '@/pages/VivaRatifyPage'
+import StudentResearchPage from '@/pages/StudentResearchPage'
+import StudentVivaPage from '@/pages/StudentVivaPage'
 
 export default function App() {
   return (
@@ -41,6 +46,15 @@ export default function App() {
         <Route path="/student/labs" element={<StudentLabListPage />} />
         <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
         <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
+
+        {/* M07 — Research Supervision (guide) */}
+        <Route path="/research/problems" element={<ResearchProblemListPage />} />
+        <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
+        <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
+
+        {/* M07 — Research Supervision (student) */}
+        <Route path="/student/research" element={<StudentResearchPage />} />
+        <Route path="/student/viva/:token" element={<StudentVivaPage />} />
 
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
