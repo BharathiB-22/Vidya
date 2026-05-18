@@ -25,6 +25,10 @@ import ExamPaperListPage from '@/pages/ExamPaperListPage'
 import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
 import ExamPaperEditorPage from '@/pages/ExamPaperEditorPage'
 import BoardReviewPage from '@/pages/BoardReviewPage'
+import ScriptListPage from '@/pages/ScriptListPage'
+import ScriptUploadPage from '@/pages/ScriptUploadPage'
+import ScriptEvaluationPanel from '@/pages/ScriptEvaluationPanel'
+import BoardScriptReviewPage from '@/pages/BoardScriptReviewPage'
 
 export default function App() {
   return (
@@ -68,6 +72,12 @@ export default function App() {
 
         {/* M08 — Board review */}
         <Route path="/exams/:id/review" element={<BoardReviewPage />} />
+
+        {/* M09 — Paper Administration (admin/board) */}
+        <Route path="/scripts" element={<ScriptListPage />} />
+        <Route path="/scripts/upload" element={<ScriptUploadPage />} />
+        <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
+        <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
 
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
