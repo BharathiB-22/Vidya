@@ -225,6 +225,15 @@ class AuditEventType(str, enum.Enum):
     EXAM_PAPER_RELEASED               = "EXAM_PAPER_RELEASED"
     EXAM_PAPER_EXPORTED               = "EXAM_PAPER_EXPORTED"
 
+    # Paper Admin — M09 script scoring lifecycle
+    SCRIPT_SCORING_QUEUED     = "SCRIPT_SCORING_QUEUED"
+    SCRIPT_SCORING_COMPLETED  = "SCRIPT_SCORING_COMPLETED"
+    SCRIPT_SCORING_FAILED     = "SCRIPT_SCORING_FAILED"
+
+    # Paper Admin — M09 human gates
+    SCRIPT_MARKS_SUBMITTED    = "SCRIPT_MARKS_SUBMITTED"   # Gate 1
+    SCRIPT_BOARD_FINALISED    = "SCRIPT_BOARD_FINALISED"   # Gate 2
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
