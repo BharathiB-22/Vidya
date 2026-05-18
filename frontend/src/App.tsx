@@ -21,6 +21,10 @@ import ResearchDocumentPage from '@/pages/ResearchDocumentPage'
 import VivaRatifyPage from '@/pages/VivaRatifyPage'
 import StudentResearchPage from '@/pages/StudentResearchPage'
 import StudentVivaPage from '@/pages/StudentVivaPage'
+import ExamPaperListPage from '@/pages/ExamPaperListPage'
+import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
+import ExamPaperEditorPage from '@/pages/ExamPaperEditorPage'
+import BoardReviewPage from '@/pages/BoardReviewPage'
 
 export default function App() {
   return (
@@ -55,6 +59,15 @@ export default function App() {
         {/* M07 — Research Supervision (student) */}
         <Route path="/student/research" element={<StudentResearchPage />} />
         <Route path="/student/viva/:token" element={<StudentVivaPage />} />
+
+        {/* M08 — Exam Paper Setter (faculty) */}
+        <Route path="/exams" element={<ExamPaperListPage />} />
+        <Route path="/exams/create" element={<ExamPaperCreatePage />} />
+        <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
+        <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
+
+        {/* M08 — Board review */}
+        <Route path="/exams/:id/review" element={<BoardReviewPage />} />
 
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
