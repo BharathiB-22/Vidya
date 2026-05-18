@@ -50,6 +50,13 @@ class VidyaTask(Task):
         if job_id:
             self._write_status(job_id, "FAILED", error=str(exc))
 
+        revert_table  = kwargs.get("_revert_table")
+        revert_pk     = kwargs.get("_revert_pk")
+        revert_schema = kwargs.get("_revert_schema")
+        revert_status = kwargs.get("_revert_status")
+        if revert_table and revert_pk and revert_schema and revert_status:
+            self._revert_entity_status(revert_table, revert_pk, revert_schema, revert_status)
+
     def on_retry(self, exc, task_id, args, kwargs, einfo):
         job_id = kwargs.get("job_id")
         request_id = kwargs.get("request_id")
@@ -75,6 +82,35 @@ class VidyaTask(Task):
                 "exception": str(exc),
             },
         )
+
+    def _revert_entity_status(
+        self,
+        table: str,
+        pk: str,
+        schema_name: str,
+        status: str,
+    ) -> None:
+        from sqlalchemy import text
+
+        sql = (
+            f"UPDATE {schema_name}.{table} "
+            "SET status = :status, updated_at = now() "
+            "WHERE id = CAST(:pk AS uuid)"
+        )
+        try:
+            engine = _get_sync_engine()
+            with engine.connect() as conn:
+                with conn.begin():
+                    conn.execute(text(sql), {"status": status, "pk": pk})
+            logger.info(
+                "VidyaTask: reverted %s.%s id=%s to %s",
+                schema_name, table, pk, status,
+            )
+        except Exception:
+            logger.exception(
+                "VidyaTask: failed to revert %s.%s id=%s to %s",
+                schema_name, table, pk, status,
+            )
 
     def _write_status(
         self,

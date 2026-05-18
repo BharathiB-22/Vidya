@@ -12,10 +12,11 @@ from app.database import Base
 
 
 class ProgramStatus(str, enum.Enum):
-    DRAFT             = "DRAFT"
-    AI_GENERATING     = "AI_GENERATING"
-    PENDING_APPROVAL  = "PENDING_APPROVAL"
-    APPROVED          = "APPROVED"
+    DRAFT              = "DRAFT"
+    AI_GENERATING      = "AI_GENERATING"
+    GENERATION_FAILED  = "GENERATION_FAILED"
+    PENDING_APPROVAL   = "PENDING_APPROVAL"
+    APPROVED           = "APPROVED"
 
 
 class Program(Base):

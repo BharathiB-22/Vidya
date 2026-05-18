@@ -207,12 +207,30 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> str:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        program = await ProgramRepository.get_by_id(program_id, db=db)
+        if program is None:
+            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+        if program.status not in (ProgramStatus.DRAFT, ProgramStatus.GENERATION_FAILED):
+            raise ProgramServiceError(
+                "INVALID_STATUS",
+                f"Expected DRAFT or GENERATION_FAILED, got {program.status.value}.",
+                409,
+            )
+
         job_id = await TaskJobPublicRepository.create(
             tenant_id=tenant_id,
             task_type="generate_program_structure",
             queue_name="heavy",
-            payload={"program_id": str(program_id), "schema_name": schema_name},
+            payload={
+                "program_id": str(program_id),
+                "schema_name": schema_name,
+                "revert": {
+                    "table":  "programs",
+                    "pk":     str(program_id),
+                    "schema": schema_name,
+                    "status": ProgramStatus.GENERATION_FAILED.value,
+                },
+            },
             db=db,
         )
         updated = await ProgramRepository.update_status(
@@ -231,6 +249,10 @@ class ProgramService:
             tenant_id=str(tenant_id),
             schema_name=schema_name,
             prompt_hint=prompt_hint,
+            _revert_table="programs",
+            _revert_pk=str(program_id),
+            _revert_schema=schema_name,
+            _revert_status=ProgramStatus.GENERATION_FAILED.value,
         )
         return str(job_id)
 

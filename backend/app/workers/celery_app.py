@@ -27,6 +27,7 @@ celery_app = Celery(
         "app.workers.heavy.generate_exam_paper",
         "app.workers.heavy.release_exam_paper",
         "app.workers.heavy.score_scanned_script",
+        "app.workers.heavy.stale_task_cleanup",
     ],
 )
 
@@ -59,6 +60,14 @@ celery_app.conf.update(
     # Reliability
     task_acks_late=True,           # ack after task body completes, not on pickup
     worker_prefetch_multiplier=1,  # fair dispatch; prevents heavy tasks being hoarded
+
+    # Beat — periodic tasks
+    beat_schedule={
+        "stale-task-cleanup": {
+            "task": "app.workers.heavy.stale_task_cleanup",
+            "schedule": 300.0,  # every 5 minutes
+        },
+    },
 )
 
 setup_celery_logging()

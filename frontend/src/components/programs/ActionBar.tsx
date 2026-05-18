@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap } from 'lucide-react'
+import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   GenerateDialog,
@@ -57,6 +57,31 @@ export function ActionBar({ program }: Props) {
       )}
       {program.status === 'DRAFT' && !canWrite && (
         <span className="text-sm text-gray-400">No actions available for your role.</span>
+      )}
+
+      {/* GENERATION_FAILED */}
+      {program.status === 'GENERATION_FAILED' && canWrite && (
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-sm text-red-700">
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+            AI generation failed.
+          </div>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setGenerateOpen(true)}
+            disabled={generate.isPending}
+          >
+            <Zap className="h-4 w-4 mr-1" />
+            Retry
+          </Button>
+        </div>
+      )}
+      {program.status === 'GENERATION_FAILED' && !canWrite && (
+        <div className="flex items-center gap-1.5 text-sm text-red-700">
+          <AlertTriangle className="h-4 w-4 text-red-600" />
+          AI generation failed. Contact your administrator.
+        </div>
       )}
 
       {/* AI_GENERATING */}

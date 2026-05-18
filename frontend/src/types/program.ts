@@ -5,6 +5,7 @@
 export type ProgramStatus =
   | 'DRAFT'
   | 'AI_GENERATING'
+  | 'GENERATION_FAILED'
   | 'PENDING_APPROVAL'
   | 'APPROVED'
 
