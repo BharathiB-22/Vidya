@@ -1,0 +1,37 @@
+# =============================================================================
+# kind-config.yaml  —  kind cluster configuration for local Vidya dev
+# =============================================================================
+# Creates a single-node cluster that forwards host ports 80 and 443 to the
+# ingress-nginx NodePort service so nip.io DNS resolves without /etc/hosts.
+#
+# Requirements:
+#   kind ≥ 0.23   (https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
+#   Docker Desktop (or Rancher Desktop / Podman Desktop with Docker socket)
+#
+# Usage:
+#   kind create cluster --config infra/helm/kind-config.yaml --name vidya-dev
+#   kind delete cluster --name vidya-dev
+# =============================================================================
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+nodes:
+  - role: control-plane
+    # Extra port mappings: host → containerPort.
+    # ingress-nginx is installed with hostPort enabled (ports 30080 / 30443).
+    # The mappings below make localhost:80 and localhost:443 work transparently.
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 30443
+        hostPort: 443
+        protocol: TCP
+    # Increase inotify limits — Qdrant and Celery open many file descriptors.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"

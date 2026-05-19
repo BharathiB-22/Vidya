@@ -1,0 +1,121 @@
+# =============================================================================
+# values.dev.yaml  —  LOCAL DEV / KIND overrides
+# =============================================================================
+# Usage (release name MUST be "vidya" — service discovery in ConfigMap uses it):
+#
+#   helm install vidya ./infra/helm/vidya \
+#     -f infra/helm/vidya/values.dev.yaml \
+#     -n vidya-system --create-namespace
+#
+# SECRETS
+# -------
+# This file contains only non-sensitive placeholder values.
+# Copy the secrets block below into a gitignored file and fill in real values:
+#   cp infra/helm/vidya/values.dev.yaml infra/helm/vidya/values.dev.secret.yaml
+#   # add values.dev.secret.yaml to .gitignore
+#   helm install vidya ./infra/helm/vidya \
+#     -f infra/helm/vidya/values.dev.yaml \
+#     -f infra/helm/vidya/values.dev.secret.yaml \
+#     -n vidya-system --create-namespace
+# =============================================================================
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  host: vidya.127.0.0.1.nip.io   # nip.io wildcard DNS — works without /etc/hosts
+  tls: false                      # no cert-manager needed for local dev
+
+certManager:
+  clusterIssuer: selfsigned-issuer   # ignored when tls: false
+
+# ── Disable node pool constraints for single-node kind cluster ────────────────
+# null removes the base nodeSelector so pods schedule on any available node.
+api:
+  replicaCount: 1
+  hpa:
+    enabled: false
+  nodeSelector: null
+  tolerations: []
+
+worker:
+  replicaCount: 1
+  keda:
+    enabled: false   # use static replicas locally; KEDA not required
+  nodeSelector: null
+  tolerations: []
+
+workerHeavy:
+  replicaCount: 1
+  keda:
+    enabled: false
+  nodeSelector: null
+  tolerations: []
+
+frontend:
+  replicaCount: 1
+  hpa:
+    enabled: false
+  nodeSelector: null
+  tolerations: []
+
+flower:
+  nodeSelector: null
+  tolerations: []
+
+pgbouncer:
+  nodeSelector: null
+  tolerations: []
+
+qdrant:
+  replicaCount: 1
+  nodeSelector: null
+  tolerations: []
+
+# ── Enable all in-cluster stateful services ───────────────────────────────────
+postgres:
+  enabled: true
+  nodeSelector: null
+  tolerations: []
+
+redis:
+  enabled: true
+  nodeSelector: null
+  tolerations: []
+
+minio:
+  enabled: true
+  nodeSelector: null
+  tolerations: []
+
+# ── Direct Kubernetes Secrets (no ESO needed locally) ─────────────────────────
+externalSecrets:
+  enabled: false
+
+# ── Disable off-peak scaling and NetworkPolicy for simpler local debugging ────
+offPeak:
+  enabled: false
+
+networkPolicy:
+  enabled: false
+
+# ── Dev secrets — CHANGE_ME values, never use in staging or prod ──────────────
+# Generate a Fernet key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+secrets:
+  redisPassword: "dev_redis_pass"
+  postgresPassword: "vidya_dev"
+  jwtSecret: "dev-jwt-secret-CHANGE-ME-32chars-min"
+  examFernetKey: "CHANGE-ME-run-Fernet.generate_key-and-paste-here="
+  s3AccessKey: "minioadmin"
+  s3SecretKey: "minioadmin"
+  flowerUser: "admin"
+  flowerPassword: "dev-flower-pass"
+  geminiApiKey: ""    # add key to test AI modules locally
+  groqApiKey: ""      # add key to test AI modules locally
+  smtpPassword: ""
+  youtubeApiKey: ""
+
+# ── ConfigMap overrides for local dev ─────────────────────────────────────────
+env:
+  LOG_LEVEL: DEBUG
+  JSON_LOGGING: "False"    # human-readable logs in terminal
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://vidya.127.0.0.1.nip.io"
+  EMAIL_NOTIFICATIONS_ENABLED: "False"

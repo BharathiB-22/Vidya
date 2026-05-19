@@ -1,0 +1,166 @@
+# =============================================================================
+# values.staging.yaml  —  SELF-HOSTED STAGING overrides
+# =============================================================================
+# Usage:
+#
+#   helm upgrade --install vidya ./infra/helm/vidya \
+#     -f infra/helm/vidya/values.staging.yaml \
+#     -n vidya-system --create-namespace
+#
+# SECRETS
+# -------
+# This file contains NO real secrets. All secret values are synced by the
+# External Secrets Operator from your chosen backend (Vault / AWS SM / GCP SM).
+# Ensure the SecretStore "vidya-secret-store" exists before installing:
+#
+#   kubectl apply -f infra/k8s/secret-store.yaml -n vidya-system
+#
+# PREREQUISITES
+# -------------
+#   1. cert-manager        + ClusterIssuer "letsencrypt-staging"
+#   2. ingress-nginx       (IngressClass: nginx)
+#   3. KEDA                (ScaledObjects + TriggerAuthentication)
+#   4. External Secrets Operator (ESO)
+#   5. Managed PostgreSQL  — set pgbouncer.postgresHost below
+#   6. Managed Redis       — set keda.redisAddress below
+#
+# IMPORTANT: postgres.enabled and redis.enabled MUST remain false here.
+# =============================================================================
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  host: staging.vidya.example.com   # replace with real staging domain
+  tls: true
+
+certManager:
+  clusterIssuer: letsencrypt-staging
+
+# ── Image registry ────────────────────────────────────────────────────────────
+global:
+  imageRegistry: ghcr.io/your-org   # replace with your container registry
+  imagePullPolicy: Always           # always pull — staging uses :latest tags
+  storageClass: ""                  # use cluster default; set to "standard-rwo" for GKE
+
+# ── api ───────────────────────────────────────────────────────────────────────
+api:
+  replicaCount: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── worker ────────────────────────────────────────────────────────────────────
+worker:
+  replicaCount: 2
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 6
+  nodeSelector:
+    pool: ai-worker
+  tolerations: []
+
+# ── workerHeavy ───────────────────────────────────────────────────────────────
+workerHeavy:
+  replicaCount: 1
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 3
+  nodeSelector:
+    pool: heavy-worker
+  tolerations: []
+
+# ── frontend ──────────────────────────────────────────────────────────────────
+frontend:
+  replicaCount: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── flower ────────────────────────────────────────────────────────────────────
+flower:
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── pgbouncer ─────────────────────────────────────────────────────────────────
+pgbouncer:
+  # Set to the hostname of your managed PostgreSQL endpoint.
+  # Examples:
+  #   Cloud SQL (proxy):  127.0.0.1  (Cloud SQL Auth Proxy sidecar)
+  #   RDS:                my-db.xxxx.rds.amazonaws.com
+  #   Azure DB:           my-db.postgres.database.azure.com
+  postgresHost: "CHANGE_ME_staging_postgres_host"
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── qdrant ────────────────────────────────────────────────────────────────────
+qdrant:
+  replicaCount: 1
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── Disable in-cluster StatefulSet databases (use managed services) ───────────
+postgres:
+  enabled: false   # use managed PostgreSQL — see pgbouncer.postgresHost above
+
+redis:
+  enabled: false   # use managed Redis — see keda.redisAddress below
+
+minio:
+  enabled: true    # self-hosted MinIO (no managed object-store equivalent yet)
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── External Secrets Operator ─────────────────────────────────────────────────
+externalSecrets:
+  enabled: true
+  backend: vault             # vault | aws-secrets-manager | gcp-secret-manager
+  storeName: vidya-secret-store
+  storeKind: SecretStore
+  refreshInterval: 1h
+  remoteKeyPrefix: "vidya/staging"
+
+# ── KEDA shared config ────────────────────────────────────────────────────────
+# Set redisAddress to your managed Redis endpoint.
+keda:
+  redisAddress: "CHANGE_ME_staging_redis_host:6379"
+  redisDatabaseIndex: "0"
+  redisEnableTLS: "false"   # set "true" for Azure Cache / ElastiCache with TLS
+
+# ── Off-peak scaling ──────────────────────────────────────────────────────────
+offPeak:
+  enabled: true
+  timezone: Asia/Kolkata
+  scaleDownCron: "0 22 * * *"
+  scaleUpCron: "0 7 * * *"
+  kubectlImage: bitnami/kubectl:1.30
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+
+# ── Application environment overrides ────────────────────────────────────────
+env:
+  ENVIRONMENT: staging
+  LOG_LEVEL: INFO
+  JSON_LOGGING: "True"
+  CORS_ALLOWED_ORIGINS: "https://staging.vidya.example.com"
+  EMAIL_NOTIFICATIONS_ENABLED: "False"   # enable when SMTP is verified
+
+# ── Secrets placeholder (populated by ESO — do not set real values here) ──────
+# When externalSecrets.enabled: true these keys are ignored by the chart.
+# They are shown here only to document which secrets ESO must provide.
+secrets: {}

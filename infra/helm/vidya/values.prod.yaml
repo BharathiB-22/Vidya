@@ -1,0 +1,257 @@
+# =============================================================================
+# values.prod.yaml  —  MANAGED-CLOUD PRODUCTION overrides
+# =============================================================================
+# Usage:
+#
+#   helm upgrade --install vidya ./infra/helm/vidya \
+#     -f infra/helm/vidya/values.prod.yaml \
+#     -n vidya-system --create-namespace
+#
+# SECRETS
+# -------
+# ALL secrets are synced by the External Secrets Operator.
+# No plaintext secrets are stored in this file or in Kubernetes Secrets
+# managed by this chart. The ESO ClusterSecretStore must be created and
+# verified before installing:
+#
+#   kubectl apply -f infra/k8s/secret-store.yaml -n vidya-system
+#   kubectl get clustersecretstore vidya-secret-store   # must be Ready
+#
+# PREREQUISITES
+# -------------
+#   1. cert-manager        + ClusterIssuer "letsencrypt-prod"
+#   2. ingress-nginx       (IngressClass: nginx)
+#   3. KEDA                (ScaledObjects + TriggerAuthentication)
+#   4. External Secrets Operator (ESO)
+#   5. Managed PostgreSQL  — Cloud SQL / RDS / Azure Database for PostgreSQL
+#   6. Managed Redis       — Memorystore / ElastiCache / Azure Cache
+#   7. Managed object storage is a future sprint; MinIO remains self-hosted
+#
+# PRODUCTION CHECKLIST (verify before every release):
+# ─────────────────────────────────────────────────────
+#   [ ] postgres.enabled: false  (never run in-cluster PG in prod)
+#   [ ] redis.enabled: false     (never run in-cluster Redis in prod)
+#   [ ] externalSecrets.enabled: true  and SecretStore is Ready
+#   [ ] ingress.tls: true  with letsencrypt-prod ClusterIssuer
+#   [ ] ingress.host  set to real production domain (not CHANGE_ME)
+#   [ ] pgbouncer.postgresHost  set to real managed PG endpoint
+#   [ ] keda.redisAddress  set to real managed Redis endpoint
+#   [ ] global.imageRegistry  set to real registry; no bare image names
+#   [ ] api.hpa.enabled: true  and worker.keda.enabled: true
+#   [ ] offPeak.enabled: true
+#   [ ] networkPolicy.enabled: true
+#   [ ] env.ENVIRONMENT: production
+#   [ ] env.EMAIL_NOTIFICATIONS_ENABLED: "True"
+#   [ ] migrate.runTenantMigration  reviewed before upgrade
+# =============================================================================
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  host: vidya.example.com   # replace with real production domain
+  tls: true
+
+certManager:
+  clusterIssuer: letsencrypt-prod
+
+# ── Image registry ────────────────────────────────────────────────────────────
+global:
+  imageRegistry: ghcr.io/your-org   # replace with your container registry
+  imagePullPolicy: IfNotPresent     # cached pulls; tags are immutable in prod
+  storageClass: "standard-rwo"      # GKE; adjust: gp3 (EKS), managed-csi (AKS)
+
+# ── api ───────────────────────────────────────────────────────────────────────
+api:
+  replicaCount: 3
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    cpuUtilizationPercent: 65
+    scaleDownStabilizationSeconds: 600
+  pdb:
+    enabled: true
+    minAvailable: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── worker ────────────────────────────────────────────────────────────────────
+worker:
+  replicaCount: 3
+  keda:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 20
+    queueLength: 10
+    cooldownPeriod: 600
+    pollingInterval: 15
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+  nodeSelector:
+    pool: ai-worker
+  tolerations: []
+
+# ── workerHeavy ───────────────────────────────────────────────────────────────
+workerHeavy:
+  replicaCount: 1
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 5
+    queueLength: 3
+    cooldownPeriod: 600
+    pollingInterval: 15
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+    limits:
+      cpu: 8000m
+      memory: 8Gi
+  nodeSelector:
+    pool: heavy-worker
+  tolerations: []
+
+# ── frontend ──────────────────────────────────────────────────────────────────
+frontend:
+  replicaCount: 3
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+    cpuUtilizationPercent: 70
+    scaleDownStabilizationSeconds: 600
+  pdb:
+    enabled: true
+    minAvailable: 2
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── flower ────────────────────────────────────────────────────────────────────
+flower:
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── pgbouncer ─────────────────────────────────────────────────────────────────
+# Set to your managed PostgreSQL endpoint. Do NOT leave CHANGE_ME in prod.
+# Cloud SQL Auth Proxy pattern: run proxy as a sidecar or use Private IP.
+pgbouncer:
+  postgresHost: "CHANGE_ME_prod_postgres_host"
+  postgresPort: 5432
+  poolMode: transaction
+  maxClientConn: 500
+  defaultPoolSize: 40
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── qdrant ────────────────────────────────────────────────────────────────────
+# Scale to 3 replicas when vectors exceed 5M; single replica sufficient initially.
+qdrant:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  storage: 200Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── Disable in-cluster StatefulSet databases ──────────────────────────────────
+# CRITICAL: These must remain false in production.
+postgres:
+  enabled: false   # use Cloud SQL / RDS / Azure Database for PostgreSQL
+
+redis:
+  enabled: false   # use Memorystore / ElastiCache / Azure Cache for Redis
+
+# MinIO remains self-hosted until a managed object-store migration sprint.
+minio:
+  enabled: true
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  storage: 500Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+
+# ── External Secrets Operator ─────────────────────────────────────────────────
+externalSecrets:
+  enabled: true
+  backend: vault             # vault | aws-secrets-manager | gcp-secret-manager
+  storeName: vidya-secret-store
+  storeKind: ClusterSecretStore   # cluster-wide store; use SecretStore if namespaced
+  refreshInterval: 30m            # more frequent refresh in prod
+  remoteKeyPrefix: "vidya/prod"
+
+# ── KEDA shared config ────────────────────────────────────────────────────────
+# Set redisAddress to your managed Redis endpoint.
+# Azure Cache:   "my-cache.redis.cache.windows.net:6380" + redisEnableTLS: "true"
+# ElastiCache:   "my-cluster.xyz.cache.amazonaws.com:6379"
+# Memorystore:   "10.x.y.z:6379"
+keda:
+  redisAddress: "CHANGE_ME_prod_redis_host:6379"
+  redisDatabaseIndex: "0"
+  redisEnableTLS: "false"   # set "true" for Azure Cache or ElastiCache with TLS
+
+# ── Off-peak scaling ──────────────────────────────────────────────────────────
+offPeak:
+  enabled: true
+  timezone: Asia/Kolkata
+  scaleDownCron: "0 22 * * *"
+  scaleUpCron: "0 7 * * *"
+  kubectlImage: bitnami/kubectl:1.30   # pin to cluster minor version
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+
+# ── Migrate job ───────────────────────────────────────────────────────────────
+migrate:
+  runTenantMigration: false   # review before each upgrade that adds tenant columns
+
+# ── Application environment overrides ────────────────────────────────────────
+env:
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+  JSON_LOGGING: "True"
+  CORS_ALLOWED_ORIGINS: "https://vidya.example.com"
+  EMAIL_NOTIFICATIONS_ENABLED: "True"
+  AI_DETECTION_THRESH: "0.75"
+  PLAGIARISM_THRESH: "0.85"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"   # shorter expiry in prod
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+
+# ── Secrets placeholder (populated by ESO — do not set real values here) ──────
+# When externalSecrets.enabled: true these keys are ignored by the chart.
+secrets: {}
