@@ -1,0 +1,497 @@
+# ============================================================
+# Vidya Helm Chart — Base Values (dev-safe defaults)
+# ============================================================
+#
+# THREE DEPLOYMENT PATHS
+# ──────────────────────
+#
+# 1. Local dev (kind / minikube)
+#    postgres.enabled: true    ← StatefulSet, dev only
+#    redis.enabled:    true    ← StatefulSet, dev only
+#    minio.enabled:   true    ← StatefulSet
+#    externalSecrets.enabled: false
+#    secrets.*  set via -f values.dev.yaml (never committed with real values)
+#    Command:
+#      helm install vidya ./infra/helm/vidya \
+#        -f infra/helm/vidya/values.dev.yaml \
+#        -n vidya-system --create-namespace
+#
+# 2. Self-hosted production (bare-metal / your own VMs)
+#    postgres.enabled: false   ← you manage Postgres
+#    redis.enabled:    false   ← you manage Redis
+#    minio.enabled:   true    ← self-hosted (no managed equivalent bundled)
+#    externalSecrets.enabled: true
+#    postgres.url / redis.url set via ExternalSecret or values.selfhosted.yaml
+#    Command:
+#      helm install vidya ./infra/helm/vidya \
+#        -f infra/helm/vidya/values.selfhosted.yaml \
+#        -n vidya-system --create-namespace
+#
+# 3. Managed cloud (GKE / EKS / AKS)
+#    postgres.enabled: false   ← Cloud SQL / RDS / Azure DB for PostgreSQL
+#    redis.enabled:    false   ← Memorystore / ElastiCache / Azure Cache
+#    minio.enabled:   true    ← self-hosted MinIO; migrate to cloud object
+#                                storage (GCS/S3/Azure Blob) in a later sprint
+#    externalSecrets.enabled: true   ← ESO syncs from Vault / AWS SM / GCP SM
+#    Command:
+#      helm install vidya ./infra/helm/vidya \
+#        -f infra/helm/vidya/values.prod.yaml \
+#        -n vidya-system --create-namespace
+#
+# IMPORTANT
+# ---------
+# * Never commit values files that contain real secrets.
+#   Use values.dev.yaml for local secrets (gitignored via *.secret.yaml pattern).
+#   Use ExternalSecrets (externalSecrets.enabled: true) for staging and prod.
+# * postgres.enabled and redis.enabled MUST be false in staging and prod.
+#   Managed services handle HA, backups, and patching; StatefulSets here are
+#   convenience shims for local validation only.
+# ============================================================
+
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  # Container image registry prefix (e.g. "ghcr.io/your-org").
+  # Leave blank to use bare image names (kind local images).
+  imageRegistry: ""
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  # Default StorageClass for PVCs. "" means use the cluster default.
+  # GKE: "standard-rwo" | EKS: "gp3" | AKS: "managed-csi" | kind: "standard"
+  storageClass: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ── Service Account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ── vidya-api ─────────────────────────────────────────────────────────────────
+api:
+  replicaCount: 2
+  image:
+    repository: vidya/api
+    tag: latest
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    cpuUtilizationPercent: 65
+    # Scale-down stabilisation window (seconds). PRD mandates 10 min.
+    scaleDownStabilizationSeconds: 600
+  pdb:
+    enabled: true
+    minAvailable: 1
+  # livenessProbe and readinessProbe hit /healthz and /ready (FastAPI routes).
+  probes:
+    liveness:
+      path: /healthz
+      port: 8000
+      initialDelaySeconds: 15
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /ready
+      port: 8000
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+  # Node pool targeting. Leave empty to use any node.
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    type: ClusterIP
+    port: 8000
+
+# ── vidya-worker (standard AI jobs — queue: celery) ──────────────────────────
+worker:
+  replicaCount: 2
+  image:
+    repository: vidya/api   # same image, different CMD via chart
+    tag: latest
+  command:
+    - celery
+    - -A
+    - app.workers.celery_app
+    - worker
+    - -Q
+    - celery
+    - --loglevel=info
+    - --concurrency=2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  # KEDA ScaledObject — scales on Redis list length for the celery queue.
+  keda:
+    enabled: true
+    minReplicaCount: 2
+    maxReplicaCount: 20
+    # Scale up when queue depth exceeds this threshold.
+    queueLength: 10
+    queueName: celery
+    # Scale-down cooldown. PRD mandates 10 min.
+    cooldownPeriod: 600
+    # Scale up immediately (0s delay).
+    pollingInterval: 15
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeSelector:
+    pool: ai-worker
+  tolerations: []
+
+# ── vidya-worker-heavy (viva, batch scan — queue: celery-heavy) ───────────────
+workerHeavy:
+  replicaCount: 1
+  image:
+    repository: vidya/api
+    tag: latest
+  command:
+    - celery
+    - -A
+    - app.workers.celery_app
+    - worker
+    - -Q
+    - celery-heavy
+    - --loglevel=info
+    - --concurrency=1
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 5
+    queueLength: 3
+    queueName: celery-heavy
+    cooldownPeriod: 600
+    pollingInterval: 15
+  nodeSelector:
+    pool: heavy-worker
+  tolerations: []
+
+# ── whisper-asr (async transcription — queue: celery-whisper) ─────────────────
+whisper:
+  enabled: false   # enable when Whisper ASR endpoint is deployed
+  replicaCount: 0  # KEDA scales from 0 (scale-to-zero when idle)
+  image:
+    repository: vidya/whisper-asr
+    tag: latest
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+  keda:
+    enabled: true
+    minReplicaCount: 0   # scale-to-zero
+    maxReplicaCount: 4
+    queueLength: 1
+    queueName: celery-whisper
+    # Idle for 5 min → scale to zero.
+    cooldownPeriod: 300
+    pollingInterval: 15
+  nodeSelector:
+    pool: heavy-worker
+  tolerations: []
+
+# ── vidya-frontend ────────────────────────────────────────────────────────────
+frontend:
+  replicaCount: 2
+  image:
+    repository: vidya/frontend
+    tag: latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    cpuUtilizationPercent: 70
+    scaleDownStabilizationSeconds: 600
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    type: ClusterIP
+    port: 3000
+
+# ── Flower (Celery task monitor — not exposed via Ingress) ────────────────────
+flower:
+  enabled: true
+  image:
+    repository: mher/flower
+    tag: "2.0"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    type: ClusterIP
+    port: 5555
+  # Access Flower via: kubectl port-forward svc/vidya-flower 5555:5555 -n <ns>
+
+# ── PgBouncer (connection pool — standalone Deployment, not sidecar) ──────────
+# PRD wording says "sidecar to vidya-api" but standalone is used here because:
+#   - Sidecar multiplies pool connections (N api pods × pool_size = Postgres overload)
+#   - Standalone gives one shared pool, easier to tune and observe
+#   - Rollback: single Deployment revision vs. coupled api+pgbouncer rollout
+pgbouncer:
+  enabled: true
+  image:
+    repository: bitnami/pgbouncer
+    tag: "1.22.1"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  poolMode: transaction
+  maxClientConn: 200
+  defaultPoolSize: 20
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    type: ClusterIP
+    port: 5432
+
+# ── Migrate Job (Helm pre-upgrade hook — runs alembic upgrade head) ───────────
+migrate:
+  # Helm hook annotation: runs before every helm upgrade, blocks on success/failure.
+  image:
+    repository: vidya/api
+    tag: latest
+  # Seconds to wait before the hook Job is deleted after completion.
+  ttlSecondsAfterFinished: 120
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ── Redis ─────────────────────────────────────────────────────────────────────
+# LOCAL DEV / KIND ONLY — set enabled: false for staging and prod.
+# For prod use: Memorystore (GCP), ElastiCache (AWS), Azure Cache for Redis.
+redis:
+  # WARNING: enabled: true is for local dev validation only.
+  # Set enabled: false in values.staging.yaml and values.prod.yaml.
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage: 5Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    port: 6379
+
+# ── Qdrant (vector database — self-hosted, no managed equivalent bundled) ──────
+qdrant:
+  replicaCount: 1   # scale to 3 in prod when vectors > 5M
+  image:
+    repository: qdrant/qdrant
+    tag: latest
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  storage: 50Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    port: 6333
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# LOCAL DEV / KIND ONLY — set enabled: false for staging and prod.
+# For prod use: Cloud SQL (GCP), RDS (AWS), Azure Database for PostgreSQL.
+# Provide connection string via secrets.databaseUrl or ExternalSecrets.
+postgres:
+  # WARNING: enabled: true is for local dev validation only.
+  # Set enabled: false in values.staging.yaml and values.prod.yaml.
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  storage: 20Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    port: 5432
+
+# ── MinIO (object storage — self-hosted in all paths for now) ─────────────────
+# MinIO remains self-hosted across all environments. Migration to a managed
+# object store (GCS / S3 / Azure Blob) is a future sprint; the app's S3-
+# compatible API means the Vidya code needs no changes for that migration.
+minio:
+  enabled: true
+  image:
+    repository: minio/minio
+    tag: latest
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage: 100Gi
+  nodeSelector:
+    pool: general
+  tolerations: []
+  service:
+    apiPort: 9000
+    consolePort: 9001
+  # Console is NOT in Ingress. Access via: kubectl port-forward
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  # Replace with your actual domain. Use nip.io for local kind testing:
+  #   host: vidya.127.0.0.1.nip.io
+  host: CHANGE_ME_your_domain
+  tls: true
+  annotations: {}
+
+# ── cert-manager ──────────────────────────────────────────────────────────────
+certManager:
+  # ClusterIssuer name created separately (not in this chart).
+  # Dev / kind: letsencrypt-staging or selfsigned-issuer
+  # Prod: letsencrypt-prod
+  clusterIssuer: letsencrypt-staging
+
+# ── External Secrets Operator ─────────────────────────────────────────────────
+# Set enabled: true for staging and prod. ESO CRDs must be installed first.
+# When enabled: true, chart renders ExternalSecret resources instead of
+# Kubernetes Secrets directly. Secrets are synced from the configured backend.
+externalSecrets:
+  enabled: false
+  # Backend: "aws-secrets-manager" | "gcp-secret-manager" | "vault" | "azure-keyvault"
+  backend: vault
+  # SecretStore / ClusterSecretStore name (created outside this chart).
+  storeName: vidya-secret-store
+  refreshInterval: 1h
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+  # Ingress controller namespace (must match where ingress-nginx is deployed).
+  ingressNamespace: ingress-nginx
+
+# ── Off-peak Scaling CronJobs ─────────────────────────────────────────────────
+offPeak:
+  enabled: true
+  timezone: Asia/Kolkata
+  # Scale workers down at 22:00 IST (minReplicaCount → 1)
+  scaleDownCron: "0 22 * * *"
+  # Restore workers at 07:00 IST (minReplicaCount → 2)
+  scaleUpCron: "0 7 * * *"
+
+# ── Secrets (dev path — direct values) ───────────────────────────────────────
+# These values are used ONLY when externalSecrets.enabled: false.
+# For staging and prod, set externalSecrets.enabled: true and leave these blank.
+# NEVER commit real values here. Override in a gitignored values file:
+#   infra/helm/vidya/values.dev.yaml  (add to .gitignore)
+secrets:
+  databaseUrl: "postgresql+asyncpg://vidya:vidya_dev@vidya-postgres:5432/vidya"
+  redisUrl: "redis://:dev_redis_pass@vidya-redis:6379/0"
+  redisPassword: "dev_redis_pass"
+  jwtSecret: "CHANGE_ME_in_values_dev_yaml"
+  examFernetKey: "CHANGE_ME_in_values_dev_yaml"
+  s3AccessKey: "CHANGE_ME_minio_access"
+  s3SecretKey: "CHANGE_ME_minio_secret"
+  postgresPassword: "vidya_dev"
+  geminiApiKey: ""
+  groqApiKey: ""
+  smtpPassword: ""
+  flowerUser: "admin"
+  flowerPassword: "CHANGE_ME_flower"
+  youtubeApiKey: ""
+
+# ── Application Environment ───────────────────────────────────────────────────
+env:
+  ENVIRONMENT: development
+  AI_PROVIDER: gemini
+  GEMINI_MODEL: gemini-2.0-flash
+  GROQ_MODEL: llama-3.3-70b-versatile
+  S3_ENDPOINT: "http://vidya-minio:9000"
+  S3_BUCKET: vidya-assets
+  S3_USE_SSL: "False"
+  QDRANT_URL: "http://vidya-qdrant:6333"
+  QDRANT_API_KEY: ""
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  LOG_LEVEL: INFO
+  JSON_LOGGING: "True"
+  MAX_UPLOAD_SIZE_MB: "50"
+  EMAIL_NOTIFICATIONS_ENABLED: "False"
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USER: ""
+  SMTP_FROM: "noreply@vidya.local"
+  SMTP_TLS: "True"
+  M07_WHISPER_ENDPOINT: ""
+  AI_DETECTION_THRESH: "0.75"
+  PLAGIARISM_THRESH: "0.85"

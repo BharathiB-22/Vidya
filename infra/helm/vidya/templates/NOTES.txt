@@ -1,0 +1,64 @@
+╔══════════════════════════════════════════════════════════════════╗
+║              Vidya {{ .Chart.AppVersion }} — {{ .Release.Name }}                        ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Deployment path: {{ if .Values.externalSecrets.enabled }}MANAGED / SELF-HOSTED (ExternalSecrets enabled){{ else }}LOCAL DEV (direct secrets){{ end }}
+Namespace:       {{ .Release.Namespace }}
+
+── Services ──────────────────────────────────────────────────────
+
+{{- if .Values.ingress.enabled }}
+Frontend + API are available via Ingress:
+  https://{{ .Values.ingress.host }}/        ← React SPA
+  https://{{ .Values.ingress.host }}/api/    ← FastAPI (via /api/* rewrite)
+  https://{{ .Values.ingress.host }}/docs    ← Swagger UI (disable in prod)
+{{- else }}
+Ingress is disabled. Reach services via port-forward:
+  kubectl port-forward svc/{{ include "vidya.componentName" (list . "api") }} 8000:8000 -n {{ .Release.Namespace }}
+  kubectl port-forward svc/{{ include "vidya.componentName" (list . "frontend") }} 3000:3000 -n {{ .Release.Namespace }}
+{{- end }}
+
+── Flower (Celery monitor) ───────────────────────────────────────
+NOT exposed via Ingress. Access via SSH tunnel or port-forward:
+  kubectl port-forward svc/{{ include "vidya.componentName" (list . "flower") }} 5555:5555 -n {{ .Release.Namespace }}
+  Then open: http://localhost:5555
+
+{{ if .Values.minio.enabled -}}
+── MinIO Console ─────────────────────────────────────────────────
+NOT exposed via Ingress. Access via port-forward:
+  kubectl port-forward svc/{{ include "vidya.componentName" (list . "minio") }} 9001:9001 -n {{ .Release.Namespace }}
+  Then open: http://localhost:9001
+{{ end -}}
+
+── Database path ─────────────────────────────────────────────────
+{{ if .Values.postgres.enabled -}}
+⚠  PostgreSQL StatefulSet is ENABLED.
+   This is the LOCAL DEV path only. Do not use in staging or prod.
+   For prod: set postgres.enabled=false and provide DATABASE_URL
+   pointing to Cloud SQL / RDS / Azure Database for PostgreSQL.
+{{- else -}}
+PostgreSQL StatefulSet is disabled (managed service path).
+   DATABASE_URL is provided via {{ if .Values.externalSecrets.enabled }}ExternalSecrets ({{ .Values.externalSecrets.storeName }}){{ else }}values.secrets.databaseUrl{{ end }}.
+{{- end }}
+
+── Redis path ────────────────────────────────────────────────────
+{{ if .Values.redis.enabled -}}
+⚠  Redis StatefulSet is ENABLED.
+   This is the LOCAL DEV path only. Do not use in staging or prod.
+   For prod: set redis.enabled=false and provide REDIS_URL
+   pointing to Memorystore / ElastiCache / Azure Cache for Redis.
+{{- else -}}
+Redis StatefulSet is disabled (managed service path).
+   REDIS_URL is provided via {{ if .Values.externalSecrets.enabled }}ExternalSecrets ({{ .Values.externalSecrets.storeName }}){{ else }}values.secrets.redisUrl{{ end }}.
+{{- end }}
+
+── Rollback ──────────────────────────────────────────────────────
+  helm history {{ .Release.Name }} -n {{ .Release.Namespace }}
+  helm rollback {{ .Release.Name }} <revision> -n {{ .Release.Namespace }}
+
+── Useful commands ───────────────────────────────────────────────
+  kubectl get pods -n {{ .Release.Namespace }}
+  kubectl logs -l app.kubernetes.io/component=api -n {{ .Release.Namespace }} --tail=50
+  kubectl logs -l app.kubernetes.io/component=worker -n {{ .Release.Namespace }} --tail=50
+  kubectl get hpa,scaledobject -n {{ .Release.Namespace }}
+  kubectl get pdb -n {{ .Release.Namespace }}

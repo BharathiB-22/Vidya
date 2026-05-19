@@ -1,0 +1,17 @@
+apiVersion: v2
+name: vidya
+description: |
+  Vidya — multi-tenant AI university platform.
+  Packages the API, Celery workers (standard + heavy), frontend,
+  PgBouncer connection pool, Qdrant vector DB, MinIO object storage,
+  and optional local-dev StatefulSets for PostgreSQL and Redis.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - education
+  - ai
+  - saas
+  - multi-tenant
+maintainers:
+  - name: Fidelitus Corp
