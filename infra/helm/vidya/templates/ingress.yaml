@@ -31,9 +31,15 @@ metadata:
   annotations:
     # cert-manager requests and renews the TLS certificate automatically.
     cert-manager.io/cluster-issuer: {{ .Values.certManager.clusterIssuer | quote }}
-    # Force all HTTP traffic to HTTPS before it reaches any backend.
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Redirect HTTP → HTTPS only when TLS is enabled. Setting these to "false"
+    # in dev (tls: false) prevents a 308 redirect loop with no certificate.
+    nginx.ingress.kubernetes.io/ssl-redirect: {{ .Values.ingress.tls | toString | quote }}
+    nginx.ingress.kubernetes.io/force-ssl-redirect: {{ .Values.ingress.tls | toString | quote }}
+    # Strip /api prefix before forwarding to the FastAPI backend.
+    # The frontend uses baseURL '/api'; the backend mounts routes at '/'.
+    # Without this rewrite the backend receives /api/auth/login and returns 404.
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
     # Longer timeouts for AI generation endpoints (modules M01–M10 can take
     # 30–120 s per request). Alembic migration job is not routed here.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
@@ -55,8 +61,8 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /api
-            pathType: Prefix
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: {{ include "vidya.componentName" (list . "api") }}
