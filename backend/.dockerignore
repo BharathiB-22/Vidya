@@ -1,0 +1,36 @@
+# Secrets — never bake credentials into the image
+.env
+.env.*
+
+# Python artefacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment — runtime uses /venv copied from builder stage
+.venv/
+
+# Test infrastructure — not needed at runtime
+tests/
+.pytest_cache/
+pytest_out.txt
+test_output.txt
+test_err.txt
+
+# Development and debug scripts
+check_*.py
+smoke_*.py
+reset_*.py
+debug_*.py
+seed_demo.py
+create_admin.py
+get_kit_info.py
+qa_m03_exports.py
+retry_check.py
+check_pw.py
+resume_*.ps1
