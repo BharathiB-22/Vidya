@@ -34,14 +34,33 @@ metadata:
   labels:
     {{- include "vidya.componentLabels" (list . "migrate") | nindent 4 }}
   annotations:
-    # pre-install: runs on first helm install before any workload starts.
-    # pre-upgrade: runs on every helm upgrade before rolling out new pods.
+    {{- if .Values.postgres.enabled }}
+    {{- /*
+      In-cluster PostgreSQL (local-dev / kind):
+
+      Use post-install/post-upgrade so the PostgreSQL StatefulSet and Service
+      are created as normal resources BEFORE the migrate Job runs.
+      A wait-for-postgres initContainer (see below) then gates alembic until
+      the pod is actually accepting connections.
+
+      The pre-install hooks (ConfigMap weight -20, ServiceAccount weight -10)
+      still run before normal resources in both paths, so envFrom and
+      serviceAccountName resolve correctly for the post-install migrate pod.
+    */ -}}
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    {{- else }}
+    {{- /*
+      Managed PostgreSQL (staging / prod):
+
+      Use pre-install/pre-upgrade so the schema migration completes before
+      any new application pods roll out. This prevents code/schema version
+      skew during the rolling upgrade window — new pods only start after
+      alembic has finished.
+    */ -}}
     "helm.sh/hook": pre-install,pre-upgrade
-    # Weight -5 ensures migrate runs before any other pre-install/pre-upgrade
-    # hooks (e.g. secret provisioning hooks) that might have weight 0.
     "helm.sh/hook-weight": "-5"
-    # Delete old Job before creating a new one (idempotency across upgrades).
-    # Delete successful Jobs automatically. Failed Jobs are preserved for logs.
+    {{- end }}
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   # backoffLimit 0: no retries. If alembic fails, the Job fails immediately
@@ -65,6 +84,34 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         fsGroup: 1001
+      {{- if .Values.postgres.enabled }}
+      # Wait for in-cluster PostgreSQL to accept connections before alembic runs.
+      # pg_isready polls until the server responds — no credentials required.
+      # The postgres:16-alpine image is already pulled for the StatefulSet,
+      # so this init container adds no extra pull latency on kind.
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ include "vidya.image" (list . .Values.postgres.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |-
+              until pg_isready \
+                -h {{ include "vidya.componentName" (list . "postgres") }} \
+                -p {{ .Values.postgres.service.port }}; do
+                echo "waiting for postgres..."; sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- end }}
       containers:
         - name: migrate
           image: {{ include "vidya.image" (list . .Values.migrate.image) }}
