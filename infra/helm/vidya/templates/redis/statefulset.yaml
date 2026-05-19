@@ -45,7 +45,7 @@ spec:
             - --requirepass
             - $(REDIS_PASSWORD)
             - --appendonly
-            - yes
+            - "yes"
           env:
             - name: REDIS_PASSWORD
               valueFrom:
