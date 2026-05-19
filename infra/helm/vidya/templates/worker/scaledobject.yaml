@@ -1,0 +1,49 @@
+{{- /*
+  scaledobject.yaml — KEDA ScaledObject for the standard Celery queue.
+
+  Scales vidya-worker between minReplicaCount and maxReplicaCount based on
+  the depth of the Redis list used by the "celery" queue.
+
+  Redis address resolution:
+  - redis.enabled: true  → in-cluster StatefulSet, address derived from release name
+  - redis.enabled: false → keda.redisAddress must be set in values (managed Redis)
+
+  PRD Section 16 targets:
+    queue: celery | threshold: 10 | min: 2 | max: 20 | scale-down: 10 min
+*/ -}}
+{{- if .Values.worker.keda.enabled }}
+{{- $redisAddr := .Values.keda.redisAddress }}
+{{- if .Values.redis.enabled }}
+{{- $redisAddr = printf "%s:6379" (include "vidya.componentName" (list . "redis")) }}
+{{- end }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "vidya.componentName" (list . "worker") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "worker") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "vidya.componentName" (list . "worker") }}
+  minReplicaCount: {{ .Values.worker.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.worker.keda.maxReplicaCount }}
+  # PRD: scale-down delay = 10 min. Prevents thrashing on short bursts.
+  cooldownPeriod: {{ .Values.worker.keda.cooldownPeriod }}
+  # How often KEDA polls Redis for queue depth (seconds).
+  pollingInterval: {{ .Values.worker.keda.pollingInterval }}
+  triggers:
+    - type: redis
+      metadata:
+        # Host:port of the Redis broker — used by KEDA, not by the app itself.
+        address: {{ $redisAddr | quote }}
+        # Celery queue name = Redis list key (kombu default, no prefix).
+        listName: {{ .Values.worker.keda.queueName | quote }}
+        # Scale up when queue depth exceeds this threshold.
+        listLength: {{ .Values.worker.keda.queueLength | quote }}
+        databaseIndex: {{ .Values.keda.redisDatabaseIndex | quote }}
+        enableTLS: {{ .Values.keda.redisEnableTLS | quote }}
+      authenticationRef:
+        name: {{ include "vidya.fullname" . }}-redis-triggerauth
+{{- end }}

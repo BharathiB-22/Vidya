@@ -448,6 +448,21 @@ networkPolicy:
   # Ingress controller namespace (must match where ingress-nginx is deployed).
   ingressNamespace: ingress-nginx
 
+# ── KEDA shared configuration ─────────────────────────────────────────────────
+# These values are used by both worker and worker-heavy ScaledObjects.
+keda:
+  # Redis address for ScaledObject triggers. Format: "host:port"
+  # When redis.enabled: true (dev), this is auto-derived from the release name.
+  # When redis.enabled: false (managed), set to your Redis endpoint:
+  #   Azure Cache:    "my-cache.redis.cache.windows.net:6380" + redisEnableTLS: "true"
+  #   ElastiCache:    "my-cluster.xyz.cache.amazonaws.com:6379"
+  #   Memorystore:    "10.x.y.z:6379"
+  redisAddress: ""
+  # Redis database index used by Celery (default: 0).
+  redisDatabaseIndex: "0"
+  # Set "true" for managed Redis endpoints that require TLS (Azure, ElastiCache TLS).
+  redisEnableTLS: "false"
+
 # ── Off-peak Scaling CronJobs ─────────────────────────────────────────────────
 offPeak:
   enabled: true

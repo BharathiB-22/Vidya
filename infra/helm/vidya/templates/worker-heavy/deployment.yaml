@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vidya.componentName" (list . "worker-heavy") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "worker-heavy") | nindent 4 }}
+spec:
+  # Replicas are omitted when KEDA manages scaling — see worker/scaledobject.yaml.
+  {{- if not .Values.workerHeavy.keda.enabled }}
+  replicas: {{ .Values.workerHeavy.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "worker-heavy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "worker-heavy") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: worker-heavy
+          image: {{ include "vidya.image" (list . .Values.workerHeavy.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            {{- toYaml .Values.workerHeavy.command | nindent 12 }}
+          envFrom:
+            {{- include "vidya.commonEnvFrom" . | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.workerHeavy.resources | nindent 12 }}
+          # Heavy tasks (viva, batch scan) can run 30+ minutes. The liveness probe
+          # uses a longer period (120s) to avoid restarting a mid-task worker.
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                  celery -A app.workers.celery_app inspect ping
+                  --destination "celery@$HOSTNAME" --timeout 15
+            initialDelaySeconds: 45
+            periodSeconds: 120
+            timeoutSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.workerHeavy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.workerHeavy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

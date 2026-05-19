@@ -1,0 +1,45 @@
+{{- /*
+  scaledobject.yaml — KEDA ScaledObject for the heavy Celery queue.
+
+  Scales vidya-worker-heavy between minReplicaCount and maxReplicaCount based
+  on the depth of the Redis list used by the "celery-heavy" queue.
+  Heavy tasks include: viva transcription, full kit export, batch plagiarism scan.
+
+  PRD Section 16 targets:
+    queue: celery-heavy | threshold: 3 | min: 1 | max: 5 | scale-down: 10 min
+*/ -}}
+{{- if .Values.workerHeavy.keda.enabled }}
+{{- $redisAddr := .Values.keda.redisAddress }}
+{{- if .Values.redis.enabled }}
+{{- $redisAddr = printf "%s:6379" (include "vidya.componentName" (list . "redis")) }}
+{{- end }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "vidya.componentName" (list . "worker-heavy") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "worker-heavy") | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "vidya.componentName" (list . "worker-heavy") }}
+  minReplicaCount: {{ .Values.workerHeavy.keda.minReplicaCount }}
+  maxReplicaCount: {{ .Values.workerHeavy.keda.maxReplicaCount }}
+  # PRD: scale-down delay = 10 min. Heavy tasks can run many minutes; allow
+  # the worker to finish before scaling down.
+  cooldownPeriod: {{ .Values.workerHeavy.keda.cooldownPeriod }}
+  pollingInterval: {{ .Values.workerHeavy.keda.pollingInterval }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ $redisAddr | quote }}
+        listName: {{ .Values.workerHeavy.keda.queueName | quote }}
+        # Lower threshold than standard queue — heavy tasks are expensive;
+        # scale up sooner to avoid queue starvation.
+        listLength: {{ .Values.workerHeavy.keda.queueLength | quote }}
+        databaseIndex: {{ .Values.keda.redisDatabaseIndex | quote }}
+        enableTLS: {{ .Values.keda.redisEnableTLS | quote }}
+      authenticationRef:
+        name: {{ include "vidya.fullname" . }}-redis-triggerauth
+{{- end }}
