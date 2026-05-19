@@ -302,6 +302,15 @@ pgbouncer:
   poolMode: transaction
   maxClientConn: 200
   defaultPoolSize: 20
+  # PostgreSQL connection target for PgBouncer.
+  # When postgres.enabled: true, postgresHost is auto-derived from the release name.
+  # When postgres.enabled: false (managed cloud), set postgresHost to your managed endpoint:
+  #   GCP Cloud SQL (proxy): "127.0.0.1"  (via Cloud SQL Auth Proxy sidecar)
+  #   RDS / Azure DB:        "my-instance.xxxx.rds.amazonaws.com"
+  postgresHost: ""
+  postgresPort: 5432
+  postgresDatabase: vidya
+  postgresUser: vidya
   nodeSelector:
     pool: general
   tolerations: []
@@ -387,6 +396,8 @@ postgres:
   image:
     repository: postgres
     tag: "16-alpine"
+  database: vidya
+  user: vidya
   resources:
     requests:
       cpu: 250m

@@ -1,0 +1,103 @@
+{{- if .Values.pgbouncer.enabled }}
+{{- /*
+  PgBouncer Deployment — standalone connection pool (not a sidecar).
+
+  Deviation from PRD "sidecar to vidya-api": standalone prevents connection
+  multiplication (N api pods × pool_size → Postgres overload). One shared pool
+  is easier to tune and observe; rollback is a single Deployment revision.
+
+  PostgreSQL host resolution:
+    postgres.enabled: true  → auto-derived from release name (dev StatefulSet)
+    postgres.enabled: false → pgbouncer.postgresHost (managed cloud endpoint)
+
+  Security: bitnami/pgbouncer runs as UID 1001. readOnlyRootFilesystem is not
+  set because the bitnami startup script generates pgbouncer.ini at /opt/bitnami/
+  at container start. Switch to a custom image with pre-baked config for full
+  readOnlyRootFilesystem hardening.
+*/ -}}
+{{- $pgHost := .Values.pgbouncer.postgresHost }}
+{{- if .Values.postgres.enabled }}
+{{- $pgHost = include "vidya.componentName" (list . "postgres") }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vidya.componentName" (list . "pgbouncer") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "pgbouncer") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "pgbouncer") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "pgbouncer") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: pgbouncer
+          image: {{ include "vidya.image" (list . .Values.pgbouncer.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: POSTGRESQL_HOST
+              value: {{ $pgHost | quote }}
+            - name: POSTGRESQL_PORT
+              value: {{ .Values.pgbouncer.postgresPort | quote }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.pgbouncer.postgresDatabase | quote }}
+            - name: POSTGRESQL_USERNAME
+              value: {{ .Values.pgbouncer.postgresUser | quote }}
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGBOUNCER_POOL_MODE
+              value: {{ .Values.pgbouncer.poolMode | quote }}
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: {{ .Values.pgbouncer.maxClientConn | quote }}
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: {{ .Values.pgbouncer.defaultPoolSize | quote }}
+          ports:
+            - name: pgbouncer
+              containerPort: 5432
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.pgbouncer.resources | nindent 12 }}
+      {{- with .Values.pgbouncer.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pgbouncer.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

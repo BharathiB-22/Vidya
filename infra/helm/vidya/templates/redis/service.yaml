@@ -1,0 +1,17 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vidya.componentName" (list . "redis") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "redis") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.redis.service.port }}
+      targetPort: redis
+      protocol: TCP
+      name: redis
+  selector:
+    {{- include "vidya.componentSelectorLabels" (list . "redis") | nindent 4 }}
+{{- end }}

@@ -1,0 +1,113 @@
+{{- if .Values.minio.enabled }}
+{{- /*
+  MinIO StatefulSet — self-hosted object storage (all deployment paths).
+
+  The API port (9000) is exposed via ClusterIP Service.
+  The console port (9001) is NOT exposed in any Service — access via port-forward:
+    kubectl port-forward svc/<release>-minio 9001:9001 -n <namespace>
+
+  CLOUD MIGRATION PATH
+  ────────────────────
+  MinIO is S3-compatible. Migrating to GCS/S3/Azure Blob requires only updating
+  S3_ENDPOINT, S3_ACCESS_KEY, and S3_SECRET_KEY — zero application code changes.
+  See PRD Section 16 for the cloud object-store migration sprint.
+
+  Security: official minio/minio image runs as root (UID 0). runAsNonRoot is
+  not set because the image does not support non-root out of the box. Switch to
+  bitnami/minio (UID 1001) for full non-root hardening. allowPrivilegeEscalation
+  is false and ALL capabilities are dropped as a partial mitigation.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vidya.componentName" (list . "minio") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "minio") | nindent 4 }}
+spec:
+  serviceName: {{ include "vidya.componentName" (list . "minio") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "minio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "minio") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      containers:
+        - name: minio
+          image: {{ include "vidya.image" (list . .Values.minio.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - minio
+            - server
+            - /data
+            - --console-address
+            - :9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: S3_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: S3_SECRET_KEY
+          ports:
+            - name: api
+              containerPort: 9000
+              protocol: TCP
+            - name: console
+              containerPort: 9001
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      {{- with .Values.minio.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.minio.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.storage }}
+{{- end }}

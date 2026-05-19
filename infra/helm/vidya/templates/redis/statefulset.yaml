@@ -1,0 +1,115 @@
+{{- if .Values.redis.enabled }}
+{{- /*
+  Redis StatefulSet — LOCAL DEV / KIND ONLY.
+
+  MANAGED CLOUD REPLACEMENT
+  ─────────────────────────
+  Set redis.enabled: false and point KEDA + app at your managed endpoint:
+    GCP:   Memorystore — set keda.redisAddress and secrets.redisUrl
+    AWS:   ElastiCache — same; add keda.redisEnableTLS: "true" for TLS mode
+    Azure: Azure Cache for Redis — keda.redisAddress + keda.redisEnableTLS: "true"
+
+  Security: redis:7-alpine runs as redis user (UID 999). readOnlyRootFilesystem
+  true — /data (PVC) and /tmp (emptyDir) are the only writable paths.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vidya.componentName" (list . "redis") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "redis") | nindent 4 }}
+spec:
+  serviceName: {{ include "vidya.componentName" (list . "redis") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "redis") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: {{ include "vidya.image" (list . .Values.redis.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - redis-server
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --appendonly
+            - yes
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: REDIS_PASSWORD
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning PING
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning PING
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.redis.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.redis.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage }}
+{{- end }}

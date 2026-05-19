@@ -1,0 +1,92 @@
+{{- /*
+  Qdrant StatefulSet — vector database, self-hosted in all deployment paths.
+
+  replicaCount: 1 by default. Scale to 3 in prod when vectors exceed 5M
+  (requires Qdrant distributed mode configuration — separate sprint).
+
+  Security: qdrant/qdrant image runs as uid 1000. readOnlyRootFilesystem is
+  not set because the qdrant binary writes runtime files to /qdrant/ paths at
+  startup (config, raft state). /qdrant/storage (PVC) is the durable write path.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vidya.componentName" (list . "qdrant") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "qdrant") | nindent 4 }}
+spec:
+  serviceName: {{ include "vidya.componentName" (list . "qdrant") }}
+  replicas: {{ .Values.qdrant.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "qdrant") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "qdrant") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: qdrant
+          image: {{ include "vidya.image" (list . .Values.qdrant.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+            - name: grpc
+              containerPort: 6334
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.qdrant.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /qdrant/storage
+      {{- with .Values.qdrant.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.qdrant.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.qdrant.storage }}

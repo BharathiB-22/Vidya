@@ -1,0 +1,21 @@
+{{- if .Values.minio.enabled }}
+{{- /*
+  MinIO Service — exposes the S3-compatible API port (9000) only.
+  The console port (9001) is intentionally absent; access via kubectl port-forward.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vidya.componentName" (list . "minio") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "minio") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.minio.service.apiPort }}
+      targetPort: api
+      protocol: TCP
+      name: api
+  selector:
+    {{- include "vidya.componentSelectorLabels" (list . "minio") | nindent 4 }}
+{{- end }}

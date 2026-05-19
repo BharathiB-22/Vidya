@@ -1,0 +1,129 @@
+{{- if .Values.postgres.enabled }}
+{{- /*
+  PostgreSQL StatefulSet — LOCAL DEV / KIND ONLY.
+
+  MANAGED CLOUD REPLACEMENT
+  ─────────────────────────
+  Set postgres.enabled: false and provide the connection string via
+  secrets.databaseUrl (or ExternalSecrets). Managed services handle HA,
+  point-in-time recovery, and automated patching:
+    GCP:   Cloud SQL for PostgreSQL
+    AWS:   Amazon RDS for PostgreSQL (or Aurora PostgreSQL)
+    Azure: Azure Database for PostgreSQL — Flexible Server
+
+  Security: postgres:16-alpine runs as postgres user (UID 70). readOnlyRootFilesystem
+  true — /var/lib/postgresql/data (PVC), /var/run/postgresql (emptyDir for the
+  UNIX socket), and /tmp (emptyDir) are the only writable paths.
+
+  PGDATA is set to a /pgdata subdirectory within the PVC mount to avoid the
+  "directory is not empty" initialisation error caused by lost+found in the PVC root.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "vidya.componentName" (list . "postgres") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "postgres") | nindent 4 }}
+spec:
+  serviceName: {{ include "vidya.componentName" (list . "postgres") }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "postgres") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: {{ include "vidya.image" (list . .Values.postgres.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgres.user | quote }}
+                - -d
+                - {{ .Values.postgres.database | quote }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - {{ .Values.postgres.user | quote }}
+                - -d
+                - {{ .Values.postgres.database | quote }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run-postgresql
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run-postgresql
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.postgres.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgres.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+{{- end }}

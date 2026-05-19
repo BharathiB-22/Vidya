@@ -1,0 +1,17 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vidya.componentName" (list . "postgres") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "postgres") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.postgres.service.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "vidya.componentSelectorLabels" (list . "postgres") | nindent 4 }}
+{{- end }}

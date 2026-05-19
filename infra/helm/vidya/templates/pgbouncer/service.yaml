@@ -1,0 +1,17 @@
+{{- if .Values.pgbouncer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vidya.componentName" (list . "pgbouncer") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "pgbouncer") | nindent 4 }}
+spec:
+  type: {{ .Values.pgbouncer.service.type }}
+  ports:
+    - port: {{ .Values.pgbouncer.service.port }}
+      targetPort: pgbouncer
+      protocol: TCP
+      name: pgbouncer
+  selector:
+    {{- include "vidya.componentSelectorLabels" (list . "pgbouncer") | nindent 4 }}
+{{- end }}
