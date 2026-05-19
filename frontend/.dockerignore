@@ -1,0 +1,14 @@
+# Dependencies — re-installed inside the builder stage via npm ci
+node_modules/
+
+# Previous build output — always produced fresh inside the builder stage
+dist/
+
+# Secrets and local overrides
+.env
+.env.*
+*.local
+
+# Editor and OS artefacts
+.DS_Store
+Thumbs.db

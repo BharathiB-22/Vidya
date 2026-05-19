@@ -18,6 +18,7 @@ const STEPS: Step[] = [
 const STATUS_ORDER: Record<ProgramStatus, number> = {
   DRAFT:             0,
   AI_GENERATING:     1,
+  GENERATION_FAILED: 1,
   PENDING_APPROVAL:  2,
   APPROVED:          3,
 }
