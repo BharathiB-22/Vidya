@@ -38,11 +38,15 @@ certManager:
 # ── Image registry ────────────────────────────────────────────────────────────
 global:
   imageRegistry: ghcr.io/your-org   # replace with your container registry
-  imagePullPolicy: Always           # always pull — staging uses :latest tags
+  imagePullPolicy: Always           # always pull on staging — tags are mutable pre-release
   storageClass: ""                  # use cluster default; set to "standard-rwo" for GKE
 
 # ── api ───────────────────────────────────────────────────────────────────────
+# image.tag: CI sets this to $GIT_SHA at deploy time via --set api.image.tag=<sha>
+# "0.1.0" is a baseline placeholder — never deploy staging with :latest.
 api:
+  image:
+    tag: "0.1.0"
   replicaCount: 2
   hpa:
     enabled: true
@@ -54,6 +58,8 @@ api:
 
 # ── worker ────────────────────────────────────────────────────────────────────
 worker:
+  image:
+    tag: "0.1.0"
   replicaCount: 2
   keda:
     enabled: true
@@ -65,6 +71,8 @@ worker:
 
 # ── workerHeavy ───────────────────────────────────────────────────────────────
 workerHeavy:
+  image:
+    tag: "0.1.0"
   replicaCount: 1
   keda:
     enabled: true
@@ -76,6 +84,8 @@ workerHeavy:
 
 # ── frontend ──────────────────────────────────────────────────────────────────
 frontend:
+  image:
+    tag: "0.1.0"
   replicaCount: 2
   hpa:
     enabled: true
@@ -84,6 +94,11 @@ frontend:
   nodeSelector:
     pool: general
   tolerations: []
+
+# ── migrate ───────────────────────────────────────────────────────────────────
+migrate:
+  image:
+    tag: "0.1.0"
 
 # ── flower ────────────────────────────────────────────────────────────────────
 flower:

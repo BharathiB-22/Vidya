@@ -60,7 +60,12 @@ global:
   storageClass: "standard-rwo"      # GKE; adjust: gp3 (EKS), managed-csi (AKS)
 
 # ── api ───────────────────────────────────────────────────────────────────────
+# image.tag: CRITICAL — :latest is forbidden in production.
+# CI must override at deploy time: --set api.image.tag=$GIT_SHA
+# "0.1.0" is a semver placeholder that satisfies lint.sh's :latest check.
 api:
+  image:
+    tag: "0.1.0"
   replicaCount: 3
   hpa:
     enabled: true
@@ -84,6 +89,8 @@ api:
 
 # ── worker ────────────────────────────────────────────────────────────────────
 worker:
+  image:
+    tag: "0.1.0"
   replicaCount: 3
   keda:
     enabled: true
@@ -108,6 +115,8 @@ worker:
 
 # ── workerHeavy ───────────────────────────────────────────────────────────────
 workerHeavy:
+  image:
+    tag: "0.1.0"
   replicaCount: 1
   keda:
     enabled: true
@@ -132,6 +141,8 @@ workerHeavy:
 
 # ── frontend ──────────────────────────────────────────────────────────────────
 frontend:
+  image:
+    tag: "0.1.0"
   replicaCount: 3
   hpa:
     enabled: true
@@ -145,6 +156,12 @@ frontend:
   nodeSelector:
     pool: general
   tolerations: []
+
+# ── migrate ───────────────────────────────────────────────────────────────────
+migrate:
+  image:
+    tag: "0.1.0"
+  runTenantMigration: false   # review before each upgrade that adds tenant columns
 
 # ── flower ────────────────────────────────────────────────────────────────────
 flower:
@@ -235,10 +252,6 @@ offPeak:
 networkPolicy:
   enabled: true
   ingressNamespace: ingress-nginx
-
-# ── Migrate job ───────────────────────────────────────────────────────────────
-migrate:
-  runTenantMigration: false   # review before each upgrade that adds tenant columns
 
 # ── Application environment overrides ────────────────────────────────────────
 env:

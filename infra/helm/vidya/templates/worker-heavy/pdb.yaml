@@ -1,0 +1,13 @@
+{{- if .Values.workerHeavy.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vidya.componentName" (list . "worker-heavy") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "worker-heavy") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.workerHeavy.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "worker-heavy") | nindent 6 }}
+{{- end }}

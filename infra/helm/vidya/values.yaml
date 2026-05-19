@@ -186,6 +186,9 @@ workerHeavy:
     queueName: celery-heavy
     cooldownPeriod: 600
     pollingInterval: 15
+  pdb:
+    enabled: true
+    minAvailable: 1
   nodeSelector:
     pool: heavy-worker
   tolerations: []
