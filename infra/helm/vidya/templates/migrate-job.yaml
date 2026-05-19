@@ -1,0 +1,102 @@
+{{- /*
+  migrate-job.yaml — Alembic schema migration Helm hook.
+
+  Runs as a pre-install and pre-upgrade hook, so schema changes land before
+  any new Deployment pods start. If alembic exits non-zero, the Helm operation
+  is aborted — no partial rollout with mismatched schema.
+
+  IDEMPOTENCY
+  ───────────
+  * hook-delete-policy: before-hook-creation — deletes the previous Job before
+    creating a new one, so helm upgrade is always idempotent.
+  * hook-delete-policy: hook-succeeded — auto-cleans successful Jobs.
+  * Failed Jobs are NOT deleted by Helm (for log inspection). They are cleaned
+    up after ttlSecondsAfterFinished seconds by Kubernetes.
+  * Alembic itself is idempotent: running upgrade head when already at head
+    is a no-op (exit 0).
+
+  MIGRATION PATHS
+  ───────────────
+  Public schema (always): creates/updates shared tables (tenants, audit_logs, users…).
+  Tenant schema (opt-in): updates the tenant schema template.
+    Enable via: migrate.runTenantMigration: true in values.
+    Only set this when tenant schemas already exist and the tenant alembic
+    env.py is configured to target a known schema.
+
+  ALEMBIC_TARGET env var selects which alembic version directory to use:
+    public → backend/alembic/public_versions/
+    tenant → backend/alembic/tenant_versions/
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vidya.componentName" (list . "migrate") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "migrate") | nindent 4 }}
+  annotations:
+    # pre-install: runs on first helm install before any workload starts.
+    # pre-upgrade: runs on every helm upgrade before rolling out new pods.
+    "helm.sh/hook": pre-install,pre-upgrade
+    # Weight -5 ensures migrate runs before any other pre-install/pre-upgrade
+    # hooks (e.g. secret provisioning hooks) that might have weight 0.
+    "helm.sh/hook-weight": "-5"
+    # Delete old Job before creating a new one (idempotency across upgrades).
+    # Delete successful Jobs automatically. Failed Jobs are preserved for logs.
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  # backoffLimit 0: no retries. If alembic fails, the Job fails immediately
+  # and Helm aborts the upgrade. Retrying a failed migration risks partial
+  # state if the failure was mid-migration rather than a transient error.
+  backoffLimit: 0
+  # Kubernetes auto-deletes the Job (and its Pod) after this many seconds.
+  # Covers failed Jobs that Helm's hook-delete-policy does not clean up.
+  ttlSecondsAfterFinished: {{ .Values.migrate.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "migrate") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      # Never restart a failed migration pod — surface the error immediately.
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: migrate
+          image: {{ include "vidya.image" (list . .Values.migrate.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |-
+              set -e
+              ALEMBIC_TARGET=public alembic upgrade head
+              {{ if .Values.migrate.runTenantMigration -}}
+              ALEMBIC_TARGET=tenant alembic upgrade head
+              {{- end }}
+          env:
+            # Prevent Python from writing .pyc files to the read-only root fs.
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONPYCACHEPREFIX
+              value: /tmp/pycache
+          envFrom:
+            {{- include "vidya.commonEnvFrom" . | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

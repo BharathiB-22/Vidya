@@ -239,6 +239,21 @@ frontend:
   pdb:
     enabled: true
     minAvailable: 1
+  probes:
+    liveness:
+      path: /
+      port: 3000
+      initialDelaySeconds: 5
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      path: /
+      port: 3000
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
   nodeSelector:
     pool: general
   tolerations: []
@@ -296,12 +311,19 @@ pgbouncer:
 
 # ── Migrate Job (Helm pre-upgrade hook — runs alembic upgrade head) ───────────
 migrate:
-  # Helm hook annotation: runs before every helm upgrade, blocks on success/failure.
+  # Helm hook annotation: runs before every helm install/upgrade, blocks on
+  # success/failure. A non-zero exit from alembic aborts the Helm operation.
   image:
     repository: vidya/api
     tag: latest
-  # Seconds to wait before the hook Job is deleted after completion.
-  ttlSecondsAfterFinished: 120
+  # Seconds before Kubernetes auto-deletes a finished Job (success or fail).
+  # Failed Jobs are preserved by Helm's hook-delete-policy for log inspection;
+  # this TTL is a safety net in case they accumulate.
+  ttlSecondsAfterFinished: 300
+  # Run the tenant schema migration in addition to the public schema.
+  # Set true only when tenant schemas exist and the tenant alembic env.py
+  # is configured to target a known schema. Default false — safe for new deploys.
+  runTenantMigration: false
   resources:
     requests:
       cpu: 100m
