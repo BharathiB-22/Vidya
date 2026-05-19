@@ -1,9 +1,33 @@
+{{- /*
+  ConfigMap rendered as a pre-install/pre-upgrade hook at weight -20.
+
+  WHY A HOOK?
+  The migrate Job (pre-install hook, weight -5) uses envFrom to load this
+  ConfigMap. Helm executes hooks before normal resources, so a plain ConfigMap
+  would not exist yet when the migrate pod starts — producing:
+    CreateContainerConfigError: configmap "vidya-config" not found
+
+  Hook execution order (ascending weight):
+    weight -20 → ConfigMap + Secret   (envFrom sources for migrate pod)
+    weight -10 → ServiceAccount       (pod identity for migrate pod)
+    weight  -5 → migrate Job          (alembic upgrade head)
+    normal     → Deployments, Services, StatefulSets, etc.
+
+  hook-delete-policy: before-hook-creation
+    ConfigMap is deleted and recreated at the start of each install/upgrade,
+    so env-var changes in values files take effect immediately. The ConfigMap
+    is not secret material, so the brief deletion window is safe.
+*/ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "vidya.fullname" . }}-config
   labels:
     {{- include "vidya.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation
 data:
   # ── Runtime / environment ──────────────────────────────────────────────────
   ENVIRONMENT:                  {{ .Values.env.ENVIRONMENT | quote }}
