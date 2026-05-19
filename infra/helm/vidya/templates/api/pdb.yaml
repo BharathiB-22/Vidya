@@ -1,0 +1,13 @@
+{{- if .Values.api.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "vidya.componentName" (list . "api") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "api") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.api.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "api") | nindent 6 }}
+{{- end }}
