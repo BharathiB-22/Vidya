@@ -374,6 +374,7 @@ class TenantAuthService:
         await TenantRepository.update_user(
             user.id, {"last_login_at": datetime.now(timezone.utc)}, db
         )
+        await db.commit()
         await AuditService.log(
             AuditEventType.AUTH_LOGIN_SUCCESS,
             actor_user_id=user.id, actor_role=user.role.value,
@@ -523,6 +524,7 @@ class TenantAuthService:
         await TenantRepository.create_otp(
             user.id, otp_hash_val, OTPPurpose.PASSWORD_RESET, expires_at, db
         )
+        await db.commit()
         print(f"[DEV] Tenant OTP for {email}: {plain_otp}")  # Phase 0: email not wired
         await AuditService.log(
             AuditEventType.AUTH_PASSWORD_RESET_REQUESTED,
@@ -553,6 +555,7 @@ class TenantAuthService:
         await TenantRepository.increment_otp_attempts(otp_record.id, db)
         if otp_record.attempts + 1 > settings.OTP_MAX_ATTEMPTS:
             await TenantRepository.consume_otp(otp_record.id, db)
+            await db.commit()
             await AuditService.log(
                 AuditEventType.AUTH_PASSWORD_RESET_OTP_FAILED,
                 actor_user_id=user.id, actor_role=user.role.value,
@@ -562,8 +565,10 @@ class TenantAuthService:
             )
             raise AuthError("OTP_MAX_ATTEMPTS", "OTP max attempts exceeded")
         if not verify_otp(otp_plain, otp_record.otp_hash):
+            await db.commit()
             raise AuthError("OTP_INVALID", "Invalid OTP")
         await TenantRepository.consume_otp(otp_record.id, db)
+        await db.commit()
         iat_cutoff = (
             _as_utc(user.password_changed_at)
             if user.password_changed_at
