@@ -29,6 +29,10 @@ import ScriptListPage from '@/pages/ScriptListPage'
 import ScriptUploadPage from '@/pages/ScriptUploadPage'
 import ScriptEvaluationPanel from '@/pages/ScriptEvaluationPanel'
 import BoardScriptReviewPage from '@/pages/BoardScriptReviewPage'
+import BellCurveListPage from '@/pages/BellCurveListPage'
+import BellCurveAnalysisPage from '@/pages/BellCurveAnalysisPage'
+import BellCurveRatifyPage from '@/pages/BellCurveRatifyPage'
+import FairnessReportPage from '@/pages/FairnessReportPage'
 
 export default function App() {
   return (
@@ -78,6 +82,12 @@ export default function App() {
         <Route path="/scripts/upload" element={<ScriptUploadPage />} />
         <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
         <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
+
+        {/* M10 — Bell Curve Normaliser (board/admin/dean) */}
+        <Route path="/bell-curve" element={<BellCurveListPage />} />
+        <Route path="/bell-curve/reports" element={<FairnessReportPage />} />
+        <Route path="/bell-curve/:id/ratify" element={<BellCurveRatifyPage />} />
+        <Route path="/bell-curve/:id" element={<BellCurveAnalysisPage />} />
 
         <Route path="/" element={<Navigate to="/programs" replace />} />
       </Route>
