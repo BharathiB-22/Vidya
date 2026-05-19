@@ -117,5 +117,7 @@ secrets:
 env:
   LOG_LEVEL: DEBUG
   JSON_LOGGING: "False"    # human-readable logs in terminal
-  CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://vidya.127.0.0.1.nip.io"
+  CORS_ALLOWED_ORIGINS:
+    - "http://localhost:3000"
+    - "http://vidya.127.0.0.1.nip.io"
   EMAIL_NOTIFICATIONS_ENABLED: "False"

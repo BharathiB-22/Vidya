@@ -258,7 +258,8 @@ env:
   ENVIRONMENT: production
   LOG_LEVEL: INFO
   JSON_LOGGING: "True"
-  CORS_ALLOWED_ORIGINS: "https://vidya.example.com"
+  CORS_ALLOWED_ORIGINS:
+    - "https://vidya.example.com"
   EMAIL_NOTIFICATIONS_ENABLED: "True"
   AI_DETECTION_THRESH: "0.75"
   PLAGIARISM_THRESH: "0.85"

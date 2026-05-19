@@ -172,7 +172,8 @@ env:
   ENVIRONMENT: staging
   LOG_LEVEL: INFO
   JSON_LOGGING: "True"
-  CORS_ALLOWED_ORIGINS: "https://staging.vidya.example.com"
+  CORS_ALLOWED_ORIGINS:
+    - "https://staging.vidya.example.com"
   EMAIL_NOTIFICATIONS_ENABLED: "False"   # enable when SMTP is verified
 
 # ── Secrets placeholder (populated by ESO — do not set real values here) ──────

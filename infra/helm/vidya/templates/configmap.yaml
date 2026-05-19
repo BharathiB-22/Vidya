@@ -49,7 +49,10 @@ data:
   QDRANT_API_KEY:               {{ .Values.env.QDRANT_API_KEY | quote }}
 
   # ── CORS / auth ────────────────────────────────────────────────────────────
-  CORS_ALLOWED_ORIGINS:         {{ .Values.env.CORS_ALLOWED_ORIGINS | quote }}
+  # pydantic-settings v2 parses list[str] fields from env vars as JSON only.
+  # toJson converts the YAML list to a JSON array; quote wraps it for YAML.
+  # Rendered value: '["https://example.com","https://www.example.com"]'
+  CORS_ALLOWED_ORIGINS:         {{ .Values.env.CORS_ALLOWED_ORIGINS | toJson | quote }}
   ACCESS_TOKEN_EXPIRE_MINUTES:  {{ .Values.env.ACCESS_TOKEN_EXPIRE_MINUTES | quote }}
   REFRESH_TOKEN_EXPIRE_DAYS:    {{ .Values.env.REFRESH_TOKEN_EXPIRE_DAYS | quote }}
 
