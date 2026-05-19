@@ -30,6 +30,15 @@ spec:
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           command:
             {{- toYaml .Values.workerHeavy.command | nindent 12 }}
+          env:
+            # Same HOME=/tmp fix as worker — task discovery imports AI clients
+            # that write to $HOME/.cache/ on first import.
+            - name: HOME
+              value: /tmp
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONPYCACHEPREFIX
+              value: /tmp/pycache
           envFrom:
             {{- include "vidya.commonEnvFrom" . | nindent 12 }}
           securityContext:

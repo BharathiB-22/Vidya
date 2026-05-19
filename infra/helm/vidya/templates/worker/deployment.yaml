@@ -31,6 +31,17 @@ spec:
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           command:
             {{- toYaml .Values.worker.command | nindent 12 }}
+          env:
+            # readOnlyRootFilesystem: Celery task discovery imports all task
+            # modules at startup. Some AI client libs (google-generativeai, groq)
+            # write to $HOME/.cache/ on first import. HOME=/tmp redirects those
+            # writes to the writable emptyDir so the worker process doesn't exit.
+            - name: HOME
+              value: /tmp
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONPYCACHEPREFIX
+              value: /tmp/pycache
           envFrom:
             {{- include "vidya.commonEnvFrom" . | nindent 12 }}
           securityContext:
