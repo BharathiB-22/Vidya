@@ -42,6 +42,18 @@ worker:
     enabled: false   # use static replicas locally; KEDA not required
   nodeSelector: null
   tolerations: []
+  # kind: readOnlyRootFilesystem + prefork fork() causes CrashLoopBackOff.
+  # solo pool runs tasks in the main process — no fork, no IPC sockets needed.
+  command:
+    - celery
+    - -A
+    - app.workers.celery_app
+    - worker
+    - -Q
+    - celery
+    - --loglevel=info
+    - --concurrency=1
+    - --pool=solo
 
 workerHeavy:
   replicaCount: 1
@@ -49,6 +61,16 @@ workerHeavy:
     enabled: false
   nodeSelector: null
   tolerations: []
+  command:
+    - celery
+    - -A
+    - app.workers.celery_app
+    - worker
+    - -Q
+    - celery-heavy
+    - --loglevel=info
+    - --concurrency=1
+    - --pool=solo
 
 frontend:
   replicaCount: 1

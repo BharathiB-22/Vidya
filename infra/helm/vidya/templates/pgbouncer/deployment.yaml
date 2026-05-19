@@ -10,10 +10,9 @@
     postgres.enabled: true  → auto-derived from release name (dev StatefulSet)
     postgres.enabled: false → pgbouncer.postgresHost (managed cloud endpoint)
 
-  Security: bitnami/pgbouncer runs as UID 1001. readOnlyRootFilesystem is not
-  set because the bitnami startup script generates pgbouncer.ini at /opt/bitnami/
-  at container start. Switch to a custom image with pre-baked config for full
-  readOnlyRootFilesystem hardening.
+  Security: edoburu/pgbouncer generates pgbouncer.ini at container start from
+  env vars, so readOnlyRootFilesystem is not set. The image runs as its own
+  non-root user; runAsNonRoot is enforced without pinning a specific UID.
 */ -}}
 {{- $pgHost := .Values.pgbouncer.postgresHost }}
 {{- if .Values.postgres.enabled }}
@@ -37,34 +36,33 @@ spec:
     spec:
       {{- include "vidya.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      # edoburu/pgbouncer runs as its own non-root user (not UID 1001).
+      # runAsNonRoot enforces non-root without assuming a specific UID.
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1001
-        runAsGroup: 1001
-        fsGroup: 1001
       containers:
         - name: pgbouncer
           image: {{ include "vidya.image" (list . .Values.pgbouncer.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           env:
-            - name: POSTGRESQL_HOST
+            - name: DB_HOST
               value: {{ $pgHost | quote }}
-            - name: POSTGRESQL_PORT
+            - name: DB_PORT
               value: {{ .Values.pgbouncer.postgresPort | quote }}
-            - name: POSTGRESQL_DATABASE
+            - name: DB_NAME
               value: {{ .Values.pgbouncer.postgresDatabase | quote }}
-            - name: POSTGRESQL_USERNAME
+            - name: DB_USER
               value: {{ .Values.pgbouncer.postgresUser | quote }}
-            - name: POSTGRESQL_PASSWORD
+            - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "vidya.fullname" . }}-secret
                   key: POSTGRES_PASSWORD
-            - name: PGBOUNCER_POOL_MODE
+            - name: POOL_MODE
               value: {{ .Values.pgbouncer.poolMode | quote }}
-            - name: PGBOUNCER_MAX_CLIENT_CONN
+            - name: MAX_CLIENT_CONN
               value: {{ .Values.pgbouncer.maxClientConn | quote }}
-            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+            - name: DEFAULT_POOL_SIZE
               value: {{ .Values.pgbouncer.defaultPoolSize | quote }}
           ports:
             - name: pgbouncer

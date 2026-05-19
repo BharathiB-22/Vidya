@@ -70,6 +70,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /qdrant/storage
+            # /qdrant/snapshots is created by the image as root:root 755.
+            # Running as UID 1000 cannot write to it via the container overlay.
+            # emptyDir replaces it with a writable tmpfs mount (fsGroup:1000).
+            - name: snapshots
+              mountPath: /qdrant/snapshots
+      volumes:
+        - name: snapshots
+          emptyDir: {}
       {{- with .Values.qdrant.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

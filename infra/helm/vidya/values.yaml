@@ -302,8 +302,8 @@ flower:
 pgbouncer:
   enabled: true
   image:
-    repository: bitnami/pgbouncer
-    tag: "1.23.0"
+    repository: edoburu/pgbouncer
+    tag: "v1.24.1-p1"
   resources:
     requests:
       cpu: 50m
