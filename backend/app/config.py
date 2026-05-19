@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve .env relative to this file so it is found regardless of CWD.
@@ -43,6 +44,13 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRY_MINUTES_PUT: int = 15
     PRESIGNED_URL_EXPIRY_MINUTES_GET: int = 60
     STORAGE_ASSET_RETENTION_YEARS: int = 3
+
+    # CORS
+    # Comma-separated origins accepted by the API, e.g.
+    # CORS_ALLOWED_ORIGINS=https://app.vidya.example,https://admin.vidya.example
+    # Defaults to local dev ports so `npm run dev` works without extra config.
+    CORS_ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ALLOW_CREDENTIALS: bool = True
 
     # AI provider selection: "groq" | "gemini" | "fallback"
     # "fallback" tries Gemini first and routes to Groq on quota errors.
@@ -133,6 +141,75 @@ class Settings(BaseSettings):
     @property
     def SYNC_DATABASE_URL(self) -> str:
         return self.DATABASE_URL.replace("+asyncpg", "+psycopg2", 1)
+
+    # ------------------------------------------------------------------
+    # Production startup guard
+    # Fires only when ENVIRONMENT=production.  Any violation raises
+    # ValueError immediately at import time, preventing the app from
+    # starting with insecure defaults.
+    # ------------------------------------------------------------------
+    _KNOWN_DEV_JWT = (
+        "1889a2bea7f4c026f5b6922687e67b4a72c47780076bf12c0233b8e1f9624cca"
+    )
+
+    @model_validator(mode="after")
+    def _reject_insecure_production_config(self) -> "Settings":
+        if self.ENVIRONMENT != "production":
+            return self
+
+        errors: list[str] = []
+
+        if self.JWT_SECRET == self._KNOWN_DEV_JWT:
+            errors.append(
+                "JWT_SECRET is the known development value. "
+                "Generate a new one: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+
+        if self.S3_ACCESS_KEY == "minioadmin":
+            errors.append(
+                "S3_ACCESS_KEY is set to the default 'minioadmin'. "
+                "Set a strong, unique credential before deploying."
+            )
+
+        if self.S3_SECRET_KEY == "minioadmin":
+            errors.append(
+                "S3_SECRET_KEY is set to the default 'minioadmin'. "
+                "Set a strong, unique credential before deploying."
+            )
+
+        if not self.EXAM_FERNET_KEY:
+            errors.append(
+                "EXAM_FERNET_KEY must be set in production — exam papers are "
+                "irrecoverable without it. Generate: "
+                "python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\""
+            )
+
+        if not self.S3_USE_SSL:
+            errors.append(
+                "S3_USE_SSL must be True in production. "
+                "Object storage must be accessed over TLS."
+            )
+
+        if not self.CORS_ALLOWED_ORIGINS:
+            errors.append(
+                "CORS_ALLOWED_ORIGINS must not be empty in production. "
+                "Set the explicit origin(s) of your frontend deployment."
+            )
+        elif "*" in self.CORS_ALLOWED_ORIGINS:
+            errors.append(
+                "CORS_ALLOWED_ORIGINS must not contain '*' in production. "
+                "Specify explicit origin(s)."
+            )
+
+        if errors:
+            bullet_list = "\n".join(f"  • {e}" for e in errors)
+            raise ValueError(
+                f"Production startup blocked — {len(errors)} insecure "
+                f"configuration issue(s) detected:\n{bullet_list}"
+            )
+
+        return self
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

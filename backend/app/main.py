@@ -1,5 +1,4 @@
 import logging
-import traceback
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -72,8 +71,8 @@ app.add_middleware(MonitoringMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.ENVIRONMENT == "development" else [],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -103,10 +102,9 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    message = traceback.format_exc() if settings.ENVIRONMENT == "development" else "An unexpected error occurred"
     return JSONResponse(
         status_code=500,
-        content={"error": "INTERNAL_ERROR", "message": message},
+        content={"error": "INTERNAL_ERROR", "message": "An unexpected error occurred"},
     )
 
 
