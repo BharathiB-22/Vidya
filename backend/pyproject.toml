@@ -27,6 +27,7 @@ dependencies = [
     "qdrant-client>=1.9",
     "tenacity>=8.2",
     "scipy>=1.13.0",
+    "celery[redis]>=5.4.0",
 ]
 
 [project.optional-dependencies]
