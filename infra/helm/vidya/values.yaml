@@ -431,7 +431,16 @@ externalSecrets:
   backend: vault
   # SecretStore / ClusterSecretStore name (created outside this chart).
   storeName: vidya-secret-store
+  # "SecretStore" (namespaced) or "ClusterSecretStore" (cluster-wide).
+  storeKind: SecretStore
   refreshInterval: 1h
+  # Remote key prefix used in ExternalSecret remoteRef.key.
+  # Format: "<prefix>/<secret-name>"  e.g. "vidya/database-url"
+  # Vault:   matches the KV path, e.g. "secret/data/vidya" + property field
+  # AWS SM:  typically the secret name; set prefix="" and adjust per secret
+  # GCP SM:  "projects/PROJECT/secrets" — set prefix to the full path prefix
+  # For simple setups, "vidya" works with most backends using key=vidya/<name>.
+  remoteKeyPrefix: "vidya"
 
 # ── NetworkPolicy ─────────────────────────────────────────────────────────────
 networkPolicy:

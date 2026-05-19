@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vidya.fullname" . }}-config
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+data:
+  # ── Runtime / environment ──────────────────────────────────────────────────
+  ENVIRONMENT:                  {{ .Values.env.ENVIRONMENT | quote }}
+  LOG_LEVEL:                    {{ .Values.env.LOG_LEVEL | quote }}
+  JSON_LOGGING:                 {{ .Values.env.JSON_LOGGING | quote }}
+
+  # ── AI providers ───────────────────────────────────────────────────────────
+  AI_PROVIDER:                  {{ .Values.env.AI_PROVIDER | quote }}
+  GEMINI_MODEL:                 {{ .Values.env.GEMINI_MODEL | quote }}
+  GROQ_MODEL:                   {{ .Values.env.GROQ_MODEL | quote }}
+
+  # ── Object storage (MinIO / S3-compatible) ─────────────────────────────────
+  S3_ENDPOINT:                  {{ .Values.env.S3_ENDPOINT | quote }}
+  S3_BUCKET:                    {{ .Values.env.S3_BUCKET | quote }}
+  S3_USE_SSL:                   {{ .Values.env.S3_USE_SSL | quote }}
+
+  # ── Vector database ────────────────────────────────────────────────────────
+  QDRANT_URL:                   {{ .Values.env.QDRANT_URL | quote }}
+  QDRANT_API_KEY:               {{ .Values.env.QDRANT_API_KEY | quote }}
+
+  # ── CORS / auth ────────────────────────────────────────────────────────────
+  CORS_ALLOWED_ORIGINS:         {{ .Values.env.CORS_ALLOWED_ORIGINS | quote }}
+  ACCESS_TOKEN_EXPIRE_MINUTES:  {{ .Values.env.ACCESS_TOKEN_EXPIRE_MINUTES | quote }}
+  REFRESH_TOKEN_EXPIRE_DAYS:    {{ .Values.env.REFRESH_TOKEN_EXPIRE_DAYS | quote }}
+
+  # ── Email / SMTP ───────────────────────────────────────────────────────────
+  EMAIL_NOTIFICATIONS_ENABLED:  {{ .Values.env.EMAIL_NOTIFICATIONS_ENABLED | quote }}
+  SMTP_HOST:                    {{ .Values.env.SMTP_HOST | quote }}
+  SMTP_PORT:                    {{ .Values.env.SMTP_PORT | quote }}
+  SMTP_USER:                    {{ .Values.env.SMTP_USER | quote }}
+  SMTP_FROM:                    {{ .Values.env.SMTP_FROM | quote }}
+  SMTP_TLS:                     {{ .Values.env.SMTP_TLS | quote }}
+
+  # ── Module-specific ────────────────────────────────────────────────────────
+  MAX_UPLOAD_SIZE_MB:           {{ .Values.env.MAX_UPLOAD_SIZE_MB | quote }}
+  M07_WHISPER_ENDPOINT:         {{ .Values.env.M07_WHISPER_ENDPOINT | quote }}
+  AI_DETECTION_THRESH:          {{ .Values.env.AI_DETECTION_THRESH | quote }}
+  PLAGIARISM_THRESH:            {{ .Values.env.PLAGIARISM_THRESH | quote }}
