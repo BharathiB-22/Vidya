@@ -1,0 +1,256 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- /*
+  networkpolicy.yaml — Default-deny ingress + explicit allow rules.
+
+  DESIGN
+  ──────
+  policyTypes: [Ingress] only — egress is unrestricted (pods can reach external
+  services, pull AI models, etc. without policy changes).
+
+  Default-deny-ingress selects ALL pods (empty podSelector) so no pod receives
+  unsolicited ingress traffic unless a specific allow policy exists.
+
+  Kubernetes probe traffic (kubelet → pod) bypasses NetworkPolicy.
+  kubectl port-forward also bypasses NetworkPolicy.
+
+  All allow policies scope to app.kubernetes.io/instance: {{ .Release.Name }}
+  to prevent cross-release traffic in shared namespaces.
+
+  INGRESS CONTROLLER
+  ──────────────────
+  The ingress-nginx pods live in namespace {{ .Values.networkPolicy.ingressNamespace }}.
+  Kubernetes auto-labels every namespace with kubernetes.io/metadata.name (≥1.21).
+*/ -}}
+---
+# ── 1. Default deny all ingress ───────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-default-deny-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# ── 2. api — allow ingress from nginx ingress controller ──────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-api-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+      ports:
+        - port: 8000
+---
+# ── 3. frontend — allow ingress from nginx ingress controller ─────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-frontend-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace }}
+      ports:
+        - port: 3000
+---
+# ── 4. pgbouncer — allow from api, workers, migrate ───────────────────────────
+# Workers need pgbouncer for task-result writes (SQLAlchemy via DATABASE_URL).
+# Migrate job (Alembic) also connects via pgbouncer as its DATABASE_URL target.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-pgbouncer-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: pgbouncer
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker-heavy
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: whisper
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: migrate
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: 5432
+---
+# ── 5. postgres — allow from pgbouncer ONLY ───────────────────────────────────
+# All database traffic must go through the connection pool.
+# No direct application → postgres connections permitted.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-postgres-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: pgbouncer
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: 5432
+---
+# ── 6. redis — allow from api, workers, flower, whisper ───────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-redis-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker-heavy
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: flower
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: whisper
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: 6379
+---
+# ── 7. qdrant — allow from api, workers, whisper ──────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-qdrant-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: qdrant
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker-heavy
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: whisper
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: 6333
+        - port: 6334
+---
+# ── 8. minio — allow from api, workers, whisper ───────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "vidya.fullname" . }}-minio-ingress
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: minio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker-heavy
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: whisper
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: 9000
+{{- end }}

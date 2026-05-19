@@ -1,0 +1,96 @@
+{{- if and .Values.offPeak.enabled .Values.worker.keda.enabled }}
+{{- /*
+  Off-peak scaling CronJobs.
+
+  scale-down (default 22:00 IST): sets minReplicaCount=1 on worker and
+    worker-heavy ScaledObjects to reduce idle costs overnight.
+  scale-up (default 07:00 IST): restores minReplicaCount to the values
+    configured in worker.keda.minReplicaCount and workerHeavy.keda.minReplicaCount.
+
+  Both CronJobs use the <release>-scaler ServiceAccount (offpeak/rbac.yaml)
+  which has Role-bound get/patch/update on ScaledObjects in this namespace.
+
+  timeZone requires Kubernetes ≥1.25. The bitnami/kubectl image provides
+  in-cluster auth via the pod's ServiceAccount token — no kubeconfig needed.
+  Pin offPeak.kubectlImage to a patch version matching your cluster minor
+  version in production (kubectl ± 1 minor version skew is supported).
+*/ -}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "vidya.componentName" (list . "scale-down") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "scale-down") | nindent 4 }}
+spec:
+  schedule: {{ .Values.offPeak.scaleDownCron | quote }}
+  timeZone: {{ .Values.offPeak.timezone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: {{ include "vidya.fullname" . }}-scaler
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+          containers:
+            - name: kubectl
+              image: {{ .Values.offPeak.kubectlImage }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              command:
+                - /bin/sh
+                - -c
+                - |-
+                  kubectl patch scaledobject {{ include "vidya.componentName" (list . "worker") }} --type=merge --patch '{"spec":{"minReplicaCount":1}}'
+                  kubectl patch scaledobject {{ include "vidya.componentName" (list . "worker-heavy") }} --type=merge --patch '{"spec":{"minReplicaCount":1}}'
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "vidya.componentName" (list . "scale-up") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "scale-up") | nindent 4 }}
+spec:
+  schedule: {{ .Values.offPeak.scaleUpCron | quote }}
+  timeZone: {{ .Values.offPeak.timezone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: {{ include "vidya.fullname" . }}-scaler
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+          containers:
+            - name: kubectl
+              image: {{ .Values.offPeak.kubectlImage }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              command:
+                - /bin/sh
+                - -c
+                - |-
+                  kubectl patch scaledobject {{ include "vidya.componentName" (list . "worker") }} --type=merge --patch '{"spec":{"minReplicaCount":{{ .Values.worker.keda.minReplicaCount }}}}'
+                  kubectl patch scaledobject {{ include "vidya.componentName" (list . "worker-heavy") }} --type=merge --patch '{"spec":{"minReplicaCount":{{ .Values.workerHeavy.keda.minReplicaCount }}}}'
+{{- end }}

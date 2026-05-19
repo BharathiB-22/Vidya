@@ -1,0 +1,86 @@
+{{- if .Values.whisper.enabled }}
+{{- /*
+  Whisper ASR Worker Deployment.
+
+  Processes the celery-whisper queue (audio transcription for M07 viva).
+  Uses the vidya/whisper-asr image which bundles the Celery app + Whisper model
+  weights on the heavy-worker node pool.
+
+  KEDA scales from 0 (scale-to-zero) when the queue is idle, reducing GPU/high-
+  memory node costs during off-peak hours. spec.replicas is omitted when KEDA is
+  enabled so KEDA has exclusive control — avoid the scale-down conflict described
+  in worker/deployment.yaml.
+
+  TriggerAuthentication reference: keda-triggerauth.yaml is rendered when any
+  worker KEDA is enabled (worker, workerHeavy, or whisper). If only whisper.keda
+  is enabled, ensure at least one of worker.keda or workerHeavy.keda is also set
+  to true to create the TriggerAuthentication, OR enable them all together.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vidya.componentName" (list . "whisper") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "whisper") | nindent 4 }}
+spec:
+  {{- if not .Values.whisper.keda.enabled }}
+  replicas: {{ .Values.whisper.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "whisper") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "whisper") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: whisper
+          image: {{ include "vidya.image" (list . .Values.whisper.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            {{- toYaml .Values.whisper.command | nindent 12 }}
+          envFrom:
+            {{- include "vidya.commonEnvFrom" . | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                  celery -A app.workers.celery_app inspect ping
+                  --destination "celery@$HOSTNAME" --timeout 10
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.whisper.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.whisper.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.whisper.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

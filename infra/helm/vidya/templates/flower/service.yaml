@@ -1,0 +1,21 @@
+{{- if .Values.flower.enabled }}
+{{- /*
+  Flower Service — ClusterIP only. Not in Ingress.
+  Access via: kubectl port-forward svc/{{ include "vidya.componentName" (list . "flower") }} 5555:5555 -n <ns>
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vidya.componentName" (list . "flower") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "flower") | nindent 4 }}
+spec:
+  type: {{ .Values.flower.service.type }}
+  ports:
+    - port: {{ .Values.flower.service.port }}
+      targetPort: flower
+      protocol: TCP
+      name: flower
+  selector:
+    {{- include "vidya.componentSelectorLabels" (list . "flower") | nindent 4 }}
+{{- end }}

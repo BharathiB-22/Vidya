@@ -1,0 +1,42 @@
+{{- if .Values.offPeak.enabled }}
+{{- /*
+  RBAC for off-peak scaling CronJobs.
+
+  The scale-down and scale-up CronJobs run kubectl patch against KEDA
+  ScaledObjects to adjust minReplicaCount during off-peak hours.
+  A dedicated ServiceAccount + Role + RoleBinding are created so the kubectl
+  container has only the minimum permissions needed.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "vidya.fullname" . }}-scaler
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "vidya.fullname" . }}-scaler
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["keda.sh"]
+    resources: ["scaledobjects"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "vidya.fullname" . }}-scaler
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vidya.fullname" . }}-scaler
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: {{ include "vidya.fullname" . }}-scaler
+{{- end }}

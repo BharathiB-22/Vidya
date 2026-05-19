@@ -197,6 +197,15 @@ whisper:
   image:
     repository: vidya/whisper-asr
     tag: latest
+  command:
+    - celery
+    - -A
+    - app.workers.celery_app
+    - worker
+    - -Q
+    - celery-whisper
+    - --loglevel=info
+    - --concurrency=1
   resources:
     requests:
       cpu: 1000m
@@ -504,6 +513,9 @@ offPeak:
   scaleDownCron: "0 22 * * *"
   # Restore workers at 07:00 IST (minReplicaCount → 2)
   scaleUpCron: "0 7 * * *"
+  # kubectl image used by the scale-down and scale-up CronJobs.
+  # Pin to a patch version matching your cluster's minor version in prod.
+  kubectlImage: bitnami/kubectl:1.30
 
 # ── Secrets (dev path — direct values) ───────────────────────────────────────
 # These values are used ONLY when externalSecrets.enabled: false.

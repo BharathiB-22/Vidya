@@ -1,0 +1,98 @@
+{{- if .Values.flower.enabled }}
+{{- /*
+  Flower Deployment — Celery task monitor (internal-only).
+
+  NOT routed through the Ingress. Access via kubectl port-forward only:
+    kubectl port-forward svc/<release>-flower 5555:5555 -n <ns>
+
+  Basic auth is enforced via --basic_auth CLI flag, preventing any unauthenticated
+  access even if the Service type is accidentally changed to NodePort/LoadBalancer.
+
+  Security: mher/flower:2.0 is Python-based (python:3.x-slim) and runs as root.
+  runAsNonRoot is not set. allowPrivilegeEscalation and ALL capabilities are
+  dropped as a partial mitigation. Switch to a hardened Python base image for
+  full non-root support.
+
+  The liveness probe uses a TCP socket because basic auth would cause HTTP
+  probes to return 401, which Kubernetes treats as a failure.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vidya.componentName" (list . "flower") }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "flower") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vidya.componentSelectorLabels" (list . "flower") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vidya.componentLabels" (list . "flower") | nindent 8 }}
+    spec:
+      {{- include "vidya.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "vidya.serviceAccountName" . }}
+      containers:
+        - name: flower
+          image: {{ include "vidya.image" (list . .Values.flower.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              exec celery flower \
+                --port=5555 \
+                --broker="$REDIS_URL" \
+                --basic_auth="$FLOWER_USER:$FLOWER_PASSWORD"
+          env:
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: REDIS_URL
+            - name: FLOWER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: FLOWER_USER
+            - name: FLOWER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vidya.fullname" . }}-secret
+                  key: FLOWER_PASSWORD
+          ports:
+            - name: flower
+              containerPort: 5555
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: flower
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: flower
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.flower.resources | nindent 12 }}
+      {{- with .Values.flower.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.flower.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,72 @@
+{{- if .Values.ingress.enabled }}
+{{- /*
+  Ingress — nginx ingress controller with cert-manager TLS.
+
+  Routing:
+    /api  → vidya-api (port 8000) — FastAPI backend
+    /     → vidya-frontend (port 3000) — React SPA (catch-all)
+
+  TLS: cert-manager watches for this Ingress and requests a certificate from
+  certManager.clusterIssuer. The TLS Secret (<release>-tls) is created and
+  renewed automatically. The Ingress itself does not expose a ClusterIssuer —
+  create it separately before helm install.
+
+  HSTS compatibility: H-01 frontend nginx.conf already sets
+    Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  on every response from the frontend container. Force-SSL-redirect at this
+  ingress level ensures clients are redirected to HTTPS before reaching any
+  backend, so the browser always receives HSTS from the first TLS response.
+  No configuration-snippet is added here to avoid duplication.
+
+  Flower and MinIO console are NOT routed through this Ingress.
+  Access via: kubectl port-forward svc/<release>-flower 5555:5555 -n <ns>
+              kubectl port-forward svc/<release>-minio  9001:9001 -n <ns>
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "vidya.fullname" . }}
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+  annotations:
+    # cert-manager requests and renews the TLS certificate automatically.
+    cert-manager.io/cluster-issuer: {{ .Values.certManager.clusterIssuer | quote }}
+    # Force all HTTP traffic to HTTPS before it reaches any backend.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Longer timeouts for AI generation endpoints (modules M01–M10 can take
+    # 30–120 s per request). Alembic migration job is not routed here.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Match MAX_UPLOAD_SIZE_MB (50 MB) with a small headroom.
+    nginx.ingress.kubernetes.io/proxy-body-size: "55m"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ include "vidya.fullname" . }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vidya.componentName" (list . "api") }}
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "vidya.componentName" (list . "frontend") }}
+                port:
+                  name: http
+{{- end }}

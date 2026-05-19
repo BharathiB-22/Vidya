@@ -1,17 +1,16 @@
 {{- /*
   keda-triggerauth.yaml — KEDA TriggerAuthentication for Redis password.
 
-  Rendered when either worker.keda.enabled or workerHeavy.keda.enabled is true.
-  Both ScaledObjects (celery and celery-heavy) reference this single resource
-  by name, so the Redis password is injected from the shared Secret (K-02)
-  without duplicating credentials.
+  Rendered when any worker ScaledObject is enabled (worker, workerHeavy, whisper).
+  All ScaledObjects reference this single resource by name, so the Redis password
+  is injected from the shared Secret (K-02) without duplicating credentials.
 
   The TriggerAuthentication references the "REDIS_PASSWORD" key from the
   release Secret (vidya-secret in dev; ESO-managed Secret in staging/prod).
   KEDA uses this password when authenticating its own Redis connection —
   separate from the app's REDIS_URL connection string.
 */ -}}
-{{- if or .Values.worker.keda.enabled .Values.workerHeavy.keda.enabled }}
+{{- if or .Values.worker.keda.enabled .Values.workerHeavy.keda.enabled .Values.whisper.keda.enabled }}
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
 metadata:
