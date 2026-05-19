@@ -1,4 +1,9 @@
+# Secrets — never commit these
 .env
+.env.*
+!.env.prod.example
+
+# Python artefacts
 __pycache__/
 *.pyc
 .pytest_cache/

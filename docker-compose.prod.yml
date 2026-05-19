@@ -1,0 +1,286 @@
+# Production docker-compose for Vidya.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Prerequisites:
+#   - Copy .env.prod.example → .env.prod and fill in all required values.
+#   - All REQUIRED values below must be set; the app will refuse to start
+#     (via the production startup guard in app/config.py) if insecure
+#     defaults are detected.
+#
+# This file is for single-host production or CI validation.
+# For Kubernetes deployments use the Helm chart (infra/helm/).
+
+# ---------------------------------------------------------------------------
+# Named network — all services communicate on this internal bridge.
+# Only vidya-api (8000) and vidya-frontend (3000) are reachable from the
+# host; all backing services are internal only.
+# ---------------------------------------------------------------------------
+networks:
+  vidya-internal:
+    driver: bridge
+    internal: false   # must be false to allow DNS resolution from host during
+                      # health-check bootstrapping; Ingress/WAF handles external
+                      # access restriction in K8s deployments.
+
+# ---------------------------------------------------------------------------
+# Named volumes — persistent data survives container restarts.
+# ---------------------------------------------------------------------------
+volumes:
+  postgres_data:
+  minio_data:
+  qdrant_data:
+  redis_data:
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # ── Database ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: on-failure
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}       # REQUIRED
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # REQUIRED — must not be 'vidya_dev'
+      POSTGRES_DB:       ${POSTGRES_DB:-vidya}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - vidya-internal
+    # No host port mapping — only internal services connect to Postgres.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vidya} -d ${POSTGRES_DB:-vidya}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # ── Cache / Message broker ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: on-failure
+    command: >
+      redis-server
+        --requirepass ${REDIS_PASSWORD}
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+    volumes:
+      - redis_data:/data
+    networks:
+      - vidya-internal
+    # No host port mapping.
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+
+  # ── Object storage ────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: on-failure
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER:     ${S3_ACCESS_KEY}   # REQUIRED — must not be 'minioadmin'
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}   # REQUIRED — must not be 'minioadmin'
+    volumes:
+      - minio_data:/data
+    networks:
+      - vidya-internal
+    # Console (9001) is NOT exposed to the host. Access via SSH tunnel only.
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ── Vector database ───────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: on-failure
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - vidya-internal
+    # No host port mapping.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
+  # ── Schema migrations (runs once, then exits) ──────────────────────────────
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: ${DATABASE_URL}   # REQUIRED
+    networks:
+      - vidya-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"   # exits 0 on success; do not restart
+
+  # ── API ───────────────────────────────────────────────────────────────────
+  vidya-api:
+    build: ./backend
+    restart: on-failure
+    env_file: .env.prod
+    ports:
+      - "8000:8000"
+    networks:
+      - vidya-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8000/healthz',timeout=4); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ── Celery worker (standard AI jobs) ─────────────────────────────────────
+  vidya-worker:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker -Q celery --loglevel=info --concurrency=2
+    restart: on-failure
+    env_file: .env.prod
+    networks:
+      - vidya-internal
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # ── Celery worker (heavy jobs: viva, batch scan, full kit export) ─────────
+  vidya-worker-heavy:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker -Q celery-heavy --loglevel=info --concurrency=1
+    restart: on-failure
+    env_file: .env.prod
+    networks:
+      - vidya-internal
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  vidya-frontend:
+    build: ./frontend
+    restart: on-failure
+    ports:
+      - "3000:3000"
+    networks:
+      - vidya-internal
+    depends_on:
+      vidya-api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+
+  # ── Flower (Celery task monitor — internal access only) ───────────────────
+  flower:
+    image: mher/flower:2.0
+    restart: on-failure
+    command: >
+      celery
+        --broker=redis://:${REDIS_PASSWORD}@redis:6379/0
+        flower
+        --port=5555
+        --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
+    networks:
+      - vidya-internal
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Flower is NOT exposed to the host. Access via SSH tunnel:
+    #   ssh -L 5555:localhost:5555 your-server
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
