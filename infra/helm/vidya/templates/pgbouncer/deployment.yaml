@@ -11,8 +11,10 @@
     postgres.enabled: false → pgbouncer.postgresHost (managed cloud endpoint)
 
   Security: edoburu/pgbouncer generates pgbouncer.ini at container start from
-  env vars, so readOnlyRootFilesystem is not set. The image runs as its own
-  non-root user; runAsNonRoot is enforced without pinning a specific UID.
+  env vars, so readOnlyRootFilesystem is not set. The image declares USER
+  "postgres" (non-numeric), which Kubernetes cannot resolve for runAsNonRoot
+  validation — no pod-level securityContext is set. Container-level enforcement:
+  allowPrivilegeEscalation:false + capabilities.drop:ALL.
 */ -}}
 {{- $pgHost := .Values.pgbouncer.postgresHost }}
 {{- if .Values.postgres.enabled }}
@@ -36,10 +38,6 @@ spec:
     spec:
       {{- include "vidya.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "vidya.serviceAccountName" . }}
-      # edoburu/pgbouncer runs as its own non-root user (not UID 1001).
-      # runAsNonRoot enforces non-root without assuming a specific UID.
-      securityContext:
-        runAsNonRoot: true
       containers:
         - name: pgbouncer
           image: {{ include "vidya.image" (list . .Values.pgbouncer.image) }}

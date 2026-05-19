@@ -45,6 +45,8 @@ worker:
   # kind: readOnlyRootFilesystem + prefork fork() causes CrashLoopBackOff.
   # solo pool runs tasks in the main process — no fork, no IPC sockets needed.
   command:
+    - python
+    - -m
     - celery
     - -A
     - app.workers.celery_app
@@ -62,6 +64,8 @@ workerHeavy:
   nodeSelector: null
   tolerations: []
   command:
+    - python
+    - -m
     - celery
     - -A
     - app.workers.celery_app

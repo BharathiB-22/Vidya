@@ -122,6 +122,8 @@ worker:
     repository: vidya/api   # same image, different CMD via chart
     tag: latest
   command:
+    - python
+    - -m
     - celery
     - -A
     - app.workers.celery_app
@@ -163,6 +165,8 @@ workerHeavy:
     repository: vidya/api
     tag: latest
   command:
+    - python
+    - -m
     - celery
     - -A
     - app.workers.celery_app

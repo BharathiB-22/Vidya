@@ -87,7 +87,9 @@ spec:
             - |-
               until pg_isready \
                 -h {{ include "vidya.componentName" (list . "postgres") }} \
-                -p {{ .Values.postgres.service.port }}; do
+                -p {{ .Values.postgres.service.port }} \
+                -U {{ .Values.postgres.user }} \
+                -d {{ .Values.postgres.database }}; do
                 echo "waiting for postgres..."; sleep 2
               done
           securityContext:
