@@ -1,0 +1,302 @@
+# =============================================================================
+# values.selfhosted.yaml  —  ON-PREMISES / BARE-METAL PRODUCTION overrides
+# =============================================================================
+# Usage:
+#
+#   helm upgrade --install vidya ./infra/helm/vidya \
+#     -f infra/helm/vidya/values.selfhosted.yaml \
+#     -n vidya-system --create-namespace
+#
+# WHAT THIS PATH IS
+# -----------------
+# For institutions that run Vidya on their own servers or private VMs
+# (not managed cloud services like Cloud SQL, ElastiCache, or Memorystore).
+# PostgreSQL and Redis run on separate dedicated VMs managed by the
+# institution's IT team. Kubernetes runs on bare-metal or on-prem VMs
+# (kubeadm, k3s, or RKE2 are all supported).
+#
+# DIFFERS FROM values.prod.yaml (managed cloud) in:
+#   - storageClass: local-path (common bare-metal provisioner; adjust to your
+#     cluster — longhorn, openebs, nfs-provisioner, or manual PVC are all valid)
+#   - KEDA is optional — static Celery replicas are the fallback if KEDA is not
+#     installed; see keda.enabled flags below
+#   - Resources sized for realistic on-prem university hardware (4–8 vCPU nodes)
+#     rather than cloud instance types
+#   - certManager.clusterIssuer: letsencrypt-prod assumes the cluster is
+#     internet-reachable for ACME HTTP-01 challenge; if air-gapped, switch to
+#     selfsigned-issuer or an internal CA (see AIRGAP note below)
+#
+# SECRETS
+# -------
+# All secrets are synced by the External Secrets Operator from Vault.
+# No plaintext secrets are stored in this file.
+#
+#   kubectl apply -f infra/k8s/secret-store-vault.yaml -n vidya-system
+#   kubectl get clustersecretstore vidya-secret-store   # must be Ready
+#
+# PREREQUISITES
+# -------------
+#   1. cert-manager        + ClusterIssuer "letsencrypt-prod" (or selfsigned)
+#   2. ingress-nginx       (IngressClass: nginx)
+#   3. KEDA (optional)     — if not installed, set keda.enabled: false below
+#   4. External Secrets Operator (ESO) + Vault ClusterSecretStore
+#   5. PostgreSQL on a dedicated VM — set pgbouncer.postgresHost below
+#   6. Redis on a dedicated VM     — set keda.redisAddress below
+#   7. StorageClass "local-path"   — adjust global.storageClass if different
+#
+# AIRGAP NOTE
+# -----------
+# If the cluster has no internet access, ACME HTTP-01 cannot reach Let's Encrypt.
+# Options:
+#   a. Use a wildcard cert from your internal CA — create a TLS Secret manually
+#      and reference it in the Ingress; disable certManager in this chart.
+#   b. Use cert-manager with a DNS-01 solver and an internal ACME server.
+#   In both cases, set: certManager.clusterIssuer: selfsigned-issuer
+#   and manage the TLS Secret outside Helm.
+#
+# PRODUCTION CHECKLIST (verify before every release):
+# ─────────────────────────────────────────────────────
+#   [ ] postgres.enabled: false  (never run in-cluster PG in prod)
+#   [ ] redis.enabled: false     (never run in-cluster Redis in prod)
+#   [ ] externalSecrets.enabled: true  and SecretStore is Ready
+#   [ ] ingress.tls: true
+#   [ ] ingress.host  set to real institution domain (not CHANGE_ME)
+#   [ ] pgbouncer.postgresHost  set to real VM hostname or IP
+#   [ ] keda.redisAddress  set to real Redis VM hostname or IP
+#   [ ] global.imageRegistry  set to your registry (or mirror)
+#   [ ] env.ENVIRONMENT: production
+#   [ ] env.EMAIL_NOTIFICATIONS_ENABLED: "True"
+#   [ ] migrate.runTenantMigration  reviewed before upgrade
+# =============================================================================
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  # CHANGE_ME: set to the institution's domain (e.g. vidya.university.edu.in)
+  host: "CHANGE_ME_institution_domain"
+  tls: true
+
+certManager:
+  # For internet-reachable clusters: letsencrypt-prod (free, auto-renewing)
+  # For air-gapped clusters: selfsigned-issuer (see AIRGAP NOTE above)
+  clusterIssuer: letsencrypt-prod
+
+# ── Image registry ────────────────────────────────────────────────────────────
+global:
+  # CHANGE_ME: set to your container registry or a local mirror.
+  # If pulling from ghcr.io directly and the cluster is internet-connected,
+  # set: imageRegistry: ghcr.io/your-org
+  # For air-gapped installs: mirror images to a local Harbor/Nexus registry.
+  imageRegistry: "CHANGE_ME_registry"
+  imagePullPolicy: IfNotPresent
+  # CHANGE_ME: adjust to your cluster's StorageClass.
+  # Common choices:
+  #   local-path   (k3s default, rancher local-path-provisioner)
+  #   longhorn      (HA bare-metal block storage)
+  #   nfs          (NFS-backed; suitable for shared storage)
+  #   standard      (kubeadm with local provisioner)
+  storageClass: "local-path"
+
+# ── api ───────────────────────────────────────────────────────────────────────
+# Sized for a 4-8 vCPU / 16 GB RAM node. Adjust replicaCount if fewer nodes.
+api:
+  image:
+    tag: "0.1.0"   # CI sets this to $GIT_SHA at deploy time
+  replicaCount: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    cpuUtilizationPercent: 70
+    scaleDownStabilizationSeconds: 600
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+
+# ── worker ────────────────────────────────────────────────────────────────────
+worker:
+  image:
+    tag: "0.1.0"
+  replicaCount: 2
+  keda:
+    # Set enabled: false if KEDA is not installed on this cluster.
+    # With enabled: false, worker runs at a static replicaCount of 2.
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 8
+    queueLength: 10
+    cooldownPeriod: 600
+    pollingInterval: 15
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  nodeSelector: {}
+  tolerations: []
+
+# ── workerHeavy ───────────────────────────────────────────────────────────────
+workerHeavy:
+  image:
+    tag: "0.1.0"
+  replicaCount: 1
+  keda:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 3
+    queueLength: 3
+    cooldownPeriod: 600
+    pollingInterval: 15
+  pdb:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+  nodeSelector: {}
+  tolerations: []
+
+# ── frontend ──────────────────────────────────────────────────────────────────
+frontend:
+  image:
+    tag: "0.1.0"
+  replicaCount: 2
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    cpuUtilizationPercent: 70
+    scaleDownStabilizationSeconds: 600
+  pdb:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+
+# ── migrate ───────────────────────────────────────────────────────────────────
+migrate:
+  image:
+    tag: "0.1.0"
+  runTenantMigration: false   # review before each upgrade that adds tenant columns
+
+# ── flower ────────────────────────────────────────────────────────────────────
+flower:
+  nodeSelector: {}
+  tolerations: []
+
+# ── pgbouncer ─────────────────────────────────────────────────────────────────
+# Point to your PostgreSQL VM. Use the internal network IP or hostname.
+# Do NOT expose PostgreSQL publicly — keep it on the internal network.
+pgbouncer:
+  # CHANGE_ME: VM hostname or IP where PostgreSQL 16 is running.
+  # Example: "db.internal.university.edu.in" or "192.168.10.20"
+  postgresHost: "CHANGE_ME_postgres_vm_host"
+  postgresPort: 5432
+  poolMode: transaction
+  maxClientConn: 300
+  defaultPoolSize: 25
+  nodeSelector: {}
+  tolerations: []
+
+# ── qdrant ────────────────────────────────────────────────────────────────────
+qdrant:
+  replicaCount: 1   # scale to 3 when vectors exceed 5M
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  storage: 100Gi
+  nodeSelector: {}
+  tolerations: []
+
+# ── Disable in-cluster StatefulSet databases ──────────────────────────────────
+# PostgreSQL and Redis run on dedicated VMs managed by institution IT.
+postgres:
+  enabled: false   # use PostgreSQL on a dedicated VM — see pgbouncer.postgresHost
+
+redis:
+  enabled: false   # use Redis on a dedicated VM — see keda.redisAddress
+
+# MinIO remains self-hosted in-cluster. No managed object-store equivalent
+# for on-prem; the institution's IT team manages the underlying storage volume.
+minio:
+  enabled: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage: 200Gi
+  nodeSelector: {}
+  tolerations: []
+
+# ── External Secrets Operator ─────────────────────────────────────────────────
+externalSecrets:
+  enabled: true
+  backend: vault             # on-prem uses self-hosted Vault
+  storeName: vidya-secret-store
+  storeKind: ClusterSecretStore
+  refreshInterval: 1h
+  remoteKeyPrefix: "vidya/prod"   # adjust if using per-tenant Vault paths
+
+# ── KEDA shared config ────────────────────────────────────────────────────────
+# CHANGE_ME: set to Redis VM hostname/IP.
+# If keda.enabled is false for all workers, this value is ignored.
+keda:
+  # CHANGE_ME: "192.168.10.21:6379" or "redis.internal.university.edu.in:6379"
+  redisAddress: "CHANGE_ME_redis_vm_host:6379"
+  redisDatabaseIndex: "0"
+  redisEnableTLS: "false"   # set "true" if Redis is TLS-enabled
+
+# ── Off-peak scaling ──────────────────────────────────────────────────────────
+# Scale down workers overnight to conserve on-prem power and resources.
+offPeak:
+  enabled: true
+  timezone: Asia/Kolkata
+  scaleDownCron: "0 22 * * *"
+  scaleUpCron: "0 7 * * *"
+  kubectlImage: bitnami/kubectl:1.30   # pin to cluster minor version
+
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+
+# ── Application environment overrides ────────────────────────────────────────
+env:
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+  JSON_LOGGING: "True"
+  # CHANGE_ME: replace with the institution's real domain
+  CORS_ALLOWED_ORIGINS:
+    - "https://CHANGE_ME_institution_domain"
+  EMAIL_NOTIFICATIONS_ENABLED: "True"
+  AI_DETECTION_THRESH: "0.75"
+  PLAGIARISM_THRESH: "0.85"
+  ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+
+# ── Secrets placeholder (populated by ESO — do not set real values here) ──────
+secrets: {}

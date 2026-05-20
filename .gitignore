@@ -3,6 +3,14 @@
 .env.*
 !.env.prod.example
 
+# Helm secret overrides — real credentials go here, never committed
+# Pattern: values.dev.secret.yaml, values.staging.secret.yaml, etc.
+infra/helm/vidya/values.*.secret.yaml
+
+# Kubernetes manifests that contain real credentials
+# Examples: secret-store-vault.yaml (with token), tls.yaml (with cert)
+infra/k8s/*.secret.yaml
+
 # Python artefacts
 __pycache__/
 *.pyc

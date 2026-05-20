@@ -1,16 +1,30 @@
 # =============================================================================
 # kind-config.yaml  —  kind cluster configuration for local Vidya dev
 # =============================================================================
-# Creates a single-node cluster that forwards host ports 80 and 443 to the
+# Creates a single-node cluster that forwards host ports 9080/9443 to the
 # ingress-nginx NodePort service so nip.io DNS resolves without /etc/hosts.
+#
+# PORT MAPPING RATIONALE
+# ──────────────────────
+# Ports 80 and 443 require root/admin on macOS and Linux. Using 9080/9443
+# avoids the privilege requirement and works identically on all OSes with
+# Docker Desktop, Rancher Desktop, or Podman Desktop.
+#
+# Access the app at:   http://vidya.127.0.0.1.nip.io:9080
+# (nip.io resolves *.127.0.0.1.nip.io → 127.0.0.1 regardless of port)
+#
+# BUG-H04-01 FIX: original mappings used hostPort 80/443 which caused
+# EACCES on non-root systems. The port-forward workaround
+# (kubectl port-forward ... 9080:80) is no longer needed after cluster
+# recreation with this config.
 #
 # Requirements:
 #   kind ≥ 0.23   (https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
 #   Docker Desktop (or Rancher Desktop / Podman Desktop with Docker socket)
 #
 # Usage:
+#   kind delete cluster --name vidya-dev          # if cluster already exists
 #   kind create cluster --config infra/helm/kind-config.yaml --name vidya-dev
-#   kind delete cluster --name vidya-dev
 # =============================================================================
 
 kind: Cluster
@@ -18,15 +32,15 @@ apiVersion: kind.x-k8s.io/v1alpha4
 
 nodes:
   - role: control-plane
-    # Extra port mappings: host → containerPort.
-    # ingress-nginx is installed with hostPort enabled (ports 30080 / 30443).
-    # The mappings below make localhost:80 and localhost:443 work transparently.
+    # Extra port mappings: hostPort (your machine) → containerPort (KIND node).
+    # ingress-nginx NodePort service listens on 30080/30443 inside the cluster.
+    # These mappings expose them on 9080/9443 on the host without root access.
     extraPortMappings:
       - containerPort: 30080
-        hostPort: 80
+        hostPort: 9080
         protocol: TCP
       - containerPort: 30443
-        hostPort: 443
+        hostPort: 9443
         protocol: TCP
     # Increase inotify limits — Qdrant and Celery open many file descriptors.
     kubeadmConfigPatches:

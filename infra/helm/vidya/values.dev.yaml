@@ -23,6 +23,8 @@
 ingress:
   host: vidya.127.0.0.1.nip.io   # nip.io wildcard DNS — works without /etc/hosts
   tls: false                      # no cert-manager needed for local dev
+  # Access URL after cluster creation: http://vidya.127.0.0.1.nip.io:9080
+  # KIND maps host port 9080 → NodePort 30080 (see infra/helm/kind-config.yaml)
 
 certManager:
   clusterIssuer: selfsigned-issuer   # ignored when tls: false

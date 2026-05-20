@@ -106,25 +106,16 @@ Read task files, summarise progress, no code changes.
 
 ## Key Config
 
-Fill before first session.
+Never store credentials here. All secrets live in infra/helm/vidya/values.dev.secret.yaml (gitignored).
+Non-secret dev defaults reference only — use values.dev.yaml for the canonical set.
 
-GEMINI\_API\_KEY = AIzaSyCxDoyH0istyuUdMb2pWN6x4huIUq7sTpQ
-
-DATABASE\_URL = postgresql+asyncpg://vidya:vidya\_dev@localhost:5432/vidya
-
+DATABASE\_URL = postgresql+asyncpg://vidya:&lt;pass&gt;@localhost:5432/vidya
 REDIS\_URL = redis://localhost:6379/0
-
 S3\_ENDPOINT = http://localhost:9000
-
 S3\_BUCKET = vidya-assets
-
-JWT\_SECRET = 1889a2bea7f4c026f5b6922687e67b4a72c47780076bf12c0233b8e1f9624cca
-
 ENVIRONMENT = development
-
 AI\_DETECTION\_THRESH = 0.75
-
-PLAGIARISM\_THRESH = 0.85Git
+PLAGIARISM\_THRESH = 0.85
 
 Branches:
 main

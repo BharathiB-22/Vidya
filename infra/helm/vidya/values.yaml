@@ -436,7 +436,7 @@ minio:
   enabled: true
   image:
     repository: minio/minio
-    tag: latest
+    tag: "RELEASE.2024-11-07T00-52-20Z"
   resources:
     requests:
       cpu: 250m
