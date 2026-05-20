@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.core.rate_limiting import limiter
 from app.core.auth.dependencies import require_super_admin
 from app.core.auth.repository import PublicRepository
 from app.core.auth.schemas import (
@@ -16,8 +15,6 @@ from app.core.auth.schemas import (
     TokenResponse,
 )
 from app.core.auth.service import AuthError, PlatformAuthService
-
-limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(tags=["platform-auth"])
 

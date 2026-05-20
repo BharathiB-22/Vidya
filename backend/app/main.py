@@ -5,12 +5,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.config import settings
 from app.core.monitoring import setup_logging
 from app.core.monitoring.middleware import MonitoringMiddleware
 from app.core.monitoring.router import router as monitoring_router
-from app.core.auth.router import limiter as auth_limiter
+from app.core.rate_limiting import limiter
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.auth.router import router as auth_router
 from app.core.auth.platform_router import router as platform_router
 from app.core.auth.admin_router import router as admin_router
@@ -32,7 +35,14 @@ from app.modules.m10_bell_curve.router import router as bell_curve_router
 setup_logging(log_level=settings.LOG_LEVEL, json_logging=settings.JSON_LOGGING)
 logger = logging.getLogger("vidya.access")
 
-app = FastAPI(title="Vidya Backend")
+_is_prod = settings.ENVIRONMENT == "production"
+
+app = FastAPI(
+    title="Vidya Backend",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +62,7 @@ async def startup_event():
 # slowapi rate limiter
 # ---------------------------------------------------------------------------
 
-app.state.limiter = auth_limiter
+app.state.limiter = limiter
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -64,8 +74,19 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
 
 
 # ---------------------------------------------------------------------------
-# Middleware stack
+# Middleware stack  (add_middleware is LIFO — last added runs first on request)
+#
+# Request path:  ProxyHeaders → CORS → Monitoring → SlowAPI → SecurityHeaders → app
+# Response path: app → SecurityHeaders → SlowAPI → Monitoring → CORS → ProxyHeaders
+#
+# ProxyHeaders outermost: fixes client IP from X-Forwarded-For before SlowAPI reads it.
+# CORS before SlowAPI: OPTIONS preflights are answered without consuming rate-limit quota.
+# SecurityHeaders innermost: injects headers into every response from the app.
 # ---------------------------------------------------------------------------
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(MonitoringMiddleware)
 
@@ -73,8 +94,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ALLOWED_ORIGINS,
     allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Tenant-Slug", "X-Request-ID"],
+)
+
+app.add_middleware(
+    ProxyHeadersMiddleware,
+    trusted_hosts=settings.TRUSTED_PROXY_IPS,
 )
 
 

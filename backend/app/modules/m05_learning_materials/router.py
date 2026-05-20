@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -37,6 +37,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.rate_limiting import limiter
 from app.modules.m05_learning_materials.models import PackageStatus
 from app.modules.m05_learning_materials.schemas import (
     CurationJobResponse,
@@ -86,7 +87,9 @@ def _404(entity: str = "Learning package") -> HTTPException:
 # ===========================================================================
 
 @router.post("/curate", response_model=CurationJobResponse, status_code=202)
+@limiter.limit("5/minute")
 async def trigger_curation(
+    request: Request,
     payload: CurationTriggerRequest,
     current_user: CurrentUser = Depends(require_roles(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
@@ -111,7 +114,9 @@ async def trigger_curation(
 # ===========================================================================
 
 @router.post("/{package_id}/index", status_code=202)
+@limiter.limit("5/minute")
 async def trigger_rag_indexing(
+    request: Request,
     package_id: UUID,
     current_user: CurrentUser = Depends(require_roles(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),

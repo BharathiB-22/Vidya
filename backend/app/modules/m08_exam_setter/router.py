@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -46,6 +46,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_context_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.rate_limiting import limiter
 from app.modules.m08_exam_setter.schemas import (
     BloomsComplianceResponse,
     BoardDecisionRequest,
@@ -99,7 +100,9 @@ def _raise(exc: ExamServiceError) -> None:
 # ---------------------------------------------------------------------------
 
 @router.post("", response_model=dict, status_code=202)
+@limiter.limit("5/minute")
 async def create_exam_paper(
+    request: Request,
     payload: ExamPaperCreate,
     current_user: CurrentUser = Depends(_faculty_dep()),
     db_info=Depends(get_tenant_context_dep),

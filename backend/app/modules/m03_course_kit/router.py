@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -27,6 +27,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.rate_limiting import limiter
 from app.modules.m03_course_kit.models import CourseKitStatus
 from app.modules.m03_course_kit.schemas import (
     ArchiveRequest,
@@ -264,7 +265,9 @@ async def list_versions(
 # ===========================================================================
 
 @router.post("/{kit_id}/generate", response_model=KitAIJobResponse)
+@limiter.limit("5/minute")
 async def generate_kit(
+    request: Request,
     kit_id: UUID,
     payload: GenerateKitRequest,
     current_user: CurrentUser = Depends(require_roles(*_WRITE)),

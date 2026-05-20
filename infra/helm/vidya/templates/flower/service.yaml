@@ -1,4 +1,7 @@
 {{- if .Values.flower.enabled }}
+{{- if not (eq .Values.flower.service.type "ClusterIP") }}
+{{- fail "flower.service.type must be ClusterIP — Flower UI must not be exposed via NodePort or LoadBalancer. Use: kubectl port-forward svc/<release>-flower 5555:5555 -n <ns>" }}
+{{- end }}
 {{- /*
   Flower Service — ClusterIP only. Not in Ingress.
   Access via: kubectl port-forward svc/{{ include "vidya.componentName" (list . "flower") }} 5555:5555 -n <ns>

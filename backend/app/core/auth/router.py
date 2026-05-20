@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
+from app.core.rate_limiting import limiter
 from app.core.auth.dependencies import (
     get_current_user,
     get_tenant_db_dep,
@@ -23,8 +22,6 @@ from app.core.auth.schemas import (
     CurrentUser,
 )
 from app.core.auth.service import AuthError, TenantAuthService
-
-limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(tags=["auth"])
 

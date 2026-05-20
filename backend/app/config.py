@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from cryptography.fernet import Fernet
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -51,6 +52,12 @@ class Settings(BaseSettings):
     # Defaults to local dev ports so `npm run dev` works without extra config.
     CORS_ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
     CORS_ALLOW_CREDENTIALS: bool = True
+
+    # Trusted proxy IPs for X-Forwarded-For header processing.
+    # "*" is safe when the app is behind ingress-nginx in Kubernetes and never
+    # directly internet-accessible. Set to specific ingress pod CIDR in prod
+    # if you want strict enforcement.
+    TRUSTED_PROXY_IPS: str = "*"
 
     # AI provider selection: "groq" | "gemini" | "fallback"
     # "fallback" tries Gemini first and routes to Groq on quota errors.
@@ -143,69 +150,118 @@ class Settings(BaseSettings):
         return self.DATABASE_URL.replace("+asyncpg", "+psycopg2", 1)
 
     # ------------------------------------------------------------------
-    # Production startup guard
-    # Fires only when ENVIRONMENT=production.  Any violation raises
-    # ValueError immediately at import time, preventing the app from
-    # starting with insecure defaults.
+    # Startup guards
+    # prod+staging: localhost DB/Redis, empty S3 credentials
+    # production only: JWT quality, Fernet format, S3 defaults, TLS, CORS
+    # Any violation raises ValueError immediately, preventing the app from
+    # starting with insecure or broken configuration.
     # ------------------------------------------------------------------
     _KNOWN_DEV_JWT = (
         "1889a2bea7f4c026f5b6922687e67b4a72c47780076bf12c0233b8e1f9624cca"
     )
+    _BAD_JWT_PATTERNS = ("dev-jwt", "change_me", "changeme", "secret", "test")
 
     @model_validator(mode="after")
     def _reject_insecure_production_config(self) -> "Settings":
-        if self.ENVIRONMENT != "production":
+        _is_prod = self.ENVIRONMENT == "production"
+        _is_prod_like = self.ENVIRONMENT in ("production", "staging")
+
+        if not _is_prod_like:
             return self
 
         errors: list[str] = []
 
-        if self.JWT_SECRET == self._KNOWN_DEV_JWT:
+        # ── production + staging ──────────────────────────────────────────
+        if "@localhost" in self.DATABASE_URL or "@127.0.0.1" in self.DATABASE_URL:
             errors.append(
-                "JWT_SECRET is the known development value. "
-                "Generate a new one: python -c \"import secrets; print(secrets.token_hex(32))\""
+                "DATABASE_URL must not point to localhost in production or staging. "
+                "Use your managed PostgreSQL endpoint."
             )
 
-        if self.S3_ACCESS_KEY == "minioadmin":
+        if "@localhost" in self.REDIS_URL or "@127.0.0.1" in self.REDIS_URL:
             errors.append(
-                "S3_ACCESS_KEY is set to the default 'minioadmin'. "
-                "Set a strong, unique credential before deploying."
+                "REDIS_URL must not point to localhost in production or staging. "
+                "Use your managed Redis endpoint."
             )
 
-        if self.S3_SECRET_KEY == "minioadmin":
+        if not self.S3_ACCESS_KEY:
             errors.append(
-                "S3_SECRET_KEY is set to the default 'minioadmin'. "
-                "Set a strong, unique credential before deploying."
+                "S3_ACCESS_KEY must not be empty in production or staging environments."
             )
 
-        if not self.EXAM_FERNET_KEY:
+        if not self.S3_SECRET_KEY:
             errors.append(
-                "EXAM_FERNET_KEY must be set in production — exam papers are "
-                "irrecoverable without it. Generate: "
-                "python -c \"from cryptography.fernet import Fernet; "
-                "print(Fernet.generate_key().decode())\""
+                "S3_SECRET_KEY must not be empty in production or staging environments."
             )
 
-        if not self.S3_USE_SSL:
-            errors.append(
-                "S3_USE_SSL must be True in production. "
-                "Object storage must be accessed over TLS."
-            )
+        # ── production only ───────────────────────────────────────────────
+        if _is_prod:
+            if (
+                self.JWT_SECRET == self._KNOWN_DEV_JWT
+                or any(p in self.JWT_SECRET.lower() for p in self._BAD_JWT_PATTERNS)
+            ):
+                errors.append(
+                    "JWT_SECRET is a known development or placeholder value. "
+                    "Generate: openssl rand -hex 32"
+                )
+            elif len(self.JWT_SECRET) < 64:
+                errors.append(
+                    "JWT_SECRET must be at least 64 characters in production. "
+                    "Generate: openssl rand -hex 32"
+                )
 
-        if not self.CORS_ALLOWED_ORIGINS:
-            errors.append(
-                "CORS_ALLOWED_ORIGINS must not be empty in production. "
-                "Set the explicit origin(s) of your frontend deployment."
-            )
-        elif "*" in self.CORS_ALLOWED_ORIGINS:
-            errors.append(
-                "CORS_ALLOWED_ORIGINS must not contain '*' in production. "
-                "Specify explicit origin(s)."
-            )
+            if not self.EXAM_FERNET_KEY:
+                errors.append(
+                    "EXAM_FERNET_KEY must be set in production — exam papers are "
+                    "irrecoverable without it. Generate: "
+                    "python -c \"from cryptography.fernet import Fernet; "
+                    "print(Fernet.generate_key().decode())\""
+                )
+            else:
+                try:
+                    Fernet(self.EXAM_FERNET_KEY.encode())
+                except Exception:
+                    errors.append(
+                        "EXAM_FERNET_KEY is not a valid Fernet key (must be 44-char "
+                        "base64url ending in '='). Generate: "
+                        "python -c \"from cryptography.fernet import Fernet; "
+                        "print(Fernet.generate_key().decode())\""
+                    )
+
+            if self.S3_ACCESS_KEY == "minioadmin":
+                errors.append(
+                    "S3_ACCESS_KEY is set to the default 'minioadmin'. "
+                    "Set a strong, unique credential before deploying."
+                )
+
+            if self.S3_SECRET_KEY == "minioadmin":
+                errors.append(
+                    "S3_SECRET_KEY is set to the default 'minioadmin'. "
+                    "Set a strong, unique credential before deploying."
+                )
+
+            if not self.S3_USE_SSL:
+                errors.append(
+                    "S3_USE_SSL must be True in production. "
+                    "Object storage must be accessed over TLS."
+                )
+
+            if not self.CORS_ALLOWED_ORIGINS:
+                errors.append(
+                    "CORS_ALLOWED_ORIGINS must not be empty in production. "
+                    "Set the explicit origin(s) of your frontend deployment."
+                )
+            elif "*" in self.CORS_ALLOWED_ORIGINS:
+                errors.append(
+                    "CORS_ALLOWED_ORIGINS must not contain '*' in production. "
+                    "Specify explicit origin(s)."
+                )
 
         if errors:
+            label = "Production" if _is_prod else "Staging"
             bullet_list = "\n".join(f"  • {e}" for e in errors)
             raise ValueError(
-                f"Production startup blocked — {len(errors)} insecure "
+                f"{label} startup blocked — {len(errors)} insecure "
                 f"configuration issue(s) detected:\n{bullet_list}"
             )
 

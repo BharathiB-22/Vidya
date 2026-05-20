@@ -52,6 +52,9 @@ metadata:
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- $host := required "ingress.host must be set — e.g. vidya.fidelitus.com (prod) or staging.vidya.fidelitus.com (staging)" .Values.ingress.host }}
+  {{- if .Values.ingress.tls -}}
+  {{- $_ := required "certManager.clusterIssuer must be set when ingress.tls is true — e.g. letsencrypt-prod (prod) or letsencrypt-staging (staging). Create the ClusterIssuer before helm install." .Values.certManager.clusterIssuer }}
+  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     - hosts:

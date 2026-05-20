@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -52,6 +52,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.rate_limiting import limiter
 from app.modules.m07_research_supervision.schemas import (
     AIGeneratedProblemCreate,
     DocumentFileUpdate,
@@ -99,7 +100,9 @@ def _svc_error(exc: ResearchServiceError) -> HTTPException:
 # ===========================================================================
 
 @router.post("/problems/propose", response_model=GeneratedProblemsResponse)
+@limiter.limit("10/minute")
 async def generate_ai_problems(
+    request: Request,
     payload: AIGeneratedProblemCreate,
     current_user: CurrentUser = Depends(_GUIDE),
     db: AsyncSession = Depends(get_tenant_db_dep),

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -11,6 +11,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.rate_limiting import limiter
 from app.modules.m01_program_advisor.models import ProgramStatus
 from app.modules.m01_program_advisor.repository import (
     CoursePrerequisiteRepository,
@@ -202,7 +203,9 @@ async def list_program_versions(
 # ---------------------------------------------------------------------------
 
 @router.post("/{program_id}/generate", response_model=ProgramAIJobResponse)
+@limiter.limit("5/minute")
 async def dispatch_ai_generation(
+    request: Request,
     program_id: UUID,
     payload: GenerateProgramRequest,
     current_user: CurrentUser = Depends(require_roles(*_WRITE)),
