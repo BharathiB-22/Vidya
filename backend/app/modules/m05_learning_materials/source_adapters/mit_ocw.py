@@ -25,7 +25,7 @@ from app.modules.m05_learning_materials.source_adapters.base import (
 
 _BASE_URL      = "https://ocw.mit.edu"
 _SEARCH_URL    = f"{_BASE_URL}/search/"
-_USER_AGENT    = "VidyaEducationBot/1.0 (+https://vidya.local; educational use)"
+_USER_AGENT    = "VidyaEducationBot/1.0 (+https://vidya.fidelitus.com; educational use)"
 _NEXT_DATA_RE  = re.compile(
     r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>',
     re.DOTALL,

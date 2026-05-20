@@ -47,7 +47,7 @@
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
-  host: vidya.example.com   # replace with real production domain
+  host: vidya.fidelitus.com
   tls: true
 
 certManager:
@@ -55,7 +55,7 @@ certManager:
 
 # ── Image registry ────────────────────────────────────────────────────────────
 global:
-  imageRegistry: ghcr.io/your-org   # replace with your container registry
+  imageRegistry: ghcr.io/BharathiB-22
   imagePullPolicy: IfNotPresent     # cached pulls; tags are immutable in prod
   storageClass: "standard-rwo"      # GKE; adjust: gp3 (EKS), managed-csi (AKS)
 
@@ -259,7 +259,8 @@ env:
   LOG_LEVEL: INFO
   JSON_LOGGING: "True"
   CORS_ALLOWED_ORIGINS:
-    - "https://vidya.example.com"
+    - "https://vidya.fidelitus.com"
+  SMTP_FROM: "noreply@vidya.fidelitus.com"
   EMAIL_NOTIFICATIONS_ENABLED: "True"
   AI_DETECTION_THRESH: "0.75"
   PLAGIARISM_THRESH: "0.85"

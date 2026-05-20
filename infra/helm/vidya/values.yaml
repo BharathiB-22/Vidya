@@ -457,9 +457,9 @@ minio:
 ingress:
   enabled: true
   className: nginx
-  # Replace with your actual domain. Use nip.io for local kind testing:
-  #   host: vidya.127.0.0.1.nip.io
-  host: CHANGE_ME_your_domain
+  # Must be overridden in every env overlay (required guard in templates/ingress.yaml).
+  # Dev: vidya.127.0.0.1.nip.io  |  Staging: staging.vidya.fidelitus.com  |  Prod: vidya.fidelitus.com
+  host: ""
   tls: true
   annotations: {}
 
@@ -533,16 +533,16 @@ secrets:
   databaseUrl: "postgresql+asyncpg://vidya:vidya_dev@vidya-postgres:5432/vidya"
   redisUrl: "redis://:dev_redis_pass@vidya-redis:6379/0"
   redisPassword: "dev_redis_pass"
-  jwtSecret: "CHANGE_ME_in_values_dev_yaml"
-  examFernetKey: "CHANGE_ME_in_values_dev_yaml"
-  s3AccessKey: "CHANGE_ME_minio_access"
-  s3SecretKey: "CHANGE_ME_minio_secret"
+  jwtSecret: ""
+  examFernetKey: ""
+  s3AccessKey: ""
+  s3SecretKey: ""
   postgresPassword: "vidya_dev"
   geminiApiKey: ""
   groqApiKey: ""
   smtpPassword: ""
   flowerUser: "admin"
-  flowerPassword: "CHANGE_ME_flower"
+  flowerPassword: ""
   youtubeApiKey: ""
 
 # ── Application Environment ───────────────────────────────────────────────────
@@ -569,7 +569,7 @@ env:
   SMTP_HOST: ""
   SMTP_PORT: "587"
   SMTP_USER: ""
-  SMTP_FROM: "noreply@vidya.local"
+  SMTP_FROM: ""
   SMTP_TLS: "True"
   M07_WHISPER_ENDPOINT: ""
   AI_DETECTION_THRESH: "0.75"

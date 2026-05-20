@@ -29,7 +29,7 @@
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
-  host: staging.vidya.example.com   # replace with real staging domain
+  host: staging.vidya.fidelitus.com
   tls: true
 
 certManager:
@@ -37,7 +37,7 @@ certManager:
 
 # ── Image registry ────────────────────────────────────────────────────────────
 global:
-  imageRegistry: ghcr.io/your-org   # replace with your container registry
+  imageRegistry: ghcr.io/BharathiB-22
   imagePullPolicy: Always           # always pull on staging — tags are mutable pre-release
   storageClass: ""                  # use cluster default; set to "standard-rwo" for GKE
 
@@ -173,7 +173,8 @@ env:
   LOG_LEVEL: INFO
   JSON_LOGGING: "True"
   CORS_ALLOWED_ORIGINS:
-    - "https://staging.vidya.example.com"
+    - "https://staging.vidya.fidelitus.com"
+  SMTP_FROM: "noreply@staging.vidya.fidelitus.com"
   EMAIL_NOTIFICATIONS_ENABLED: "False"   # enable when SMTP is verified
 
 # ── Secrets placeholder (populated by ESO — do not set real values here) ──────

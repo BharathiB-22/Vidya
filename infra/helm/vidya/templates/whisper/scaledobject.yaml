@@ -2,6 +2,8 @@
 {{- $redisAddr := .Values.keda.redisAddress }}
 {{- if .Values.redis.enabled }}
 {{- $redisAddr = printf "%s:6379" (include "vidya.componentName" (list . "redis")) }}
+{{- else }}
+{{- $redisAddr = required "keda.redisAddress must be set when redis.enabled is false — use your managed Redis endpoint (e.g. redis.internal:6379)" .Values.keda.redisAddress }}
 {{- end }}
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject

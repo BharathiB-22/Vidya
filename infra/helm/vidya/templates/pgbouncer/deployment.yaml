@@ -19,6 +19,8 @@
 {{- $pgHost := .Values.pgbouncer.postgresHost }}
 {{- if .Values.postgres.enabled }}
 {{- $pgHost = include "vidya.componentName" (list . "postgres") }}
+{{- else }}
+{{- $pgHost = required "pgbouncer.postgresHost must be set when postgres.enabled is false — use your managed PostgreSQL endpoint (e.g. db.internal:5432)" .Values.pgbouncer.postgresHost }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment

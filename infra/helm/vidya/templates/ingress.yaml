@@ -51,14 +51,15 @@ metadata:
     {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
+  {{- $host := required "ingress.host must be set — e.g. vidya.fidelitus.com (prod) or staging.vidya.fidelitus.com (staging)" .Values.ingress.host }}
   {{- if .Values.ingress.tls }}
   tls:
     - hosts:
-        - {{ .Values.ingress.host }}
+        - {{ $host }}
       secretName: {{ include "vidya.fullname" . }}-tls
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host }}
+    - host: {{ $host }}
       http:
         paths:
           - path: /api(/|$)(.*)

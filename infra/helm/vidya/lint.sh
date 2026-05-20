@@ -16,11 +16,16 @@
 #   0  All enabled checks passed
 #   1  One or more checks failed (details printed to stdout)
 #
-# CURRENT EXPECTED BEHAVIOUR (before H05-04)
-# ───────────────────────────────────────────
-# helm lint steps:  PASS for all paths
-# CHANGE_ME check:  FAIL for staging and prod (known; tracked as H05-04)
-# :latest check:    PASS (values.prod / staging already pin image tags)
+# CURRENT EXPECTED BEHAVIOUR (H05-04 complete)
+# ─────────────────────────────────────────────
+# helm lint steps:  PASS for all paths (dev / staging / prod / selfhosted)
+# CHANGE_ME check:  FAIL for staging (pgbouncer.postgresHost, keda.redisAddress)
+#                   FAIL for prod    (pgbouncer.postgresHost, keda.redisAddress)
+#                   FAIL for selfhosted (all infrastructure endpoints — operator must customise)
+#                   These are infrastructure-specific values that must be overridden in
+#                   a gitignored secret overlay (values.*.secret.yaml) before deploying.
+#                   Domains and image registry are set to real values (no CHANGE_ME).
+# :latest check:    PASS (all paths pin image tags)
 # =============================================================================
 set -euo pipefail
 
@@ -58,7 +63,9 @@ lint_path() {
   fi
 }
 
-lint_path "base (values.yaml only)"
+# Base-only lint removed in H05-04: ingress.host is now "" in values.yaml and the
+# required guard in templates/ingress.yaml triggers unless an overlay provides the host.
+# Minimum viable combination is base + dev (dev overlay sets host: vidya.127.0.0.1.nip.io).
 lint_path "dev"          -f "$CHART/values.dev.yaml"
 lint_path "staging"      -f "$CHART/values.staging.yaml"
 lint_path "prod"         -f "$CHART/values.prod.yaml"
@@ -139,8 +146,9 @@ echo "  Warnings: $WARNINGS"
 if [ "$ERRORS" -gt 0 ]; then
   echo
   if [ "$SKIP_CHANGE_ME" = false ] && echo "$*" | grep -v "skip" > /dev/null 2>&1; then
-    echo "  NOTE: CHANGE_ME failures are expected before H05-04 completes."
-    echo "  Run with --skip-change-me to verify only helm lint and :latest checks."
+    echo "  NOTE: CHANGE_ME failures for pgbouncer.postgresHost and keda.redisAddress"
+    echo "  are expected — set these in a gitignored values.*.secret.yaml before deploying."
+    echo "  Run with --skip-change-me to verify helm lint and :latest checks only."
   fi
   echo
   echo "RESULT: FAIL ($ERRORS error(s))"
