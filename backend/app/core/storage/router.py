@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, resolve_tenant
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser, TenantInfo
 from app.core.storage.schemas import (
@@ -38,7 +38,7 @@ def _storage_error(e: StorageError) -> HTTPException:
 async def generate_upload_url(
     request: GenerateUploadUrlRequest,
     current_user: CurrentUser = Depends(require_roles(*_ALL_TENANT_ROLES)),
-    tenant_info: TenantInfo = Depends(),  # Injected by resolve_tenant
+    tenant_info: TenantInfo = Depends(resolve_tenant),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> GenerateUploadUrlResponse:
     """Generate presigned PUT URL for file upload.
@@ -60,7 +60,7 @@ async def generate_upload_url(
 async def create_asset_metadata(
     request: CreateAssetRequest,
     current_user: CurrentUser = Depends(require_roles(*_ALL_TENANT_ROLES)),
-    tenant_info: TenantInfo = Depends(),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> StorageAssetListResponse:
     """Persist asset metadata after successful upload.
@@ -95,7 +95,7 @@ async def create_asset_metadata(
 async def get_download_url(
     asset_id: UUID,
     current_user: CurrentUser = Depends(require_roles(*_ALL_TENANT_ROLES)),
-    tenant_info: TenantInfo = Depends(),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> DownloadUrlResponse:
     """Get presigned GET URL for download (after authorization check).
@@ -147,7 +147,7 @@ async def list_assets(
 async def delete_asset(
     asset_id: UUID,
     current_user: CurrentUser = Depends(require_roles(*_ALL_TENANT_ROLES)),
-    tenant_info: TenantInfo = Depends(),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     """Soft-delete asset (actual S3 cleanup via retention job)."""
