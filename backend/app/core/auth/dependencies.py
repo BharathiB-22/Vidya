@@ -52,6 +52,18 @@ async def get_tenant_db_dep(
         yield session
 
 
+async def get_tenant_context_dep(
+    tenant: TenantInfo = Depends(resolve_tenant),
+) -> AsyncGenerator[dict, None]:
+    """Yields {"db", "schema_name", "tenant_id"} for modules that need all three."""
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            text(f"SET search_path TO {tenant.schema_name}, public")
+        )
+        await session.commit()
+        yield {"db": session, "schema_name": tenant.schema_name, "tenant_id": tenant.id}
+
+
 async def get_current_user(
     authorization: str = Header(...),
 ) -> CurrentUser:

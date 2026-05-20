@@ -33,7 +33,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_context_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m09_paper_admin.schemas import (
@@ -63,10 +63,10 @@ _BOARD    = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ     = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
 
 
-def _ingest_dep():   return require_roles(_INGEST)
-def _eval_dep():     return require_roles(_EVALUATE)
-def _board_dep():    return require_roles(_BOARD)
-def _read_dep():     return require_roles(_READ)
+def _ingest_dep():   return require_roles(*_INGEST)
+def _eval_dep():     return require_roles(*_EVALUATE)
+def _board_dep():    return require_roles(*_BOARD)
+def _read_dep():     return require_roles(*_READ)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ async def upload_script(
     upload_url: str | None = Query(default=None, description="S3 object key of uploaded scan"),
     page_count: int | None = Query(default=None, ge=1),
     current_user: CurrentUser = Depends(_ingest_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Register a scanned answer script and queue the AI scoring task.
@@ -131,7 +131,7 @@ async def list_board_pending(
     offset: int = Query(default=0, ge=0),
     limit:  int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Board: list scripts awaiting finalisation (status = MARKS_SUBMITTED)."""
     db: AsyncSession = db_info["db"]
@@ -153,7 +153,7 @@ async def list_my_scripts(
     offset: int        = Query(default=0, ge=0),
     limit:  int        = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_eval_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Evaluator: list scripts assigned to the authenticated user."""
     db: AsyncSession = db_info["db"]
@@ -178,7 +178,7 @@ async def list_scripts_for_paper(
     offset:   int        = Query(default=0, ge=0),
     limit:    int        = Query(default=50, ge=1, le=200),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """List all scripts for an exam paper (identity masked pre-finalise)."""
     db: AsyncSession = db_info["db"]
@@ -203,7 +203,7 @@ async def list_all_scripts(
     offset:        int         = Query(default=0, ge=0),
     limit:         int         = Query(default=50, ge=1, le=200),
     current_user: CurrentUser  = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Admin/Board: list all scripts for the tenant, optionally filtered."""
     db: AsyncSession = db_info["db"]
@@ -229,7 +229,7 @@ async def get_script(
         description="Include student identity (only honoured after BOARD_FINALISED).",
     ),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Get script detail.  Student identity masked unless status == BOARD_FINALISED
@@ -259,7 +259,7 @@ async def assign_evaluator(
     script_id: UUID,
     payload:   ScriptAssignEvaluatorRequest,
     current_user: CurrentUser = Depends(_ingest_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Admin/Board: assign a primary (and optional secondary) evaluator to a script."""
     db: AsyncSession = db_info["db"]
@@ -287,7 +287,7 @@ async def update_marks(
     script_id: UUID,
     payload:   BulkMarkUpdate,
     current_user: CurrentUser = Depends(_eval_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Evaluator saves marks for one or more questions without triggering Gate 1.
@@ -318,7 +318,7 @@ async def submit_marks(
     script_id: UUID,
     payload:   ScriptSubmitMarksRequest,
     current_user: CurrentUser = Depends(_eval_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     GATE 1: Evaluator submits all marks.  Status → MARKS_SUBMITTED.
@@ -350,7 +350,7 @@ async def board_finalise(
     script_id: UUID,
     payload:   ScriptFinaliseRequest,
     current_user: CurrentUser = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     GATE 2: Board member finalises marks.
@@ -385,7 +385,7 @@ async def board_finalise(
 async def get_evaluations(
     script_id: UUID,
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Return AI-suggested marks and evaluator marks for all questions in a script."""
     db: AsyncSession = db_info["db"]
@@ -405,7 +405,7 @@ async def get_evaluations(
 async def get_ledger_entry(
     script_id: UUID,
     current_user: CurrentUser = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Return the Board-finalised score ledger entry.
@@ -431,7 +431,7 @@ async def list_ledger_for_paper(
     offset:   int = Query(default=0, ge=0),
     limit:    int = Query(default=50, ge=1, le=200),
     current_user: CurrentUser = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Board/Admin: list all finalised score records for an exam paper."""
     db: AsyncSession = db_info["db"]

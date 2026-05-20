@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_context_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m08_exam_setter.schemas import (
@@ -72,15 +72,15 @@ _READ    = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BO
 
 
 def _faculty_dep():
-    return require_roles(_FACULTY)
+    return require_roles(*_FACULTY)
 
 
 def _board_dep():
-    return require_roles(_BOARD)
+    return require_roles(*_BOARD)
 
 
 def _read_dep():
-    return require_roles(_READ)
+    return require_roles(*_READ)
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ def _raise(exc: ExamServiceError) -> None:
 async def create_exam_paper(
     payload: ExamPaperCreate,
     current_user: CurrentUser = Depends(_faculty_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Create an exam paper configuration and queue AI question generation."""
     db: AsyncSession = db_info["db"]
@@ -154,7 +154,7 @@ async def list_exam_papers(
     offset:  int        = Query(default=0, ge=0),
     limit:   int        = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_faculty_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """List exam papers created by the authenticated faculty member."""
     db: AsyncSession = db_info["db"]
@@ -180,7 +180,7 @@ async def list_all_exam_papers(
     offset:  int        = Query(default=0, ge=0),
     limit:   int        = Query(default=50, ge=1, le=200),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Admin/Dean: list all exam papers for the tenant."""
     db: AsyncSession = db_info["db"]
@@ -203,7 +203,7 @@ async def list_board_pending(
     offset: int = Query(default=0, ge=0),
     limit:  int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Examination Board: list papers awaiting review."""
     db: AsyncSession = db_info["db"]
@@ -225,7 +225,7 @@ async def list_board_pending(
 async def get_exam_paper(
     paper_id: UUID,
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Get exam paper metadata. Questions not included here — use /questions endpoint."""
     db: AsyncSession = db_info["db"]
@@ -245,7 +245,7 @@ async def list_questions(
     paper_id:  UUID,
     set_label: str | None = Query(default=None, description="Filter by set: A or B"),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     List questions for a paper. Model answers excluded.
@@ -271,7 +271,7 @@ async def edit_question(
     question_id: UUID,
     payload:     ExamQuestionUpdate,
     current_user: CurrentUser = Depends(_faculty_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Faculty edits a question. Only allowed when paper is GENERATED or BOARD_RETURNED."""
     db: AsyncSession = db_info["db"]
@@ -309,7 +309,7 @@ async def delete_question(
     paper_id:    UUID,
     question_id: UUID,
     current_user: CurrentUser = Depends(_faculty_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Faculty removes a question from the paper."""
     db: AsyncSession = db_info["db"]
@@ -341,7 +341,7 @@ async def delete_question(
 async def get_blooms_report(
     paper_id: UUID,
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Get Bloom's compliance report for a paper."""
     db: AsyncSession = db_info["db"]
@@ -360,7 +360,7 @@ async def get_blooms_report(
 async def submit_for_review(
     paper_id: UUID,
     current_user: CurrentUser = Depends(_faculty_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """GATE 1: Faculty submits paper for Examination Board review."""
     db: AsyncSession = db_info["db"]
@@ -396,7 +396,7 @@ async def board_decision(
     paper_id: UUID,
     payload:  BoardDecisionRequest,
     current_user: CurrentUser = Depends(_board_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """GATE 2: Examination Board approves or returns the paper."""
     db: AsyncSession = db_info["db"]
@@ -437,7 +437,7 @@ async def seal_paper(
     paper_id: UUID,
     payload:  SealRequest,
     current_user: CurrentUser = Depends(_faculty_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """GATE 3: Faculty seals the paper with AES encryption and schedules release."""
     db: AsyncSession = db_info["db"]
@@ -478,7 +478,7 @@ async def export_questions(
     paper_id:  UUID,
     set_label: str = Query(default="A", description="Set A or B"),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Export question paper as PDF.
@@ -534,8 +534,8 @@ async def export_questions(
 async def export_answers(
     paper_id:  UUID,
     set_label: str = Query(default="A", description="Set A or B"),
-    current_user: CurrentUser = Depends(require_roles(_BOARD + [TenantRole.FACULTY])),
-    db_info=Depends(get_tenant_db_dep),
+    current_user: CurrentUser = Depends(require_roles(*(_BOARD + [TenantRole.FACULTY]))),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Export model answers PDF. FACULTY/BOARD/ADMIN only. Never exposed to students.
@@ -589,7 +589,7 @@ async def export_answers(
 async def get_job_status(
     job_id: UUID,
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Poll Celery task job status."""
     from sqlalchemy import text as sa_text

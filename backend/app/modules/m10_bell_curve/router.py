@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_context_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m10_bell_curve.schemas import (
@@ -60,8 +60,8 @@ _BOARD_ADMIN = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ        = [TenantRole.BOARD, TenantRole.ADMIN, TenantRole.DEAN]
 
 
-def _board_admin_dep(): return require_roles(_BOARD_ADMIN)
-def _read_dep():        return require_roles(_READ)
+def _board_admin_dep(): return require_roles(*_BOARD_ADMIN)
+def _read_dep():        return require_roles(*_READ)
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ def _raise(exc: BellCurveServiceError) -> None:
 async def trigger_analysis(
     payload:      TriggerAnalysisRequest,
     current_user: CurrentUser = Depends(_board_admin_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Trigger bell curve analysis for an exam paper.
@@ -135,7 +135,7 @@ async def list_analyses_for_paper(
     offset:   int = Query(default=0, ge=0),
     limit:    int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """List all analyses for a specific exam paper."""
     db: AsyncSession = db_info["db"]
@@ -155,7 +155,7 @@ async def list_analyses(
     offset: int = Query(default=0, ge=0),
     limit:  int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """List all bell curve analyses for the tenant."""
     db: AsyncSession = db_info["db"]
@@ -174,7 +174,7 @@ async def list_analyses(
 async def get_analysis(
     analysis_id:  UUID,
     current_user: CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Get analysis detail including stats, anomalies, and suggestion."""
     db: AsyncSession = db_info["db"]
@@ -193,7 +193,7 @@ async def get_analysis(
 async def get_analysis_job_status(
     analysis_id:  UUID,
     current_user: CurrentUser = Depends(_board_admin_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Poll the Celery task_job status for an analysis."""
     db: AsyncSession = db_info["db"]
@@ -236,7 +236,7 @@ async def preview_normalisation(
     analysis_id:  UUID,
     payload:      PreviewNormalisationRequest,
     current_user: CurrentUser = Depends(_board_admin_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Preview normalisation with custom params.
@@ -286,8 +286,8 @@ async def preview_normalisation(
 async def ratify_analysis(
     analysis_id:  UUID,
     payload:      RatifyRequest,
-    current_user: CurrentUser = Depends(require_roles([TenantRole.BOARD])),
-    db_info=Depends(get_tenant_db_dep),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.BOARD)),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     GATE 1: Board member ratifies the normalisation decision.
@@ -350,7 +350,7 @@ async def list_decisions(
     offset: int = Query(default=0, ge=0),
     limit:  int = Query(default=20, ge=1, le=100),
     current_user: CurrentUser = Depends(_board_admin_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """List all Board ratification decisions."""
     db: AsyncSession = db_info["db"]
@@ -369,7 +369,7 @@ async def list_decisions(
 async def get_decision(
     decision_id:  UUID,
     current_user: CurrentUser = Depends(_board_admin_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """Get a Board ratification decision."""
     db: AsyncSession = db_info["db"]
@@ -390,7 +390,7 @@ async def list_normalised_ledger(
     offset:   int = Query(default=0, ge=0),
     limit:    int = Query(default=50, ge=1, le=200),
     current_user: CurrentUser = Depends(_board_admin_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """List Board-ratified normalised score records for an exam paper."""
     db: AsyncSession = db_info["db"]
@@ -411,7 +411,7 @@ async def list_normalised_ledger(
 async def fairness_report(
     exam_paper_id: UUID | None = Query(default=None, description="Filter by exam paper"),
     current_user:  CurrentUser = Depends(_read_dep()),
-    db_info=Depends(get_tenant_db_dep),
+    db_info=Depends(get_tenant_context_dep),
 ):
     """
     Generate a Bell Curve Fairness Report as a PDF.
