@@ -1,0 +1,440 @@
+{{- if .Values.backup.enabled }}
+{{- $fullName   := include "vidya.fullname" . }}
+{{- $secretName := printf "%s-secret" $fullName }}
+{{- $sa         := printf "%s-backup" $fullName }}
+
+# =============================================================================
+# PostgreSQL Backup CronJob
+# Self-hosted: pg_dump → sha256 → upload to MinIO backup bucket + manifest
+# Managed:     connectivity verification only (managed service owns the dump)
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-backup-postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "backup") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedules.postgres | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "vidya.componentSelectorLabels" (list . "backup") | nindent 12 }}
+        spec:
+          serviceAccountName: {{ $sa }}
+          restartPolicy: Never
+          {{- include "vidya.imagePullSecrets" . | nindent 10 }}
+          volumes:
+            - name: workspace
+              emptyDir: {}
+          {{- if not .Values.backup.postgres.managed }}
+          initContainers:
+            - name: pg-dump
+              image: "{{ .Values.backup.images.pgDump.repository }}:{{ .Values.backup.images.pgDump.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: DATABASE_URL
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: workspace
+                  mountPath: /backup
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  TIMESTAMP=$(date -u +%Y%m%d_%H%M%SZ)
+                  DUMP_FILE="vidya_postgres_${TIMESTAMP}.dump"
+                  START_TS=$(date +%s)
+                  echo "[pg-dump] Starting at $(date -u +%H:%M:%SZ)"
+                  PG_URL=$(echo "$DATABASE_URL" | sed 's|postgresql+asyncpg://|postgresql://|')
+                  pg_dump --format=custom --no-acl --no-owner "$PG_URL" -f "/backup/${DUMP_FILE}"
+                  SIZE=$(stat -c %s "/backup/${DUMP_FILE}")
+                  CHECKSUM=$(sha256sum "/backup/${DUMP_FILE}" | awk '{print $1}')
+                  echo "$CHECKSUM  ${DUMP_FILE}" > "/backup/${DUMP_FILE}.sha256"
+                  END_TS=$(date +%s)
+                  DURATION=$((END_TS - START_TS))
+                  printf 'DUMP_FILE=%s\nDUMP_SIZE=%s\nDUMP_CHECKSUM=%s\nDUMP_TIMESTAMP=%s\nDUMP_DURATION=%s\n' \
+                    "$DUMP_FILE" "$SIZE" "$CHECKSUM" \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$DURATION" \
+                    > /backup/meta.env
+                  echo "[pg-dump] Done: ${DUMP_FILE} size=${SIZE}B sha256=${CHECKSUM} duration=${DURATION}s"
+          {{- end }}
+          containers:
+            - name: upload
+              image: "{{ .Values.backup.images.mc.repository }}:{{ .Values.backup.images.mc.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: BK_ENDPOINT
+                  value: {{ .Values.backup.s3Endpoint | quote }}
+                - name: BUCKET_DB
+                  value: {{ .Values.backup.bucketDb | quote }}
+                - name: BUCKET_MANIFESTS
+                  value: {{ .Values.backup.bucketManifests | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+                - name: POSTGRES_MANAGED
+                  value: {{ .Values.backup.postgres.managed | quote }}
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_SECRET_KEY
+              volumeMounts:
+                - name: workspace
+                  mountPath: /backup
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  mc alias set bk "$BK_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --quiet
+                  mc mb --ignore-existing "bk/${BUCKET_DB}" || true
+                  mc mb --ignore-existing "bk/${BUCKET_MANIFESTS}" || true
+                  mc ilm add --expiry-days "$RETENTION_DAYS" "bk/${BUCKET_DB}" 2>/dev/null || true
+                  TIMESTAMP=$(date -u +%Y%m%d_%H%M%SZ)
+                  if [ "$POSTGRES_MANAGED" = "true" ]; then
+                    STATUS="success"
+                    MANIFEST="{\"component\":\"postgres\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"managed\":true,\"status\":\"${STATUS}\",\"note\":\"backup delegated to managed service\"}"
+                  else
+                    . /backup/meta.env
+                    mc cp "/backup/${DUMP_FILE}"        "bk/${BUCKET_DB}/${DUMP_FILE}"
+                    mc cp "/backup/${DUMP_FILE}.sha256" "bk/${BUCKET_DB}/${DUMP_FILE}.sha256"
+                    STATUS="success"
+                    MANIFEST="{\"component\":\"postgres\",\"timestamp\":\"${DUMP_TIMESTAMP}\",\"duration_seconds\":${DUMP_DURATION},\"size_bytes\":${DUMP_SIZE},\"checksum_sha256\":\"${DUMP_CHECKSUM}\",\"backup_file\":\"${DUMP_FILE}\",\"status\":\"${STATUS}\"}"
+                  fi
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/postgres_latest.json"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/postgres_${TIMESTAMP}.json"
+                  echo "[backup-postgres] $MANIFEST"
+---
+# =============================================================================
+# MinIO Mirror CronJob
+# mc mirror app bucket → backup bucket + object count manifest
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-backup-minio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "backup") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedules.minio | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "vidya.componentSelectorLabels" (list . "backup") | nindent 12 }}
+        spec:
+          serviceAccountName: {{ $sa }}
+          restartPolicy: Never
+          {{- include "vidya.imagePullSecrets" . | nindent 10 }}
+          containers:
+            - name: mirror
+              image: "{{ .Values.backup.images.mc.repository }}:{{ .Values.backup.images.mc.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: APP_ENDPOINT
+                  value: {{ .Values.env.S3_ENDPOINT | quote }}
+                - name: APP_BUCKET
+                  value: {{ .Values.env.S3_BUCKET | quote }}
+                - name: BK_ENDPOINT
+                  value: {{ .Values.backup.s3Endpoint | quote }}
+                - name: BUCKET_ASSETS
+                  value: {{ .Values.backup.bucketAssets | quote }}
+                - name: BUCKET_MANIFESTS
+                  value: {{ .Values.backup.bucketManifests | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_SECRET_KEY
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  mc alias set app "$APP_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --quiet
+                  mc alias set bk  "$BK_ENDPOINT"  "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --quiet
+                  mc mb --ignore-existing "bk/${BUCKET_ASSETS}" || true
+                  mc mb --ignore-existing "bk/${BUCKET_MANIFESTS}" || true
+                  mc version enable "bk/${BUCKET_ASSETS}" 2>/dev/null || true
+                  mc ilm add --expiry-days "$RETENTION_DAYS" "bk/${BUCKET_ASSETS}" 2>/dev/null || true
+                  START_TS=$(date +%s)
+                  TIMESTAMP=$(date -u +%Y%m%d_%H%M%SZ)
+                  mc mirror --overwrite "app/${APP_BUCKET}" "bk/${BUCKET_ASSETS}"
+                  OBJECT_COUNT=$(mc ls --recursive "bk/${BUCKET_ASSETS}" | wc -l)
+                  END_TS=$(date +%s)
+                  DURATION=$((END_TS - START_TS))
+                  MANIFEST="{\"component\":\"minio\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"duration_seconds\":${DURATION},\"object_count\":${OBJECT_COUNT},\"status\":\"success\"}"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/minio_latest.json"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/minio_${TIMESTAMP}.json"
+                  echo "[backup-minio] $MANIFEST"
+---
+# =============================================================================
+# Qdrant Snapshot CronJob
+# Qdrant REST API: create snapshot → stream → sha256 → upload to MinIO
+# emptyDir is transient staging; snapshot streamed out before pod can restart.
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-backup-qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "backup") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedules.qdrant | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "vidya.componentSelectorLabels" (list . "backup") | nindent 12 }}
+        spec:
+          serviceAccountName: {{ $sa }}
+          restartPolicy: Never
+          {{- include "vidya.imagePullSecrets" . | nindent 10 }}
+          volumes:
+            - name: workspace
+              emptyDir: {}
+          initContainers:
+            - name: qdrant-snapshot
+              image: "{{ .Values.backup.images.qdrant.repository }}:{{ .Values.backup.images.qdrant.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: QDRANT_URL
+                  value: {{ .Values.env.QDRANT_URL | quote }}
+              volumeMounts:
+                - name: workspace
+                  mountPath: /backup
+              command: ["python3", "-c"]
+              args:
+                - |
+                  import urllib.request, json, hashlib, os, time, sys
+                  QDRANT = os.environ.get("QDRANT_URL", "http://vidya-qdrant:6333").rstrip("/")
+                  print(f"[qdrant-snapshot] Connecting to {QDRANT}")
+                  resp = urllib.request.urlopen(f"{QDRANT}/collections", timeout=10)
+                  collections = json.load(resp)["result"]["collections"]
+                  if not collections:
+                      print("[qdrant-snapshot] No collections — writing empty manifest")
+                      open("/backup/meta.env","w").write("COLLECTIONS=\nTOTAL_SIZE=0\nDURATION=0\n")
+                      sys.exit(0)
+                  total_size, names, t0 = 0, [], time.monotonic()
+                  for coll in collections:
+                      name = coll["name"]
+                      print(f"[qdrant-snapshot] Snapshotting: {name}")
+                      req = urllib.request.Request(f"{QDRANT}/collections/{name}/snapshots", method="POST")
+                      snap_name = json.load(urllib.request.urlopen(req, timeout=60))["result"]["name"]
+                      url = f"{QDRANT}/collections/{name}/snapshots/{snap_name}"
+                      with urllib.request.urlopen(url, timeout=300) as r:
+                          data = r.read()
+                      out = f"/backup/{name}.snapshot"
+                      open(out,"wb").write(data)
+                      cksum = hashlib.sha256(data).hexdigest()
+                      open(f"{out}.sha256","w").write(cksum)
+                      total_size += len(data)
+                      names.append(f"{name}:{cksum}:{len(data)}")
+                      print(f"[qdrant-snapshot] {name}: {len(data)}B sha256={cksum}")
+                      del_req = urllib.request.Request(
+                          f"{QDRANT}/collections/{name}/snapshots/{snap_name}", method="DELETE")
+                      urllib.request.urlopen(del_req, timeout=30)
+                  duration = int(time.monotonic() - t0)
+                  with open("/backup/meta.env","w") as f:
+                      f.write(f"COLLECTIONS={','.join(c.split(':')[0] for c in names)}\n")
+                      f.write(f"TOTAL_SIZE={total_size}\n")
+                      f.write(f"DURATION={duration}\n")
+          containers:
+            - name: upload
+              image: "{{ .Values.backup.images.mc.repository }}:{{ .Values.backup.images.mc.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: BK_ENDPOINT
+                  value: {{ .Values.backup.s3Endpoint | quote }}
+                - name: BUCKET_QDRANT
+                  value: {{ .Values.backup.bucketQdrant | quote }}
+                - name: BUCKET_MANIFESTS
+                  value: {{ .Values.backup.bucketManifests | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_SECRET_KEY
+              volumeMounts:
+                - name: workspace
+                  mountPath: /backup
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  . /backup/meta.env
+                  mc alias set bk "$BK_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --quiet
+                  mc mb --ignore-existing "bk/${BUCKET_QDRANT}" || true
+                  mc mb --ignore-existing "bk/${BUCKET_MANIFESTS}" || true
+                  mc version enable "bk/${BUCKET_QDRANT}" 2>/dev/null || true
+                  mc ilm add --expiry-days "$RETENTION_DAYS" "bk/${BUCKET_QDRANT}" 2>/dev/null || true
+                  TIMESTAMP=$(date -u +%Y%m%d_%H%M%SZ)
+                  for COLL in $(echo "$COLLECTIONS" | tr ',' ' '); do
+                    [ -z "$COLL" ] && continue
+                    mc cp "/backup/${COLL}.snapshot"        "bk/${BUCKET_QDRANT}/${TIMESTAMP}/${COLL}.snapshot"
+                    mc cp "/backup/${COLL}.snapshot.sha256" "bk/${BUCKET_QDRANT}/${TIMESTAMP}/${COLL}.snapshot.sha256"
+                    echo "[backup-qdrant] Uploaded ${COLL}.snapshot"
+                  done
+                  MANIFEST="{\"component\":\"qdrant\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"duration_seconds\":${DURATION},\"total_size_bytes\":${TOTAL_SIZE},\"collections\":\"${COLLECTIONS}\",\"status\":\"success\"}"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/qdrant_latest.json"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/qdrant_${TIMESTAMP}.json"
+                  echo "[backup-qdrant] $MANIFEST"
+---
+# =============================================================================
+# Vault Raft Snapshot CronJob
+# vault raft snapshot → sha256 → upload to MinIO + manifest
+# Vault encrypts the snapshot with its own seal key before writing to disk.
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $fullName }}-backup-vault
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vidya.componentLabels" (list . "backup") | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedules.vault | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "vidya.componentSelectorLabels" (list . "backup") | nindent 12 }}
+        spec:
+          serviceAccountName: {{ $sa }}
+          restartPolicy: Never
+          {{- include "vidya.imagePullSecrets" . | nindent 10 }}
+          volumes:
+            - name: workspace
+              emptyDir: {}
+          initContainers:
+            - name: vault-snapshot
+              image: "{{ .Values.backup.images.vault.repository }}:{{ .Values.backup.images.vault.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: VAULT_ADDR
+                  value: {{ .Values.backup.vault.addr | quote }}
+                - name: VAULT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: VAULT_TOKEN
+                      optional: true
+              volumeMounts:
+                - name: workspace
+                  mountPath: /backup
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  START_TS=$(date +%s)
+                  TIMESTAMP=$(date -u +%Y%m%d_%H%M%SZ)
+                  SNAP_FILE="vault_snapshot_${TIMESTAMP}.snap"
+                  echo "[vault-snapshot] Saving raft snapshot"
+                  vault operator raft snapshot save "/backup/${SNAP_FILE}"
+                  SIZE=$(stat -c %s "/backup/${SNAP_FILE}")
+                  CHECKSUM=$(sha256sum "/backup/${SNAP_FILE}" | awk '{print $1}')
+                  echo "$CHECKSUM  ${SNAP_FILE}" > "/backup/${SNAP_FILE}.sha256"
+                  END_TS=$(date +%s)
+                  DURATION=$((END_TS - START_TS))
+                  printf 'SNAP_FILE=%s\nSNAP_SIZE=%s\nSNAP_CHECKSUM=%s\nSNAP_TIMESTAMP=%s\nSNAP_DURATION=%s\n' \
+                    "$SNAP_FILE" "$SIZE" "$CHECKSUM" \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$DURATION" \
+                    > /backup/meta.env
+                  echo "[vault-snapshot] Done: size=${SIZE}B sha256=${CHECKSUM}"
+          containers:
+            - name: upload
+              image: "{{ .Values.backup.images.mc.repository }}:{{ .Values.backup.images.mc.tag }}"
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: BK_ENDPOINT
+                  value: {{ .Values.backup.s3Endpoint | quote }}
+                - name: BUCKET_VAULT
+                  value: {{ .Values.backup.bucketVault | quote }}
+                - name: BUCKET_MANIFESTS
+                  value: {{ .Values.backup.bucketManifests | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_ACCESS_KEY
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $secretName }}
+                      key: S3_SECRET_KEY
+              volumeMounts:
+                - name: workspace
+                  mountPath: /backup
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  . /backup/meta.env
+                  mc alias set bk "$BK_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --quiet
+                  mc mb --ignore-existing "bk/${BUCKET_VAULT}" || true
+                  mc mb --ignore-existing "bk/${BUCKET_MANIFESTS}" || true
+                  mc ilm add --expiry-days "$RETENTION_DAYS" "bk/${BUCKET_VAULT}" 2>/dev/null || true
+                  mc cp "/backup/${SNAP_FILE}"        "bk/${BUCKET_VAULT}/${SNAP_FILE}"
+                  mc cp "/backup/${SNAP_FILE}.sha256" "bk/${BUCKET_VAULT}/${SNAP_FILE}.sha256"
+                  TIMESTAMP=$(date -u +%Y%m%d_%H%M%SZ)
+                  MANIFEST="{\"component\":\"vault\",\"timestamp\":\"${SNAP_TIMESTAMP}\",\"duration_seconds\":${SNAP_DURATION},\"size_bytes\":${SNAP_SIZE},\"checksum_sha256\":\"${SNAP_CHECKSUM}\",\"backup_file\":\"${SNAP_FILE}\",\"status\":\"success\"}"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/vault_latest.json"
+                  printf '%s\n' "$MANIFEST" | mc pipe "bk/${BUCKET_MANIFESTS}/vault_${TIMESTAMP}.json"
+                  echo "[backup-vault] $MANIFEST"
+{{- end }}

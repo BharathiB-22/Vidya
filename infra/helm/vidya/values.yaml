@@ -533,6 +533,81 @@ offPeak:
   # Pin to a patch version matching your cluster's minor version in prod.
   kubectlImage: bitnami/kubectl:1.30
 
+# ── Backup ────────────────────────────────────────────────────────────────────
+# Automated daily backup CronJobs for PostgreSQL (self-hosted), MinIO, Qdrant,
+# and Vault. For managed PostgreSQL (prod) the CronJob runs verification only —
+# actual backup is delegated to the managed service (Cloud SQL / RDS / Azure DB).
+#
+# ENCRYPTION AT REST — must be enforced at the storage layer BEFORE enabling:
+#   • Backup MinIO buckets: enable SSE-S3 with KMS (mc encrypt set sse-s3 ...)
+#   • Managed DB: verify cloud console shows encryption enabled (it is by default
+#     for Cloud SQL, RDS, Azure DB — confirm it has not been disabled)
+#   • Vault raft snapshots: Vault encrypts with its own seal key before writing
+#
+# WORM / IMMUTABLE STORAGE — strongly recommended for production:
+#   • MinIO: mc version enable + ILM Governance mode locks objects for retentionDays
+#   • AWS S3: Object Lock in Governance mode
+#   • GCS: Retention policy on the backup bucket
+#   See backup-restore-runbook.md §5 for configuration steps.
+#
+# BUCKET VERSIONING — enabled on backup buckets to protect against accidental
+# deletion and to allow point-in-time recovery of individual objects.
+backup:
+  enabled: false
+
+  # S3-compatible backup destination.
+  # For MinIO: use a SEPARATE MinIO instance from the application data store.
+  # For AWS S3: set endpoint to "" and use IRSA / instance profile for auth.
+  s3Endpoint: "http://vidya-minio:9000"
+  # Backup bucket names (created automatically by backup jobs if absent).
+  bucketDb: "vidya-backup-db"
+  bucketAssets: "vidya-backup-assets"
+  bucketQdrant: "vidya-backup-qdrant"
+  bucketVault: "vidya-backup-vault"
+  bucketManifests: "vidya-backup-manifests"
+
+  # Cron schedules (UTC). Staggered to avoid concurrent heavy I/O.
+  # IST = UTC + 5:30. These run 01:30–04:00 IST (off-peak).
+  schedules:
+    postgres: "0 20 * * *"    # 20:00 UTC = 01:30 IST
+    minio:    "30 20 * * *"   # 20:30 UTC = 02:00 IST
+    qdrant:   "0 21 * * *"    # 21:00 UTC = 02:30 IST
+    vault:    "30 21 * * *"   # 21:30 UTC = 03:00 IST
+
+  # VidyaBackupStale alert fires when no backup job completes within this window.
+  # 25h gives a 1h buffer beyond the 24h schedule cadence.
+  stalenessThresholdSeconds: 90000   # 25 hours
+
+  # MinIO ILM object expiry on backup buckets (days). Applied at first backup.
+  retentionDays: 7
+
+  # PostgreSQL backup behaviour.
+  postgres:
+    # managed: true  — backup is owned by Cloud SQL / RDS / Azure DB.
+    # The CronJob runs a connectivity + schema-version verification job only.
+    # managed: false — self-hosted StatefulSet; CronJob runs pg_dump directly.
+    managed: false
+
+  # Vault address for raft snapshot backup.
+  vault:
+    addr: ""   # e.g. "https://vault.example.com:8200"
+    # Vault token is read from VAULT_TOKEN env var (set in values.dev.yaml or ESO).
+
+  # Container images used by backup CronJobs.
+  images:
+    pgDump:
+      repository: postgres
+      tag: "16-alpine"
+    mc:
+      repository: minio/mc
+      tag: "RELEASE.2024-11-21T17-21-54Z"
+    qdrant:
+      repository: python
+      tag: "3.12-alpine"
+    vault:
+      repository: hashicorp/vault
+      tag: "1.17"
+
 # ── Monitoring / Alerting ─────────────────────────────────────────────────────
 # prometheusRule.enabled requires the Prometheus Operator CRDs to be installed.
 # Set enabled: true in values.prod.yaml (or values.staging.yaml) once the

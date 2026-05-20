@@ -279,6 +279,21 @@ monitoring:
     additionalLabels:
       prometheus: kube-prometheus   # kube-prometheus-stack default selector label
 
+# ── Backup (prod) ────────────────────────────────────────────────────────────
+# In production the backup MinIO MUST be a separate instance from the app store.
+# WORM / immutable storage and SSE-S3 encryption must be enabled on backup buckets
+# before setting backup.enabled: true. See backup-restore-runbook.md §5.
+backup:
+  enabled: true
+  # Replace with the dedicated backup MinIO or cloud-native object store endpoint.
+  s3Endpoint: "CHANGE_ME_backup_s3_endpoint"
+  retentionDays: 7
+  stalenessThresholdSeconds: 90000   # 25 hours
+  postgres:
+    managed: true    # Cloud SQL / RDS / Azure DB owns backup execution
+  vault:
+    addr: "CHANGE_ME_vault_addr"
+
 # ── Secrets placeholder (populated by ESO — do not set real values here) ──────
 # When externalSecrets.enabled: true these keys are ignored by the chart.
 secrets: {}

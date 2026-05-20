@@ -118,4 +118,29 @@ spec:
           annotations:
             summary: "Vidya — pod restart spike in {{ .Release.Namespace }}"
             description: "A container in {{ .Release.Namespace }} restarted more than 3 times in 5 minutes. Investigate crash loops."
+
+    - name: vidya.backup
+      interval: 60s
+      rules:
+        # Alert when no backup CronJob has completed successfully within the
+        # staleness threshold. Requires kube-state-metrics (ships with
+        # kube-prometheus-stack). kube_job_status_completion_time is 0 for
+        # incomplete/failed jobs and unix epoch for successful completions.
+        # absent() fires when no job has completed within the threshold window,
+        # covering both "never run" and "all recent runs failed" cases.
+        - alert: VidyaBackupStale
+          expr: |
+            absent(
+              kube_job_status_completion_time{
+                namespace="{{ .Release.Namespace }}",
+                job_name=~"vidya-backup-.+"
+              } > (time() - {{ .Values.backup.stalenessThresholdSeconds | default 90000 }})
+            ) == 1
+          for: 15m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Vidya — backup has not completed in over 25 hours"
+            description: "No Vidya backup job has completed successfully in the last 25 hours. Check backup CronJob logs in namespace {{ .Release.Namespace }}."
 {{- end }}
