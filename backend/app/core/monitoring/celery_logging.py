@@ -1,24 +1,37 @@
 import logging
-from celery.signals import task_prerun, task_postrun, task_failure
-from app.core.monitoring import request_id_ctx, tenant_id_ctx, user_id_ctx, mask_sensitive_fields
+import time
+
+from celery.signals import task_failure, task_postrun, task_prerun
+
+from app.core.monitoring import mask_sensitive_fields, request_id_ctx
+from app.core.monitoring.prometheus_metrics import (
+    celery_task_duration_seconds,
+    celery_tasks_total,
+)
 
 celery_logger = logging.getLogger("vidya.celery")
 
+# Task start times keyed by task_id — used to compute durations in on_task_end.
+_task_start_times: dict[str, float] = {}
+
 
 def setup_celery_logging() -> None:
-    """Wire Celery signals to structured logging."""
+    """Wire Celery signals to structured logging and Prometheus metrics."""
     task_prerun.connect(on_task_start, weak=False)
     task_postrun.connect(on_task_end, weak=False)
     task_failure.connect(on_task_failure, weak=False)
 
 
 def on_task_start(sender=None, task_id=None, args=None, kwargs=None, **extra_kwargs) -> None:
-    """Log task start event."""
+    """Log task start event and record start time for duration tracking."""
     request_id = kwargs.get("request_id") if kwargs else None
     job_id = kwargs.get("job_id") if kwargs else None
 
     if request_id:
         request_id_ctx.set(request_id)
+
+    if task_id:
+        _task_start_times[task_id] = time.monotonic()
 
     args_summary = _summarize_args(args or ())
     kwargs_summary = _summarize_kwargs(kwargs or {})
@@ -39,12 +52,20 @@ def on_task_start(sender=None, task_id=None, args=None, kwargs=None, **extra_kwa
 
 
 def on_task_end(sender=None, task_id=None, state=None, retval=None, args=None, kwargs=None, **extra_kwargs) -> None:
-    """Log task completion event."""
+    """Log task completion, record duration and state counter in Prometheus."""
     request_id = kwargs.get("request_id") if kwargs else None
     job_id = kwargs.get("job_id") if kwargs else None
 
     if request_id:
         request_id_ctx.set(request_id)
+
+    start = _task_start_times.pop(task_id, None) if task_id else None
+    if start is not None:
+        duration_s = time.monotonic() - start
+        celery_task_duration_seconds.labels(task_name=sender.name).observe(duration_s)
+
+    if state is not None:
+        celery_tasks_total.labels(task_name=sender.name, state=state).inc()
 
     result_summary = _summarize_result(retval)
 
@@ -63,7 +84,7 @@ def on_task_end(sender=None, task_id=None, state=None, retval=None, args=None, k
 
 
 def on_task_failure(sender=None, task_id=None, exception=None, args=None, kwargs=None, traceback=None, einfo=None, **extra_kwargs) -> None:
-    """Log task failure event."""
+    """Log task failure event. Counter increment handled by on_task_end."""
     request_id = kwargs.get("request_id") if kwargs else None
     job_id = kwargs.get("job_id") if kwargs else None
 

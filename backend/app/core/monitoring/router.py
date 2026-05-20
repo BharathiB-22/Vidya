@@ -2,10 +2,12 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
+from fastapi.responses import PlainTextResponse
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
 from app.config import settings
 from app.core.monitoring.health import HealthService
-from app.core.monitoring.schemas import HealthStatus, LivenessResponse, MetricsResponse
+from app.core.monitoring.schemas import HealthStatus, LivenessResponse
 
 logger = logging.getLogger("vidya.access")
 
@@ -62,22 +64,15 @@ async def readiness_probe():
     return response
 
 
-@router.get("/metrics", response_model=MetricsResponse)
+@router.get("/metrics", include_in_schema=False)
 async def metrics_endpoint():
-    """Metrics endpoint (skeleton for future Prometheus integration).
+    """Prometheus metrics scrape endpoint.
 
-    Returns application metrics in JSON format.
-    Currently returns placeholder values; will be enhanced with actual
-    metrics collection (request counts, latencies, queue depths, etc.).
+    Returns all registered metrics in Prometheus text exposition format.
+    Default process/runtime collectors (CPU, memory, GC, FDs) are included.
+    Scraped by Prometheus via the prometheus.io/scrape pod annotation.
     """
-    from datetime import datetime, timezone
-
-    return MetricsResponse(
-        request_count=0,
-        request_latency_p50_ms=0.0,
-        request_latency_p95_ms=0.0,
-        request_latency_p99_ms=0.0,
-        task_queue_depth=0,
-        db_connection_pool_size=0,
-        timestamp=datetime.now(tz=timezone.utc),
+    return PlainTextResponse(
+        content=generate_latest(REGISTRY).decode("utf-8"),
+        media_type=CONTENT_TYPE_LATEST,
     )

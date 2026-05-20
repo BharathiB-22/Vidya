@@ -6,9 +6,16 @@ from typing import Callable
 from fastapi import Request
 from fastapi.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import ASGIApp
 
 from app.core.monitoring import request_id_ctx, tenant_id_ctx, user_id_ctx, mask_sensitive_fields
+from app.core.monitoring.prometheus_metrics import (
+    auth_failures_total,
+    http_request_duration_seconds,
+    http_requests_in_progress,
+    http_requests_total,
+    normalize_path,
+)
 
 logger = logging.getLogger("vidya.access")
 
@@ -19,6 +26,7 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
     Adds X-Request-ID to response headers for distributed tracing.
     Sets context vars for request_id, tenant_id so all nested loggers
     automatically include them.
+    Updates Prometheus counters, histograms, and the in-progress gauge.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -33,7 +41,11 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
         tenant_id_ctx.set(tenant_id)
         user_id_ctx.set(user_id)
 
+        method = request.method
+        norm_path = normalize_path(request.url.path)
         start_time = time.perf_counter()
+
+        http_requests_in_progress.labels(method=method, path=norm_path).inc()
 
         log_request_start(
             request=request,
@@ -53,14 +65,27 @@ class MonitoringMiddleware(BaseHTTPMiddleware):
                     "request_id": request_id,
                     "tenant_id": tenant_id,
                     "user_id": user_id,
-                    "method": request.method,
+                    "method": method,
                     "path": request.url.path,
                     "duration_ms": duration_ms,
                 },
             )
             raise
+        finally:
+            http_requests_in_progress.labels(method=method, path=norm_path).dec()
 
-        duration_ms = (time.perf_counter() - start_time) * 1000
+        duration_s = time.perf_counter() - start_time
+        duration_ms = duration_s * 1000
+
+        http_requests_total.labels(
+            method=method,
+            path=norm_path,
+            status_code=str(response.status_code),
+        ).inc()
+        http_request_duration_seconds.labels(method=method, path=norm_path).observe(duration_s)
+
+        if response.status_code == 401:
+            auth_failures_total.labels(path=norm_path).inc()
 
         log_request_end(
             request=request,

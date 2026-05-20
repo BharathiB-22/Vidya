@@ -52,51 +52,101 @@ async def test_check_db_connection_timeout(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_check_all_returns_list(monkeypatch):
-    """Test that check_all returns list of results."""
+    """Test that check_all returns list of results for all four services."""
 
-    def mock_db(*args, **kwargs):
+    async def mock_db(*args, **kwargs):
         return HealthCheckResult("db", "healthy", 10.0)
 
-    def mock_redis(*args, **kwargs):
+    async def mock_redis(*args, **kwargs):
         return HealthCheckResult("redis", "healthy", 5.0)
 
-    def mock_s3(*args, **kwargs):
+    async def mock_s3(*args, **kwargs):
         return HealthCheckResult("s3", "healthy", 8.0)
+
+    async def mock_qdrant(*args, **kwargs):
+        return HealthCheckResult("qdrant", "healthy", 3.0)
 
     monkeypatch.setattr(HealthService, "check_db_connection", mock_db)
     monkeypatch.setattr(HealthService, "check_redis_connection", mock_redis)
     monkeypatch.setattr(HealthService, "check_s3_connection", mock_s3)
+    monkeypatch.setattr(HealthService, "check_qdrant_connection", mock_qdrant)
 
     results, all_healthy = await HealthService.check_all()
 
-    assert len(results) == 3
+    assert len(results) == 4
     assert all_healthy is True
     assert any(r.service == "db" for r in results)
     assert any(r.service == "redis" for r in results)
     assert any(r.service == "s3" for r in results)
+    assert any(r.service == "qdrant" for r in results)
 
 
 @pytest.mark.asyncio
 async def test_check_all_detects_unhealthy_service(monkeypatch):
     """Test that check_all detects when a service is unhealthy."""
 
-    def mock_db(*args, **kwargs):
+    async def mock_db(*args, **kwargs):
         return HealthCheckResult("db", "unhealthy", 2000.0, "timeout")
 
-    def mock_redis(*args, **kwargs):
+    async def mock_redis(*args, **kwargs):
         return HealthCheckResult("redis", "healthy", 5.0)
 
-    def mock_s3(*args, **kwargs):
+    async def mock_s3(*args, **kwargs):
         return HealthCheckResult("s3", "healthy", 8.0)
+
+    async def mock_qdrant(*args, **kwargs):
+        return HealthCheckResult("qdrant", "healthy", 3.0)
 
     monkeypatch.setattr(HealthService, "check_db_connection", mock_db)
     monkeypatch.setattr(HealthService, "check_redis_connection", mock_redis)
     monkeypatch.setattr(HealthService, "check_s3_connection", mock_s3)
+    monkeypatch.setattr(HealthService, "check_qdrant_connection", mock_qdrant)
 
     results, all_healthy = await HealthService.check_all()
 
     assert all_healthy is False
     assert any(r.service == "db" and r.status == "unhealthy" for r in results)
+
+
+@pytest.mark.asyncio
+async def test_check_qdrant_skipped_when_url_empty(monkeypatch):
+    """Test that Qdrant check returns 'skipped' when QDRANT_URL is empty."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "QDRANT_URL", "")
+
+    result = await HealthService.check_qdrant_connection()
+
+    assert result.service == "qdrant"
+    assert result.status == "skipped"
+    assert result.latency_ms == 0.0
+    assert result.error_msg is None
+
+
+@pytest.mark.asyncio
+async def test_check_all_treats_qdrant_skipped_as_healthy(monkeypatch):
+    """Test that all_healthy is True when Qdrant is skipped (empty QDRANT_URL)."""
+
+    async def mock_db(*args, **kwargs):
+        return HealthCheckResult("db", "healthy", 10.0)
+
+    async def mock_redis(*args, **kwargs):
+        return HealthCheckResult("redis", "healthy", 5.0)
+
+    async def mock_s3(*args, **kwargs):
+        return HealthCheckResult("s3", "healthy", 8.0)
+
+    async def mock_qdrant(*args, **kwargs):
+        return HealthCheckResult("qdrant", "skipped", 0.0)
+
+    monkeypatch.setattr(HealthService, "check_db_connection", mock_db)
+    monkeypatch.setattr(HealthService, "check_redis_connection", mock_redis)
+    monkeypatch.setattr(HealthService, "check_s3_connection", mock_s3)
+    monkeypatch.setattr(HealthService, "check_qdrant_connection", mock_qdrant)
+
+    results, all_healthy = await HealthService.check_all()
+
+    assert all_healthy is True
+    assert any(r.service == "qdrant" and r.status == "skipped" for r in results)
 
 
 class TestHealthEndpoints:
@@ -125,20 +175,14 @@ class TestHealthEndpoints:
         assert "checks" in data
         assert isinstance(data["checks"], dict)
 
-    def test_metrics_endpoint_has_required_fields(self):
-        """Test /metrics endpoint returns required fields."""
+    def test_metrics_endpoint_returns_prometheus_format(self):
+        """Test /metrics endpoint returns Prometheus text exposition format."""
         client = TestClient(app)
         response = client.get("/metrics")
 
         assert response.status_code == 200
-        data = response.json()
-        assert "request_count" in data
-        assert "request_latency_p50_ms" in data
-        assert "request_latency_p95_ms" in data
-        assert "request_latency_p99_ms" in data
-        assert "task_queue_depth" in data
-        assert "db_connection_pool_size" in data
-        assert "timestamp" in data
+        assert "text/plain" in response.headers.get("content-type", "")
+        assert "vidya_" in response.text
 
     def test_liveness_endpoint_response_format(self):
         """Test /healthz response format is valid."""

@@ -91,8 +91,17 @@ api:
   pdb:
     enabled: true
     minAvailable: 1
+  # startupProbe prevents premature liveness kills during slow cold starts.
+  # Budget = periodSeconds * failureThreshold (default: 5s * 12 = 60s).
   # livenessProbe and readinessProbe hit /healthz and /ready (FastAPI routes).
   probes:
+    startup:
+      path: /healthz
+      port: 8000
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 12   # 5s * 12 = 60s startup budget
     liveness:
       path: /healthz
       port: 8000
@@ -523,6 +532,20 @@ offPeak:
   # kubectl image used by the scale-down and scale-up CronJobs.
   # Pin to a patch version matching your cluster's minor version in prod.
   kubectlImage: bitnami/kubectl:1.30
+
+# ── Monitoring / Alerting ─────────────────────────────────────────────────────
+# prometheusRule.enabled requires the Prometheus Operator CRDs to be installed.
+# Set enabled: true in values.prod.yaml (or values.staging.yaml) once the
+# kube-prometheus-stack (or equivalent) is deployed in the target cluster.
+monitoring:
+  prometheusRule:
+    enabled: false
+    # Namespace for the PrometheusRule resource. Defaults to the release namespace.
+    namespace: ""
+    # Additional labels merged onto the PrometheusRule metadata.
+    # Must match the Prometheus Operator's ruleSelector labels, e.g.:
+    #   prometheus: kube-prometheus   (kube-prometheus-stack default)
+    additionalLabels: {}
 
 # ── Secrets (dev path — direct values) ───────────────────────────────────────
 # These values are used ONLY when externalSecrets.enabled: false.

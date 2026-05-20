@@ -1,8 +1,6 @@
 import json
 import logging
 
-import pytest
-
 from app.core.monitoring.logger_setup import (
     JSONFormatter,
     mask_sensitive_fields,

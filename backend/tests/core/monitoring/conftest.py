@@ -1,7 +1,5 @@
-import io
 import json
 import logging
-from contextlib import redirect_stderr
 
 import pytest
 

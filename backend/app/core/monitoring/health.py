@@ -4,12 +4,14 @@ import time
 from typing import Optional
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import AsyncSessionLocal
+from app.core.monitoring.prometheus_metrics import dependency_health
 
 logger = logging.getLogger("vidya.error")
+
+_HEALTH_STATUS_TO_GAUGE = {"healthy": 1.0, "unhealthy": 0.0, "skipped": -1.0}
 
 
 class HealthCheckResult:
@@ -136,7 +138,6 @@ class HealthService:
         start = time.perf_counter()
         try:
             import boto3
-            from botocore.exceptions import NoCredentialsError
 
             def _check_s3():
                 client = boto3.client(
@@ -176,16 +177,67 @@ class HealthService:
             )
 
     @staticmethod
+    async def check_qdrant_connection(
+        timeout: float = 2.0,
+    ) -> HealthCheckResult:
+        """Check Qdrant vector database connection.
+
+        Skipped (status='skipped') when QDRANT_URL is empty — Qdrant is optional
+        and its absence must not fail the readiness probe.
+        """
+        if not settings.QDRANT_URL:
+            return HealthCheckResult("qdrant", "skipped", 0.0)
+
+        start = time.perf_counter()
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(
+                    f"{settings.QDRANT_URL.rstrip('/')}/healthz"
+                )
+                if resp.status_code == 200:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    return HealthCheckResult("qdrant", "healthy", latency_ms)
+                else:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    return HealthCheckResult(
+                        "qdrant",
+                        "unhealthy",
+                        latency_ms,
+                        error_msg=f"HTTP {resp.status_code}",
+                    )
+        except Exception as exc:
+            latency_ms = (time.perf_counter() - start) * 1000
+            logger.warning("Qdrant health check failed: %s", exc)
+            return HealthCheckResult(
+                "qdrant",
+                "unhealthy",
+                latency_ms,
+                error_msg=str(exc),
+            )
+
+    @staticmethod
     async def check_all(timeout: float = 2.0) -> tuple[list[HealthCheckResult], bool]:
-        """Check all critical services in parallel.
+        """Check all services in parallel and update Prometheus dependency gauges.
 
         Returns:
             (list of HealthCheckResult, all_healthy: bool)
+
+        Qdrant is optional — 'skipped' status is treated as healthy for the
+        purposes of all_healthy (empty QDRANT_URL => skipped, not failed).
         """
         results = await asyncio.gather(
             HealthService.check_db_connection(timeout),
             HealthService.check_redis_connection(timeout),
             HealthService.check_s3_connection(timeout),
+            HealthService.check_qdrant_connection(timeout),
         )
-        all_healthy = all(r.status == "healthy" for r in results)
-        return results, all_healthy
+
+        for result in results:
+            dependency_health.labels(service=result.service).set(
+                _HEALTH_STATUS_TO_GAUGE.get(result.status, 0.0)
+            )
+
+        all_healthy = all(r.status in ("healthy", "skipped") for r in results)
+        return list(results), all_healthy

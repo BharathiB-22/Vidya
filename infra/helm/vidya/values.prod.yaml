@@ -67,6 +67,9 @@ api:
   image:
     tag: "0.1.0"
   replicaCount: 3
+  probes:
+    startup:
+      failureThreshold: 24   # 5s * 24 = 120s startup budget (larger cold starts in prod)
   hpa:
     enabled: true
     minReplicas: 3
@@ -266,6 +269,15 @@ env:
   PLAGIARISM_THRESH: "0.85"
   ACCESS_TOKEN_EXPIRE_MINUTES: "30"   # shorter expiry in prod
   REFRESH_TOKEN_EXPIRE_DAYS: "7"
+
+# ── Monitoring / Alerting ─────────────────────────────────────────────────────
+# Enable PrometheusRule once kube-prometheus-stack is deployed in the prod cluster.
+# The additionalLabels must match the Prometheus Operator's ruleSelector.
+monitoring:
+  prometheusRule:
+    enabled: true
+    additionalLabels:
+      prometheus: kube-prometheus   # kube-prometheus-stack default selector label
 
 # ── Secrets placeholder (populated by ESO — do not set real values here) ──────
 # When externalSecrets.enabled: true these keys are ignored by the chart.

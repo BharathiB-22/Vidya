@@ -13,6 +13,10 @@ spec:
     metadata:
       labels:
         {{- include "vidya.componentLabels" (list . "api") | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       {{- include "vidya.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "vidya.serviceAccountName" . }}
@@ -44,6 +48,17 @@ spec:
                 - ALL
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
+          # startupProbe: guards against premature liveness kills during cold starts.
+          # Gives the container up to (periodSeconds * failureThreshold) seconds
+          # to become live before liveness/readiness probes are activated.
+          startupProbe:
+            httpGet:
+              path: {{ .Values.api.probes.startup.path }}
+              port: {{ .Values.api.probes.startup.port }}
+            initialDelaySeconds: {{ .Values.api.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.api.probes.startup.failureThreshold }}
           # livenessProbe: process-level check — restart the container if it stops
           # responding. /healthz returns 200 even when deps are degraded.
           livenessProbe:

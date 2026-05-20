@@ -1,0 +1,121 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "vidya.fullname" . }}
+  namespace: {{ .Values.monitoring.prometheusRule.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "vidya.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: vidya.api
+      interval: 30s
+      rules:
+        # Alert when more than 5 % of requests return HTTP 5xx for 5 minutes.
+        - alert: VidyaHighErrorRate
+          expr: |
+            (
+              rate(vidya_http_requests_total{status_code=~"5.."}[5m])
+              /
+              rate(vidya_http_requests_total[5m])
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            team: vidya
+          annotations:
+            summary: "Vidya API — high 5xx error rate"
+            description: "More than 5% of requests are returning HTTP 5xx errors over the last 5 minutes."
+
+        # Alert when P99 request latency exceeds 2 seconds for 5 minutes.
+        - alert: VidyaHighP99Latency
+          expr: |
+            histogram_quantile(0.99,
+              rate(vidya_http_request_duration_seconds_bucket[5m])
+            ) > 2.0
+          for: 5m
+          labels:
+            severity: warning
+            team: vidya
+          annotations:
+            summary: "Vidya API — P99 latency above 2 s"
+            description: "99th-percentile HTTP request latency has exceeded 2 seconds for 5 minutes."
+
+        # Alert when a required dependency (DB, Redis, S3) reports unhealthy.
+        # Qdrant is optional (empty QDRANT_URL => skipped = -1); exclude it here.
+        - alert: VidyaDependencyUnhealthy
+          expr: vidya_dependency_health{service!="qdrant"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: vidya
+          annotations:
+            summary: "Vidya — critical dependency unhealthy"
+            description: "A required Vidya dependency health check is failing. Check /ready for details."
+
+    - name: vidya.celery
+      interval: 30s
+      rules:
+        # Alert when more than 10 % of Celery tasks are failing over 5 minutes.
+        - alert: VidyaCeleryTaskFailureRate
+          expr: |
+            (
+              rate(vidya_celery_tasks_total{state="FAILURE"}[5m])
+              /
+              rate(vidya_celery_tasks_total[5m])
+            ) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            team: vidya
+          annotations:
+            summary: "Vidya Celery — task failure rate above 10%"
+            description: "More than 10% of Celery tasks are failing. Check worker logs for exceptions."
+
+        # Alert when a Celery queue depth exceeds 50 pending tasks for 5 minutes.
+        # vidya_celery_queue_depth is updated by the periodic queue-depth beat task.
+        - alert: VidyaCeleryQueueBacklog
+          expr: vidya_celery_queue_depth > 50
+          for: 5m
+          labels:
+            severity: warning
+            team: vidya
+          annotations:
+            summary: "Vidya Celery — queue backlog building"
+            description: "A Celery queue has more than 50 pending tasks. Workers may be under-scaled."
+
+    - name: vidya.kubernetes
+      interval: 30s
+      rules:
+        # Alert when any Vidya pod is not ready for 5 minutes.
+        - alert: VidyaPodNotReady
+          expr: |
+            kube_pod_status_ready{
+              namespace="{{ .Release.Namespace }}",
+              condition="true"
+            } == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: vidya
+          annotations:
+            summary: "Vidya — pod not ready in {{ .Release.Namespace }}"
+            description: "One or more pods in the {{ .Release.Namespace }} namespace have not been Ready for 5 minutes."
+
+        # Alert when a container restarts more than 3 times in a 5-minute window.
+        - alert: VidyaPodRestartSpike
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="{{ .Release.Namespace }}"
+            }[5m]) > 3
+          for: 0m
+          labels:
+            severity: warning
+            team: vidya
+          annotations:
+            summary: "Vidya — pod restart spike in {{ .Release.Namespace }}"
+            description: "A container in {{ .Release.Namespace }} restarted more than 3 times in 5 minutes. Investigate crash loops."
+{{- end }}
