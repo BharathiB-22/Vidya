@@ -29,8 +29,8 @@ async def test_admin_users_scoped_to_own_schema(
 
 async def test_forged_jwt_rejected(async_client, test_tenant_a, faculty_user_a):
     # Build a JWT with a wrong secret — signature invalid
-    import jwt as pyjwt
-    forged = pyjwt.encode(
+    from jose import jwt as jose_jwt
+    forged = jose_jwt.encode(
         {
             "sub": str(faculty_user_a["id"]),
             "schema_name": SCHEMA_A,

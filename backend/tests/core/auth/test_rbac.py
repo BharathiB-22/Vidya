@@ -24,7 +24,7 @@ async def test_faculty_cannot_create_user(async_client, test_tenant_a, faculty_u
         headers=headers,
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"]["error"] == "FORBIDDEN"
+    assert resp.json()["error"] == "FORBIDDEN"
 
 
 async def test_admin_can_create_user(async_client, test_tenant_a, admin_user_a):
@@ -46,7 +46,7 @@ async def test_admin_can_create_user(async_client, test_tenant_a, admin_user_a):
 
 async def test_no_token_on_protected_route(async_client, test_tenant_a):
     resp = await async_client.get("/auth/me")
-    assert resp.status_code == 422  # Authorization header missing → FastAPI 422
+    assert resp.status_code == 401  # Authorization header missing → 401 after BUG-H04-03 fix
 
 
 async def test_expired_token_rejected(async_client, test_tenant_a, faculty_user_a):
@@ -85,4 +85,4 @@ async def test_super_admin_on_tenant_me_returns_403(async_client, test_platform_
     headers = make_platform_headers(test_platform_user)
     resp = await async_client.get("/auth/me", headers=headers)
     assert resp.status_code == 403
-    assert resp.json()["detail"]["error"] == "FORBIDDEN"
+    assert resp.json()["error"] == "FORBIDDEN"

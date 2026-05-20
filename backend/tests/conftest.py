@@ -74,8 +74,13 @@ async def test_tenant_a(setup_public_schema):
                 text("DELETE FROM public.refresh_token_index WHERE schema_name = :s"),
                 {"s": SCHEMA_A},
             )
+            # Do not DELETE from public.tenants — audit_logs.tenant_id has an
+            # ON DELETE SET NULL FK, which becomes an UPDATE on audit_logs and is
+            # blocked by the H05-06 append-only trigger.  Deactivating the tenant
+            # is sufficient isolation; ON CONFLICT DO UPDATE in setup re-activates.
             await session.execute(
-                text("DELETE FROM public.tenants WHERE slug = :slug"), {"slug": SLUG_A}
+                text("UPDATE public.tenants SET is_active = false WHERE slug = :slug"),
+                {"slug": SLUG_A},
             )
             await session.execute(text(f"DROP SCHEMA IF EXISTS {SCHEMA_A} CASCADE"))
 
@@ -108,7 +113,8 @@ async def test_tenant_b(setup_public_schema):
                 {"s": SCHEMA_B},
             )
             await session.execute(
-                text("DELETE FROM public.tenants WHERE slug = :slug"), {"slug": SLUG_B}
+                text("UPDATE public.tenants SET is_active = false WHERE slug = :slug"),
+                {"slug": SLUG_B},
             )
             await session.execute(text(f"DROP SCHEMA IF EXISTS {SCHEMA_B} CASCADE"))
 

@@ -21,6 +21,16 @@ from app.core.auth.service import AuthError, TenantAuthService
 async def _get_admin_db(
     current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
 ) -> AsyncGenerator[AsyncSession, None]:
+    # SUPER_ADMIN bypasses require_roles but has no schema_name — reject explicitly.
+    # SUPER_ADMIN manages tenants via /tenants/, not /admin/ (tenant-ADMIN routes).
+    if current_user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "FORBIDDEN",
+                "message": "SUPER_ADMIN cannot use /admin/ endpoints; use a tenant ADMIN token",
+            },
+        )
     async with AsyncSessionLocal() as session:
         async with session.begin():
             await session.execute(
