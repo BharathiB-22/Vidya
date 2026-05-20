@@ -1,0 +1,305 @@
+name: CD — Staging
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend dev deps
+        working-directory: backend
+        run: pip install ".[dev]"
+
+      - name: Ruff lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend with dev deps
+        working-directory: backend
+        run: pip install ".[dev]"
+
+      - name: pip-audit (fail on HIGH/CRITICAL)
+        working-directory: backend
+        run: pip-audit --desc --fail-on high
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit (production, HIGH+)
+        working-directory: frontend
+        run: npm audit --production --audit-level=high
+
+  test:
+    name: Backend Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vidya
+          POSTGRES_PASSWORD: vidya_ci
+          POSTGRES_DB: vidya
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U vidya"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend with dev deps
+        working-directory: backend
+        run: pip install ".[dev]"
+
+      - name: Run pytest
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://vidya:vidya_ci@localhost:5432/vidya
+          JWT_SECRET: ci-jwt-secret-for-testing-only-not-for-production-xxxxxxxxxx
+          ENVIRONMENT: development
+        run: pytest tests/ -x -q --tb=short
+
+  helm-validate:
+    name: Helm Validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm 3.14
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+
+      - name: Helm lint (dev / staging / prod)
+        run: bash infra/helm/lint.sh
+
+  migration-dryrun:
+    name: Migration Dry-Run & Rollback Check
+    needs: [lint, security, test, helm-validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vidya
+          POSTGRES_PASSWORD: vidya_ci
+          POSTGRES_DB: vidya
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U vidya"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install .
+
+      - name: Run migration check
+        env:
+          DATABASE_URL: postgresql+asyncpg://vidya:vidya_ci@localhost:5432/vidya
+          JWT_SECRET: ci-jwt-secret-for-testing-only-not-for-production-xxxxxxxxxx
+          ENVIRONMENT: development
+        run: bash infra/scripts/migration-check.sh
+
+  build-push:
+    name: Build & Push (${{ matrix.name }})
+    needs: [migration-dryrun]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: api
+            context: backend
+            image: ghcr.io/BharathiB-22/vidya/api
+          - name: frontend
+            context: frontend
+            image: ghcr.io/BharathiB-22/vidya/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  staging-deploy:
+    name: Staging Deploy
+    needs: [build-push]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm 3.14
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.14.0"
+
+      - name: Set up kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBE_CONFIG_STAGING }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "$KUBECONFIG_B64" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Helm upgrade (staging)
+        run: |
+          helm upgrade --install vidya ./infra/helm/vidya \
+            -f infra/helm/vidya/values.staging.yaml \
+            --namespace vidya-system \
+            --create-namespace \
+            --atomic \
+            --timeout=5m \
+            --set api.image.tag=${{ github.sha }} \
+            --set worker.image.tag=${{ github.sha }} \
+            --set workerHeavy.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --set migrate.image.tag=${{ github.sha }}
+
+  staging-smoke:
+    name: Staging Smoke Tests
+    needs: [staging-deploy]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Set up kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBE_CONFIG_STAGING }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "$KUBECONFIG_B64" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Wait for API rollout
+        run: kubectl rollout status deployment/vidya-api -n vidya-system --timeout=3m
+
+      - name: Wait for frontend rollout
+        run: kubectl rollout status deployment/vidya-frontend -n vidya-system --timeout=3m
+
+      - name: API health check (/healthz)
+        run: >-
+          curl -f
+          --retry 5
+          --retry-delay 10
+          --retry-connrefused
+          https://staging.vidya.fidelitus.com/healthz
+
+      - name: API ready check (/ready)
+        run: >-
+          curl -f
+          --retry 5
+          --retry-delay 10
+          --retry-connrefused
+          https://staging.vidya.fidelitus.com/ready
+
+      - name: Frontend root check (/)
+        run: >-
+          curl -f
+          --retry 5
+          --retry-delay 10
+          --retry-connrefused
+          https://staging.vidya.fidelitus.com/
