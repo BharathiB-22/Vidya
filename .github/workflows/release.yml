@@ -1,0 +1,85 @@
+name: Release
+
+# Triggered when a version tag is pushed: git tag v1.0.0 && git push --tags
+# Flow:
+#   1. Verify the git SHA behind the tag has a built image in GHCR
+#   2. Retag the SHA-tagged image as the semver tag (e.g. :v1.0.0)
+#   3. Sign the new semver tag with Cosign (keyless)
+#   4. Create a GitHub Release with auto-generated release notes
+#
+# Prerequisites:
+#   - The commit being tagged must have already been built and pushed by cd.yml
+#     (i.e. the SHA image must exist in GHCR before tagging)
+#   - Set up the "release" GitHub environment if you want approval gates
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"      # matches v1.0.0, v2.3.1, etc.
+      - "v[0-9]+.[0-9]+.[0-9]+-rc*"  # matches v1.0.0-rc1 pre-releases
+
+jobs:
+  retag-and-release:
+    name: Retag & GitHub Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write      # create GitHub Release
+      packages: write      # push semver tags to GHCR
+      id-token: write      # Cosign keyless signing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive image SHA from tag's commit
+        id: meta
+        run: |
+          # The commit SHA that was tagged — used to find the existing GHCR image.
+          COMMIT_SHA="${{ github.sha }}"
+          VERSION="${{ github.ref_name }}"
+          echo "commit_sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Retag and sign API image
+        env:
+          SHA: ${{ steps.meta.outputs.commit_sha }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          IMAGE: ghcr.io/BharathiB-22/vidya/api
+        run: |
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${VERSION}" \
+            "${IMAGE}:${SHA}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Retag and sign Frontend image
+        env:
+          SHA: ${{ steps.meta.outputs.commit_sha }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          IMAGE: ghcr.io/BharathiB-22/vidya/frontend
+        run: |
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${VERSION}" \
+            "${IMAGE}:${SHA}"
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(steps.meta.outputs.version, '-rc') }}

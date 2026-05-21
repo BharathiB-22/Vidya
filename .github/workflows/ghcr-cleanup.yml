@@ -1,0 +1,42 @@
+name: GHCR Image Cleanup
+
+# Runs weekly on Sunday at 02:00 UTC (off-peak).
+# Deletes untagged GHCR image versions older than 7 days.
+# Untagged versions are intermediate build layers and replaced SHA tags
+# that accumulate over time. Named tags (SHA, semver) are preserved.
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"   # 02:00 UTC every Sunday
+  workflow_dispatch:        # allow manual trigger
+
+jobs:
+  cleanup-api:
+    name: Cleanup vidya/api
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - name: Delete untagged API image versions (older than 7 days)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: vidya/api
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: true
+
+  cleanup-frontend:
+    name: Cleanup vidya/frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - name: Delete untagged frontend image versions (older than 7 days)
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: vidya/frontend
+          package-type: container
+          min-versions-to-keep: 10
+          delete-only-untagged-versions: true
