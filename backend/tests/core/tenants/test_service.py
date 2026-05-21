@@ -19,6 +19,7 @@ def _make_tenant(
     status: TenantStatus = TenantStatus.ACTIVE,
     is_active: bool = True,
     slug: str = "test-university",
+    contact_email: str | None = "admin@test.edu",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
@@ -27,13 +28,16 @@ def _make_tenant(
         schema_name="tenant_test_university",
         status=status,
         is_active=is_active,
+        contact_email=contact_email,
         created_at=datetime.now(timezone.utc),
     )
 
 
 def _make_db() -> MagicMock:
-    """Return a mock AsyncSession whose begin() is an async context manager."""
+    """Return a mock AsyncSession with awaitable commit/rollback."""
     db = MagicMock()
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
     ctx = AsyncMock()
     ctx.__aenter__ = AsyncMock(return_value=None)
     ctx.__aexit__ = AsyncMock(return_value=False)
@@ -52,7 +56,7 @@ def _create_request(**kwargs) -> CreateTenantRequest:
 
 
 # ---------------------------------------------------------------------------
-# create_tenant — success
+# create_tenant — success + welcome email fired
 # ---------------------------------------------------------------------------
 
 
@@ -69,12 +73,61 @@ async def test_create_tenant_success():
         patch("app.core.tenants.service.seed_admin_user", new=AsyncMock(return_value=None)),
         patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=active_tenant)),
         patch("app.core.tenants.service.hash_password", return_value="hashed"),
+        patch("app.core.tenants.service._dispatch_welcome_email") as mock_email,
     ):
         result = await TenantService.create_tenant(_create_request(), db)
 
     assert result.status == TenantStatus.ACTIVE
     assert result.is_active is True
     assert result.slug == "test-university"
+    mock_email.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_tenant_welcome_email_uses_contact_email():
+    db = _make_db()
+    provisioning_tenant = _make_tenant(status=TenantStatus.PROVISIONING, is_active=False)
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.get_tenant_by_slug", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service.TenantRepository.create_tenant", new=AsyncMock(return_value=provisioning_tenant)),
+        patch("app.core.tenants.service.run_tenant_migrations", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service.seed_admin_user", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=active_tenant)),
+        patch("app.core.tenants.service.hash_password", return_value="hashed"),
+        patch("app.core.tenants.service._dispatch_welcome_email") as mock_email,
+    ):
+        await TenantService.create_tenant(
+            _create_request(contact_email="contact@other.edu"),
+            db,
+        )
+
+    # contact_email overrides admin_email for welcome dispatch
+    mock_email.assert_called_once_with("contact@other.edu")
+
+
+@pytest.mark.asyncio
+async def test_create_tenant_welcome_email_falls_back_to_admin_email():
+    db = _make_db()
+    provisioning_tenant = _make_tenant(status=TenantStatus.PROVISIONING, is_active=False)
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.get_tenant_by_slug", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service.TenantRepository.create_tenant", new=AsyncMock(return_value=provisioning_tenant)),
+        patch("app.core.tenants.service.run_tenant_migrations", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service.seed_admin_user", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=active_tenant)),
+        patch("app.core.tenants.service.hash_password", return_value="hashed"),
+        patch("app.core.tenants.service._dispatch_welcome_email") as mock_email,
+    ):
+        await TenantService.create_tenant(
+            _create_request(),  # no contact_email → defaults to admin_email
+            db,
+        )
+
+    mock_email.assert_called_once_with("admin@test.edu")
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +180,138 @@ async def test_create_tenant_migration_failure():
     update_mock.assert_awaited_once()
     call_kwargs = update_mock.call_args[0][1]  # second positional arg is the updates dict
     assert call_kwargs.get("status") == TenantStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# retry_provisioning — success
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retry_provisioning_success():
+    db = _make_db()
+    failed_tenant = _make_tenant(status=TenantStatus.FAILED, is_active=False)
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True)
+    update_mock = AsyncMock(side_effect=[
+        _make_tenant(status=TenantStatus.PROVISIONING, is_active=False),  # first call: set PROVISIONING
+        active_tenant,  # second call: set ACTIVE
+    ])
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.get_tenant_by_id", new=AsyncMock(return_value=failed_tenant)),
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=update_mock),
+        patch("app.core.tenants.service.run_tenant_migrations", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service._dispatch_welcome_email") as mock_email,
+    ):
+        result = await TenantService.retry_provisioning(failed_tenant.id, db)
+
+    assert result.status == TenantStatus.ACTIVE
+    mock_email.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_retry_provisioning_sends_welcome_email():
+    db = _make_db()
+    failed_tenant = _make_tenant(
+        status=TenantStatus.FAILED,
+        is_active=False,
+        contact_email="contact@uni.edu",
+    )
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True, contact_email="contact@uni.edu")
+    update_mock = AsyncMock(side_effect=[
+        _make_tenant(status=TenantStatus.PROVISIONING, is_active=False, contact_email="contact@uni.edu"),
+        active_tenant,
+    ])
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.get_tenant_by_id", new=AsyncMock(return_value=failed_tenant)),
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=update_mock),
+        patch("app.core.tenants.service.run_tenant_migrations", new=AsyncMock(return_value=None)),
+        patch("app.core.tenants.service._dispatch_welcome_email") as mock_email,
+    ):
+        await TenantService.retry_provisioning(failed_tenant.id, db)
+
+    mock_email.assert_called_once_with("contact@uni.edu")
+
+
+# ---------------------------------------------------------------------------
+# retry_provisioning — invalid state (not FAILED)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retry_provisioning_rejected_when_active():
+    db = _make_db()
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True)
+
+    with patch(
+        "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+        new=AsyncMock(return_value=active_tenant),
+    ):
+        with pytest.raises(TenantError) as exc_info:
+            await TenantService.retry_provisioning(active_tenant.id, db)
+
+    assert exc_info.value.code == "INVALID_STATE"
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_retry_provisioning_rejected_when_provisioning():
+    db = _make_db()
+    provisioning_tenant = _make_tenant(status=TenantStatus.PROVISIONING, is_active=False)
+
+    with patch(
+        "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+        new=AsyncMock(return_value=provisioning_tenant),
+    ):
+        with pytest.raises(TenantError) as exc_info:
+            await TenantService.retry_provisioning(provisioning_tenant.id, db)
+
+    assert exc_info.value.code == "INVALID_STATE"
+    assert exc_info.value.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# retry_provisioning — migration failure marks FAILED again
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retry_provisioning_migration_failure():
+    db = _make_db()
+    failed_tenant = _make_tenant(status=TenantStatus.FAILED, is_active=False)
+    update_mock = AsyncMock(return_value=_make_tenant(status=TenantStatus.FAILED, is_active=False))
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.get_tenant_by_id", new=AsyncMock(return_value=failed_tenant)),
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=update_mock),
+        patch("app.core.tenants.service.run_tenant_migrations", new=AsyncMock(side_effect=RuntimeError("schema error"))),
+    ):
+        with pytest.raises(TenantError) as exc_info:
+            await TenantService.retry_provisioning(failed_tenant.id, db)
+
+    assert exc_info.value.code == "PROVISIONING_FAILED"
+    assert exc_info.value.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# retry_provisioning — not found
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retry_provisioning_not_found():
+    db = _make_db()
+
+    with patch(
+        "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+        new=AsyncMock(return_value=None),
+    ):
+        with pytest.raises(TenantError) as exc_info:
+            await TenantService.retry_provisioning(uuid.uuid4(), db)
+
+    assert exc_info.value.code == "NOT_FOUND"
+    assert exc_info.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------

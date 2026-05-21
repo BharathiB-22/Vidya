@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from uuid import UUID
 from typing import Optional
@@ -6,12 +7,35 @@ from pydantic import BaseModel, EmailStr, field_validator
 
 from app.core.auth.models import TenantStatus
 
+_PW_UPPER = re.compile(r"[A-Z]")
+_PW_LOWER = re.compile(r"[a-z]")
+_PW_DIGIT = re.compile(r"\d")
+_PW_SPECIAL = re.compile(r"[^A-Za-z0-9]")
+
+
+def _validate_password_complexity(v: str) -> str:
+    errors = []
+    if len(v) < 8:
+        errors.append("at least 8 characters")
+    if not _PW_UPPER.search(v):
+        errors.append("one uppercase letter")
+    if not _PW_LOWER.search(v):
+        errors.append("one lowercase letter")
+    if not _PW_DIGIT.search(v):
+        errors.append("one digit")
+    if not _PW_SPECIAL.search(v):
+        errors.append("one special character")
+    if errors:
+        raise ValueError("Password must contain " + ", ".join(errors))
+    return v
+
 
 class CreateTenantRequest(BaseModel):
     name: str
     admin_email: EmailStr
     admin_password: str
     admin_full_name: str
+    contact_email: Optional[EmailStr] = None
 
     @field_validator("name")
     @classmethod
@@ -25,10 +49,8 @@ class CreateTenantRequest(BaseModel):
 
     @field_validator("admin_password")
     @classmethod
-    def password_min_length(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError("Admin password must be at least 8 characters")
-        return v
+    def password_complexity(cls, v: str) -> str:
+        return _validate_password_complexity(v)
 
 
 class TenantResponse(BaseModel):
@@ -38,6 +60,7 @@ class TenantResponse(BaseModel):
     schema_name: str
     status: TenantStatus
     is_active: bool
+    contact_email: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -14,6 +14,7 @@ class TenantRepository:
         slug: str,
         schema_name: str,
         db: AsyncSession,
+        contact_email: str | None = None,
     ) -> Tenant:
         tenant = Tenant(
             name=name,
@@ -21,6 +22,7 @@ class TenantRepository:
             schema_name=schema_name,
             status=TenantStatus.PROVISIONING,
             is_active=False,
+            contact_email=contact_email,
         )
         db.add(tenant)
         await db.flush()

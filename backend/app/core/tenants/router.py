@@ -78,3 +78,22 @@ async def update_tenant(
         )
     except TenantError as e:
         raise _tenant_error(e)
+
+
+@router.post("/{tenant_id}/retry", response_model=TenantResponse)
+async def retry_tenant_provisioning(
+    request: Request,
+    tenant_id: UUID,
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TenantResponse:
+    try:
+        return await TenantService.retry_provisioning(
+            tenant_id,
+            db,
+            actor_user_id=current_user.user_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except TenantError as e:
+        raise _tenant_error(e)

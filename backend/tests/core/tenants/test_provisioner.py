@@ -3,6 +3,7 @@ import re
 import pytest
 
 from app.core.tenants.provisioner import derive_schema_name, generate_slug
+from app.core.tenants.schemas import CreateTenantRequest, _validate_password_complexity
 
 _SCHEMA_RE = re.compile(r"^tenant_[a-z0-9_]+$")
 
@@ -91,3 +92,96 @@ def test_slug_to_schema_roundtrip():
     slug = generate_slug("IIT Bombay")
     schema = derive_schema_name(slug)
     assert _SCHEMA_RE.match(schema)
+
+
+# ---------------------------------------------------------------------------
+# password complexity (_validate_password_complexity)
+# ---------------------------------------------------------------------------
+
+
+def test_password_complexity_valid():
+    # Should not raise for a fully compliant password
+    result = _validate_password_complexity("Admin1234!")
+    assert result == "Admin1234!"
+
+
+def test_password_complexity_valid_various():
+    for pw in ["Secure#99", "P@ssw0rd", "Abc!1234", "Complex$1X"]:
+        assert _validate_password_complexity(pw) == pw
+
+
+def test_password_complexity_too_short():
+    with pytest.raises(ValueError, match="8 characters"):
+        _validate_password_complexity("Ab1!")
+
+
+def test_password_complexity_no_uppercase():
+    with pytest.raises(ValueError, match="uppercase"):
+        _validate_password_complexity("admin1234!")
+
+
+def test_password_complexity_no_lowercase():
+    with pytest.raises(ValueError, match="lowercase"):
+        _validate_password_complexity("ADMIN1234!")
+
+
+def test_password_complexity_no_digit():
+    with pytest.raises(ValueError, match="digit"):
+        _validate_password_complexity("Admin!!!!!")
+
+
+def test_password_complexity_no_special():
+    with pytest.raises(ValueError, match="special"):
+        _validate_password_complexity("Admin1234")
+
+
+def test_password_complexity_multiple_failures():
+    # All-lowercase, no digit, no special → error mentions multiple issues
+    with pytest.raises(ValueError, match="uppercase"):
+        _validate_password_complexity("alllower")
+
+
+# ---------------------------------------------------------------------------
+# CreateTenantRequest password validator integration
+# ---------------------------------------------------------------------------
+
+
+def test_create_request_rejects_weak_password():
+    with pytest.raises(Exception):  # pydantic ValidationError
+        CreateTenantRequest(
+            name="Test University",
+            admin_email="admin@test.edu",
+            admin_password="weakpass",  # no upper, digit, special
+            admin_full_name="Admin",
+        )
+
+
+def test_create_request_accepts_strong_password():
+    req = CreateTenantRequest(
+        name="Test University",
+        admin_email="admin@test.edu",
+        admin_password="Admin1234!",
+        admin_full_name="Admin",
+    )
+    assert req.admin_password == "Admin1234!"
+
+
+def test_create_request_contact_email_defaults_none():
+    req = CreateTenantRequest(
+        name="Test University",
+        admin_email="admin@test.edu",
+        admin_password="Admin1234!",
+        admin_full_name="Admin",
+    )
+    assert req.contact_email is None
+
+
+def test_create_request_contact_email_set():
+    req = CreateTenantRequest(
+        name="Test University",
+        admin_email="admin@test.edu",
+        admin_password="Admin1234!",
+        admin_full_name="Admin",
+        contact_email="contact@test.edu",
+    )
+    assert str(req.contact_email) == "contact@test.edu"

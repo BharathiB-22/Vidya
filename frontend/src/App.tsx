@@ -1,6 +1,11 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthGuard } from '@/components/AuthGuard'
+import { AdminAuthGuard } from '@/components/AdminAuthGuard'
 import LoginPage from '@/pages/LoginPage'
+import AdminLoginPage from '@/pages/AdminLoginPage'
+import TenantListPage from '@/pages/admin/TenantListPage'
+import TenantCreatePage from '@/pages/admin/TenantCreatePage'
+import TenantDetailPage from '@/pages/admin/TenantDetailPage'
 import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
@@ -38,6 +43,15 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+
+      {/* Super Admin portal */}
+      <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route element={<AdminAuthGuard />}>
+        <Route path="/admin/tenants" element={<TenantListPage />} />
+        <Route path="/admin/tenants/new" element={<TenantCreatePage />} />
+        <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
+        <Route path="/admin" element={<Navigate to="/admin/tenants" replace />} />
+      </Route>
       <Route element={<AuthGuard />}>
         <Route path="/programs" element={<ProgramListPage />} />
         <Route path="/programs/:id" element={<ProgramDetailPage />} />

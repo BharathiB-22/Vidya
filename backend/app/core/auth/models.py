@@ -40,6 +40,7 @@ class Tenant(Base):
     schema_name = Column(String, unique=True, nullable=False)
     status = Column(Enum(TenantStatus, native_enum=False), nullable=False, default=TenantStatus.PROVISIONING)
     is_active = Column(Boolean, default=False, nullable=False)
+    contact_email = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
