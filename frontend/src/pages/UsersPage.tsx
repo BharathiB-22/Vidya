@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { usersApi, UserRecord, CreateUserPayload, UpdateUserPayload } from '@/lib/api/users'
 import { getErrorMessage } from '@/lib/api'
+import { addToast } from '@/hooks/useToast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -67,6 +68,7 @@ function CreateUserDialog({ open, onClose, onCreated }: CreateDialogProps) {
         ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
       }
       const user = await usersApi.create(payload)
+      addToast('User created.', 'success')
       onCreated(user)
       reset()
       onClose()
@@ -159,6 +161,7 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
       if (role !== user.role) payload.role = role
       if (isActive !== user.is_active) payload.is_active = isActive
       const updated = await usersApi.update(user.id, payload)
+      addToast('Changes saved.', 'success')
       onUpdated(updated)
       onClose()
     } catch (err) {

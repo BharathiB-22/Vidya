@@ -8,6 +8,7 @@ import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { listProblems, decideProblem } from '@/lib/api/research'
+import { addToast } from '@/hooks/useToast'
 import type { ProblemStatus, ResearchProblem, GuideDecision } from '@/types/research'
 
 const STATUS_OPTS: Array<{ value: ProblemStatus | ''; label: string }> = [
@@ -42,6 +43,7 @@ function DecideModal({
     mutationFn: () => decideProblem(problem.id, { decision, guide_note: note || undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['research-problems'] })
+      addToast('Decision submitted.', 'success')
       onClose()
     },
   })

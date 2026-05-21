@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { listAnalyses, triggerAnalysis } from '@/lib/api/bellCurve'
 import { listAllExamPapers } from '@/lib/api/exam'
 import { getErrorMessage } from '@/lib/api'
+import { addToast } from '@/hooks/useToast'
 import type { BellCurveAnalysis, AnalysisStatus } from '@/types/bellCurve'
 
 // ---------------------------------------------------------------------------
@@ -51,7 +52,7 @@ function TriggerPanel({ onDone }: { onDone: () => void }) {
 
   const mut = useMutation({
     mutationFn: () => triggerAnalysis({ exam_paper_id: paperId }),
-    onSuccess: () => { setError(null); onDone() },
+    onSuccess: () => { setError(null); addToast('Bell curve analysis triggered.', 'success'); onDone() },
     onError:   (err) => setError(getErrorMessage(err)),
   })
 
