@@ -38,7 +38,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err: AxiosError<{ detail: BackendError | string }>) => {
-    if (err.response?.status === 401) {
+    const url = err.config?.url ?? ''
+    // Auth endpoints handle 401 themselves — don't redirect from login/refresh/change-password
+    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') ||
+      url.includes('/auth/change-password') || url.includes('/auth/password-reset')
+    if (err.response?.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('vidya_token')
       localStorage.removeItem('vidya_auth')
       localStorage.removeItem('vidya_refresh_token')

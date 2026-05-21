@@ -1,9 +1,10 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import {
   BookOpen, Layers, FlaskConical, Microscope,
-  FileText, ClipboardList, BarChart2, ChevronRight,
+  FileText, ClipboardList, BarChart2, ChevronRight, CheckCircle, Circle,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/lib/auth'
 
 type IconComponent = React.FC<{ className?: string }>
 
@@ -91,6 +92,56 @@ const CARDS: ModuleCard[] = [
   },
 ]
 
+const ROLE_EMPTY_STATE: Record<string, string> = {
+  STUDENT: 'Your instructor will publish lab assignments and research projects when they are ready. Check back soon.',
+  BOARD:   'Exam papers submitted for board review will appear here. You will be notified when your attention is needed.',
+  GUIDE:   'Research documents assigned to you for supervision will appear here once students submit proposals.',
+  DEAN:    'Program analytics and bell curve reports are available in the sidebar.',
+}
+
+interface OnboardingItem {
+  label: string
+  done: boolean
+  href: string
+}
+
+function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
+  const items: OnboardingItem[] = [
+    { label: 'Sign in to Vidya',          done: true,            href: '/dashboard' },
+    { label: 'Set your permanent password', done: passwordChanged, href: '/first-login' },
+    { label: 'Add faculty and students',    done: false,           href: '/users' },
+    { label: 'Review institution settings', done: false,           href: '/settings' },
+  ]
+  const completed = items.filter((i) => i.done).length
+  if (completed === items.length) return null
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-amber-900">Getting started</p>
+        <p className="text-xs text-amber-600">{completed}/{items.length} done</p>
+      </div>
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li key={item.label} className="flex items-center gap-2.5">
+            {item.done
+              ? <CheckCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              : <Circle      className="h-4 w-4 text-amber-300 flex-shrink-0" />
+            }
+            {item.done ? (
+              <span className="text-sm text-amber-700 line-through">{item.label}</span>
+            ) : (
+              <Link to={item.href} className="text-sm text-amber-800 hover:underline font-medium">
+                {item.label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function getGreeting(): string {
   const hour = new Date().getHours()
   if (hour < 12) return 'Good morning'
@@ -101,10 +152,12 @@ function getGreeting(): string {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const user = useCurrentUser()
+  const { user: authUser } = useAuth()
   const role = user?.role ?? ''
 
   const visibleCards = CARDS.filter((c) => c.roles.includes(role))
   const firstName = user?.fullName ? user.fullName.split(' ')[0] : null
+  const emptyStateMessage = ROLE_EMPTY_STATE[role]
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
@@ -116,9 +169,14 @@ export default function DashboardPage() {
         <p className="text-sm text-gray-500 mt-1">
           {visibleCards.length > 0
             ? 'Select a module below to get started.'
-            : 'No modules are currently available for your role. Contact your administrator.'}
+            : emptyStateMessage ?? 'No modules are currently available for your role. Contact your administrator.'}
         </p>
       </div>
+
+      {/* Admin onboarding checklist */}
+      {role === 'ADMIN' && authUser && (
+        <AdminOnboarding passwordChanged={!authUser.firstLogin} />
+      )}
 
       {/* Module cards */}
       {visibleCards.length > 0 && (

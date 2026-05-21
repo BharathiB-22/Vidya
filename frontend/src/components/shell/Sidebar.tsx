@@ -1,9 +1,10 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
-  FileText, ClipboardList, BarChart2, X, Users, Settings,
+  FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/lib/auth'
 
 type LucideIconType = typeof LayoutDashboard
 
@@ -81,8 +82,10 @@ interface SidebarProps {
 export function Sidebar({ onClose }: SidebarProps) {
   const location = useLocation()
   const user = useCurrentUser()
+  const { user: authUser } = useAuth()
   const role = user?.role ?? ''
   const institution = prettifySlug(user?.tenantSlug ?? '')
+  const setupIncomplete = role === 'ADMIN' && authUser?.firstLogin === true
 
   function isActive(to: string): boolean {
     if (to === '/dashboard') return location.pathname === '/dashboard'
@@ -149,6 +152,18 @@ export function Sidebar({ onClose }: SidebarProps) {
           )
         })}
       </nav>
+
+      {/* Setup incomplete banner */}
+      {setupIncomplete && (
+        <Link
+          to="/first-login"
+          onClick={onClose}
+          className="mx-2 mb-2 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 hover:bg-amber-100"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+          Set your permanent password
+        </Link>
+      )}
 
       {/* Footer: role chip */}
       <div className="px-4 py-3 border-t border-gray-100">
