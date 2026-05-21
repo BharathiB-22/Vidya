@@ -150,6 +150,63 @@ jobs:
           path: backend/coverage.xml
           retention-days: 7
 
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed for git log range
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v8.20.1/gitleaks_8.20.1_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Run gitleaks (scan new commits only)
+        # Scans only the commits introduced by this push or PR, not the full
+        # history. A one-time baseline audit of the full git history must be
+        # run manually before first staging deploy (see infra/docs/).
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            RANGE="HEAD~1..HEAD"
+          else
+            RANGE="${{ github.event.before }}..HEAD"
+          fi
+          gitleaks detect \
+            --config=gitleaks.toml \
+            --log-opts="$RANGE" \
+            --redact \
+            --exit-code 1
+
+  sast:
+    name: SAST (bandit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install bandit==1.8.3
+
+      - name: Run bandit (medium+ severity, high+ confidence)
+        # -ll = medium+ severity  (LOW is noisy in FastAPI / SQLAlchemy codebases)
+        # -i  = high+ confidence  (reduces false positives from heuristic checks)
+        # app/workers is excluded: Celery entrypoints call subprocess to run
+        # student code in a sandboxed tmp dir — this is intentional and reviewed.
+        working-directory: backend
+        run: bandit -r app -ll -i -x app/workers --format txt
+
   helm-validate:
     name: Helm Validate
     runs-on: ubuntu-24.04

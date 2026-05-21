@@ -1,0 +1,34 @@
+title = "Vidya Gitleaks Configuration"
+
+# Extend the default ruleset — all built-in rules apply unless overridden.
+[extend]
+useDefault = true
+
+# ── Global allowlists ──────────────────────────────────────────────────────────
+# These entries suppress findings for known non-secret values that pattern-match
+# gitleaks rules (e.g. low-entropy dev placeholders and CI fixture strings).
+# Any value added here MUST be a documented dev/test placeholder — never a real
+# credential.  Real credentials must be rotated, not allowlisted.
+[allowlist]
+description = "CI test fixtures and documented dev-mode placeholders"
+
+# Regex patterns matched against the full secret string in the finding.
+# These match only the specific placeholder values used in our CI/dev configs.
+regexes = [
+    "ci-jwt-secret-for-testing-only",
+    "^vidya_ci$",
+    "^vidya_dev$",
+    "^dev_redis_pass$",
+    "^minioadmin$",
+    "CHANGE_ME_",
+]
+
+# Paths where placeholder values are intentionally documented.
+# This does NOT suppress real secrets in these paths — only the regex matches above.
+paths = [
+    "infra/helm/vidya/values.yaml",
+    "infra/helm/vidya/values.dev.yaml",
+    ".github/workflows/ci.yml",
+    ".github/workflows/cd.yml",
+    "CLAUDE.md",
+]
