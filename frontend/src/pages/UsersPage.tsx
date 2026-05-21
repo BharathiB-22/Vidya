@@ -231,6 +231,7 @@ export default function UsersPage() {
   const [search,       setSearch]       = useState('')
 
   useEffect(() => {
+    localStorage.setItem('vidya_onboarding_users', '1')
     usersApi.list()
       .then(setUsers)
       .catch((err) => setError(getErrorMessage(err)))

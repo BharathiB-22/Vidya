@@ -135,7 +135,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                         onClick={onClose}
                         className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-colors ${
                           active
-                            ? 'bg-indigo-50 text-indigo-700'
+                            ? 'bg-indigo-100 text-indigo-700'
                             : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                         }`}
                       >

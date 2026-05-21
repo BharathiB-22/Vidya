@@ -92,12 +92,29 @@ const CARDS: ModuleCard[] = [
   },
 ]
 
-const ROLE_EMPTY_STATE: Record<string, string> = {
-  STUDENT: 'Your instructor will publish lab assignments and research projects when they are ready. Check back soon.',
-  BOARD:   'Exam papers submitted for board review will appear here. You will be notified when your attention is needed.',
-  GUIDE:   'Research documents assigned to you for supervision will appear here once students submit proposals.',
-  DEAN:    'Program analytics and bell curve reports are available in the sidebar.',
+const ROLE_SUBTITLE: Record<string, string> = {
+  ADMIN:   'Manage programs, users, and platform settings for your institution.',
+  DEAN:    'Review academic programs and analytics across your institution.',
+  FACULTY: 'Build courses, set exams, evaluate labs, and supervise research.',
+  BOARD:   'Review exam papers, evaluate scripts, and advise on grade distributions.',
+  GUIDE:   'Review research proposals assigned to you and supervise student projects.',
+  STUDENT: 'Access your lab assignments and research project below.',
 }
+
+const ROLE_CONTEXT: Partial<Record<string, { heading: string; body: string }>> = {
+  GUIDE: {
+    heading: 'How supervision works',
+    body: 'Students submit proposals → you receive a notification → review via Research Supervision to accept, request revision, or reject. Viva sessions are scheduled by the admin.',
+  },
+  STUDENT: {
+    heading: 'What to expect',
+    body: 'Lab assignments appear in My Labs when your faculty publishes them. Use My Research to register your thesis topic and track progress with your assigned guide.',
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Admin onboarding checklist
+// ---------------------------------------------------------------------------
 
 interface OnboardingItem {
   label: string
@@ -106,14 +123,33 @@ interface OnboardingItem {
 }
 
 function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
+  const visitedUsers = localStorage.getItem('vidya_onboarding_users') === '1'
+
   const items: OnboardingItem[] = [
-    { label: 'Sign in to Vidya',          done: true,            href: '/dashboard' },
-    { label: 'Set your permanent password', done: passwordChanged, href: '/first-login' },
-    { label: 'Add faculty and students',    done: false,           href: '/users' },
-    { label: 'Review institution settings', done: false,           href: '/settings' },
+    { label: 'Sign in to Vidya',            done: true,            href: '/dashboard' },
+    { label: 'Set your permanent password',  done: passwordChanged, href: '/settings'  },
+    { label: 'Add faculty and students',     done: visitedUsers,    href: '/users'     },
+    { label: 'Review institution settings',  done: passwordChanged, href: '/settings'  },
   ]
   const completed = items.filter((i) => i.done).length
-  if (completed === items.length) return null
+
+  if (completed === items.length) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-5 py-4">
+        <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-green-800">Setup complete</p>
+          <p className="text-xs text-green-700 mt-0.5">
+            Your institution is ready. Add more users from{' '}
+            <Link to="/users" className="font-medium underline underline-offset-2 hover:text-green-900">
+              Users
+            </Link>{' '}
+            whenever needed.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
@@ -142,12 +178,20 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Greeting
+// ---------------------------------------------------------------------------
+
 function getGreeting(): string {
   const hour = new Date().getHours()
   if (hour < 12) return 'Good morning'
   if (hour < 17) return 'Good afternoon'
   return 'Good evening'
 }
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -156,21 +200,19 @@ export default function DashboardPage() {
   const role = user?.role ?? ''
 
   const visibleCards = CARDS.filter((c) => c.roles.includes(role))
-  const firstName = user?.fullName ? user.fullName.split(' ')[0] : null
-  const emptyStateMessage = ROLE_EMPTY_STATE[role]
+  const firstName    = user?.fullName ? user.fullName.split(' ')[0] : null
+  const subtitle     = ROLE_SUBTITLE[role] ?? 'Select a module below to get started.'
+  const roleContext  = ROLE_CONTEXT[role]
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+
       {/* Welcome */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">
           {getGreeting()}{firstName ? `, ${firstName}` : ''}
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {visibleCards.length > 0
-            ? 'Select a module below to get started.'
-            : emptyStateMessage ?? 'No modules are currently available for your role. Contact your administrator.'}
-        </p>
+        <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
       </div>
 
       {/* Admin onboarding checklist */}
@@ -199,6 +241,24 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      {/* Contextual guidance for sparse roles (GUIDE, STUDENT) */}
+      {roleContext && (
+        <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-4 text-sm space-y-1">
+          <p className="font-medium text-gray-700">{roleContext.heading}</p>
+          <p className="text-gray-500 leading-relaxed">{roleContext.body}</p>
+        </div>
+      )}
+
+      {/* Fallback for roles with no visible modules */}
+      {visibleCards.length === 0 && (
+        <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
+          <p className="text-sm text-gray-400">
+            No modules are currently available for your role. Contact your administrator.
+          </p>
+        </div>
+      )}
+
     </div>
   )
 }
