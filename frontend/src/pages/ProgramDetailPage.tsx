@@ -11,6 +11,8 @@ import { ComplianceSection } from '@/components/programs/ComplianceSection'
 import { ArticulationMap } from '@/components/programs/ArticulationMap'
 import { ApprovalPanel } from '@/components/programs/ApprovalPanel'
 import { programKeys, useProgramCourses } from '@/hooks/programs'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
 import * as programsApi from '@/lib/api/programs'
 
 export default function ProgramDetailPage() {
@@ -28,17 +30,11 @@ export default function ProgramDetailPage() {
   const { data: courses = [] } = useProgramCourses(id!)
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-400">Loading…</div>
-    )
+    return <div className="p-6"><PageLoading message="Loading program…" /></div>
   }
 
   if (!program) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
-        Program not found.
-      </div>
-    )
+    return <div className="p-6"><PageError message="Program not found or you don't have access." /></div>
   }
 
   return (

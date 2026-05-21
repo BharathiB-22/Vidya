@@ -2,8 +2,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus, Loader2 } from 'lucide-react'
+import { FileText, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { listAllScripts } from '@/lib/api/scripts'
 import type { ScannedScript, ScriptStatus } from '@/types/script'
 
@@ -34,14 +37,14 @@ export default function ScriptListPage() {
   const [offset, setOffset] = useState(0)
   const limit = 20
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['scripts', statusFilter, offset],
     queryFn:  () => listAllScripts({ status: statusFilter || undefined, offset, limit }),
   })
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <FileText className="w-6 h-6 text-indigo-600" />
           <h1 className="text-2xl font-bold text-gray-900">Scanned Scripts</h1>
@@ -81,27 +84,27 @@ export default function ScriptListPage() {
         ))}
       </div>
 
-      {isLoading && (
-        <div className="flex items-center gap-2 text-gray-500 py-8 justify-center">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading scripts…
-        </div>
-      )}
+      {isLoading && <PageLoading message="Loading scripts…" />}
 
       {isError && (
-        <div className="text-red-600 bg-red-50 rounded-lg p-4">
-          Failed to load scripts. Please try again.
-        </div>
+        <PageError message="Failed to load scripts." onRetry={() => refetch()} />
       )}
 
-      {data && (
+      {data && data.items.length === 0 && (
+        <PageEmpty
+          icon={FileText}
+          message="No scripts found."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate('/scripts/upload')}>
+              Upload your first script
+            </Button>
+          }
+        />
+      )}
+
+      {data && data.items.length > 0 && (
         <>
           <div className="space-y-3">
-            {data.items.length === 0 && (
-              <div className="text-gray-500 text-center py-12">
-                No scripts found. Click <strong>Upload Script</strong> to add one.
-              </div>
-            )}
             {data.items.map(script => (
               <ScriptCard
                 key={script.id}

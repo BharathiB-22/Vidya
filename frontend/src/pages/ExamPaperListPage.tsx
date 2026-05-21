@@ -2,8 +2,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus, Loader2 } from 'lucide-react'
+import { FileText, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { listExamPapers } from '@/lib/api/exam'
 import type { ExamPaper, ExamPaperStatus } from '@/types/exam'
 
@@ -36,7 +39,7 @@ export default function ExamPaperListPage() {
   const [offset, setOffset] = useState(0)
   const limit = 20
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['exam-papers', statusFilter, offset],
     queryFn:  () => listExamPapers({ status: statusFilter || undefined, offset, limit }),
   })
@@ -74,27 +77,27 @@ export default function ExamPaperListPage() {
         ))}
       </div>
 
-      {isLoading && (
-        <div className="flex items-center gap-2 text-gray-500 py-8 justify-center">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading exam papers…
-        </div>
-      )}
+      {isLoading && <PageLoading message="Loading exam papers…" />}
 
       {isError && (
-        <div className="text-red-600 bg-red-50 rounded-lg p-4">
-          Failed to load exam papers. Please try again.
-        </div>
+        <PageError message="Failed to load exam papers." onRetry={() => refetch()} />
       )}
 
-      {data && (
+      {data && data.items.length === 0 && (
+        <PageEmpty
+          icon={FileText}
+          message="No exam papers found."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate('/exams/create')}>
+              Create your first exam paper
+            </Button>
+          }
+        />
+      )}
+
+      {data && data.items.length > 0 && (
         <>
           <div className="space-y-3">
-            {data.items.length === 0 && (
-              <div className="text-gray-500 text-center py-12">
-                No exam papers found. Click <strong>New Exam Paper</strong> to create one.
-              </div>
-            )}
             {data.items.map(paper => (
               <PaperCard
                 key={paper.id}

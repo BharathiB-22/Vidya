@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ProgramStatusBadge } from '@/components/programs/ProgramStatusBadge'
 import { CreateProgramDialog } from '@/components/programs/CreateProgramDialog'
 import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { usePrograms } from '@/hooks/programs'
 import type { ProgramStatus } from '@/types/program'
@@ -27,7 +28,7 @@ export default function ProgramListPage() {
   const [statusFilter, setStatusFilter] = useState<ProgramStatus | ''>('')
   const [createOpen, setCreateOpen] = useState(false)
 
-  const { data, isLoading } = usePrograms(statusFilter ? { status: statusFilter } : undefined)
+  const { data, isLoading, isError, refetch } = usePrograms(statusFilter ? { status: statusFilter } : undefined)
   const programs = data?.items ?? []
 
   return (
@@ -63,7 +64,11 @@ export default function ProgramListPage() {
 
       {isLoading && <PageLoading message="Loading programs…" />}
 
-      {!isLoading && programs.length === 0 && (
+      {isError && (
+        <PageError message="Failed to load programs." onRetry={() => refetch()} />
+      )}
+
+      {!isLoading && !isError && programs.length === 0 && (
         <PageEmpty
           icon={BookOpen}
           message="No programs found."
@@ -78,6 +83,7 @@ export default function ProgramListPage() {
       {/* Table */}
       {programs.length > 0 && (
         <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -115,6 +121,7 @@ export default function ProgramListPage() {
               ))}
             </tbody>
           </table>
+          </div>
           <div className="px-4 py-2 text-xs text-gray-400 text-right border-t border-gray-100">
             {data?.total ?? 0} program(s)
           </div>

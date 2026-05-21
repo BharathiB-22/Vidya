@@ -5,6 +5,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart2, ChevronRight, Loader2, AlertTriangle, Info, PlusCircle,
 } from 'lucide-react'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { Button } from '@/components/ui/button'
 import { listAnalyses, triggerAnalysis } from '@/lib/api/bellCurve'
 import { listAllExamPapers } from '@/lib/api/exam'
@@ -167,7 +170,7 @@ export default function BellCurveListPage() {
   const [showTrigger, setShowTrigger] = useState(false)
   const limit = 15
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['bell-curve-analyses', offset],
     queryFn:  () => listAnalyses({ offset, limit }),
   })
@@ -176,7 +179,7 @@ export default function BellCurveListPage() {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <BarChart2 className="w-6 h-6 text-indigo-600" />
           <h1 className="text-2xl font-bold text-gray-900">Bell Curve Analyses</h1>
@@ -221,35 +224,29 @@ export default function BellCurveListPage() {
       )}
 
       {/* List */}
-      {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-12 text-gray-400">
-          <Loader2 className="w-5 h-5 animate-spin" />
-          Loading analyses…
-        </div>
-      )}
+      {isLoading && <PageLoading message="Loading analyses…" />}
 
       {isError && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-600 text-sm">
-          Failed to load analyses. Please try again.
-        </div>
+        <PageError message="Failed to load analyses." onRetry={() => refetch()} />
       )}
 
-      {data && (
+      {data && data.items.length === 0 && (
+        <PageEmpty
+          icon={BarChart2}
+          message="No bell curve analyses yet."
+          action={canTrigger ? (
+            <span className="text-sm text-gray-500">
+              Use <strong>New Analysis</strong> to trigger analysis for a Board-finalised exam paper.
+            </span>
+          ) : undefined}
+        />
+      )}
+
+      {data && data.items.length > 0 && (
         <>
-          {data.items.length === 0 ? (
-            <div className="text-center text-gray-400 py-16">
-              No bell curve analyses yet.
-              {canTrigger && (
-                <p className="mt-2 text-sm">
-                  Use <strong>New Analysis</strong> to trigger analysis for a Board-finalised exam paper.
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {data.items.map(a => <AnalysisCard key={a.id} analysis={a} />)}
-            </div>
-          )}
+          <div className="space-y-3">
+            {data.items.map(a => <AnalysisCard key={a.id} analysis={a} />)}
+          </div>
 
           {data.total > limit && (
             <div className="flex justify-between items-center pt-2">

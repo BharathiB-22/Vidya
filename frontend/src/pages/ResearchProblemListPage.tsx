@@ -4,6 +4,9 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, BookOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { listProblems, decideProblem } from '@/lib/api/research'
 import type { ProblemStatus, ResearchProblem, GuideDecision } from '@/types/research'
 
@@ -115,12 +118,10 @@ export default function ResearchProblemListPage() {
   const [statusFilter, setStatusFilter] = useState<ProblemStatus | ''>('')
   const [deciding, setDeciding]         = useState<ResearchProblem | null>(null)
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['research-problems', statusFilter],
     queryFn: () => listProblems({ status: statusFilter || undefined }),
   })
-  const problems = data?.items ?? []
-
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       <Button variant="ghost" size="sm" className="-mt-2 -ml-1" onClick={() => navigate(-1)}>
@@ -153,29 +154,19 @@ export default function ResearchProblemListPage() {
         ))}
       </div>
 
+      {isLoading && <PageLoading message="Loading proposals…" />}
+
       {isError && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          Failed to load proposals. Please refresh.
-        </div>
+        <PageError message="Failed to load proposals." onRetry={() => refetch()} />
       )}
 
-      {isLoading ? (
-        <div className="rounded-xl border border-gray-200 bg-white divide-y divide-gray-100">
-          {[1, 2, 3].map((n) => (
-            <div key={n} className="px-5 py-4 animate-pulse">
-              <div className="h-4 w-64 rounded bg-gray-200" />
-              <div className="mt-1.5 h-3 w-40 rounded bg-gray-100" />
-            </div>
-          ))}
-        </div>
-      ) : problems.length === 0 ? (
-        <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
-          <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No proposals found.</p>
-        </div>
-      ) : (
+      {data && data.items.length === 0 && (
+        <PageEmpty icon={BookOpen} message="No proposals found." />
+      )}
+
+      {data && data.items.length > 0 && (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-          {problems.map((p) => (
+          {data.items.map((p) => (
             <div key={p.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
               <div className="flex items-center justify-between gap-4">
                 <button
