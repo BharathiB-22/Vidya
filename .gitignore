@@ -15,3 +15,6 @@ infra/k8s/*.secret.yaml
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Local backup files — never commit these (may contain DB dumps)
+infra/backups/
