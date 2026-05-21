@@ -105,6 +105,15 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
 
@@ -119,13 +128,27 @@ jobs:
         working-directory: backend
         run: pip install ".[dev]"
 
-      - name: Run pytest
+      - name: Run pytest with coverage
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://vidya:vidya_ci@localhost:5432/vidya
+          REDIS_URL: redis://localhost:6379/0
           JWT_SECRET: ci-jwt-secret-for-testing-only-not-for-production-xxxxxxxxxx
           ENVIRONMENT: development
-        run: pytest tests/ -x -q --tb=short
+        run: >-
+          pytest tests/ -x -q --tb=short
+          --cov=app
+          --cov-report=xml
+          --cov-report=term-missing
+          --cov-fail-under=65
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/coverage.xml
+          retention-days: 7
 
   helm-validate:
     name: Helm Validate
