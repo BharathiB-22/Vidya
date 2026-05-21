@@ -31,7 +31,7 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
     return () => document.removeEventListener('keydown', handleKey)
   }, [open, onClose])
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['notifications'],
     queryFn:  () => listNotifications({ page: 1, page_size: 20 }),
     enabled:  open,
@@ -56,7 +56,7 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
       )}
 
       <div
-        className={`fixed inset-y-0 right-0 z-50 w-80 bg-white border-l border-gray-200 shadow-xl flex flex-col
+        className={`fixed inset-y-0 right-0 z-50 w-80 max-w-full bg-white border-l border-gray-200 shadow-xl flex flex-col
           transform transition-transform duration-200 ease-in-out
           ${open ? 'translate-x-0' : 'translate-x-full'}`}
       >
@@ -105,7 +105,14 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
             </div>
           )}
 
-          {!isLoading && items.length === 0 && (
+          {isError && (
+            <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm gap-2 px-4 text-center">
+              <Bell className="w-6 h-6 text-gray-200" />
+              Could not load notifications.
+            </div>
+          )}
+
+          {!isLoading && !isError && items.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400 text-sm gap-3">
               <Bell className="w-8 h-8 text-gray-200" />
               No notifications

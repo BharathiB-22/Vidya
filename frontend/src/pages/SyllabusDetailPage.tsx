@@ -18,6 +18,7 @@ import {
   useSyllabusReferences,
 } from '@/hooks/syllabuses'
 import { syllabusKeys } from '@/hooks/syllabuses/useSyllabuses'
+import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
 
 type Tab = 'overview' | 'outcomes' | 'matrix' | 'units' | 'references' | 'compliance' | 'approval'
 
@@ -149,26 +150,7 @@ export default function SyllabusDetailPage() {
         </div>
       )}
 
-      {/* ── AI Generating notice ── */}
-      {isGenerating && (
-        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          <span>
-            AI is generating the syllabus. This page refreshes automatically every 5 s.
-          </span>
-        </div>
-      )}
-
-      {/* ── AI generation failed notice ── */}
-      {generationFailed && (
-        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            AI generation did not complete. The syllabus has been reset to Draft.
-            Check AI provider configuration or quota, then use <strong>Generate with AI</strong> to retry.
-          </span>
-        </div>
-      )}
+      <AIGeneratingBanner isGenerating={isGenerating} failed={generationFailed} entity="syllabus" />
 
       {/* ── Tab bar ── */}
       <div className="border-b border-gray-200">

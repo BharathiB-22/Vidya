@@ -20,6 +20,7 @@ import {
 } from '@/hooks/courseKit'
 import { courseKitKeys } from '@/hooks/courseKit/useCourseKit'
 import type { CourseKitStatus } from '@/types/courseKit'
+import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
 
 type Tab = 'overview' | 'slides' | 'quizlets' | 'assignments' | 'teaching-plan' | 'compliance' | 'exports'
 
@@ -166,24 +167,7 @@ export default function CourseKitDetailPage() {
         </div>
       )}
 
-      {/* ── AI Generating notice ── */}
-      {isGenerating && (
-        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          <span>AI is generating the course kit. This page refreshes automatically every 5 s.</span>
-        </div>
-      )}
-
-      {/* ── Generation failed ── */}
-      {generationFailed && (
-        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-700 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            AI generation did not complete. The kit has been reset to Draft.
-            Check provider configuration or quota, then use <strong>Generate with AI</strong> to retry.
-          </span>
-        </div>
-      )}
+      <AIGeneratingBanner isGenerating={isGenerating} failed={generationFailed} entity="course kit" />
 
       {/* ── Tab bar ── */}
       <div className="border-b border-gray-200">
