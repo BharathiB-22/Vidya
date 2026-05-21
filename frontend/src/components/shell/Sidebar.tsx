@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
-  FileText, ClipboardList, BarChart2, X,
+  FileText, ClipboardList, BarChart2, X, Users, Settings,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 
@@ -55,6 +55,13 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Labs',     to: '/student/labs',      icon: FlaskConical, roles: ['STUDENT'] },
       { label: 'My Research', to: '/student/research',  icon: Microscope,   roles: ['STUDENT'] },
+    ],
+  },
+  {
+    heading: 'Administration',
+    items: [
+      { label: 'Users',    to: '/users',    icon: Users,    roles: ['ADMIN'] },
+      { label: 'Settings', to: '/settings', icon: Settings, roles: ['ADMIN'] },
     ],
   },
 ]

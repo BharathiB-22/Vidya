@@ -42,6 +42,8 @@ import BellCurveAnalysisPage from '@/pages/BellCurveAnalysisPage'
 import BellCurveRatifyPage from '@/pages/BellCurveRatifyPage'
 import FairnessReportPage from '@/pages/FairnessReportPage'
 import FirstLoginPage from '@/pages/FirstLoginPage'
+import UsersPage from '@/pages/UsersPage'
+import SettingsPage from '@/pages/SettingsPage'
 
 export default function App() {
   return (
@@ -68,6 +70,12 @@ export default function App() {
 
           {/* Dashboard — all authenticated roles */}
           <Route path="/dashboard" element={<DashboardPage />} />
+
+          {/* User management & settings — ADMIN only */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
 
           {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}
           <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
