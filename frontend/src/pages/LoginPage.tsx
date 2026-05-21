@@ -5,28 +5,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getErrorMessage } from '@/lib/api'
 
-const DEMO_USERS = [
-  { label: 'Faculty', email: 'faculty@demo-university.edu', password: 'Demo1234!' },
-  { label: 'Dean',    email: 'dean@demo-university.edu',    password: 'Demo1234!' },
-  { label: 'Admin',   email: 'admin@demo-university.edu',   password: 'Demo1234!' },
-]
-
 export default function LoginPage() {
   const navigate = useNavigate()
   const auth = useAuth()
 
-  const [slug,     setSlug]     = useState(localStorage.getItem('vidya_tenant_slug') ?? 'demo-university')
+  const [slug,     setSlug]     = useState(localStorage.getItem('vidya_tenant_slug') ?? '')
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
-
-  function fillDemo(user: (typeof DEMO_USERS)[number]) {
-    setSlug('demo-university')
-    setEmail(user.email)
-    setPassword(user.password)
-    setError('')
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -44,8 +31,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm space-y-4">
-        {/* Login card */}
+      <div className="w-full max-w-sm space-y-3">
         <div className="bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden">
           <div className="px-6 pt-6 pb-2 text-center">
             <h1 className="text-2xl font-bold text-indigo-700">Vidya</h1>
@@ -61,7 +47,7 @@ export default function LoginPage() {
                   id="slug"
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
-                  placeholder="demo-university"
+                  placeholder="e.g. my-university"
                   required
                 />
               </div>
@@ -101,25 +87,10 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Demo quick-fill */}
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 space-y-2">
-          <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">
-            Demo — click to fill
-          </p>
-          <div className="flex gap-2">
-            {DEMO_USERS.map((u) => (
-              <button
-                key={u.label}
-                type="button"
-                onClick={() => fillDemo(u)}
-                className="flex-1 text-xs py-1.5 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100 transition-colors"
-              >
-                {u.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-indigo-500">Password for all: Demo1234!</p>
-        </div>
+        <p className="text-xs text-center text-gray-400">
+          Don't know your institution slug?{' '}
+          <span className="text-gray-500">Contact your administrator.</span>
+        </p>
       </div>
     </div>
   )

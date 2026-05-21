@@ -46,7 +46,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
-      {/* Super Admin portal (no AppShell — admin has its own inline header) */}
+      {/* Super Admin portal — separate auth context, no AppShell */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route element={<AdminAuthGuard />}>
         <Route path="/admin/tenants" element={<TenantListPage />} />
@@ -55,60 +55,73 @@ export default function App() {
         <Route path="/admin" element={<Navigate to="/admin/tenants" replace />} />
       </Route>
 
-      {/* Tenant user portal — AuthGuard then AppShell (sidebar + topbar) */}
+      {/* Tenant portal — auth gate → app shell → role gates */}
       <Route element={<AuthGuard />}>
         <Route element={<AppShell />}>
+
+          {/* Dashboard — all authenticated roles */}
           <Route path="/dashboard" element={<DashboardPage />} />
 
-          <Route path="/programs" element={<ProgramListPage />} />
-          <Route path="/programs/:id" element={<ProgramDetailPage />} />
-          <Route path="/syllabuses" element={<SyllabusListPage />} />
-          <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
-          <Route path="/course-kits" element={<CourseKitListPage />} />
-          <Route path="/course-kits/:id" element={<CourseKitDetailPage />} />
-          <Route path="/learning-packages" element={<LearningPackageListPage />} />
-          <Route path="/learning-packages/:id" element={<LearningPackagePage />} />
-          <Route path="/learning-packages/:id/curate" element={<FacultyCuratePage />} />
+          {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
+            <Route path="/programs" element={<ProgramListPage />} />
+            <Route path="/programs/:id" element={<ProgramDetailPage />} />
+            <Route path="/syllabuses" element={<SyllabusListPage />} />
+            <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
+            <Route path="/course-kits" element={<CourseKitListPage />} />
+            <Route path="/course-kits/:id" element={<CourseKitDetailPage />} />
+            <Route path="/learning-packages" element={<LearningPackageListPage />} />
+            <Route path="/learning-packages/:id" element={<LearningPackagePage />} />
+            <Route path="/learning-packages/:id/curate" element={<FacultyCuratePage />} />
+          </Route>
 
-          {/* M06 — Labs (faculty) */}
-          <Route path="/labs" element={<LabAssignmentListPage />} />
-          <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
-          <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
+          {/* Lab Assignments — FACULTY, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN']} />}>
+            <Route path="/labs" element={<LabAssignmentListPage />} />
+            <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
+            <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
+          </Route>
 
-          {/* M06 — Labs (student) */}
-          <Route path="/student/labs" element={<StudentLabListPage />} />
-          <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
-          <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
+          {/* Student area — STUDENT, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT', 'ADMIN']} />}>
+            <Route path="/student/labs" element={<StudentLabListPage />} />
+            <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
+            <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
+            <Route path="/student/research" element={<StudentResearchPage />} />
+            <Route path="/student/viva/:token" element={<StudentVivaPage />} />
+          </Route>
 
-          {/* M07 — Research Supervision (guide) */}
-          <Route path="/research/problems" element={<ResearchProblemListPage />} />
-          <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
-          <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
+          {/* Research Supervision — FACULTY, ADMIN, GUIDE */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'GUIDE']} />}>
+            <Route path="/research/problems" element={<ResearchProblemListPage />} />
+            <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
+            <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
+          </Route>
 
-          {/* M07 — Research Supervision (student) */}
-          <Route path="/student/research" element={<StudentResearchPage />} />
-          <Route path="/student/viva/:token" element={<StudentVivaPage />} />
+          {/* Exam Papers — FACULTY, ADMIN, BOARD */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'BOARD']} />}>
+            <Route path="/exams" element={<ExamPaperListPage />} />
+            <Route path="/exams/create" element={<ExamPaperCreatePage />} />
+            <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
+            <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
+            <Route path="/exams/:id/review" element={<BoardReviewPage />} />
+          </Route>
 
-          {/* M08 — Exam Paper Setter (faculty) */}
-          <Route path="/exams" element={<ExamPaperListPage />} />
-          <Route path="/exams/create" element={<ExamPaperCreatePage />} />
-          <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
-          <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
+          {/* Scanned Scripts — ADMIN, BOARD */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'BOARD']} />}>
+            <Route path="/scripts" element={<ScriptListPage />} />
+            <Route path="/scripts/upload" element={<ScriptUploadPage />} />
+            <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
+            <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
+          </Route>
 
-          {/* M08 — Board review */}
-          <Route path="/exams/:id/review" element={<BoardReviewPage />} />
-
-          {/* M09 — Paper Administration (admin/board) */}
-          <Route path="/scripts" element={<ScriptListPage />} />
-          <Route path="/scripts/upload" element={<ScriptUploadPage />} />
-          <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
-          <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
-
-          {/* M10 — Bell Curve Normaliser (board/admin/dean) */}
-          <Route path="/bell-curve" element={<BellCurveListPage />} />
-          <Route path="/bell-curve/reports" element={<FairnessReportPage />} />
-          <Route path="/bell-curve/:id/ratify" element={<BellCurveRatifyPage />} />
-          <Route path="/bell-curve/:id" element={<BellCurveAnalysisPage />} />
+          {/* Bell Curve — DEAN, ADMIN, BOARD */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
+            <Route path="/bell-curve" element={<BellCurveListPage />} />
+            <Route path="/bell-curve/reports" element={<FairnessReportPage />} />
+            <Route path="/bell-curve/:id/ratify" element={<BellCurveRatifyPage />} />
+            <Route path="/bell-curve/:id" element={<BellCurveAnalysisPage />} />
+          </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Route>

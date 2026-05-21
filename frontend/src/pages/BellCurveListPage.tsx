@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { listAnalyses, triggerAnalysis } from '@/lib/api/bellCurve'
+import { listAllExamPapers } from '@/lib/api/exam'
 import { getErrorMessage } from '@/lib/api'
 import type { BellCurveAnalysis, AnalysisStatus } from '@/types/bellCurve'
 
@@ -39,8 +40,14 @@ function TriggerPanel({ onDone }: { onDone: () => void }) {
   const [paperId, setPaperId] = useState('')
   const [error, setError]     = useState<string | null>(null)
 
+  const { data: papersData, isLoading: papersLoading } = useQuery({
+    queryKey: ['exam-papers-sealed'],
+    queryFn:  () => listAllExamPapers({ status: 'SEALED', limit: 100 }),
+  })
+  const sealedPapers = papersData?.items ?? []
+
   const mut = useMutation({
-    mutationFn: () => triggerAnalysis({ exam_paper_id: paperId.trim() }),
+    mutationFn: () => triggerAnalysis({ exam_paper_id: paperId }),
     onSuccess: () => { setError(null); onDone() },
     onError:   (err) => setError(getErrorMessage(err)),
   })
@@ -52,17 +59,29 @@ function TriggerPanel({ onDone }: { onDone: () => void }) {
         All scanned scripts for the exam paper must be Board-finalised before analysis can start.
       </p>
       <div className="flex gap-2">
-        <input
-          type="text"
+        <select
           value={paperId}
           onChange={e => setPaperId(e.target.value)}
-          placeholder="Exam paper UUID…"
-          className="flex-1 border border-indigo-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-        />
+          disabled={papersLoading}
+          className="flex-1 border border-indigo-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 disabled:opacity-60"
+        >
+          <option value="">
+            {papersLoading
+              ? 'Loading papers…'
+              : sealedPapers.length === 0
+              ? 'No sealed papers available'
+              : 'Select a sealed exam paper…'}
+          </option>
+          {sealedPapers.map((paper) => (
+            <option key={paper.id} value={paper.id}>
+              {paper.title} — {paper.exam_type.replace('_', ' ')} ({paper.total_marks} marks)
+            </option>
+          ))}
+        </select>
         <Button
           size="sm"
           onClick={() => { setError(null); mut.mutate() }}
-          disabled={!paperId.trim() || mut.isPending}
+          disabled={!paperId || mut.isPending}
           className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
         >
           {mut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlusCircle className="w-3.5 h-3.5" />}
