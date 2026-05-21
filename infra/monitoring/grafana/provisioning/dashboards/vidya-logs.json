@@ -1,0 +1,283 @@
+{
+  "uid": "vidya-logs",
+  "title": "Vidya — Log Explorer",
+  "tags": ["vidya", "logs"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "schemaVersion": 38,
+  "editable": true,
+  "graphTooltip": 0,
+  "description": "Structured log explorer. Use the Filter box to search by tenant_id, request_id, event type, or any keyword. Queries use Loki |= line filter — paste any substring from a JSON log field.",
+  "templating": {
+    "list": [
+      {
+        "name": "line_filter",
+        "label": "Filter (tenant_id / request_id / keyword)",
+        "description": "Paste any substring: a tenant slug, a UUID request_id, an event type, or an error message. Leave empty for all logs.",
+        "type": "textbox",
+        "current": {"value": "", "text": ""},
+        "hide": 0,
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "ERROR Logs (last 5m)",
+      "description": "Count of ERROR-level log entries from app services in the last 5 minutes. Zero when API is not running.",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          },
+          "unit": "short",
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "sum(count_over_time({service=~\"vidya-api|vidya-worker|vidya-worker-heavy\",level=\"ERROR\"}[5m]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "WARNING Logs (last 5m)",
+      "description": "Count of WARNING-level log entries from app services in the last 5 minutes.",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "orange", "value": 20}
+            ]
+          },
+          "unit": "short",
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "sum(count_over_time({service=~\"vidya-api|vidya-worker|vidya-worker-heavy\",level=\"WARNING\"}[5m]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total Log Rate (all services, 1m)",
+      "description": "Log lines per second across all ingested services. Includes infra services (postgres, redis, etc.).",
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"color": "blue", "value": null}]
+          },
+          "unit": "logs",
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "sum(rate({service=~\".+\"}[1m]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Log Rate by Level (app services)",
+      "description": "Log lines per second from vidya-api and workers, split by level. Panels show No Data until the API is running. ERROR spikes warrant investigation.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "unit": "logs"
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "ERROR"},
+            "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]
+          },
+          {
+            "matcher": {"id": "byName", "options": "WARNING"},
+            "properties": [{"id": "color", "value": {"fixedColor": "orange", "mode": "fixed"}}]
+          },
+          {
+            "matcher": {"id": "byName", "options": "INFO"},
+            "properties": [{"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}]
+          }
+        ]
+      },
+      "options": {
+        "legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "none"}
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "sum(rate({service=~\"vidya-api|vidya-worker|vidya-worker-heavy\",level!=\"\"}[1m])) by (level)",
+          "legendFormat": "{{level}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Log Rate by Service (all services)",
+      "description": "Log lines per second per service — useful to spot noisy services or sudden silence from expected sources.",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "unit": "logs"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"calcs": ["mean"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "sum(rate({service=~\".+\"}[1m])) by (service)",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Application Logs",
+      "description": "All logs from app services. Use the Filter variable above to narrow by tenant_id, request_id, event, or any keyword. JSON logs from vidya-api have full structured fields — click a line to expand.",
+      "gridPos": {"h": 16, "w": 24, "x": 0, "y": 12},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "{service=~\"vidya-api|vidya-worker|vidya-worker-heavy\"} |= \"${line_filter}\"",
+          "legendFormat": "",
+          "maxLines": 200,
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "logs",
+      "title": "Infrastructure Logs (postgres / redis / minio / qdrant)",
+      "description": "Logs from data services. Useful for diagnosing connection errors, slow queries, or container crashes.",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 28},
+      "datasource": {"type": "loki", "uid": "vidya-loki"},
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "vidya-loki"},
+          "expr": "{service=~\"postgres|redis|minio|qdrant\"} |= \"${line_filter}\"",
+          "legendFormat": "",
+          "maxLines": 100,
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
