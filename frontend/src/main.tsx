@@ -6,6 +6,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { queryClient } from '@/lib/queryClient'
 import { AuthProvider } from '@/lib/auth'
 import { AdminAuthProvider } from '@/lib/adminAuth'
+import { Toaster } from '@/components/ui/Toaster'
 import App from './App'
 import './index.css'
 
@@ -16,6 +17,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AdminAuthProvider>
           <AuthProvider>
             <App />
+            <Toaster />
           </AuthProvider>
         </AdminAuthProvider>
       </BrowserRouter>

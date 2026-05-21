@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthGuard } from '@/components/AuthGuard'
 import { AdminAuthGuard } from '@/components/AdminAuthGuard'
+import { AdminShell } from '@/components/admin/AdminShell'
 import { AppShell } from '@/components/shell/AppShell'
 import LoginPage from '@/pages/LoginPage'
 import AdminLoginPage from '@/pages/AdminLoginPage'
@@ -46,13 +47,15 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
-      {/* Super Admin portal — separate auth context, no AppShell */}
+      {/* Super Admin portal — separate auth context */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route element={<AdminAuthGuard />}>
-        <Route path="/admin/tenants" element={<TenantListPage />} />
-        <Route path="/admin/tenants/new" element={<TenantCreatePage />} />
-        <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
-        <Route path="/admin" element={<Navigate to="/admin/tenants" replace />} />
+        <Route element={<AdminShell />}>
+          <Route path="/admin/tenants" element={<TenantListPage />} />
+          <Route path="/admin/tenants/new" element={<TenantCreatePage />} />
+          <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
+          <Route path="/admin" element={<Navigate to="/admin/tenants" replace />} />
+        </Route>
       </Route>
 
       {/* Tenant portal — auth gate → app shell → role gates */}

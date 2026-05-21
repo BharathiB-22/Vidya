@@ -6,6 +6,7 @@ import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { useLabAssignments } from '@/hooks/labs'
 import { useCreateAssignment, usePublishAssignment, useCloseAssignment } from '@/hooks/labs'
 import { getModerationReportUrl } from '@/lib/api/labs'
+import { addToast } from '@/hooks/useToast'
 import type { AssignmentStatus, AssignmentCreate } from '@/types/labs'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
@@ -241,7 +242,13 @@ export default function LabAssignmentListPage() {
                       size="sm"
                       variant="ghost"
                       className="text-green-700 hover:text-green-800 hover:bg-green-50"
-                      onClick={(e) => { e.stopPropagation(); publish(a.id) }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        publish(a.id, {
+                          onSuccess: () => addToast('Assignment published.', 'success'),
+                          onError:   () => addToast('Failed to publish assignment.', 'error'),
+                        })
+                      }}
                       disabled={publishing}
                     >
                       Publish
@@ -253,7 +260,13 @@ export default function LabAssignmentListPage() {
                         size="sm"
                         variant="ghost"
                         className="text-orange-700 hover:bg-orange-50"
-                        onClick={(e) => { e.stopPropagation(); close(a.id) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          close(a.id, {
+                            onSuccess: () => addToast('Assignment closed.', 'success'),
+                            onError:   () => addToast('Failed to close assignment.', 'error'),
+                          })
+                        }}
                         disabled={closing}
                       >
                         Close

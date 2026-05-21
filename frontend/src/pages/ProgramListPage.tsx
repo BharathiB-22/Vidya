@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProgramStatusBadge } from '@/components/programs/ProgramStatusBadge'
 import { CreateProgramDialog } from '@/components/programs/CreateProgramDialog'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { usePrograms } from '@/hooks/programs'
 import type { ProgramStatus } from '@/types/program'
 
@@ -59,21 +61,18 @@ export default function ProgramListPage() {
         ))}
       </div>
 
-      {/* Loading */}
-      {isLoading && (
-        <div className="text-center text-gray-400 py-16">Loading…</div>
-      )}
+      {isLoading && <PageLoading message="Loading programs…" />}
 
-      {/* Empty state */}
       {!isLoading && programs.length === 0 && (
-        <div className="text-center py-16 text-gray-400">
-          <p>No programs found.</p>
-          {canCreate && (
-            <Button variant="outline" className="mt-4" onClick={() => setCreateOpen(true)}>
+        <PageEmpty
+          icon={BookOpen}
+          message="No programs found."
+          action={canCreate ? (
+            <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
               Create your first program
             </Button>
-          )}
-        </div>
+          ) : undefined}
+        />
       )}
 
       {/* Table */}

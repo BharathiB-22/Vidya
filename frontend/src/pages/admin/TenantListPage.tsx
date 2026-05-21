@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { PlusCircle, LogOut, RefreshCw, Building2 } from 'lucide-react'
+import { PlusCircle, Building2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useAdminAuth } from '@/lib/adminAuth'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
+import { PageEmpty } from '@/components/shared/PageEmpty'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { addToast } from '@/hooks/useToast'
 import { listTenants, updateTenant } from '@/lib/api/tenants'
 import { getAdminErrorMessage } from '@/lib/adminApi'
 import type { Tenant, TenantStatus } from '@/lib/api/tenants'
@@ -21,18 +25,17 @@ function StatusBadge({ status }: { status: TenantStatus }) {
   )
 }
 
-function TenantRow({ tenant, onSelect }: { tenant: Tenant; onSelect: (t: Tenant) => void }) {
-  const qc = useQueryClient()
-  const toggleMut = useMutation({
-    mutationFn: () => updateTenant(tenant.id, { is_active: !tenant.is_active }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-tenants'] }),
-  })
-
+function TenantRow({
+  tenant,
+  onSelect,
+  onToggle,
+}: {
+  tenant: Tenant
+  onSelect: (t: Tenant) => void
+  onToggle: (t: Tenant) => void
+}) {
   return (
-    <tr
-      className="hover:bg-gray-50 cursor-pointer"
-      onClick={() => onSelect(tenant)}
-    >
+    <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => onSelect(tenant)}>
       <td className="px-4 py-3">
         <div className="font-medium text-gray-900">{tenant.name}</div>
         <div className="text-xs text-gray-500">{tenant.slug}</div>
@@ -46,8 +49,7 @@ function TenantRow({ tenant, onSelect }: { tenant: Tenant; onSelect: (t: Tenant)
       </td>
       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <button
-          onClick={() => toggleMut.mutate()}
-          disabled={toggleMut.isPending}
+          onClick={() => onToggle(tenant)}
           className={`text-xs px-2 py-0.5 rounded border font-medium transition-colors ${
             tenant.is_active
               ? 'border-red-200 text-red-600 hover:bg-red-50'
@@ -63,110 +65,120 @@ function TenantRow({ tenant, onSelect }: { tenant: Tenant; onSelect: (t: Tenant)
 
 export default function TenantListPage() {
   const navigate = useNavigate()
-  const auth = useAdminAuth()
+  const qc = useQueryClient()
   const [includeInactive, setIncludeInactive] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [sortByName, setSortByName] = useState(false)
+  const [confirmTenant, setConfirmTenant] = useState<Tenant | null>(null)
 
-  const { data: tenants, isLoading, refetch, error: queryError } = useQuery<Tenant[]>({
+  const { data: tenants, isLoading, isError, refetch } = useQuery<Tenant[]>({
     queryKey: ['admin-tenants', includeInactive],
-    queryFn: () => listTenants(includeInactive),
+    queryFn:  () => listTenants(includeInactive),
   })
 
-  useEffect(() => {
-    if (queryError) setError(getAdminErrorMessage(queryError))
-  }, [queryError])
+  const toggleMut = useMutation({
+    mutationFn: (t: Tenant) => updateTenant(t.id, { is_active: !t.is_active }),
+    onSuccess: (_data, t) => {
+      qc.invalidateQueries({ queryKey: ['admin-tenants'] })
+      addToast(t.is_active ? 'Tenant deactivated.' : 'Tenant activated.', 'success')
+    },
+    onError: (err) => addToast(getAdminErrorMessage(err), 'error'),
+    onSettled: () => setConfirmTenant(null),
+  })
 
-  const rows = tenants ?? []
+  const all = tenants ?? []
+  const rows = sortByName ? [...all].sort((a, b) => a.name.localeCompare(b.name)) : all
+  const activeCount = all.filter((t) => t.is_active).length
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-5 w-5 text-indigo-600" />
-          <span className="text-lg font-semibold text-indigo-700">Vidya Admin Console</span>
+    <main className="max-w-5xl mx-auto px-6 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Tenants</h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {isLoading ? 'Loading…' : `${all.length} institution${all.length !== 1 ? 's' : ''} · ${activeCount} active`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetch()}
-            className="text-gray-500 hover:text-gray-700"
-            title="Refresh"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <Button variant="ghost" size="sm" onClick={auth.logout}>
-            <LogOut className="h-4 w-4 mr-1" />
-            Sign out
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={sortByName}
+              onChange={(e) => setSortByName(e.target.checked)}
+              className="rounded"
+            />
+            Sort A–Z
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(e) => setIncludeInactive(e.target.checked)}
+              className="rounded"
+            />
+            Show inactive
+          </label>
+          <Button onClick={() => navigate('/admin/tenants/new')}>
+            <PlusCircle className="h-4 w-4 mr-1.5" />
+            New Tenant
           </Button>
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-5xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Tenants</h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              Manage institution accounts on this platform.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                checked={includeInactive}
-                onChange={(e) => setIncludeInactive(e.target.checked)}
-                className="rounded"
-              />
-              Show inactive
-            </label>
-            <Button onClick={() => navigate('/admin/tenants/new')}>
-              <PlusCircle className="h-4 w-4 mr-1.5" />
-              New Tenant
-            </Button>
-          </div>
+      {isError && (
+        <div className="mb-4">
+          <PageError message="Failed to load tenants." onRetry={() => refetch()} />
         </div>
+      )}
 
-        {error && (
-          <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-            {error}
-          </div>
-        )}
-
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Loading tenants…
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="text-center py-16 text-gray-400">
-              <Building2 className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No tenants yet. Create one to get started.</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Institution</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Contact</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Created</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {rows.map((t) => (
-                  <TenantRow
-                    key={t.id}
-                    tenant={t}
-                    onSelect={(tenant) => navigate(`/admin/tenants/${tenant.id}`)}
-                  />
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {isLoading ? (
+          <PageLoading message="Loading tenants…" />
+        ) : rows.length === 0 ? (
+          <PageEmpty
+            icon={Building2}
+            message="No tenants yet. Create one to get started."
+          />
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Institution', 'Status', 'Contact', 'Created', 'Actions'].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    {h}
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </main>
-    </div>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((t) => (
+                <TenantRow
+                  key={t.id}
+                  tenant={t}
+                  onSelect={(tenant) => navigate(`/admin/tenants/${tenant.id}`)}
+                  onToggle={(tenant) => setConfirmTenant(tenant)}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {confirmTenant && (
+        <ConfirmDialog
+          open={!!confirmTenant}
+          title={confirmTenant.is_active ? 'Deactivate tenant?' : 'Activate tenant?'}
+          description={
+            confirmTenant.is_active
+              ? `Users at "${confirmTenant.name}" will no longer be able to log in.`
+              : `Re-enable access for all users at "${confirmTenant.name}".`
+          }
+          confirmLabel={confirmTenant.is_active ? 'Deactivate' : 'Activate'}
+          danger={confirmTenant.is_active}
+          loading={toggleMut.isPending}
+          onConfirm={() => toggleMut.mutate(confirmTenant)}
+          onCancel={() => setConfirmTenant(null)}
+        />
+      )}
+    </main>
   )
 }
