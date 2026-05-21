@@ -5,10 +5,10 @@
 #   .\run-load.ps1 -OutFile results\load-$(Get-Date -f yyyyMMdd-HHmm).json
 
 param(
-  [string]$BaseUrl       = 'http://vidya.127.0.0.1.nip.io:9080/api',
-  [string]$Tenant        = 'dev',
-  [string]$FacultyEmail  = 'faculty@dev.vidya.local',
-  [string]$FacultyPass   = 'Faculty@123',
+  [string]$BaseUrl       = 'http://vidya.127.0.0.1.nip.io:8088/api',
+  [string]$Tenant        = 'smoke-university',
+  [string]$FacultyEmail  = 'loadtest@smoke-uni.edu',
+  [string]$FacultyPass   = 'LoadTest@123',
   [string]$OutFile       = ''
 )
 

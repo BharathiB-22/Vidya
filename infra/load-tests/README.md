@@ -17,7 +17,12 @@ Verify: `k6 version`
 
 ## Target
 
-Default target: `http://vidya.127.0.0.1.nip.io:9080/api` (KIND ingress, full production-like local stack).
+Default target: `http://vidya.127.0.0.1.nip.io:8088/api` (KIND ingress via kubectl port-forward, full production-like local stack).
+
+Start the ingress port-forward before running tests:
+```powershell
+kubectl port-forward svc/ingress-nginx-controller 8088:80 -n ingress-nginx
+```
 
 KIND cluster must be running: `kubectl get pods -n vidya` — all pods healthy.
 
@@ -40,11 +45,11 @@ cd infra\load-tests
 
 | Variable        | Default                        | Description                        |
 |-----------------|--------------------------------|------------------------------------|
-| `BASE_URL`      | `http://vidya.127.0.0.1.nip.io:9080/api` | API base (no trailing slash) |
-| `TENANT`        | `dev`                          | Tenant slug sent in `X-Tenant-Slug` header |
-| `FACULTY_EMAIL` | `faculty@dev.vidya.local`      | FACULTY user for read-only tests   |
-| `FACULTY_PASS`  | `Faculty@123`                  | FACULTY password                   |
-| `ADMIN_EMAIL`   | `admin@dev.vidya.local`        | ADMIN user (audit-log tests only)  |
+| `BASE_URL`      | `http://vidya.127.0.0.1.nip.io:8088/api` | API base via ingress port-forward |
+| `TENANT`        | `smoke-university`             | Tenant slug sent in `X-Tenant-Slug` header |
+| `FACULTY_EMAIL` | `loadtest@smoke-uni.edu`       | FACULTY user for read-only tests   |
+| `FACULTY_PASS`  | `LoadTest@123`                 | FACULTY password                   |
+| `ADMIN_EMAIL`   | `tenantadmin@smoke-uni.edu`    | ADMIN user (audit-log tests only)  |
 | `ADMIN_PASS`    | `Admin@123`                    | ADMIN password                     |
 
 Override on the command line:

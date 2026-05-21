@@ -5,11 +5,13 @@
  *   k6 run -e BASE_URL=http://... -e TENANT=... -e FACULTY_EMAIL=... -e FACULTY_PASSWORD=... smoke.js
  */
 
-export const BASE_URL      = __ENV.BASE_URL       || 'http://vidya.127.0.0.1.nip.io:9080/api'
-export const TENANT        = __ENV.TENANT         || 'dev'
-export const FACULTY_EMAIL = __ENV.FACULTY_EMAIL  || 'faculty@dev.vidya.local'
-export const FACULTY_PASS  = __ENV.FACULTY_PASS   || 'Faculty@123'
-export const ADMIN_EMAIL   = __ENV.ADMIN_EMAIL    || 'admin@dev.vidya.local'
+// KIND ingress accessible via kubectl port-forward (localhost:8088 -> ingress-nginx:80)
+// Start with: kubectl port-forward svc/ingress-nginx-controller 8088:80 -n ingress-nginx
+export const BASE_URL      = __ENV.BASE_URL       || 'http://vidya.127.0.0.1.nip.io:8088/api'
+export const TENANT        = __ENV.TENANT         || 'smoke-university'
+export const FACULTY_EMAIL = __ENV.FACULTY_EMAIL  || 'loadtest@smoke-uni.edu'
+export const FACULTY_PASS  = __ENV.FACULTY_PASS   || 'LoadTest@123'
+export const ADMIN_EMAIL   = __ENV.ADMIN_EMAIL    || 'tenantadmin@smoke-uni.edu'
 export const ADMIN_PASS    = __ENV.ADMIN_PASS     || 'Admin@123'
 
 /** Standard JSON auth headers — pass token obtained in setup() */
