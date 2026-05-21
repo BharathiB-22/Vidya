@@ -207,10 +207,11 @@ jobs:
     name: Build & Push (${{ matrix.name }})
     needs: [migration-dryrun]
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
       packages: write
+      id-token: write    # required for Cosign keyless signing via GitHub OIDC
     strategy:
       matrix:
         include:
@@ -237,6 +238,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -244,6 +246,33 @@ jobs:
           tags: ${{ matrix.image }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+      - name: Scan image for CVEs (Trivy)
+        # Fails the pipeline on CRITICAL CVEs that have a fix available.
+        # HIGH is not a gate here — CRITICAL means active exploit risk.
+        # ignore-unfixed=true: skip CVEs with no upstream fix yet (unactionable).
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ matrix.image }}:${{ github.sha }}
+          format: table
+          exit-code: 1
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless via GitHub OIDC)
+        # Keyless signing: Cosign requests a short-lived cert from Sigstore Fulcio
+        # using the GitHub OIDC token. No private key is stored anywhere.
+        # Signature is recorded in the public Rekor transparency log.
+        # Verify with: cosign verify --certificate-identity-regexp=".*" \
+        #   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+        #   $IMAGE@$DIGEST
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${{ matrix.image }}@${DIGEST}"
 
   staging-deploy:
     name: Staging Deploy
