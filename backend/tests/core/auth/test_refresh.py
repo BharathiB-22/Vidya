@@ -18,10 +18,6 @@ async def _login(async_client, user):
     return resp.json()
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-02: refresh-token index retention assertion mismatch deferred from H05-07",
-    strict=False,
-)
 async def test_refresh_happy_path(async_client, test_tenant_a, admin_user_a):
     tokens = await _login(async_client, admin_user_a)
     old_refresh = tokens["refresh_token"]
@@ -32,16 +28,18 @@ async def test_refresh_happy_path(async_client, test_tenant_a, admin_user_a):
     new_tokens = resp.json()
     assert new_tokens["refresh_token"] != old_refresh
 
-    # Old token should be gone from index
+    # Index entry is retained after rotation for reuse-detection (H05-DEF-02 fix).
+    # The old hash remains in public.refresh_token_index so that a second use of the
+    # old token can be detected and all sessions revoked.
     async with _Session() as session:
         async with session.begin():
             row = await session.execute(
                 text("SELECT 1 FROM public.refresh_token_index WHERE token_hash = :h"),
                 {"h": old_hash},
             )
-            assert row.scalar_one_or_none() is None
+            assert row.scalar_one_or_none() is not None
 
-    # Old token revoked in tenant table
+    # Old token is revoked in the tenant refresh_tokens table
     async with _Session() as session:
         async with session.begin():
             await session.execute(text(f"SET LOCAL search_path = {SCHEMA_A}, public"))
@@ -52,10 +50,6 @@ async def test_refresh_happy_path(async_client, test_tenant_a, admin_user_a):
             assert row.scalar_one_or_none() is True
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_refresh_reuse_detection(async_client, test_tenant_a, admin_user_a):
     tokens = await _login(async_client, admin_user_a)
     refresh_token = tokens["refresh_token"]
@@ -67,7 +61,8 @@ async def test_refresh_reuse_detection(async_client, test_tenant_a, admin_user_a
     # Reuse old token — should trigger reuse detection
     r2 = await async_client.post("/auth/refresh", json={"refresh_token": refresh_token})
     assert r2.status_code == 401
-    assert r2.json()["detail"]["error"] == "INVALID_TOKEN"
+    # http_exception_handler unwraps detail — body is {"error": ..., "message": ...}
+    assert r2.json()["error"] == "INVALID_TOKEN"
 
     # New token from r1 should also be revoked (all tokens revoked)
     r3 = await async_client.post(
@@ -76,10 +71,6 @@ async def test_refresh_reuse_detection(async_client, test_tenant_a, admin_user_a
     assert r3.status_code == 401
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_refresh_expired_token(async_client, test_tenant_a, admin_user_a):
     raw = generate_refresh_token()
     token_hash = hash_token(raw)
@@ -107,17 +98,13 @@ async def test_refresh_expired_token(async_client, test_tenant_a, admin_user_a):
 
     resp = await async_client.post("/auth/refresh", json={"refresh_token": raw})
     assert resp.status_code == 401
-    assert resp.json()["detail"]["error"] == "INVALID_TOKEN"
+    assert resp.json()["error"] == "INVALID_TOKEN"
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_refresh_bogus_token(async_client, test_tenant_a):
     resp = await async_client.post("/auth/refresh", json={"refresh_token": "not-a-real-token"})
     assert resp.status_code == 401
-    assert resp.json()["detail"]["error"] == "INVALID_TOKEN"
+    assert resp.json()["error"] == "INVALID_TOKEN"
 
 
 async def test_refresh_inactive_user(async_client, test_tenant_a, admin_user_a):

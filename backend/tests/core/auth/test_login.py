@@ -29,10 +29,6 @@ async def test_login_happy_path(async_client, test_tenant_a, admin_user_a):
     assert last_login is not None
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_login_wrong_password(async_client, test_tenant_a, admin_user_a):
     resp = await async_client.post(
         "/auth/login",
@@ -40,13 +36,10 @@ async def test_login_wrong_password(async_client, test_tenant_a, admin_user_a):
         headers={"X-Tenant-Slug": SLUG_A},
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"]["error"] == "INVALID_CREDENTIALS"
+    # http_exception_handler unwraps detail — body is {"error": ..., "message": ...}
+    assert resp.json()["error"] == "INVALID_CREDENTIALS"
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_login_unknown_email(async_client, test_tenant_a):
     resp = await async_client.post(
         "/auth/login",
@@ -54,7 +47,7 @@ async def test_login_unknown_email(async_client, test_tenant_a):
         headers={"X-Tenant-Slug": SLUG_A},
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"]["error"] == "INVALID_CREDENTIALS"
+    assert resp.json()["error"] == "INVALID_CREDENTIALS"
 
 
 async def test_login_inactive_user(async_client, test_tenant_a, admin_user_a):
@@ -90,10 +83,6 @@ async def test_login_missing_tenant_slug(async_client):
     assert resp.status_code == 422
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_login_unknown_slug(async_client):
     resp = await async_client.post(
         "/auth/login",
@@ -101,13 +90,9 @@ async def test_login_unknown_slug(async_client):
         headers={"X-Tenant-Slug": "nonexistent-slug-xyz"},
     )
     assert resp.status_code == 404
-    assert resp.json()["detail"]["error"] == "TENANT_NOT_FOUND"
+    assert resp.json()["error"] == "TENANT_NOT_FOUND"
 
 
-@pytest.mark.xfail(
-    reason="H05-DEF-01: error envelope format refactor deferred from H05-07",
-    strict=False,
-)
 async def test_login_inactive_tenant(async_client, test_tenant_a, admin_user_a):
     async with _Session() as session:
         async with session.begin():
@@ -122,7 +107,7 @@ async def test_login_inactive_tenant(async_client, test_tenant_a, admin_user_a):
             headers={"X-Tenant-Slug": SLUG_A},
         )
         assert resp.status_code == 403
-        assert resp.json()["detail"]["error"] == "TENANT_INACTIVE"
+        assert resp.json()["error"] == "TENANT_INACTIVE"
     finally:
         async with _Session() as session:
             async with session.begin():
