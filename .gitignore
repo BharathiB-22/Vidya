@@ -18,3 +18,6 @@ __pycache__/
 
 # Local backup files — never commit these (may contain DB dumps)
 infra/backups/
+
+# k6 load test result files — generated locally, not committed
+infra/load-tests/results/*.json

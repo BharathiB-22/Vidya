@@ -1,0 +1,32 @@
+# run-smoke.ps1 — Vidya smoke baseline (1 VU, 30 s)
+# Prerequisites: k6 installed (https://k6.io/docs/getting-started/installation/)
+# Usage:
+#   .\run-smoke.ps1
+#   .\run-smoke.ps1 -OutFile results\smoke-$(Get-Date -f yyyyMMdd-HHmm).json
+
+param(
+  [string]$BaseUrl       = 'http://vidya.127.0.0.1.nip.io:9080/api',
+  [string]$Tenant        = 'dev',
+  [string]$FacultyEmail  = 'faculty@dev.vidya.local',
+  [string]$FacultyPass   = 'Faculty@123',
+  [string]$OutFile       = ''
+)
+
+$script = Join-Path $PSScriptRoot 'smoke.js'
+
+$args = @(
+  'run',
+  '-e', "BASE_URL=$BaseUrl",
+  '-e', "TENANT=$Tenant",
+  '-e', "FACULTY_EMAIL=$FacultyEmail",
+  '-e', "FACULTY_PASS=$FacultyPass"
+)
+
+if ($OutFile) {
+  $args += '--out', "json=$OutFile"
+}
+
+$args += $script
+
+Write-Host "Running smoke test against $BaseUrl ..." -ForegroundColor Cyan
+k6 @args
