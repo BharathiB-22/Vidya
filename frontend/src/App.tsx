@@ -41,6 +41,7 @@ import BellCurveListPage from '@/pages/BellCurveListPage'
 import BellCurveAnalysisPage from '@/pages/BellCurveAnalysisPage'
 import BellCurveRatifyPage from '@/pages/BellCurveRatifyPage'
 import FairnessReportPage from '@/pages/FairnessReportPage'
+import FirstLoginPage from '@/pages/FirstLoginPage'
 
 export default function App() {
   return (
@@ -60,6 +61,9 @@ export default function App() {
 
       {/* Tenant portal — auth gate → app shell → role gates */}
       <Route element={<AuthGuard />}>
+        {/* Standalone first-login page — no shell, blocks access until password is set */}
+        <Route path="/first-login" element={<FirstLoginPage />} />
+
         <Route element={<AppShell />}>
 
           {/* Dashboard — all authenticated roles */}

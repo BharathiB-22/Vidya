@@ -65,6 +65,18 @@ class UpdateUserRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
@@ -95,6 +107,7 @@ class UserResponse(BaseModel):
 class MeResponse(UserResponse):
     tenant_id: Optional[UUID]
     schema_name: Optional[str]
+    first_login: bool = False
 
 
 # ---------------------------------------------------------------------------

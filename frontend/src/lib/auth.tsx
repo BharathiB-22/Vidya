@@ -8,6 +8,7 @@ export interface CurrentUser {
   fullName: string
   tenantSlug: string
   schemaName: string | null
+  firstLogin: boolean
 }
 
 interface AuthContextType {
@@ -16,9 +17,22 @@ interface AuthContextType {
   user: CurrentUser | null
   login: (tenantSlug: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
+
+function _meToUser(me: Record<string, unknown>, tenantSlug: string): CurrentUser {
+  return {
+    id: String(me.id),
+    email: me.email as string,
+    role: me.role as string,
+    fullName: (me.full_name as string) ?? (me.email as string),
+    tenantSlug,
+    schemaName: (me.schema_name as string) ?? null,
+    firstLogin: (me.first_login as boolean) ?? false,
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -37,14 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const me = res.data
         const tenantSlug = localStorage.getItem('vidya_tenant_slug') ?? ''
         localStorage.setItem('vidya_role', me.role)
-        setUser({
-          id: String(me.id),
-          email: me.email,
-          role: me.role,
-          fullName: me.full_name ?? me.email,
-          tenantSlug,
-          schemaName: me.schema_name ?? null,
-        })
+        setUser(_meToUser(me, tenantSlug))
         setIsAuthenticated(true)
       })
       .catch(() => {
@@ -69,15 +76,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: me } = await api.get('/auth/me')
     localStorage.setItem('vidya_role', me.role)
-    setUser({
-      id: String(me.id),
-      email: me.email,
-      role: me.role,
-      fullName: me.full_name ?? me.email,
-      tenantSlug,
-      schemaName: me.schema_name ?? null,
-    })
+    setUser(_meToUser(me, tenantSlug))
     setIsAuthenticated(true)
+  }
+
+  async function refreshUser(): Promise<void> {
+    const tenantSlug = localStorage.getItem('vidya_tenant_slug') ?? ''
+    const { data: me } = await api.get('/auth/me')
+    localStorage.setItem('vidya_role', me.role)
+    setUser(_meToUser(me, tenantSlug))
   }
 
   async function logout(): Promise<void> {
@@ -99,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, user, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, user, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

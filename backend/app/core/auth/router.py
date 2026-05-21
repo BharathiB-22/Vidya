@@ -10,6 +10,7 @@ from app.core.auth.dependencies import (
 )
 from app.core.auth.repository import TenantRepository
 from app.core.auth.schemas import (
+    ChangePasswordRequest,
     LoginRequest,
     MeResponse,
     PasswordResetConfirmIn,
@@ -159,7 +160,40 @@ async def get_me(
         created_at=user.created_at,
         tenant_id=current_user.tenant_id,
         schema_name=current_user.schema_name,
+        first_login=user.password_changed_at is None,
     )
+
+
+@router.post("/change-password", status_code=200)
+@limiter.limit("10/minute")
+async def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    if current_user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Super admins use /platform/auth/change-password"},
+        )
+    async with AsyncSessionLocal() as db:
+        await db.execute(text(f"SET LOCAL search_path = {current_user.schema_name}, public"))
+        try:
+            await TenantAuthService.change_password(
+                current_user.user_id,
+                body.current_password,
+                body.new_password,
+                current_user.role,
+                current_user.tenant_id,
+                current_user.schema_name,
+                request.client.host if request.client else None,
+                request.headers.get("user-agent"),
+                db,
+            )
+            await db.commit()
+        except AuthError as e:
+            raise _auth_error(e)
+    return {"message": "Password changed successfully"}
 
 
 @router.post("/password-reset/request", status_code=200)

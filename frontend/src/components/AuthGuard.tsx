@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import UnauthorizedPage from '@/pages/UnauthorizedPage'
 
@@ -8,6 +8,7 @@ interface AuthGuardProps {
 
 export function AuthGuard({ allowedRoles }: AuthGuardProps = {}) {
   const { isAuthenticated, isLoading, user } = useAuth()
+  const location = useLocation()
 
   if (isLoading) {
     return (
@@ -19,6 +20,12 @@ export function AuthGuard({ allowedRoles }: AuthGuardProps = {}) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
+  }
+
+  // Force first-login users to change their password before accessing the app.
+  // Skip this check when already on /first-login to prevent an infinite redirect.
+  if (!allowedRoles && user?.firstLogin && location.pathname !== '/first-login') {
+    return <Navigate to="/first-login" replace />
   }
 
   // When allowedRoles is provided, enforce role membership.

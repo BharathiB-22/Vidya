@@ -696,3 +696,34 @@ class TenantAuthService:
             ip_address=ip_address, user_agent=user_agent,
         )
         return UserResponse.model_validate(user)
+
+    @staticmethod
+    async def change_password(
+        user_id: UUID,
+        current_password: str,
+        new_password: str,
+        actor_role: str,
+        tenant_id: UUID,
+        schema_name: str,
+        ip_address: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> None:
+        user = await TenantRepository.get_user_by_id(user_id, db)
+        if not user:
+            raise AuthError("USER_NOT_FOUND", "User not found", 404)
+        if not verify_password(current_password, user.password_hash):
+            raise AuthError("INVALID_CREDENTIALS", "Current password is incorrect", 401)
+        new_hash = hash_password(new_password)
+        now = datetime.now(timezone.utc)
+        await TenantRepository.update_user(
+            user_id, {"password_hash": new_hash, "password_changed_at": now}, db
+        )
+        await TenantRepository.revoke_all_user_refresh_tokens(user_id, schema_name, db)
+        await AuditService.log(
+            AuditEventType.AUTH_PASSWORD_CHANGED,
+            actor_user_id=user_id, actor_role=actor_role,
+            tenant_id=tenant_id, schema_name=schema_name,
+            target_entity="User", target_id=str(user_id),
+            ip_address=ip_address, user_agent=user_agent,
+        )
