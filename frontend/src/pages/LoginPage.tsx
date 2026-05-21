@@ -34,7 +34,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await auth.login(slug.trim(), email.trim(), password)
-      navigate('/programs', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {

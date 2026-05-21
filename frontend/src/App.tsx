@@ -1,8 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthGuard } from '@/components/AuthGuard'
 import { AdminAuthGuard } from '@/components/AdminAuthGuard'
+import { AppShell } from '@/components/shell/AppShell'
 import LoginPage from '@/pages/LoginPage'
 import AdminLoginPage from '@/pages/AdminLoginPage'
+import DashboardPage from '@/pages/DashboardPage'
 import TenantListPage from '@/pages/admin/TenantListPage'
 import TenantCreatePage from '@/pages/admin/TenantCreatePage'
 import TenantDetailPage from '@/pages/admin/TenantDetailPage'
@@ -44,7 +46,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
-      {/* Super Admin portal */}
+      {/* Super Admin portal (no AppShell — admin has its own inline header) */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route element={<AdminAuthGuard />}>
         <Route path="/admin/tenants" element={<TenantListPage />} />
@@ -52,58 +54,64 @@ export default function App() {
         <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
         <Route path="/admin" element={<Navigate to="/admin/tenants" replace />} />
       </Route>
+
+      {/* Tenant user portal — AuthGuard then AppShell (sidebar + topbar) */}
       <Route element={<AuthGuard />}>
-        <Route path="/programs" element={<ProgramListPage />} />
-        <Route path="/programs/:id" element={<ProgramDetailPage />} />
-        <Route path="/syllabuses" element={<SyllabusListPage />} />
-        <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
-        <Route path="/course-kits" element={<CourseKitListPage />} />
-        <Route path="/course-kits/:id" element={<CourseKitDetailPage />} />
-        <Route path="/learning-packages" element={<LearningPackageListPage />} />
-        <Route path="/learning-packages/:id" element={<LearningPackagePage />} />
-        <Route path="/learning-packages/:id/curate" element={<FacultyCuratePage />} />
+        <Route element={<AppShell />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
 
-        {/* M06 — Labs (faculty) */}
-        <Route path="/labs" element={<LabAssignmentListPage />} />
-        <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
-        <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
+          <Route path="/programs" element={<ProgramListPage />} />
+          <Route path="/programs/:id" element={<ProgramDetailPage />} />
+          <Route path="/syllabuses" element={<SyllabusListPage />} />
+          <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
+          <Route path="/course-kits" element={<CourseKitListPage />} />
+          <Route path="/course-kits/:id" element={<CourseKitDetailPage />} />
+          <Route path="/learning-packages" element={<LearningPackageListPage />} />
+          <Route path="/learning-packages/:id" element={<LearningPackagePage />} />
+          <Route path="/learning-packages/:id/curate" element={<FacultyCuratePage />} />
 
-        {/* M06 — Labs (student) */}
-        <Route path="/student/labs" element={<StudentLabListPage />} />
-        <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
-        <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
+          {/* M06 — Labs (faculty) */}
+          <Route path="/labs" element={<LabAssignmentListPage />} />
+          <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
+          <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
 
-        {/* M07 — Research Supervision (guide) */}
-        <Route path="/research/problems" element={<ResearchProblemListPage />} />
-        <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
-        <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
+          {/* M06 — Labs (student) */}
+          <Route path="/student/labs" element={<StudentLabListPage />} />
+          <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
+          <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
 
-        {/* M07 — Research Supervision (student) */}
-        <Route path="/student/research" element={<StudentResearchPage />} />
-        <Route path="/student/viva/:token" element={<StudentVivaPage />} />
+          {/* M07 — Research Supervision (guide) */}
+          <Route path="/research/problems" element={<ResearchProblemListPage />} />
+          <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
+          <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
 
-        {/* M08 — Exam Paper Setter (faculty) */}
-        <Route path="/exams" element={<ExamPaperListPage />} />
-        <Route path="/exams/create" element={<ExamPaperCreatePage />} />
-        <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
-        <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
+          {/* M07 — Research Supervision (student) */}
+          <Route path="/student/research" element={<StudentResearchPage />} />
+          <Route path="/student/viva/:token" element={<StudentVivaPage />} />
 
-        {/* M08 — Board review */}
-        <Route path="/exams/:id/review" element={<BoardReviewPage />} />
+          {/* M08 — Exam Paper Setter (faculty) */}
+          <Route path="/exams" element={<ExamPaperListPage />} />
+          <Route path="/exams/create" element={<ExamPaperCreatePage />} />
+          <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
+          <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
 
-        {/* M09 — Paper Administration (admin/board) */}
-        <Route path="/scripts" element={<ScriptListPage />} />
-        <Route path="/scripts/upload" element={<ScriptUploadPage />} />
-        <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
-        <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
+          {/* M08 — Board review */}
+          <Route path="/exams/:id/review" element={<BoardReviewPage />} />
 
-        {/* M10 — Bell Curve Normaliser (board/admin/dean) */}
-        <Route path="/bell-curve" element={<BellCurveListPage />} />
-        <Route path="/bell-curve/reports" element={<FairnessReportPage />} />
-        <Route path="/bell-curve/:id/ratify" element={<BellCurveRatifyPage />} />
-        <Route path="/bell-curve/:id" element={<BellCurveAnalysisPage />} />
+          {/* M09 — Paper Administration (admin/board) */}
+          <Route path="/scripts" element={<ScriptListPage />} />
+          <Route path="/scripts/upload" element={<ScriptUploadPage />} />
+          <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
+          <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
 
-        <Route path="/" element={<Navigate to="/programs" replace />} />
+          {/* M10 — Bell Curve Normaliser (board/admin/dean) */}
+          <Route path="/bell-curve" element={<BellCurveListPage />} />
+          <Route path="/bell-curve/reports" element={<FairnessReportPage />} />
+          <Route path="/bell-curve/:id/ratify" element={<BellCurveRatifyPage />} />
+          <Route path="/bell-curve/:id" element={<BellCurveAnalysisPage />} />
+
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        </Route>
       </Route>
     </Routes>
   )

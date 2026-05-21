@@ -1,9 +1,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import api from '@/lib/api'
 
+export interface CurrentUser {
+  id: string
+  email: string
+  role: string
+  fullName: string
+  tenantSlug: string
+  schemaName: string | null
+}
+
 interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
+  user: CurrentUser | null
   login: (tenantSlug: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
@@ -13,6 +23,7 @@ const AuthContext = createContext<AuthContextType | null>(null)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<CurrentUser | null>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('vidya_token')
@@ -23,13 +34,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api
       .get('/auth/me')
       .then((res) => {
-        localStorage.setItem('vidya_role', res.data.role)
+        const me = res.data
+        const tenantSlug = localStorage.getItem('vidya_tenant_slug') ?? ''
+        localStorage.setItem('vidya_role', me.role)
+        setUser({
+          id: String(me.id),
+          email: me.email,
+          role: me.role,
+          fullName: me.full_name ?? me.email,
+          tenantSlug,
+          schemaName: me.schema_name ?? null,
+        })
         setIsAuthenticated(true)
       })
       .catch(() => {
         localStorage.removeItem('vidya_token')
         localStorage.removeItem('vidya_refresh_token')
         localStorage.removeItem('vidya_role')
+        setUser(null)
         setIsAuthenticated(false)
       })
       .finally(() => setIsLoading(false))
@@ -47,7 +69,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: me } = await api.get('/auth/me')
     localStorage.setItem('vidya_role', me.role)
-
+    setUser({
+      id: String(me.id),
+      email: me.email,
+      role: me.role,
+      fullName: me.full_name ?? me.email,
+      tenantSlug,
+      schemaName: me.schema_name ?? null,
+    })
     setIsAuthenticated(true)
   }
 
@@ -64,12 +93,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('vidya_refresh_token')
       localStorage.removeItem('vidya_role')
       // Keep vidya_tenant_slug so it pre-fills the login form next time
+      setUser(null)
       setIsAuthenticated(false)
     }
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, user, login, logout }}>
       {children}
     </AuthContext.Provider>
   )
