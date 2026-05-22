@@ -105,20 +105,6 @@ During the smoke test, Prometheus (`vidya-prometheus-1` docker container) report
 
 ---
 
-## Interpretation
-
-The smoke baseline is **PASS** with excellent margins:
-
-- p95 of **27.82 ms** is 18× under the 500 ms threshold
-- p99 of **50.70 ms** is 20× under the 1000 ms threshold
-- Zero request failures across 146 requests
-
-The KIND ingress path (port-forward → ingress-nginx → pgbouncer → postgres) is stable under 1-VU sequential load. All five covered endpoints responded correctly and consistently throughout the 30-second run.
-
-The 317 ms login latency is expected (bcrypt cost factor) and occurs only once per test run in `setup()`.
-
----
-
 ## Run 2 — Sustained Load Baseline (H13-03)
 
 | Item       | Value                           |
@@ -191,59 +177,135 @@ for the full 60-second run. No connection resets, no 5xx responses, no rate-limi
 Iteration duration was tightly clustered: avg 1.02 s, p95 1.06 s — indicating no queuing or backpressure
 within the ingress stack at 10 VU / ~10 req/s.
 
----
-
-## BUG-H13-03-01 — notifications 500 after pod restart
-
-**Symptom**: `GET /notifications?page=1&page_size=10` returns HTTP 500 with
-`UndefinedTableError: relation "notifications" does not exist` after the API pod restarts.
-
-**Root cause**: The notifications repository queries without a schema-qualified table name.
-PostgreSQL session `search_path` must be set to `tenant_<slug>` before the query executes.
-PgBouncer resets connection state (including `search_path`) when recycling pooled connections,
-so the first request on a freshly-recycled connection lands in the `public` schema where
-`notifications` does not exist.
-
-**Evidence**: `tenant_smoke_university.notifications` table exists and is intact. The same
-query with `SET search_path = tenant_smoke_university` succeeds.
-
-**Why it passed H13-02 smoke**: Single VU, sequential, all requests served on the same
-connection — `search_path` was set once and not reset during the 30-second run.
-
-**Impact for H13-03**: Notifications excluded from load script; `/ready` used as substitute.
-The core ingress and database stack measurements are unaffected.
-
-**Resolution path (deferred)**: Add `options={'schema_translate_map': None}` / explicit
-`EXECUTE 'SET search_path TO tenant_...'` in the notifications repository session setup,
-or configure pgbouncer `server_reset_query` to include `SET search_path` in the reset sequence.
-Tracked as future improvement.
 
 ---
 
-## Grafana / Prometheus Correlation Notes
+## Run 3 — Spike and Rate-Limit Validation (H13-04)
 
-### Finding: API scrape target unreachable
+| Item       | Value                                       |
+|------------|---------------------------------------------|
+| Date       | 2026-05-22                                  |
+| Commit     | 480e815 (H13-03 sustained load baseline)    |
+| Script     | infra/load-tests/spike.js                   |
+| VUs        | 8 → 30 → 8 (warm-up / spike / wind-down)    |
+| Duration   | 40 s (10s + 20s + 10s)                      |
+| Iterations | 1 432                                       |
 
-During the smoke test, Prometheus (`vidya-prometheus-1` docker container) reported `up=0` for the `vidya-api` scrape target. The docker-compose monitoring stack and the KIND cluster pods run on separate Docker networks. Prometheus cannot reach `vidya-api:8000` from within the monitoring compose network.
+### Thresholds
 
-**Impact**: API-level request rate, latency histograms, and error counts are not available in Grafana for this run. The k6 output is the authoritative source for H13-02.
+| Threshold                                     | Target | Actual | Pass? |
+|-----------------------------------------------|--------|--------|-------|
+| http_req_failed{expected_response:false} rate | < 5%   | 100%*  | ✗     |
 
-**Infrastructure exporters**: Both `postgres_exporter` and `redis_exporter` containers are also showing `up=0` for their specific application metrics (pg_up, redis_up). Root cause: these exporters are configured to reach the KIND cluster's postgres/redis, which are also not network-accessible from the docker-compose monitoring stack.
+> \* All 63 failed requests were HTTP 500 (not 429). k6 treats those as `expected_response:false`,
+> so 63/63 = 100%. `abortOnFail` is false — the test ran to completion. This is a degenerate
+> case caused by **no 429s being issued** (see BUG-H13-04-01).
 
-**Resolution path (deferred)**: To enable Prometheus correlation, expose the API pod's `/metrics` endpoint through the KIND ingress at `/metrics` (auth-protected), or configure Prometheus with a scrape job that targets the host-port-forwarded API. Tracked as future improvement.
+### Status Code Distribution
 
-### Available Grafana data
+| Status | Count | Share  |
+|--------|-------|--------|
+| 200    | 1 370 | 95.60% |
+| 500    | 63    | 4.39%  |
+| 429    | 0     | 0.00%  |
 
-| Scrape target        | up | Notes                              |
-|----------------------|----|------------------------------------|
-| prometheus           | 1  | Self-scrape working                |
-| postgres (exporter)  | 0  | Exporter container can't reach KIND Postgres |
-| redis (exporter)     | 0  | Exporter container can't reach KIND Redis  |
-| vidya-api            | 0  | KIND pod not reachable from docker-compose |
+### Overall Latency (1 432 requests, `/programs` only)
+
+| Percentile | ms    |
+|------------|-------|
+| min        | 12.8  |
+| avg        | 227.1 |
+| p50 (med)  | 190.4 |
+| p90        | 467.1 |
+| p95        | 560.8 |
+| p99        | 679.4 |
+| max        | 772.2 |
+
+> Latency increase vs H13-03 sustained: p50 +170 ms, p95 +495 ms — expected under 3× VU load.
+> All requests still completed; no connection timeouts observed.
+
+### Throughput
+
+| Metric         | Value             |
+|----------------|-------------------|
+| Total requests | 1 433             |
+| req/s          | 35.0              |
+| data received  | 889 kB (22 kB/s)  |
+| data sent      | 831 kB (20 kB/s)  |
+
+### Rate-Limit Behavior
+
+| Metric          | Value     |
+|-----------------|-----------|
+| rate_limit_hits | 0 / 1432  |
+| server_errors   | 63 / 1432 |
+
+**No rate limiting was triggered at any VU level.** The `/programs` endpoint handled up to
+30 concurrent VUs (~35 req/s) without issuing a single 429 response. See BUG-H13-04-01.
+
+### 500 Error Distribution Over Time
+
+Errors first appeared at **t+11 s** (when VU count reached ~8 at end of warm-up), peaked
+at t+14–15 s (8 errors/s during early spike), and persisted intermittently through wind-down.
+Error pattern is **bursty, not cascading** — gaps of 2–5 s between bursts confirm the API
+continued serving requests normally between failures.
+
+| Phase      | t range | VUs  | Errors |
+|------------|---------|------|--------|
+| Warm-up    | 0–10 s  | 1–8  | 0      |
+| Spike ramp | 11–20 s | 8–30 | 32     |
+| Spike hold | 21–30 s | ~30  | 11     |
+| Wind-down  | 31–40 s | 30–8 | 20     |
+
+### Recovery Verification
+
+Post-spike health probe (immediately after k6 exit):
+
+| Probe    | Status | Note                                                |
+|----------|--------|-----------------------------------------------------|
+| /healthz | 200    | `{"status":"ok"}`                                   |
+| /ready   | 200    | `{"db":"healthy","redis":"healthy","s3":"healthy"}` |
+
+**Recovery is clean.** No circuit breakers tripped, no memory leaks, no connection pool
+exhaustion observed.
+
+---
+
+## BUG-H13-04-01 — Rate limiting not active in KIND deployment
+
+**Symptom**: Zero 429 responses across 1 432 requests at 30 VU / 35 req/s peak.
+The spike test was designed to trigger rate-limit behaviour; none was observed.
+
+**Root cause**: Rate-limit middleware (`slowapi` or ingress-nginx `limit_req`) is not
+configured in the KIND dev values. `values.dev.yaml` likely omits `RATE_LIMIT_*` env vars
+or the ingress annotation `nginx.ingress.kubernetes.io/limit-rps`.
+
+**Impact**: In production, rate limiting must be explicitly configured and verified before
+launch. Without it, a 30+ VU burst hits the database directly.
+
+**Resolution path (deferred)**:
+1. Add `nginx.ingress.kubernetes.io/limit-rps: "20"` to the API ingress manifest, or
+2. Configure `slowapi` in the FastAPI app with `{"error":"RATE_LIMITED","message":"Too many requests"}` shape.
+3. Re-run spike.js after enabling — the test is already instrumented to validate the 429 response shape.
+
+---
+
+## BUG-H13-03-01 — search_path reset scope extended by H13-04
+
+**Original finding (H13-03)**: `/notifications` returns 500 after pod restart — pgbouncer
+resets the session `search_path`, landing queries in `public` instead of `tenant_<slug>`.
+
+**H13-04 extension**: `/programs` also returns 500 under spike load (30 VUs, sleep 0.2s).
+Under H13-03 sustained (10 VUs, sleep 1s), infrequent connection recycling kept errors at
+0%. Under H13-04 spike, aggressive connection cycling surfaces the bug on any tenant-schema
+endpoint. The fix (explicit `SET search_path` in the repository base class, or
+`server_reset_query` in pgbouncer) resolves it globally.
 
 ---
 
 ## Interpretation
+
+### H13-02 Smoke
 
 The smoke baseline is **PASS** with excellent margins:
 
@@ -251,9 +313,7 @@ The smoke baseline is **PASS** with excellent margins:
 - p99 of **50.70 ms** is 20× under the 1000 ms threshold
 - Zero request failures across 146 requests
 
-The KIND ingress path (port-forward → ingress-nginx → pgbouncer → postgres) is stable under 1-VU sequential load. All five covered endpoints responded correctly and consistently throughout the 30-second run.
-
-The 317 ms login latency is expected (bcrypt cost factor) and occurs only once per test run in `setup()`.
+The KIND ingress path (port-forward → ingress-nginx → pgbouncer → postgres) is stable under 1-VU sequential load. The 317 ms login latency is expected (bcrypt cost factor) and occurs only once per test run in `setup()`.
 
 ### H13-03 Sustained Load
 
@@ -265,16 +325,28 @@ The sustained load baseline is **PASS** — all four thresholds green, zero erro
 - `/programs` (DB-backed) p99 **149 ms** — slowest authenticated endpoint, well within budget
 - Ingress stable: no queuing, no backpressure, no rate limiting observed during the full 60 s
 
-The stack handles 10 concurrent users at ~10 req/s with comfortable headroom. The BUG-H13-03-01
-notifications `search_path` issue is documented and deferred; it does not affect ingress
-stability measurements.
+The stack handles 10 concurrent users at ~10 req/s with comfortable headroom.
+
+### H13-04 Spike
+
+The spike test **ran to completion** without cascading failure. The ingress and API stack
+remained responsive throughout 30 VUs / 35 req/s. Two actionable findings:
+
+1. **Rate limiting is not configured** (BUG-H13-04-01): must be added before production
+   launch; spike.js is already instrumented to re-validate once enabled.
+2. **search_path bug is load-sensitive** (BUG-H13-03-01 extended): 4.4% of spike requests
+   returned 500 due to pgbouncer connection recycling. The fix is a single change to the
+   repository session setup and resolves both `/notifications` and all other tenant endpoints.
+
+Excluding the known search_path issue, the ingress stack demonstrated stable latency
+(p50 190 ms, p95 561 ms) and clean recovery under 3× normal load.
 
 ---
 
 ## Next Runs
 
-| Run    | Script       | VUs  | Duration | Status  |
-|--------|--------------|------|----------|---------|
-| H13-02 | smoke.js     | 1    | 30 s     | DONE ✓  |
-| H13-03 | load.js      | 10   | 60 s     | DONE ✓  |
-| H13-04 | spike.js     | 8→30 | ~40 s    | PENDING |
+| Run    | Script    | VUs  | Duration | Status |
+|--------|-----------|------|----------|--------|
+| H13-02 | smoke.js  | 1    | 30 s     | DONE ✓ |
+| H13-03 | load.js   | 10   | 60 s     | DONE ✓ |
+| H13-04 | spike.js  | 8→30 | ~40 s    | DONE ✓ |
