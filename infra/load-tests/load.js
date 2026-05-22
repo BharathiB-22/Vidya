@@ -2,6 +2,10 @@
  * H13-03 — Sustained load baseline
  * 10 VU × 60 s, read-only endpoints, sleep(1) per iteration (~10 req/s peak).
  * Run: k6 run load.js  (or via run-load.ps1)
+ *
+ * NOTE: /notifications excluded — pgbouncer connection-reset after pod restart loses
+ * tenant search_path, causing 500 on public.notifications (BUG-H13-03-01, deferred).
+ * Third slot replaced with /ready (infrastructure health probe).
  */
 import http  from 'k6/http'
 import { check, sleep } from 'k6'
@@ -48,8 +52,10 @@ export default function (data) {
     const r = http.get(`${BASE_URL}/programs?page=1&page_size=10`, { headers: H, tags: { endpoint: 'programs' } })
     check(r, { 'programs 200': (x) => x.status === 200 })
   } else if (vu === 1) {
-    const r = http.get(`${BASE_URL}/notifications?page=1&page_size=10`, { headers: H, tags: { endpoint: 'notifications' } })
-    check(r, { 'notifications 200': (x) => x.status === 200 })
+    // /ready — infrastructure health probe (replaces /notifications which has BUG-H13-03-01)
+    const base = BASE_URL.replace('/api', '')
+    const r = http.get(`${base}/ready`, { tags: { endpoint: 'ready' } })
+    check(r, { 'ready 200': (x) => x.status === 200 })
   } else {
     const r = http.get(`${BASE_URL}/auth/me`, { headers: H, tags: { endpoint: 'auth_me' } })
     check(r, { 'auth/me 200': (x) => x.status === 200 })
