@@ -87,16 +87,16 @@ function CreateUserDialog({ open, onClose, onCreated }: CreateDialogProps) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3 mt-2">
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Full name</label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+            <label htmlFor="cu-full-name" className="text-sm font-medium text-gray-700">Full name</label>
+            <Input id="cu-full-name" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Email</label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label htmlFor="cu-email" className="text-sm font-medium text-gray-700">Email</label>
+            <Input id="cu-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Temporary password</label>
-            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+            <label htmlFor="cu-password" className="text-sm font-medium text-gray-700">Temporary password</label>
+            <Input id="cu-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Role</label>
