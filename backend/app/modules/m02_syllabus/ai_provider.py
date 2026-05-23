@@ -410,10 +410,12 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
       course_outcomes  -> outcomes
 
     Per CO:
+      bloom            -> bloom_level  (Groq sometimes omits the _level suffix)
       co_statement     -> description  (primary observed alias)
       co_description   -> description  (fallback alias)
       statement        -> description  (fallback alias)
-      co               -> description  (original fallback alias)
+      co               -> description  (fallback alias; also used when description is empty string)
+      (empty/missing description) -> synthesized from code + bloom_level as last resort
       (missing code)   -> CO1, CO2, …  (stable sequential codes)
       (missing suggested_po_codes) -> []
 
@@ -447,14 +449,30 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
     for i, co in enumerate(outcomes):
         if not isinstance(co, dict):
             continue
-        # Map description aliases in priority order; leave alone if already present.
-        if "description" not in co:
+
+        # bloom -> bloom_level alias
+        if "bloom_level" not in co and "bloom" in co:
+            co["bloom_level"] = co.pop("bloom")
+
+        # Map description aliases when the field is absent OR empty/whitespace.
+        # Groq sometimes emits description:"" while the real text is in a co_* alias.
+        if not str(co.get("description", "")).strip():
             for alias in ("co_statement", "co_description", "statement", "co"):
-                if alias in co:
-                    co["description"] = co.pop(alias)
+                candidate = str(co.get(alias, "")).strip()
+                if candidate:
+                    co["description"] = candidate
                     break
+            else:
+                # All aliases exhausted — synthesize a valid fallback description.
+                code_label = co.get("code") or f"CO{i + 1}"
+                bloom = str(co.get("bloom_level", "Apply")).capitalize()
+                co["description"] = (
+                    f"{code_label}: demonstrate competency through "
+                    f"{bloom}-level mastery of core concepts."
+                )
+
         # Always strip remaining alias keys so Pydantic sees no unexpected fields.
-        for alias in ("co_statement", "co_description", "statement", "co"):
+        for alias in ("co_statement", "co_description", "statement", "co", "bloom"):
             co.pop(alias, None)
         if not co.get("code"):
             co["code"] = f"CO{i + 1}"
