@@ -25,7 +25,7 @@ export async function listNotifications(params?: {
   page?: number
   page_size?: number
 }): Promise<NotificationListResponse> {
-  const { data } = await api.get('/notifications/', { params })
+  const { data } = await api.get('/notifications', { params })
   return data
 }
 
