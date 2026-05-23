@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Lock, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Lock, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SlideDialog } from './SlideDialog'
 import {
@@ -36,6 +36,16 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes, isL
   const [dialogOpen,      setDialogOpen]      = useState(false)
   const [editTarget,      setEditTarget]      = useState<KitSlide | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [expandedIds,     setExpandedIds]     = useState<Set<string>>(new Set())
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const addSlide    = useAddSlide(kitId)
   const updateSlide = useUpdateSlide(kitId)
@@ -104,13 +114,19 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes, isL
         <div className="space-y-2">
           {sorted.map((slide) => {
             const content = slide.content as Record<string, unknown>
-            const bullets = Array.isArray(content.bullets) ? content.bullets as string[] : []
+            const bullets      = Array.isArray(content.bullets)       ? content.bullets      as string[] : []
+            const keyConcepts  = Array.isArray(content.key_concepts)  ? content.key_concepts as string[] : []
+            const codeSnippet  = typeof content.code_snippet === 'string' ? content.code_snippet  : null
+            const imageHint    = typeof content.image_hint   === 'string' ? content.image_hint    : null
             const isConfirmDelete = pendingDeleteId === slide.id
+            const isExpanded      = expandedIds.has(slide.id)
+            const PREVIEW = 3
+
             return (
               <div
                 key={slide.id}
-                className={`rounded-lg border px-4 py-3 hover:bg-gray-50 ${
-                  isConfirmDelete ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                className={`rounded-lg border px-4 py-3 ${
+                  isConfirmDelete ? 'border-red-300 bg-red-50' : 'border-gray-200 hover:bg-gray-50'
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -119,18 +135,64 @@ export function SlidesSection({ kitId, slides, isEditable, showSpeakerNotes, isL
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800">{slide.title}</p>
+
+                    {/* Bullets — preview or full */}
                     {bullets.length > 0 && (
                       <ul className="mt-1 space-y-0.5">
-                        {bullets.slice(0, 3).map((b, i) => (
-                          <li key={i} className="text-xs text-gray-500 pl-3 border-l-2 border-gray-200 truncate">
+                        {(isExpanded ? bullets : bullets.slice(0, PREVIEW)).map((b, i) => (
+                          <li key={i} className="text-xs text-gray-500 pl-3 border-l-2 border-gray-200">
                             {b}
                           </li>
                         ))}
-                        {bullets.length > 3 && (
-                          <li className="text-xs text-gray-400 pl-3">+{bullets.length - 3} more</li>
-                        )}
                       </ul>
                     )}
+
+                    {/* Expand / collapse toggle */}
+                    {bullets.length > PREVIEW && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(slide.id)}
+                        className="flex items-center gap-0.5 mt-1 text-[11px] text-blue-600 hover:underline"
+                      >
+                        {isExpanded
+                          ? <><ChevronUp className="h-3 w-3" /> Show less</>
+                          : <><ChevronDown className="h-3 w-3" /> +{bullets.length - PREVIEW} more</>
+                        }
+                      </button>
+                    )}
+
+                    {/* Extra content when expanded */}
+                    {isExpanded && (
+                      <div className="mt-2 space-y-2">
+                        {keyConcepts.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Key Concepts</p>
+                            <div className="flex flex-wrap gap-1">
+                              {keyConcepts.map((kc, i) => (
+                                <span key={i} className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 px-1.5 py-0.5 rounded">
+                                  {kc}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {codeSnippet && (
+                          <pre className="text-xs bg-gray-900 text-green-300 rounded p-2 overflow-x-auto whitespace-pre-wrap">
+                            {codeSnippet}
+                          </pre>
+                        )}
+                        {showSpeakerNotes && slide.speaker_notes && (
+                          <div className="text-xs bg-amber-50 border border-amber-100 rounded px-3 py-2">
+                            <p className="font-semibold text-amber-700 mb-0.5">Speaker Notes</p>
+                            <p className="text-gray-600 whitespace-pre-wrap">{slide.speaker_notes}</p>
+                          </div>
+                        )}
+                        {imageHint && (
+                          <p className="text-[10px] text-gray-400 italic">Image hint: {imageHint}</p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       {slide.bloom_level && (
                         <span className="text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded">

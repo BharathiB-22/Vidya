@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, Lock, Loader2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Lock, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AssignmentDialog } from './AssignmentDialog'
 import {
@@ -7,7 +7,7 @@ import {
   useUpdateAssignment,
   useDeleteAssignment,
 } from '@/hooks/courseKit'
-import type { KitAssignment, KitAssignmentCreate, KitAssignmentUpdate } from '@/types/courseKit'
+import type { KitAssignment, KitAssignmentCreate, KitAssignmentUpdate, RubricCriterion } from '@/types/courseKit'
 
 const TYPE_LABELS: Record<string, string> = {
   CLASSWORK:  'Classwork',
@@ -42,6 +42,16 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
   const [dialogOpen,      setDialogOpen]      = useState(false)
   const [editTarget,      setEditTarget]      = useState<KitAssignment | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [expandedIds,     setExpandedIds]     = useState<Set<string>>(new Set())
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const addAssignment    = useAddAssignment(kitId)
   const updateAssignment = useUpdateAssignment(kitId)
@@ -110,6 +120,21 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
         <div className="space-y-2">
           {sorted.map((a) => {
             const isConfirmDelete = pendingDeleteId === a.id
+            const isExpanded      = expandedIds.has(a.id)
+            const rubric = Array.isArray(a.rubric)
+              ? (a.rubric as unknown as RubricCriterion[])
+              : []
+            const modelAnswerRaw = a.model_answer as Record<string, unknown> | string | null
+            const modelAnswerText = modelAnswerRaw
+              ? typeof modelAnswerRaw === 'string'
+                ? modelAnswerRaw
+                : String(
+                    (modelAnswerRaw as Record<string, unknown>).text ??
+                    (modelAnswerRaw as Record<string, unknown>).answer ??
+                    JSON.stringify(modelAnswerRaw)
+                  )
+              : null
+
             return (
               <div
                 key={a.id}
@@ -123,7 +148,59 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800">{a.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{a.question_text}</p>
+                    <p className={`text-xs text-gray-500 mt-0.5 ${isExpanded ? '' : 'line-clamp-2'}`}>
+                      {a.question_text}
+                    </p>
+
+                    {/* Expand / collapse toggle */}
+                    {(rubric.length > 0 || modelAnswerText || a.question_text.length > 120) && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(a.id)}
+                        className="flex items-center gap-0.5 mt-1 text-[11px] text-blue-600 hover:underline"
+                      >
+                        {isExpanded
+                          ? <><ChevronUp className="h-3 w-3" /> Show less</>
+                          : <><ChevronDown className="h-3 w-3" /> Show details</>
+                        }
+                      </button>
+                    )}
+
+                    {/* Extra content when expanded */}
+                    {isExpanded && (
+                      <div className="mt-2 space-y-2">
+                        {rubric.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Rubric</p>
+                            <div className="space-y-1">
+                              {rubric.map((rc, i) => (
+                                <div key={i} className="flex items-start gap-2 text-xs border border-gray-100 rounded px-2 py-1.5">
+                                  <span className="font-medium text-gray-700 flex-1">{rc.criterion}</span>
+                                  {rc.description && (
+                                    <span className="text-gray-500 flex-1">{rc.description}</span>
+                                  )}
+                                  {rc.max_marks != null && (
+                                    <span className="text-gray-400 shrink-0 tabular-nums">{rc.max_marks}m</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {showModelAnswer && modelAnswerText && (
+                          <div className="text-xs bg-green-50 border border-green-100 rounded px-3 py-2">
+                            <p className="font-semibold text-green-700 mb-0.5">Model Answer</p>
+                            <p className="text-gray-700 whitespace-pre-wrap">{modelAnswerText}</p>
+                          </div>
+                        )}
+                        {!showModelAnswer && a.model_answer && (
+                          <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                            <Lock className="h-3 w-3" /> model answer hidden
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       <span className="text-[10px] font-semibold bg-orange-50 text-orange-700 border border-orange-200 px-1.5 py-0.5 rounded">
                         {TYPE_LABELS[a.assignment_type] ?? a.assignment_type}
@@ -146,7 +223,7 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
                           {a.co_reference}
                         </span>
                       )}
-                      {!showModelAnswer && (
+                      {!showModelAnswer && !isExpanded && a.model_answer && (
                         <span className="flex items-center gap-1 text-[10px] text-gray-400">
                           <Lock className="h-3 w-3" /> model answer hidden
                         </span>

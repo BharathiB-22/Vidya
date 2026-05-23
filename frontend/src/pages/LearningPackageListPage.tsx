@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, BookOpen } from 'lucide-react'
+import { ChevronLeft, ChevronRight, BookOpen, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PackageStatusBadge } from '@/components/learningPackage/PackageStatusBadge'
-import { useLearningPackages } from '@/hooks/learningPackage'
+import { useLearningPackages, useTriggerCuration } from '@/hooks/learningPackage'
 import type { PackageStatus } from '@/types/learningPackage'
 
 const STATUS_OPTIONS: Array<{ value: PackageStatus | ''; label: string }> = [
@@ -30,8 +30,17 @@ export default function LearningPackageListPage() {
   const navigate    = useNavigate()
   const [params]    = useSearchParams()
   const syllabusId  = params.get('syllabus_id') ?? ''
+  const unitNumber  = params.get('unit_number') ?? ''
 
   const [statusFilter, setStatusFilter] = useState<PackageStatus | ''>('')
+  const triggerCuration = useTriggerCuration()
+
+  function handleGenerate() {
+    triggerCuration.mutate(
+      { syllabus_id: syllabusId, unit_number: Number(unitNumber) },
+      { onSuccess: (data) => navigate(`/learning-packages/${data.package_id}`) },
+    )
+  }
 
   const { data, isLoading, isError } = useLearningPackages({
     syllabus_id: syllabusId,
@@ -124,7 +133,7 @@ export default function LearningPackageListPage() {
               ? `No packages with status "${statusFilter}".`
               : 'No learning packages yet.'}
           </p>
-          {statusFilter && (
+          {statusFilter ? (
             <button
               type="button"
               onClick={() => setStatusFilter('')}
@@ -132,6 +141,27 @@ export default function LearningPackageListPage() {
             >
               Clear filter
             </button>
+          ) : unitNumber ? (
+            <div className="mt-4">
+              <p className="text-xs text-gray-400 mb-3">
+                Generate an AI-curated package for Unit {unitNumber}.
+              </p>
+              <Button
+                size="sm"
+                onClick={handleGenerate}
+                disabled={triggerCuration.isPending}
+              >
+                <Zap className="h-4 w-4 mr-1" />
+                {triggerCuration.isPending ? 'Generating…' : `Generate Package for Unit ${unitNumber}`}
+              </Button>
+              {triggerCuration.isError && (
+                <p className="mt-2 text-xs text-red-600">Generation failed — please try again.</p>
+              )}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-gray-400">
+              Open a Course Kit and click "Learning Packages" to create one.
+            </p>
           )}
         </div>
       ) : (

@@ -7,7 +7,7 @@ import {
   useUpdateQuizlet,
   useDeleteQuizlet,
 } from '@/hooks/courseKit'
-import type { KitQuizlet, KitQuizletCreate, KitQuizletUpdate } from '@/types/courseKit'
+import type { KitQuizlet, KitQuizletCreate, KitQuizletUpdate, QuizletOption } from '@/types/courseKit'
 
 interface Props {
   kitId:         string
@@ -103,6 +103,9 @@ export function QuizletsSection({ kitId, quizlets, isEditable, showAnswerKey, is
         <div className="space-y-2">
           {sorted.map((q) => {
             const isConfirmDelete = pendingDeleteId === q.id
+            const answerKey = q.answer_key as { correct_answer?: string } | null
+            const correctLabel = answerKey?.correct_answer ?? null
+
             return (
               <div
                 key={q.id}
@@ -116,6 +119,43 @@ export function QuizletsSection({ kitId, quizlets, isEditable, showAnswerKey, is
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-800">{q.question_text}</p>
+
+                    {/* MCQ options */}
+                    {q.question_type === 'MCQ' && q.options && q.options.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {(q.options as unknown as QuizletOption[]).map((opt) => {
+                          const isCorrect = showAnswerKey && correctLabel === opt.label
+                          return (
+                            <div
+                              key={opt.label}
+                              className={`flex items-start gap-2 text-xs rounded px-2 py-1 ${
+                                isCorrect ? 'bg-green-50 text-green-800 font-medium' : 'text-gray-600'
+                              }`}
+                            >
+                              <span className="font-mono font-bold shrink-0 text-gray-500">{opt.label}.</span>
+                              <span className="flex-1">{opt.text}</span>
+                              {isCorrect && <span className="text-green-600 shrink-0">✓</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Short answer key */}
+                    {showAnswerKey && q.question_type === 'SHORT_ANSWER' && correctLabel && (
+                      <div className="mt-2 text-xs bg-green-50 border border-green-100 rounded px-2 py-1.5">
+                        <span className="font-semibold text-green-700">Answer: </span>
+                        <span className="text-green-800">{correctLabel}</span>
+                      </div>
+                    )}
+
+                    {/* Explanation */}
+                    {showAnswerKey && q.answer_explanation && (
+                      <p className="mt-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-2 py-1.5">
+                        <span className="font-semibold">Explanation: </span>{q.answer_explanation}
+                      </p>
+                    )}
+
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded">
                         {q.question_type}

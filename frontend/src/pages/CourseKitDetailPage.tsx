@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, AlertTriangle, Archive, CheckCircle2, Circle, Zap } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertTriangle, Archive, CheckCircle2, Circle, Zap, Package, ExternalLink } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { CourseKitStatusBadge } from '@/components/courseKit/CourseKitStatusBadge'
@@ -215,6 +215,24 @@ export default function CourseKitDetailPage() {
               <StatCard label="Quizlets"    value={counts.quizlets}    onClick={() => setTab('quizlets')}    />
               <StatCard label="Assignments" value={counts.assignments} onClick={() => setTab('assignments')} />
             </div>
+
+            {/* Learning Packages shortcut */}
+            <button
+              type="button"
+              className="w-full text-left rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 hover:bg-indigo-100 transition-colors flex items-start justify-between gap-4"
+              onClick={() => navigate(`/learning-packages?syllabus_id=${kit.syllabus_id}&unit_number=${kit.unit_number}`)}
+            >
+              <div className="flex items-start gap-3">
+                <Package className="h-5 w-5 text-indigo-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-indigo-900">Learning Packages</p>
+                  <p className="text-xs text-indigo-600 mt-0.5">
+                    AI-curated resources for Unit {kit.unit_number} — videos, papers, and materials.
+                  </p>
+                </div>
+              </div>
+              <ExternalLink className="h-4 w-4 text-indigo-400 mt-0.5 shrink-0" />
+            </button>
 
             {/* Custom instructions */}
             {kit.custom_instructions && (
