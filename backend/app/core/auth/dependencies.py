@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import AsyncSessionLocal, get_db
+from app.database import AsyncSessionLocal, _tenant_schema_ctx, get_db
 from app.core.auth.models import TenantRole
 from app.core.auth.repository import PublicRepository, TenantRepository
 from app.core.auth.schemas import CurrentUser, TenantInfo
@@ -72,20 +72,28 @@ async def get_current_user(
         )
 
     if schema_name is None:
-        async with AsyncSessionLocal() as db:
-            user = await PublicRepository.get_platform_user_by_id(user_id, db)
-            if not user or not user.is_active:
-                raise HTTPException(
-                    status_code=401,
-                    detail={"error": "UNAUTHORIZED", "message": "User not found or inactive"},
+        # Defensive: clear any tenant schema context that may have leaked from a
+        # prior request in the same asyncio task (e.g., test suites sharing a loop).
+        # Without this, the engine "begin" event would inject SET LOCAL search_path
+        # to a dropped tenant schema, causing "relation 'users' does not exist".
+        _ctx_token = _tenant_schema_ctx.set(None)
+        try:
+            async with AsyncSessionLocal() as db:
+                user = await PublicRepository.get_platform_user_by_id(user_id, db)
+                if not user or not user.is_active:
+                    raise HTTPException(
+                        status_code=401,
+                        detail={"error": "UNAUTHORIZED", "message": "User not found or inactive"},
+                    )
+                return CurrentUser(
+                    user_id=user.id,
+                    tenant_id=None,
+                    schema_name=None,
+                    role="SUPER_ADMIN",
+                    email=user.email,
                 )
-            return CurrentUser(
-                user_id=user.id,
-                tenant_id=None,
-                schema_name=None,
-                role="SUPER_ADMIN",
-                email=user.email,
-            )
+        finally:
+            _tenant_schema_ctx.reset(_ctx_token)
     else:
         if not re.match(r"^tenant_[a-z0-9_]+$", schema_name):
             raise HTTPException(
@@ -152,16 +160,17 @@ async def get_tenant_db_dep(
     tenant: TenantInfo = Depends(resolve_tenant),
     _: None = Depends(verify_tenant_match),
 ) -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as session:
-        # SET search_path TO (without LOCAL) is a connection-level setting that
-        # persists across all transactions on this connection for its lifetime.
-        # Services manage their own commits; no outer begin() context is used so
-        # explicit db.commit() calls inside services never hit a closed-context error.
-        await session.execute(
-            text(f"SET search_path TO {tenant.schema_name}, public")
-        )
-        await session.commit()
-        yield session
+    # Set the per-request ContextVar so the engine "begin" event injects
+    # SET LOCAL search_path at the start of EVERY transaction on this session.
+    # This is the only correct pattern for PgBouncer transaction pooling mode:
+    # after each COMMIT the backend connection is recycled and a new BEGIN may
+    # land on a different backend with search_path = public.
+    token = _tenant_schema_ctx.set(tenant.schema_name)
+    try:
+        async with AsyncSessionLocal() as session:
+            yield session
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 async def get_tenant_context_dep(
@@ -169,12 +178,12 @@ async def get_tenant_context_dep(
     _: None = Depends(verify_tenant_match),
 ) -> AsyncGenerator[dict, None]:
     """Yields {"db", "schema_name", "tenant_id"} for modules that need all three."""
-    async with AsyncSessionLocal() as session:
-        await session.execute(
-            text(f"SET search_path TO {tenant.schema_name}, public")
-        )
-        await session.commit()
-        yield {"db": session, "schema_name": tenant.schema_name, "tenant_id": tenant.id}
+    token = _tenant_schema_ctx.set(tenant.schema_name)
+    try:
+        async with AsyncSessionLocal() as session:
+            yield {"db": session, "schema_name": tenant.schema_name, "tenant_id": tenant.id}
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 def require_roles(*allowed_roles: TenantRole) -> Callable:

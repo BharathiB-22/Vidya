@@ -219,4 +219,4 @@ async def test_reset_token_reuse_rejected(async_client, test_tenant_a, admin_use
         json={"reset_token": reset_token, "new_password": "Second1234!"},
     )
     assert r4.status_code == 401
-    assert r4.json()["detail"]["error"] == "INVALID_TOKEN"
+    assert r4.json()["error"] == "INVALID_TOKEN"

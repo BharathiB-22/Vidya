@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import AsyncSessionLocal, get_db
+from app.database import AsyncSessionLocal, _tenant_schema_ctx, get_db
 from app.core.rate_limiting import limiter
 from app.core.auth.dependencies import (
     get_current_user,
@@ -42,21 +42,23 @@ async def tenant_login(
 ) -> TokenResponse:
     # Login is unauthenticated — open a session directly rather than using
     # get_tenant_db_dep, which now includes verify_tenant_match (requires auth).
-    async with AsyncSessionLocal() as db:
-        await db.execute(text(f"SET search_path TO {tenant.schema_name}, public"))
-        await db.commit()
-        try:
-            return await TenantAuthService.login(
-                body.email,
-                body.password,
-                tenant.id,
-                tenant.schema_name,
-                request.client.host if request.client else None,
-                request.headers.get("user-agent"),
-                db,
-            )
-        except AuthError as e:
-            raise _auth_error(e)
+    token = _tenant_schema_ctx.set(tenant.schema_name)
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                return await TenantAuthService.login(
+                    body.email,
+                    body.password,
+                    tenant.id,
+                    tenant.schema_name,
+                    request.client.host if request.client else None,
+                    request.headers.get("user-agent"),
+                    db,
+                )
+            except AuthError as e:
+                raise _auth_error(e)
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -203,17 +205,19 @@ async def request_reset(
     body: PasswordResetRequestIn,
     tenant: TenantInfo = Depends(resolve_tenant),
 ) -> dict:
-    async with AsyncSessionLocal() as db:
-        await db.execute(text(f"SET search_path TO {tenant.schema_name}, public"))
-        await db.commit()
-        await TenantAuthService.request_password_reset(
-            body.email,
-            tenant.id,
-            tenant.schema_name,
-            request.client.host if request.client else None,
-            request.headers.get("user-agent"),
-            db,
-        )
+    token = _tenant_schema_ctx.set(tenant.schema_name)
+    try:
+        async with AsyncSessionLocal() as db:
+            await TenantAuthService.request_password_reset(
+                body.email,
+                tenant.id,
+                tenant.schema_name,
+                request.client.host if request.client else None,
+                request.headers.get("user-agent"),
+                db,
+            )
+    finally:
+        _tenant_schema_ctx.reset(token)
     return {"message": "If that email exists, an OTP has been sent"}
 
 
@@ -223,20 +227,22 @@ async def verify_otp(
     body: PasswordResetVerifyIn,
     tenant: TenantInfo = Depends(resolve_tenant),
 ):
-    async with AsyncSessionLocal() as db:
-        await db.execute(text(f"SET search_path TO {tenant.schema_name}, public"))
-        await db.commit()
-        try:
-            return await TenantAuthService.verify_otp_and_issue_reset_token(
-                body.email, body.otp,
-                tenant.schema_name,
-                tenant.id,
-                request.client.host if request.client else None,
-                request.headers.get("user-agent"),
-                db,
-            )
-        except AuthError as e:
-            raise _auth_error(e)
+    token = _tenant_schema_ctx.set(tenant.schema_name)
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                return await TenantAuthService.verify_otp_and_issue_reset_token(
+                    body.email, body.otp,
+                    tenant.schema_name,
+                    tenant.id,
+                    request.client.host if request.client else None,
+                    request.headers.get("user-agent"),
+                    db,
+                )
+            except AuthError as e:
+                raise _auth_error(e)
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 @router.post("/password-reset/confirm", status_code=200)

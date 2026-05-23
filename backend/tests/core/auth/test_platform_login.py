@@ -27,7 +27,7 @@ async def test_platform_login_wrong_password(async_client, test_platform_user):
         json={"email": test_platform_user["email"], "password": "wrongpassword"},
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"]["error"] == "INVALID_CREDENTIALS"
+    assert resp.json()["error"] == "INVALID_CREDENTIALS"
 
 
 async def test_platform_login_no_tenant_schema_touched(async_client, test_platform_user, test_tenant_a):

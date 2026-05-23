@@ -108,6 +108,7 @@ class PlatformAuthService:
         await PublicRepository.update_platform_user(
             user.id, {"last_login_at": datetime.now(timezone.utc)}, db
         )
+        await db.commit()
         await AuditService.log(
             AuditEventType.PLATFORM_LOGIN_SUCCESS,
             actor_user_id=user.id, actor_role="SUPER_ADMIN",
@@ -413,6 +414,7 @@ class TenantAuthService:
                 raise AuthError("INVALID_TOKEN", "Invalid refresh token")
             if record.is_revoked:
                 await TenantRepository.revoke_all_user_refresh_tokens(record.user_id, schema_name, tenant_db)
+                await tenant_db.commit()
                 await AuditService.log(
                     AuditEventType.AUTH_TOKEN_REUSE_DETECTED,
                     actor_user_id=record.user_id, schema_name=schema_name,
