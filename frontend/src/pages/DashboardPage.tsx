@@ -135,7 +135,7 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
 
   if (completed === items.length) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-5 py-4">
+      <div data-testid="onboarding-checklist" className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-5 py-4">
         <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-semibold text-green-800">Setup complete</p>
@@ -152,7 +152,7 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
   }
 
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+    <div data-testid="onboarding-checklist" className="bg-amber-50 border border-amber-200 rounded-xl p-5">
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm font-semibold text-amber-900">Getting started</p>
         <p className="text-xs text-amber-600">{completed}/{items.length} done</p>

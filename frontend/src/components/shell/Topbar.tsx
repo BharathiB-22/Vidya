@@ -93,6 +93,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         {/* User menu */}
         <div className="relative" ref={ref}>
           <button
+            data-testid="user-menu-trigger"
             onClick={() => setUserMenuOpen((v) => !v)}
             className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
           >
@@ -119,6 +120,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
               </div>
               <button
+                data-testid="signout-btn"
                 onClick={() => { setUserMenuOpen(false); void logout() }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
               >
