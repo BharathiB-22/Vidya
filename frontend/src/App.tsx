@@ -42,6 +42,7 @@ import BellCurveAnalysisPage from '@/pages/BellCurveAnalysisPage'
 import BellCurveRatifyPage from '@/pages/BellCurveRatifyPage'
 import FairnessReportPage from '@/pages/FairnessReportPage'
 import FirstLoginPage from '@/pages/FirstLoginPage'
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import UsersPage from '@/pages/UsersPage'
 import SettingsPage from '@/pages/SettingsPage'
 
@@ -49,6 +50,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
       {/* Super Admin portal — separate auth context */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
