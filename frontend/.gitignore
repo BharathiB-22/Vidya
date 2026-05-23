@@ -1,0 +1,7 @@
+dist/
+node_modules/
+
+# Playwright
+e2e/.auth/
+playwright-report/
+test-results/
