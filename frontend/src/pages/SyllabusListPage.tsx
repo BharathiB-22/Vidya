@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Plus, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
@@ -48,9 +48,22 @@ export default function SyllabusListPage() {
 
   if (!courseId) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-3">
-        <BookOpen className="h-10 w-10 text-gray-200" />
-        <p className="text-sm">Provide a <code className="bg-gray-100 px-1 rounded text-gray-600">?course_id=</code> query parameter to view syllabuses.</p>
+      <div className="max-w-md mx-auto text-center py-24 space-y-4">
+        <div className="p-4 rounded-full bg-violet-50 inline-flex mx-auto">
+          <BookOpen className="h-8 w-8 text-violet-400" />
+        </div>
+        <h2 className="text-lg font-semibold text-gray-800">Syllabuses by course</h2>
+        <p className="text-sm text-gray-500 leading-relaxed">
+          Syllabuses are organised per course inside a program. Open a program,
+          select a course, and use the Syllabuses section there.
+        </p>
+        <Link
+          to="/programs"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
+        >
+          Browse Programs
+          <ChevronRight className="h-4 w-4" />
+        </Link>
       </div>
     )
   }
