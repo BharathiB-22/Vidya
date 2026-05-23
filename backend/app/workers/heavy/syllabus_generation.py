@@ -18,7 +18,6 @@ On failure: reset syllabus to DRAFT, audit SYLLABUS_GENERATION_FAILED, re-raise.
 """
 import asyncio
 import logging
-import sys
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -34,8 +33,13 @@ def _get_async_engine():
     global _async_engine
     if _async_engine is None:
         from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
         from app.config import settings
-        _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        # NullPool: no connection caching between asyncio.run() calls.
+        # Each task creates a fresh event loop; pooled asyncpg connections
+        # attached to the previous (now-closed) loop would cause
+        # "Future attached to a different loop" — NullPool prevents that.
+        _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
     return _async_engine
 
 
@@ -61,8 +65,6 @@ def generate_syllabus(
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_generation(
             syllabus_id=UUID(syllabus_id),
