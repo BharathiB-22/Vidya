@@ -229,6 +229,37 @@ class CourseKitRepository:
         return result.scalar_one()
 
     @staticmethod
+    async def list_all(
+        *,
+        status_filter: CourseKitStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[CourseKit]:
+        stmt = (
+            select(CourseKit)
+            .order_by(CourseKit.unit_number.asc(), CourseKit.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        if status_filter is not None:
+            stmt = stmt.where(CourseKit.status == status_filter)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_all(
+        *,
+        status_filter: CourseKitStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        stmt = select(func.count(CourseKit.id))
+        if status_filter is not None:
+            stmt = stmt.where(CourseKit.status == status_filter)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
     async def list_versions(
         syllabus_id: UUID,
         unit_number: int,

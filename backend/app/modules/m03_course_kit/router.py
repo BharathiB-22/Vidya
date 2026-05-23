@@ -151,7 +151,7 @@ async def create_kit(
 
 @router.get("", response_model=CourseKitListResponse)
 async def list_kits(
-    syllabus_id: UUID = Query(..., description="Syllabus ID (required)"),
+    syllabus_id: UUID | None = Query(None, description="Filter by syllabus; omit to list all"),
     status: CourseKitStatus | None = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),

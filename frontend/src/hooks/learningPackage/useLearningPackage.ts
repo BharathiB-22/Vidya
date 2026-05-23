@@ -25,7 +25,6 @@ export function useLearningPackages(filters: LearningPackageListFilters) {
   return useQuery({
     queryKey: learningPackageKeys.list(filters),
     queryFn:  () => lpApi.listPackages(filters),
-    enabled:  Boolean(filters.syllabus_id),
   })
 }
 

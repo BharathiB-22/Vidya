@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, BookOpen, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PackageStatusBadge } from '@/components/learningPackage/PackageStatusBadge'
@@ -43,54 +43,35 @@ export default function LearningPackageListPage() {
   }
 
   const { data, isLoading, isError } = useLearningPackages({
-    syllabus_id: syllabusId,
+    syllabus_id: syllabusId || undefined,
     status:      statusFilter || undefined,
   })
   const packages = data?.items ?? []
-
-  if (!syllabusId) {
-    return (
-      <div className="max-w-md mx-auto text-center py-24 space-y-4">
-        <div className="p-4 rounded-full bg-pink-50 inline-flex mx-auto">
-          <BookOpen className="h-8 w-8 text-pink-400" />
-        </div>
-        <h2 className="text-lg font-semibold text-gray-800">Learning packages by syllabus</h2>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          Learning packages are linked to a course syllabus. Open a program,
-          select a course, view its syllabus, and manage packages from there.
-        </p>
-        <Link
-          to="/programs"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
-        >
-          Browse Programs
-          <ChevronRight className="h-4 w-4" />
-        </Link>
-      </div>
-    )
-  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
 
       {/* ── Back ── */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-mt-2 -ml-1"
-        onClick={() => navigate(-1)}
-      >
-        <ChevronLeft className="h-4 w-4 mr-1" />
-        Back
-      </Button>
+      {syllabusId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-mt-2 -ml-1"
+          onClick={() => navigate(-1)}
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" />
+          Back
+        </Button>
+      )}
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Learning Packages</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Syllabus:{' '}
-            <span className="font-mono text-gray-700">{syllabusId}</span>
+            {syllabusId
+              ? <>Syllabus: <span className="font-mono text-gray-700">{syllabusId}</span></>
+              : 'All learning packages in this tenant'}
           </p>
         </div>
       </div>
@@ -184,6 +165,11 @@ export default function LearningPackageListPage() {
                       {pkg.item_count} resource{pkg.item_count !== 1 ? 's' : ''}
                     </span>
                   </div>
+                  {!syllabusId && (
+                    <p className="text-[11px] font-mono text-gray-400 truncate">
+                      Syllabus: {pkg.syllabus_id}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400">
                     Created {new Date(pkg.created_at).toLocaleDateString()}
                     {pkg.curated_at &&

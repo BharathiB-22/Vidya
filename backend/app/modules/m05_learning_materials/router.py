@@ -160,7 +160,7 @@ async def get_job_status(
 
 @router.get("", response_model=LearningPackageListResponse)
 async def list_packages(
-    syllabus_id: UUID = Query(..., description="Filter by syllabus"),
+    syllabus_id: UUID | None = Query(None, description="Filter by syllabus; omit to list all"),
     status: PackageStatus | None = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),

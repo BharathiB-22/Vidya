@@ -262,7 +262,7 @@ class CourseKitService:
 
     @staticmethod
     async def list_kits(
-        syllabus_id: UUID,
+        syllabus_id: UUID | None,
         *,
         status_filter: CourseKitStatus | None = None,
         page: int = 1,
@@ -270,16 +270,22 @@ class CourseKitService:
         db: AsyncSession,
     ) -> tuple[int, list[CourseKit]]:
         offset = (page - 1) * page_size
-        total = await CourseKitRepository.count_by_syllabus(
-            syllabus_id, status_filter=status_filter, db=db
-        )
-        items = await CourseKitRepository.list_by_syllabus(
-            syllabus_id,
-            status_filter=status_filter,
-            offset=offset,
-            limit=page_size,
-            db=db,
-        )
+        if syllabus_id is not None:
+            total = await CourseKitRepository.count_by_syllabus(
+                syllabus_id, status_filter=status_filter, db=db
+            )
+            items = await CourseKitRepository.list_by_syllabus(
+                syllabus_id,
+                status_filter=status_filter,
+                offset=offset,
+                limit=page_size,
+                db=db,
+            )
+        else:
+            total = await CourseKitRepository.count_all(status_filter=status_filter, db=db)
+            items = await CourseKitRepository.list_all(
+                status_filter=status_filter, offset=offset, limit=page_size, db=db
+            )
         return total, items
 
     @staticmethod

@@ -77,10 +77,10 @@ export interface LearningPackageListResponse {
 // ---------------------------------------------------------------------------
 
 export interface LearningPackageListFilters {
-  syllabus_id: string
-  status?:     PackageStatus
-  page?:       number
-  page_size?:  number
+  syllabus_id?: string
+  status?:      PackageStatus
+  page?:        number
+  page_size?:   number
 }
 
 // ---------------------------------------------------------------------------

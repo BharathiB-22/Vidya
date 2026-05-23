@@ -264,6 +264,37 @@ class LearningPackageRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    @staticmethod
+    async def list_all(
+        *,
+        status_filter: PackageStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[LearningPackage]:
+        stmt = (
+            select(LearningPackage)
+            .order_by(LearningPackage.unit_number.asc(), LearningPackage.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        if status_filter is not None:
+            stmt = stmt.where(LearningPackage.status == status_filter)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_all(
+        *,
+        status_filter: PackageStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        stmt = select(func.count(LearningPackage.id))
+        if status_filter is not None:
+            stmt = stmt.where(LearningPackage.status == status_filter)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
 
 # ---------------------------------------------------------------------------
 # PackageItemRepository

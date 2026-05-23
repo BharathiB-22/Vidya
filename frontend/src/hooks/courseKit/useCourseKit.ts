@@ -29,7 +29,6 @@ export function useCourseKits(filters: CourseKitListFilters) {
   return useQuery({
     queryKey: courseKitKeys.list(filters),
     queryFn:  () => courseKitApi.listKits(filters),
-    enabled:  Boolean(filters.syllabus_id),
   })
 }
 

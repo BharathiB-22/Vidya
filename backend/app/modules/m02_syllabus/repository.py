@@ -204,6 +204,37 @@ class SyllabusRepository:
         return result.scalar_one()
 
     @staticmethod
+    async def list_all(
+        *,
+        status_filter: SyllabusStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[Syllabus]:
+        stmt = (
+            select(Syllabus)
+            .order_by(Syllabus.course_id.asc(), Syllabus.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        if status_filter is not None:
+            stmt = stmt.where(Syllabus.status == status_filter)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_all(
+        *,
+        status_filter: SyllabusStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        stmt = select(func.count(Syllabus.id))
+        if status_filter is not None:
+            stmt = stmt.where(Syllabus.status == status_filter)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
     async def list_versions(
         course_id: UUID,
         *,

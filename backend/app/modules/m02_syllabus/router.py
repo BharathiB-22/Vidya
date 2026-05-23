@@ -116,7 +116,7 @@ async def create_syllabus(
 
 @router.get("", response_model=SyllabusListResponse)
 async def list_syllabi(
-    course_id: UUID = Query(..., description="Course ID (required)"),
+    course_id: UUID | None = Query(None, description="Filter by course; omit to list all"),
     status: SyllabusStatus | None = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),

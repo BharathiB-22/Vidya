@@ -31,7 +31,6 @@ export function useSyllabuses(filters: SyllabusListFilters) {
   return useQuery({
     queryKey: syllabusKeys.list(filters),
     queryFn:  () => syllabusesApi.listSyllabuses(filters),
-    enabled:  Boolean(filters.course_id),
   })
 }
 

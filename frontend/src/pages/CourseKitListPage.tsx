@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, Package, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CourseKitStatusBadge } from '@/components/courseKit/CourseKitStatusBadge'
@@ -40,60 +40,42 @@ export default function CourseKitListPage() {
   const [createOpen,   setCreateOpen]   = useState(false)
 
   const { data, isLoading, isError } = useCourseKits({
-    syllabus_id: syllabusId,
+    syllabus_id: syllabusId || undefined,
     status:      statusFilter || undefined,
   })
   const kits = data?.items ?? []
-
-  if (!syllabusId) {
-    return (
-      <div className="max-w-md mx-auto text-center py-24 space-y-4">
-        <div className="p-4 rounded-full bg-indigo-50 inline-flex mx-auto">
-          <Package className="h-8 w-8 text-indigo-400" />
-        </div>
-        <h2 className="text-lg font-semibold text-gray-800">Course kits by syllabus</h2>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          Course kits are built from a course syllabus. Open a program,
-          select a course, view its syllabus, and create kits from there.
-        </p>
-        <Link
-          to="/programs"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
-        >
-          Browse Programs
-          <ChevronRight className="h-4 w-4" />
-        </Link>
-      </div>
-    )
-  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
 
       {/* ── Back ── */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="-mt-2 -ml-1"
-        onClick={() => navigate(-1)}
-      >
-        <ChevronLeft className="h-4 w-4 mr-1" />
-        Back
-      </Button>
+      {syllabusId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-mt-2 -ml-1"
+          onClick={() => navigate(-1)}
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" />
+          Back
+        </Button>
+      )}
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Course Kits</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Syllabus: <span className="font-mono text-gray-700">{syllabusId}</span>
+            {syllabusId
+              ? <>Syllabus: <span className="font-mono text-gray-700">{syllabusId}</span></>
+              : 'All course kits in this tenant'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
             {role}
           </span>
-          {canCreate && (
+          {canCreate && syllabusId && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-1" />
               New Kit
@@ -138,7 +120,7 @@ export default function CourseKitListPage() {
           <p className="text-sm text-gray-400">
             {statusFilter ? `No kits with status "${statusFilter}".` : 'No course kits yet.'}
           </p>
-          {canCreate && !statusFilter && (
+          {canCreate && syllabusId && !statusFilter && (
             <Button variant="outline" className="mt-4" onClick={() => setCreateOpen(true)}>
               Create the first kit
             </Button>
@@ -173,6 +155,11 @@ export default function CourseKitListPage() {
                       {kit.complexity_level}
                     </span>
                   </div>
+                  {!syllabusId && (
+                    <p className="text-[11px] font-mono text-gray-400 truncate">
+                      Syllabus: {kit.syllabus_id}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400">
                     Created {new Date(kit.created_at).toLocaleDateString()}
                     {kit.published_at && ` · Published ${new Date(kit.published_at).toLocaleDateString()}`}
@@ -192,11 +179,13 @@ export default function CourseKitListPage() {
         </p>
       )}
 
-      <CreateCourseKitDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        syllabusId={syllabusId}
-      />
+      {syllabusId && (
+        <CreateCourseKitDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          syllabusId={syllabusId}
+        />
+      )}
     </div>
   )
 }

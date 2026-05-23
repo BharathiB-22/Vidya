@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
@@ -41,32 +41,10 @@ export default function SyllabusListPage() {
   const [createOpen, setCreateOpen]     = useState(false)
 
   const { data, isLoading } = useSyllabuses({
-    course_id: courseId,
+    course_id: courseId || undefined,
     status:    statusFilter || undefined,
   })
   const syllabuses = data?.items ?? []
-
-  if (!courseId) {
-    return (
-      <div className="max-w-md mx-auto text-center py-24 space-y-4">
-        <div className="p-4 rounded-full bg-violet-50 inline-flex mx-auto">
-          <BookOpen className="h-8 w-8 text-violet-400" />
-        </div>
-        <h2 className="text-lg font-semibold text-gray-800">Syllabuses by course</h2>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          Syllabuses are organised per course inside a program. Open a program,
-          select a course, and use the Syllabuses section there.
-        </p>
-        <Link
-          to="/programs"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
-        >
-          Browse Programs
-          <ChevronRight className="h-4 w-4" />
-        </Link>
-      </div>
-    )
-  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -89,14 +67,16 @@ export default function SyllabusListPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Syllabuses</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Course: <span className="font-mono text-gray-700">{courseId}</span>
+            {courseId
+              ? <>Course: <span className="font-mono text-gray-700">{courseId}</span></>
+              : 'All syllabuses in this tenant'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
             {role}
           </span>
-          {canCreate && (
+          {canCreate && courseId && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-1" />
               New Syllabus
@@ -134,7 +114,7 @@ export default function SyllabusListPage() {
           <p className="text-sm text-gray-400">
             {statusFilter ? `No syllabuses with status "${statusFilter}".` : 'No syllabuses yet.'}
           </p>
-          {canCreate && !statusFilter && (
+          {canCreate && courseId && !statusFilter && (
             <Button variant="outline" className="mt-4" onClick={() => setCreateOpen(true)}>
               Create the first syllabus
             </Button>
@@ -166,6 +146,11 @@ export default function SyllabusListPage() {
                     </span>
                     <SyllabusStatusBadge status={s.status} />
                   </div>
+                  {!courseId && (
+                    <p className="text-[11px] font-mono text-gray-400 truncate">
+                      Course: {s.course_id}
+                    </p>
+                  )}
                   {s.change_note ? (
                     <p className="text-xs text-gray-500 truncate">{s.change_note}</p>
                   ) : (
@@ -188,11 +173,13 @@ export default function SyllabusListPage() {
         </p>
       )}
 
-      <CreateSyllabusDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        courseId={courseId}
-      />
+      {courseId && (
+        <CreateSyllabusDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          courseId={courseId}
+        />
+      )}
     </div>
   )
 }

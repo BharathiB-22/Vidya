@@ -246,7 +246,7 @@ export interface SyllabusUpdate {
 }
 
 export interface SyllabusListFilters {
-  course_id:  string       // required by the backend
+  course_id?: string
   status?:    SyllabusStatus
   page?:      number
   page_size?: number

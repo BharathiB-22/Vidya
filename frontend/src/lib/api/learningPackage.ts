@@ -19,10 +19,11 @@ const BASE = '/learning-packages'
 export async function listPackages(
   filters: LearningPackageListFilters,
 ): Promise<LearningPackageListResponse> {
-  const params: Record<string, unknown> = { syllabus_id: filters.syllabus_id }
-  if (filters.status)    params.status    = filters.status
-  if (filters.page)      params.page      = filters.page
-  if (filters.page_size) params.page_size = filters.page_size
+  const params: Record<string, unknown> = {}
+  if (filters.syllabus_id) params.syllabus_id = filters.syllabus_id
+  if (filters.status)      params.status      = filters.status
+  if (filters.page)        params.page        = filters.page
+  if (filters.page_size)   params.page_size   = filters.page_size
   const { data } = await api.get<LearningPackageListResponse>(BASE, { params })
   return data
 }

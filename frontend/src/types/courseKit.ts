@@ -241,10 +241,10 @@ export interface CourseKitUpdate {
 }
 
 export interface CourseKitListFilters {
-  syllabus_id: string
-  status?:     CourseKitStatus
-  page?:       number
-  page_size?:  number
+  syllabus_id?: string
+  status?:      CourseKitStatus
+  page?:        number
+  page_size?:   number
 }
 
 export interface KitSlideCreate {

@@ -343,7 +343,7 @@ class SyllabusService:
 
     @staticmethod
     async def list_syllabi(
-        course_id: UUID,
+        course_id: UUID | None,
         status_filter: SyllabusStatus | None = None,
         page: int = 1,
         page_size: int = 50,
@@ -351,12 +351,18 @@ class SyllabusService:
         db: AsyncSession,
     ):
         offset = (page - 1) * page_size
-        total  = await SyllabusRepository.count_by_course(
-            course_id, status_filter=status_filter, db=db
-        )
-        items  = await SyllabusRepository.list_by_course(
-            course_id, status_filter=status_filter, offset=offset, limit=page_size, db=db
-        )
+        if course_id is not None:
+            total = await SyllabusRepository.count_by_course(
+                course_id, status_filter=status_filter, db=db
+            )
+            items = await SyllabusRepository.list_by_course(
+                course_id, status_filter=status_filter, offset=offset, limit=page_size, db=db
+            )
+        else:
+            total = await SyllabusRepository.count_all(status_filter=status_filter, db=db)
+            items = await SyllabusRepository.list_all(
+                status_filter=status_filter, offset=offset, limit=page_size, db=db
+            )
         return total, items
 
     @staticmethod
