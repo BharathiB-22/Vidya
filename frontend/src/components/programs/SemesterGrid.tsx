@@ -14,7 +14,7 @@ interface Props {
 
 export function SemesterGrid({ program, courses }: Props) {
   const navigate = useNavigate()
-  const isDraft = program.status === 'DRAFT'
+  const isEditable = program.status === 'DRAFT' || program.status === 'PENDING_APPROVAL'
   const maxSem = Math.max(program.duration_years * 2, ...courses.map((c) => c.semester), 0)
   const semesters = Array.from({ length: maxSem }, (_, i) => i + 1)
 
@@ -75,7 +75,7 @@ export function SemesterGrid({ program, courses }: Props) {
                           Syllabus
                         </button>
                       </div>
-                      {isDraft && (
+                      {isEditable && (
                         <div className="flex gap-0.5 shrink-0">
                           <Button
                             variant="ghost"
@@ -98,7 +98,7 @@ export function SemesterGrid({ program, courses }: Props) {
                     </div>
                   </div>
                 ))}
-                {isDraft && (
+                {isEditable && (
                   <Button
                     variant="outline"
                     size="sm"

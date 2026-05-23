@@ -84,8 +84,10 @@ export function CourseDialog({
       })
     } else if (mode === 'edit' && initial) {
       onEdit?.(initial.id, {
+        code: f.code || undefined,
         title: f.title,
         credits: Number(f.credits),
+        semester: initial.semester,
         is_elective: f.is_elective,
         hours_lecture,
         hours_tutorial,
@@ -105,17 +107,15 @@ export function CourseDialog({
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
-          {mode === 'add' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Course Code</label>
-              <Input
-                required
-                value={f.code}
-                onChange={(e) => setF((p) => ({ ...p, code: e.target.value }))}
-                placeholder="CS101"
-              />
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Course Code</label>
+            <Input
+              required
+              value={f.code}
+              onChange={(e) => setF((p) => ({ ...p, code: e.target.value }))}
+              placeholder="CS101"
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
             <Input
@@ -127,11 +127,14 @@ export function CourseDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Credits</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Credits
+                <span className="ml-1 text-xs font-normal text-gray-400">(1–6)</span>
+              </label>
               <Input
                 type="number"
                 min={1}
-                max={12}
+                max={6}
                 required
                 value={f.credits}
                 onChange={(e) => setF((p) => ({ ...p, credits: Number(e.target.value) }))}

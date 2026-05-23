@@ -144,6 +144,7 @@ export interface CourseCreate {
 }
 
 export interface CourseUpdate {
+  code?: string
   title?: string
   credits?: number
   semester?: number

@@ -56,6 +56,26 @@ async def _require_status(
     return program
 
 
+async def _require_editable_status(
+    program_id: UUID,
+    *,
+    db: AsyncSession,
+) -> Program:
+    """Accept DRAFT or PENDING_APPROVAL — both allow structural course edits."""
+    _EDITABLE = {ProgramStatus.DRAFT, ProgramStatus.PENDING_APPROVAL}
+    program = await ProgramRepository.get_by_id(program_id, db=db)
+    if program is None:
+        raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+    if program.status not in _EDITABLE:
+        raise ProgramServiceError(
+            "INVALID_STATUS",
+            f"Program must be in Draft or Pending Approval to edit courses; "
+            f"current status is {program.status.value}.",
+            409,
+        )
+    return program
+
+
 async def _build_course_nodes(
     program_id: UUID,
     *,
@@ -462,7 +482,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> Course:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_editable_status(program_id, db=db)
         existing = await CourseRepository.get_by_code(program_id, payload.code, db=db)
         if existing:
             raise ProgramServiceError(
@@ -504,7 +524,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> Course:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_editable_status(program_id, db=db)
         course = await CourseRepository.get_by_id(course_id, db=db)
         if course is None or course.program_id != program_id:
             raise ProgramServiceError("NOT_FOUND", "Course not found.", 404)
@@ -523,7 +543,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> None:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_editable_status(program_id, db=db)
         course = await CourseRepository.get_by_id(course_id, db=db)
         if course is None or course.program_id != program_id:
             raise ProgramServiceError("NOT_FOUND", "Course not found.", 404)
