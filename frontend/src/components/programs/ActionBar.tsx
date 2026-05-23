@@ -147,7 +147,7 @@ export function ActionBar({ program }: Props) {
       <ApproveDialog
         open={approveOpen}
         onOpenChange={setApproveOpen}
-        onSubmit={(notes) => approve.mutate({ id: program.id, payload: { notes } })}
+        onSubmit={(comment) => approve.mutate({ id: program.id, payload: { comment } })}
         isPending={approve.isPending}
       />
       <RejectDialog

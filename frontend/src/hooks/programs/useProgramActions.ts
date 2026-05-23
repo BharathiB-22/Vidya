@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import * as programsApi from '@/lib/api/programs'
 import type { ApproveRequest, ExportProgramRequest, GenerateProgramRequest, RejectRequest } from '@/types/program'
 import { programKeys } from './usePrograms'
+import { addToast } from '@/hooks/useToast'
+import { getErrorMessage } from '@/lib/api'
 
 export function useGenerateProgram(programId: string) {
   const qc = useQueryClient()
@@ -24,6 +26,10 @@ export function useApproveProgram() {
       qc.invalidateQueries({ queryKey: programKeys.status(data.id) })
       qc.invalidateQueries({ queryKey: programKeys.detail(data.id) })
       qc.invalidateQueries({ queryKey: programKeys.all })
+      addToast('Program approved successfully.', 'success')
+    },
+    onError: (err) => {
+      addToast(getErrorMessage(err), 'error', 8000)
     },
   })
 }

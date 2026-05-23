@@ -81,7 +81,7 @@ export function GenerateDialog({
 interface ApproveDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (notes?: string) => void
+  onSubmit: (comment?: string) => void
   isPending?: boolean
 }
 
@@ -91,12 +91,12 @@ export function ApproveDialog({
   onSubmit,
   isPending,
 }: ApproveDialogProps) {
-  const [notes, setNotes] = useState('')
+  const [comment, setComment] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    onSubmit(notes || undefined)
-    setNotes('')
+    onSubmit(comment || undefined)
+    setComment('')
     onOpenChange(false)
   }
 
@@ -113,8 +113,8 @@ export function ApproveDialog({
             </label>
             <Textarea
               rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
               placeholder="Any notes for the record…"
             />
           </div>

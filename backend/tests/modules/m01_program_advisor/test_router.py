@@ -244,7 +244,7 @@ async def test_approve_requires_pending_approval_status(async_client, test_tenan
     dean_h = make_tenant_headers(dean_user_a)
     resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
     assert resp.status_code == 409
-    assert resp.json()["detail"]["error"] == "INVALID_STATUS"
+    assert resp.json()["error"] == "INVALID_STATUS"
 
 
 async def test_dean_can_approve_pending_program(async_client, test_tenant_a, admin_user_a, dean_user_a):
@@ -257,6 +257,21 @@ async def test_dean_can_approve_pending_program(async_client, test_tenant_a, adm
     resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
     assert resp.status_code == 200
     assert resp.json()["status"] == "APPROVED"
+
+
+async def test_approve_non_compliant_program_returns_422(async_client, test_tenant_a, admin_user_a, dean_user_a):
+    # A freshly created DRAFT program (no courses, no outcomes) forced to PENDING_APPROVAL
+    # must fail compliance and return 422 COMPLIANCE_FAILED, not silently succeed.
+    admin_h = make_tenant_headers(admin_user_a)
+    program = await _create_program(async_client, admin_h)
+    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.PENDING_APPROVAL)
+
+    dean_h = make_tenant_headers(dean_user_a)
+    resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"] == "COMPLIANCE_FAILED"
+    assert body["message"]  # non-empty compliance violation string
 
 
 async def test_dean_can_reject_pending_program(async_client, test_tenant_a, admin_user_a, dean_user_a):
@@ -285,7 +300,7 @@ async def test_update_approved_program_blocked(async_client, test_tenant_a, admi
         f"{BASE}/{program['id']}", json={"title": "Blocked"}, headers=admin_h
     )
     assert resp.status_code == 409
-    assert resp.json()["detail"]["error"] == "INVALID_STATUS"
+    assert resp.json()["error"] == "INVALID_STATUS"
 
 
 async def test_add_course_to_approved_blocked(async_client, test_tenant_a, admin_user_a):

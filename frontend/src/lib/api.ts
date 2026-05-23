@@ -55,8 +55,14 @@ api.interceptors.response.use(
 )
 
 export function getErrorMessage(err: unknown): string {
-  const axiosErr = err as AxiosError<{ detail: BackendError | string }>
-  const detail = axiosErr.response?.data?.detail
+  const axiosErr = err as AxiosError<BackendError & { detail?: BackendError | string }>
+  const data = axiosErr.response?.data
+  // Custom HTTPException handler returns exc.detail directly: { error, message }
+  if (data && typeof data === 'object' && typeof (data as BackendError).message === 'string') {
+    return (data as BackendError).message
+  }
+  // FastAPI default wraps in detail
+  const detail = (data as { detail?: BackendError | string })?.detail
   if (detail && typeof detail === 'object' && 'message' in detail) return detail.message
   if (typeof detail === 'string') return detail
   return 'An unexpected error occurred.'

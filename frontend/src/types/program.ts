@@ -216,7 +216,7 @@ export interface JobStatusResponse {
 // ---------------------------------------------------------------------------
 
 export interface ApproveRequest {
-  notes?: string
+  comment?: string
 }
 
 export interface RejectRequest {
