@@ -140,13 +140,14 @@ interface OnboardingItem {
 }
 
 function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
-  const visitedUsers = localStorage.getItem('vidya_onboarding_users') === '1'
+  const visitedUsers    = localStorage.getItem('vidya_onboarding_users')    === '1'
+  const visitedSettings = localStorage.getItem('vidya_onboarding_settings') === '1'
 
   const items: OnboardingItem[] = [
-    { label: 'Sign in to Vidya',            done: true,            href: '/dashboard' },
-    { label: 'Set your permanent password',  done: passwordChanged, href: '/settings'  },
-    { label: 'Add faculty and students',     done: visitedUsers,    href: '/users'     },
-    { label: 'Review institution settings',  done: passwordChanged, href: '/settings'  },
+    { label: 'Sign in to Vidya',            done: true,             href: '/dashboard' },
+    { label: 'Set your permanent password',  done: passwordChanged,  href: '/settings'  },
+    { label: 'Add faculty and students',     done: visitedUsers,     href: '/users'     },
+    { label: 'Review institution settings',  done: visitedSettings,  href: '/settings'  },
   ]
   const completed = items.filter((i) => i.done).length
 

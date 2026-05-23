@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
 import api, { getErrorMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,10 @@ function prettifySlug(slug: string): string {
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth()
+
+  useEffect(() => {
+    localStorage.setItem('vidya_onboarding_settings', '1')
+  }, [])
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword,     setNewPassword]     = useState('')
