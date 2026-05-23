@@ -2,6 +2,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import {
   BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, ChevronRight, CheckCircle, Circle,
+  GraduationCap, Package,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -27,12 +28,28 @@ const CARDS: ModuleCard[] = [
     accent: 'bg-blue-50 text-blue-600 border-blue-100',
   },
   {
+    title: 'Syllabuses',
+    description: 'Generate course syllabuses with CO-PO matrices and compliance checks.',
+    to: '/syllabuses',
+    icon: GraduationCap,
+    roles: ['FACULTY', 'DEAN', 'ADMIN'],
+    accent: 'bg-violet-50 text-violet-600 border-violet-100',
+  },
+  {
     title: 'Course Kits',
     description: 'Generate slides, quizlets, and assignments for your courses.',
     to: '/course-kits',
     icon: Layers,
     roles: ['FACULTY', 'DEAN', 'ADMIN'],
     accent: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+  },
+  {
+    title: 'Learning Packages',
+    description: 'Build and curate multimedia learning packages for your courses.',
+    to: '/learning-packages',
+    icon: Package,
+    roles: ['FACULTY', 'DEAN', 'ADMIN'],
+    accent: 'bg-pink-50 text-pink-600 border-pink-100',
   },
   {
     title: 'Lab Assignments',

@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
+  GraduationCap, Package,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -32,8 +33,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Teach & Prepare',
     items: [
-      { label: 'Programs',    to: '/programs',    icon: BookOpen, roles: ['FACULTY', 'DEAN', 'ADMIN'] },
-      { label: 'Course Kits', to: '/course-kits', icon: Layers,   roles: ['FACULTY', 'DEAN', 'ADMIN'] },
+      { label: 'Programs',          to: '/programs',          icon: BookOpen,       roles: ['FACULTY', 'DEAN', 'ADMIN'] },
+      { label: 'Syllabuses',        to: '/syllabuses',        icon: GraduationCap,  roles: ['FACULTY', 'DEAN', 'ADMIN'] },
+      { label: 'Course Kits',       to: '/course-kits',       icon: Layers,         roles: ['FACULTY', 'DEAN', 'ADMIN'] },
+      { label: 'Learning Packages', to: '/learning-packages', icon: Package,        roles: ['FACULTY', 'DEAN', 'ADMIN'] },
     ],
   },
   {
