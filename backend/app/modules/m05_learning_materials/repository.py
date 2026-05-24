@@ -409,6 +409,37 @@ class PackageItemRepository:
         result = await db.execute(stmt)
         return result.rowcount
 
+    @staticmethod
+    async def delete_ai_items(
+        package_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> int:
+        """Delete only AI-curated items (added_by_user_id IS NULL); preserves faculty items."""
+        stmt = delete(PackageItem).where(
+            and_(
+                PackageItem.package_id == package_id,
+                PackageItem.added_by_user_id.is_(None),
+            )
+        )
+        result = await db.execute(stmt)
+        return result.rowcount
+
+    @staticmethod
+    async def update_display_order(
+        item_id: UUID,
+        display_order: int,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Update the display_order for a single item (used to resequence faculty items)."""
+        stmt = (
+            update(PackageItem)
+            .where(PackageItem.id == item_id)
+            .values(display_order=display_order, updated_at=func.now())
+        )
+        await db.execute(stmt)
+
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
@@ -441,6 +472,26 @@ class PackageItemRepository:
         )
         if faculty_only:
             stmt = stmt.where(PackageItem.faculty_recommended.is_(True))
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def list_faculty_added(
+        package_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> list[PackageItem]:
+        """Return items manually added by faculty (added_by_user_id IS NOT NULL), ordered by display_order."""
+        stmt = (
+            select(PackageItem)
+            .where(
+                and_(
+                    PackageItem.package_id == package_id,
+                    PackageItem.added_by_user_id.isnot(None),
+                )
+            )
+            .order_by(PackageItem.display_order.asc())
+        )
         result = await db.execute(stmt)
         return list(result.scalars().all())
 

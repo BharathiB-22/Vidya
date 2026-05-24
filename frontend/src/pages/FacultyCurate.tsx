@@ -125,7 +125,7 @@ function PackageStepper({ status }: { status: PackageStatus }) {
 
 function JobBanner({ job }: { job: JobStatus | undefined }) {
   if (!job) return null
-  const { status, message, error } = job
+  const { status, message, error, result } = job
   if (status === 'PENDING' || status === 'RUNNING') {
     return (
       <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
@@ -135,6 +135,15 @@ function JobBanner({ job }: { job: JobStatus | undefined }) {
     )
   }
   if (status === 'SUCCESS') {
+    const warning = typeof result?.warning === 'string' ? result.warning : null
+    if (warning) {
+      return (
+        <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-800 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{warning}</span>
+        </div>
+      )
+    }
     return (
       <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-green-700 text-sm">
         <CheckCircle2 className="h-4 w-4 shrink-0" />

@@ -146,6 +146,7 @@ export interface JobStatus {
   status:   'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED'
   message?: string | null
   error?:   string | null
+  result?:  Record<string, unknown> | null
 }
 
 export interface FacultyAddItemPayload {

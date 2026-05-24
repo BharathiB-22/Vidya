@@ -180,12 +180,21 @@ async def _run_curation(
                 )
                 await session.flush()
 
+            # Load faculty-added items now so we can preserve them regardless of
+            # whether external adapters succeed.
+            faculty_items = await PackageItemRepository.list_faculty_added(
+                package_id, db=session
+            )
+
             logger.info(
-                "m05.curate: started (top_n=%d context=%r)",
+                "m05.curate: started (top_n=%d context=%r faculty_items=%d)",
                 effective_top_n,
                 unit_context[:80],
+                len(faculty_items),
                 extra=_log_extra,
             )
+
+            _result: dict | None = None  # set on early exit (Case B) or at end (Case A)
 
             # ------------------------------------------------------------------
             # 4. Run all 4 adapters; tolerate per-adapter failures
@@ -220,87 +229,137 @@ async def _run_curation(
             await asyncio.gather(*[_fetch(name, adapter) for name, adapter in adapters])
 
             if not all_raw_items:
-                raise RuntimeError(
-                    f"All source adapters failed for package {package_id}. "
-                    f"Failed providers: {failed_providers}"
+                if not faculty_items:
+                    # Case C: no external items AND no faculty items — hard fail.
+                    raise RuntimeError(
+                        f"All source adapters failed for package {package_id} and no "
+                        f"faculty-added resources exist. Failed providers: {failed_providers}"
+                    )
+                # Case B: external providers all failed but faculty items exist.
+                # Preserve faculty items, mark READY, and surface a warning.
+                logger.warning(
+                    "m05.curate: all adapters failed (%s); %d faculty item(s) preserved → READY",
+                    failed_providers, len(faculty_items),
+                    extra=_log_extra,
                 )
-
-            logger.info(
-                "m05.curate: %d raw items collected from %d provider(s); %d failed",
-                len(all_raw_items),
-                len(adapters) - len(failed_providers),
-                len(failed_providers),
-                extra=_log_extra,
-            )
-
-            # ------------------------------------------------------------------
-            # 5. Semantic ranking
-            # ------------------------------------------------------------------
-            try:
-                ranked = await score_items(
-                    unit_context,
-                    all_raw_items,
-                    tenant_schema=tenant_schema,
-                    package_id=str(package_id),
+                warning = (
+                    f"External providers unavailable ({', '.join(failed_providers)}). "
+                    "Package contains faculty-added resources only."
                 )
-            except EmbedderError as exc:
-                raise RuntimeError(
-                    f"Embedding/ranking failed for package {package_id}: {exc}"
-                ) from exc
+                await LearningPackageRepository.set_ready(
+                    package_id, item_count=len(faculty_items), db=session
+                )
+                await session.commit()
+                _result = {
+                    "package_id":         str(package_id),
+                    "items_created":      0,
+                    "faculty_items_kept": len(faculty_items),
+                    "unit_number":        unit_number,
+                    "failed_providers":   failed_providers,
+                    "warning":            warning,
+                }
 
-            top_items = ranked[:effective_top_n]
-
-            logger.info(
-                "m05.curate: ranked %d items, keeping top %d",
-                len(ranked), len(top_items),
-                extra=_log_extra,
-            )
-
-            # ------------------------------------------------------------------
-            # 6. Delete any pre-existing items (idempotent on retry)
-            # ------------------------------------------------------------------
-            deleted = await PackageItemRepository.delete_all_for_package(
-                package_id, db=session
-            )
-            if deleted:
+            if _result is None:
+                # Case A: external items exist — rank, delete only AI items, bulk-create,
+                # then resequence any pre-existing faculty items to follow AI items.
                 logger.info(
-                    "m05.curate: deleted %d pre-existing items (retry path)",
-                    deleted,
+                    "m05.curate: %d raw items collected from %d provider(s); %d failed",
+                    len(all_raw_items),
+                    len(adapters) - len(failed_providers),
+                    len(failed_providers),
                     extra=_log_extra,
                 )
 
-            # ------------------------------------------------------------------
-            # 7. Bulk-create ranked items
-            # ------------------------------------------------------------------
-            items_data = [
-                {
-                    "source_type":    raw.source_type,
-                    "title":          raw.title,
-                    "url":            raw.url,
-                    "content_hash":   _content_hash(raw),
-                    "metadata":       raw.metadata,
-                    "relevance_score": score,
-                    "display_order":  idx,
-                    "faculty_recommended": False,
-                    "added_by_user_id":   None,
+                # ------------------------------------------------------------------
+                # 5. Semantic ranking
+                # ------------------------------------------------------------------
+                try:
+                    ranked = await score_items(
+                        unit_context,
+                        all_raw_items,
+                        tenant_schema=tenant_schema,
+                        package_id=str(package_id),
+                    )
+                except EmbedderError as exc:
+                    raise RuntimeError(
+                        f"Embedding/ranking failed for package {package_id}: {exc}"
+                    ) from exc
+
+                top_items = ranked[:effective_top_n]
+
+                logger.info(
+                    "m05.curate: ranked %d items, keeping top %d",
+                    len(ranked), len(top_items),
+                    extra=_log_extra,
+                )
+
+                # ------------------------------------------------------------------
+                # 6. Delete only AI-curated items (faculty items are preserved)
+                # ------------------------------------------------------------------
+                deleted = await PackageItemRepository.delete_ai_items(
+                    package_id, db=session
+                )
+                if deleted:
+                    logger.info(
+                        "m05.curate: deleted %d AI item(s) (retry path)",
+                        deleted,
+                        extra=_log_extra,
+                    )
+
+                # ------------------------------------------------------------------
+                # 7. Bulk-create ranked AI items
+                # ------------------------------------------------------------------
+                items_data = [
+                    {
+                        "source_type":         raw.source_type,
+                        "title":               raw.title,
+                        "url":                 raw.url,
+                        "content_hash":        _content_hash(raw),
+                        "metadata":            raw.metadata,
+                        "relevance_score":     score,
+                        "display_order":       idx,
+                        "faculty_recommended": False,
+                        "added_by_user_id":    None,
+                    }
+                    for idx, (raw, score) in enumerate(top_items)
+                ]
+                new_items = await PackageItemRepository.bulk_create(
+                    package_id, items_data, db=session
+                )
+                logger.info(
+                    "m05.curate: inserted %d AI item(s)", len(new_items), extra=_log_extra
+                )
+
+                # Resequence faculty items to appear after AI items
+                if faculty_items:
+                    ai_count = len(new_items)
+                    for idx, fi in enumerate(faculty_items):
+                        await PackageItemRepository.update_display_order(
+                            fi.id, ai_count + idx, db=session
+                        )
+                    logger.info(
+                        "m05.curate: resequenced %d faculty item(s) at display_order %d+",
+                        len(faculty_items), ai_count,
+                        extra=_log_extra,
+                    )
+
+                # ------------------------------------------------------------------
+                # 8. Transition -> READY
+                # ------------------------------------------------------------------
+                total_count = len(new_items) + len(faculty_items)
+                await LearningPackageRepository.set_ready(
+                    package_id, item_count=total_count, db=session
+                )
+
+                await session.commit()
+
+                _result = {
+                    "package_id":         str(package_id),
+                    "items_created":      len(new_items),
+                    "faculty_items_kept": len(faculty_items),
+                    "unit_number":        unit_number,
+                    "failed_providers":   failed_providers,
                 }
-                for idx, (raw, score) in enumerate(top_items)
-            ]
-            new_items = await PackageItemRepository.bulk_create(
-                package_id, items_data, db=session
-            )
-            logger.info(
-                "m05.curate: inserted %d items", len(new_items), extra=_log_extra
-            )
-
-            # ------------------------------------------------------------------
-            # 8. Transition -> READY
-            # ------------------------------------------------------------------
-            await LearningPackageRepository.set_ready(
-                package_id, item_count=len(new_items), db=session
-            )
-
-            await session.commit()
 
         # ------------------------------------------------------------------
         # 9. Audit: LEARNING_PACKAGE_CURATION_COMPLETED
@@ -313,28 +372,27 @@ async def _run_curation(
             target_entity="LearningPackage",
             target_id=str(package_id),
             metadata={
-                "items_created":     len(new_items),
-                "unit_number":       unit_number,
-                "top_n":             effective_top_n,
-                "raw_items_fetched": len(all_raw_items),
-                "failed_providers":  failed_providers,
-                "ai_model":          ai_model,
-                "prompt_hash":       prompt_hash[:16],
+                "items_created":      _result["items_created"],
+                "faculty_items_kept": _result.get("faculty_items_kept", 0),
+                "unit_number":        unit_number,
+                "top_n":              effective_top_n,
+                "raw_items_fetched":  len(all_raw_items),
+                "failed_providers":   failed_providers,
+                "ai_model":           ai_model,
+                "prompt_hash":        prompt_hash[:16],
+                "warning":            _result.get("warning"),
             },
         )
 
         logger.info(
-            "m05.curate: complete (items=%d failed_providers=%s)",
-            len(new_items), failed_providers or "none",
+            "m05.curate: complete (items=%d faculty_kept=%d failed_providers=%s)",
+            _result["items_created"],
+            _result.get("faculty_items_kept", 0),
+            failed_providers or "none",
             extra=_log_extra,
         )
 
-        return {
-            "package_id":        str(package_id),
-            "items_created":     len(new_items),
-            "unit_number":       unit_number,
-            "failed_providers":  failed_providers,
-        }
+        return _result
 
     except Exception as exc:
         # Best-effort reset to PENDING so faculty can retry.
