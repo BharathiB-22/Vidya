@@ -32,6 +32,9 @@ export default function LearningPackageListPage() {
   const syllabusId  = params.get('syllabus_id') ?? ''
   const unitNumber  = params.get('unit_number') ?? ''
 
+  const role      = localStorage.getItem('vidya_role') ?? ''
+  const canCreate = ['ADMIN', 'FACULTY'].includes(role)
+
   const [statusFilter, setStatusFilter] = useState<PackageStatus | ''>('')
   const triggerCuration = useTriggerCuration()
 
@@ -122,7 +125,7 @@ export default function LearningPackageListPage() {
             >
               Clear filter
             </button>
-          ) : unitNumber ? (
+          ) : unitNumber && canCreate ? (
             <div className="mt-4">
               <p className="text-xs text-gray-400 mb-3">
                 Generate an AI-curated package for Unit {unitNumber}.
