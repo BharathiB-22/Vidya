@@ -164,12 +164,14 @@ function ItemCurateRow({
   onRemove,
   toggling,
   removing,
+  readOnly = false,
 }: {
-  item:     PackageItem
-  onToggle: (value: boolean) => void
-  onRemove: () => void
-  toggling: boolean
-  removing: boolean
+  item:      PackageItem
+  onToggle:  (value: boolean) => void
+  onRemove:  () => void
+  toggling:  boolean
+  removing:  boolean
+  readOnly?: boolean
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group">
@@ -198,39 +200,47 @@ function ItemCurateRow({
       {/* Relevance */}
       <RelevancePill score={item.relevance_score} />
 
-      {/* Faculty recommended toggle */}
-      <button
-        type="button"
-        title={item.faculty_recommended ? 'Remove Faculty Pick' : 'Mark as Faculty Pick'}
-        disabled={toggling}
-        onClick={() => onToggle(!item.faculty_recommended)}
-        className={`shrink-0 rounded-md p-1 transition-colors ${
-          item.faculty_recommended
-            ? 'text-amber-500 hover:text-amber-600'
-            : 'text-gray-300 hover:text-amber-400'
-        } disabled:opacity-50`}
-      >
-        {toggling ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Star className={`h-4 w-4 ${item.faculty_recommended ? 'fill-current' : ''}`} />
-        )}
-      </button>
+      {/* Faculty recommended indicator / toggle */}
+      {readOnly ? (
+        item.faculty_recommended && (
+          <Star className="h-4 w-4 shrink-0 text-amber-400 fill-current" />
+        )
+      ) : (
+        <button
+          type="button"
+          title={item.faculty_recommended ? 'Remove Faculty Pick' : 'Mark as Faculty Pick'}
+          disabled={toggling}
+          onClick={() => onToggle(!item.faculty_recommended)}
+          className={`shrink-0 rounded-md p-1 transition-colors ${
+            item.faculty_recommended
+              ? 'text-amber-500 hover:text-amber-600'
+              : 'text-gray-300 hover:text-amber-400'
+          } disabled:opacity-50`}
+        >
+          {toggling ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Star className={`h-4 w-4 ${item.faculty_recommended ? 'fill-current' : ''}`} />
+          )}
+        </button>
+      )}
 
-      {/* Remove */}
-      <button
-        type="button"
-        title="Remove item"
-        disabled={removing}
-        onClick={onRemove}
-        className="shrink-0 rounded-md p-1 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
-      >
-        {removing ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Trash2 className="h-4 w-4" />
-        )}
-      </button>
+      {/* Remove — hidden for read-only */}
+      {!readOnly && (
+        <button
+          type="button"
+          title="Remove item"
+          disabled={removing}
+          onClick={onRemove}
+          className="shrink-0 rounded-md p-1 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
+        >
+          {removing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+        </button>
+      )}
     </div>
   )
 }
@@ -265,8 +275,16 @@ function AddItemForm({
         url: form.url?.trim() || null,
       })
       onClose()
-    } catch {
-      setFormError('Failed to add item. Please try again.')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
+        ?.response?.data?.detail
+      const msg =
+        typeof detail === 'object' && detail !== null
+          ? (detail as { message?: string }).message
+          : typeof detail === 'string'
+          ? detail
+          : null
+      setFormError(msg ?? 'Failed to add item. Please try again.')
     }
   }
 
@@ -379,6 +397,8 @@ export default function FacultyCuratePage() {
   const qc       = useQueryClient()
 
   const packageId = id ?? ''
+  const role      = localStorage.getItem('vidya_role') ?? ''
+  const isDean    = role === 'DEAN'
 
   const { data: pkg, isLoading: pkgLoading, isError: pkgError } =
     useLearningPackage(packageId)
@@ -429,8 +449,14 @@ export default function FacultyCuratePage() {
       })
       setActiveJobId(result.job_id)
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })
-        ?.response?.data?.message
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
+        ?.response?.data?.detail
+      const msg =
+        typeof detail === 'object' && detail !== null
+          ? (detail as { message?: string }).message
+          : typeof detail === 'string'
+          ? detail
+          : null
       setActionError(msg ?? 'Failed to trigger curation.')
     }
   }
@@ -440,8 +466,16 @@ export default function FacultyCuratePage() {
     try {
       const result = await indexM.mutateAsync(packageId)
       setActiveJobId(result.job_id)
-    } catch {
-      setActionError('Failed to trigger RAG indexing.')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
+        ?.response?.data?.detail
+      const msg =
+        typeof detail === 'object' && detail !== null
+          ? (detail as { message?: string }).message
+          : typeof detail === 'string'
+          ? detail
+          : null
+      setActionError(msg ?? 'Failed to trigger RAG indexing.')
     }
   }
 
@@ -523,45 +557,52 @@ export default function FacultyCuratePage() {
       <PackageStepper status={pkg.status} />
 
       {/* ── Action bar ── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button
-          onClick={handleTriggerCuration}
-          disabled={curateDisabled}
-          className="gap-1.5"
-        >
-          {(curateM.isPending || isCurating) ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Zap className="h-4 w-4" />
-          )}
-          {isCurating ? 'Curating…' : 'Trigger Curation'}
-        </Button>
+      {isDean ? (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          You have read-only access. Curation and indexing are managed by Faculty and Admin.
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            onClick={handleTriggerCuration}
+            disabled={curateDisabled}
+            className="gap-1.5"
+          >
+            {(curateM.isPending || isCurating) ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Zap className="h-4 w-4" />
+            )}
+            {isCurating ? 'Curating…' : 'Trigger Curation'}
+          </Button>
 
-        <Button
-          variant="outline"
-          onClick={handleTriggerIndexing}
-          disabled={indexDisabled}
-          className="gap-1.5"
-          title={pkg.qdrant_indexed ? 'Already indexed' : undefined}
-        >
-          {indexM.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Database className="h-4 w-4" />
-          )}
-          Index for RAG
-          {pkg.qdrant_indexed && (
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 ml-0.5" />
-          )}
-        </Button>
+          <Button
+            variant="outline"
+            onClick={handleTriggerIndexing}
+            disabled={indexDisabled}
+            className="gap-1.5"
+            title={pkg.qdrant_indexed ? 'Already indexed' : undefined}
+          >
+            {indexM.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Database className="h-4 w-4" />
+            )}
+            Index for RAG
+            {pkg.qdrant_indexed && (
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-500 ml-0.5" />
+            )}
+          </Button>
 
-        {actionError && (
-          <p className="text-xs text-red-500 flex items-center gap-1">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {actionError}
-          </p>
-        )}
-      </div>
+          {actionError && (
+            <p className="text-xs text-red-500 flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {actionError}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── Job feedback ── */}
       {activeJobId && <JobBanner job={jobData} />}
@@ -583,19 +624,21 @@ export default function FacultyCuratePage() {
               ({items.length})
             </span>
           </h2>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => setAddItemOpen((v) => !v)}
-          >
-            <Plus className="h-4 w-4" />
-            Add Faculty Resource
-          </Button>
+          {!isDean && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setAddItemOpen((v) => !v)}
+            >
+              <Plus className="h-4 w-4" />
+              Add Faculty Resource
+            </Button>
+          )}
         </div>
 
         {/* Add item inline form */}
-        {addItemOpen && (
+        {addItemOpen && !isDean && (
           <AddItemForm
             packageId={packageId}
             onClose={() => setAddItemOpen(false)}
@@ -638,8 +681,9 @@ export default function FacultyCuratePage() {
                 item={item}
                 toggling={actions.togglingId === item.id}
                 removing={actions.removingId === item.id}
-                onToggle={() => actions.toggle(item)}
-                onRemove={() => actions.remove(item.id)}
+                onToggle={isDean ? () => {} : () => actions.toggle(item)}
+                onRemove={isDean ? () => {} : () => actions.remove(item.id)}
+                readOnly={isDean}
               />
             ))}
           </div>
