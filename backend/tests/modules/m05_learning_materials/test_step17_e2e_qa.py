@@ -544,7 +544,11 @@ class TestRunCurationWorker:
                 new=AsyncMock(return_value=ranked),
             ),
             patch(
-                "app.modules.m05_learning_materials.repository.PackageItemRepository.delete_all_for_package",
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.list_faculty_added",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.delete_ai_items",
                 new=AsyncMock(return_value=0),
             ),
             patch(
@@ -624,7 +628,11 @@ class TestRunCurationWorker:
                 new=AsyncMock(return_value=ranked),
             ),
             patch(
-                "app.modules.m05_learning_materials.repository.PackageItemRepository.delete_all_for_package",
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.list_faculty_added",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.delete_ai_items",
                 new=AsyncMock(return_value=0),
             ),
             patch(
@@ -697,6 +705,11 @@ class TestRunCurationWorker:
             patch(
                 "app.modules.m05_learning_materials.source_adapters.mit_ocw.MitOcwAdapter.search",
                 new=AsyncMock(side_effect=SourceAdapterError("fail")),
+            ),
+            # No faculty items → Case C: hard fail (RuntimeError)
+            patch(
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.list_faculty_added",
+                new=AsyncMock(return_value=[]),
             ),
             patch(
                 "app.modules.m05_learning_materials.repository.LearningPackageRepository.update_status",
@@ -836,7 +849,11 @@ class TestRunCurationWorker:
                 new=AsyncMock(return_value=ranked),
             ),
             patch(
-                "app.modules.m05_learning_materials.repository.PackageItemRepository.delete_all_for_package",
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.list_faculty_added",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "app.modules.m05_learning_materials.repository.PackageItemRepository.delete_ai_items",
                 new=AsyncMock(return_value=0),
             ),
             patch(

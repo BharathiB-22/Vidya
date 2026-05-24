@@ -401,8 +401,9 @@ class TestAddFacultyItem:
         assert exc_info.value.status_code == 409
 
     @pytest.mark.asyncio
-    async def test_rejects_non_ready_package(self):
-        pkg = _mock_package(status=PackageStatus.PENDING)
+    async def test_rejects_curating_package(self):
+        # _require_mutable allows PENDING+READY but blocks CURATING (AI race) + OUTDATED.
+        pkg = _mock_package(status=PackageStatus.CURATING)
         db  = _mock_db()
 
         with patch(
@@ -418,7 +419,7 @@ class TestAddFacultyItem:
                     db=db,
                 )
 
-        assert exc_info.value.code == "PACKAGE_NOT_READY"
+        assert exc_info.value.code == "PACKAGE_CURATING"
 
 
 # ---------------------------------------------------------------------------
