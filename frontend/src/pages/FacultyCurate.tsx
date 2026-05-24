@@ -508,7 +508,7 @@ export default function FacultyCuratePage() {
   const isJobActive = Boolean(activeJobId) &&
     (jobData?.status === 'PENDING' || jobData?.status === 'RUNNING')
   const curateDisabled = isCurating || isJobActive || curateM.isPending
-  const indexDisabled  = pkg.qdrant_indexed || isJobActive || indexM.isPending
+  const indexDisabled  = pkg.qdrant_indexed || pkg.status !== 'READY' || isJobActive || indexM.isPending
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -582,7 +582,11 @@ export default function FacultyCuratePage() {
             onClick={handleTriggerIndexing}
             disabled={indexDisabled}
             className="gap-1.5"
-            title={pkg.qdrant_indexed ? 'Already indexed' : undefined}
+            title={
+              pkg.qdrant_indexed ? 'Already indexed'
+              : pkg.status !== 'READY' ? 'Trigger curation first'
+              : undefined
+            }
           >
             {indexM.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
