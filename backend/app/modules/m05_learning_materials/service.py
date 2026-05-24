@@ -92,6 +92,32 @@ async def _require_ready(
     return pkg
 
 
+async def _require_mutable(
+    package_id: UUID,
+    *,
+    db: AsyncSession,
+) -> LearningPackage:
+    """Looser guard for manual faculty additions: allows PENDING + READY.
+
+    CURATING is blocked to avoid conflicting with an in-flight AI curation task.
+    OUTDATED is blocked because the package has been superseded.
+    """
+    pkg = await _require_package(package_id, db=db)
+    if pkg.status == PackageStatus.CURATING:
+        raise PackageServiceError(
+            "PACKAGE_CURATING",
+            "AI curation is in progress — wait for it to complete before adding items.",
+            409,
+        )
+    if pkg.status == PackageStatus.OUTDATED:
+        raise PackageServiceError(
+            "PACKAGE_OUTDATED",
+            "This package is outdated. Re-trigger curation to get a fresh version.",
+            409,
+        )
+    return pkg
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -310,13 +336,15 @@ class LearningPackageService:
         *,
         db: AsyncSession,
     ) -> PackageItem:
-        """Append a faculty-supplied item to a READY package.
+        """Append a faculty-supplied item to a PENDING or READY package.
 
+        CURATING and OUTDATED packages are blocked to avoid race conditions
+        with an in-flight AI task or a superseded package version.
         Deduplicates by content_hash — raises DUPLICATE_ITEM if already present.
         New item is appended at the end (display_order = current item_count).
         item_count is incremented after successful insert.
         """
-        pkg = await _require_ready(package_id, db=db)
+        pkg = await _require_mutable(package_id, db=db)
 
         content_hash = _content_hash(payload.title, payload.url)
         if content_hash is not None:

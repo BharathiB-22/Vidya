@@ -185,18 +185,18 @@ function ItemMetaLine({ item }: { item: PackageItem }) {
 
 function ItemCard({
   item,
-  canCurate,
+  canModifyItem,
   onStar,
   onRemove,
   isStar,
   isRemove,
 }: {
-  item:      PackageItem
-  canCurate: boolean
-  onStar:    () => void
-  onRemove:  () => void
-  isStar:    boolean
-  isRemove:  boolean
+  item:          PackageItem
+  canModifyItem: boolean
+  onStar:        () => void
+  onRemove:      () => void
+  isStar:        boolean
+  isRemove:      boolean
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false)
 
@@ -261,7 +261,7 @@ function ItemCard({
             />
           )}
 
-          {canCurate && (
+          {canModifyItem && (
             <div className="flex items-center gap-0.5 mt-auto">
               {/* Star / Faculty Pick toggle */}
               <button
@@ -459,8 +459,16 @@ function AddResourceInline({
         url: form.url?.trim() || null,
       })
       onClose()
-    } catch {
-      setFormError('Failed to add item — please try again.')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
+        ?.response?.data?.detail
+      const msg =
+        typeof detail === 'object' && detail !== null
+          ? (detail as { message?: string }).message
+          : typeof detail === 'string'
+          ? detail
+          : null
+      setFormError(msg ?? 'Failed to add item — please try again.')
     }
   }
 
@@ -549,6 +557,9 @@ export default function LearningPackagePage() {
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL')
   const [showAddForm,  setShowAddForm]  = useState(false)
+
+  // Package is mutable when PENDING or READY (not CURATING or OUTDATED)
+  const isMutable = (s: string) => s === 'PENDING' || s === 'READY'
 
   const { data: pkg, isLoading: pkgLoading, isError: pkgError } =
     useLearningPackage(packageId)
@@ -726,7 +737,7 @@ export default function LearningPackagePage() {
             {filteredItems.length} resource{filteredItems.length !== 1 ? 's' : ''}
             {sourceFilter !== 'ALL' && ` · ${SOURCE_CONFIG[sourceFilter as MaterialSourceType]?.label ?? sourceFilter} only`}
           </p>
-          {canCurate && (
+          {canCurate && isMutable(pkg.status) && (
             <Button
               variant="outline"
               size="sm"
@@ -740,7 +751,7 @@ export default function LearningPackagePage() {
         </div>
 
         {/* Inline add form */}
-        {showAddForm && canCurate && (
+        {showAddForm && canCurate && isMutable(pkg.status) && (
           <AddResourceInline
             packageId={packageId}
             onClose={() => setShowAddForm(false)}
@@ -787,7 +798,7 @@ export default function LearningPackagePage() {
               <ItemCard
                 key={item.id}
                 item={item}
-                canCurate={canCurate}
+                canModifyItem={canCurate && pkg.status === 'READY'}
                 onStar={() => itemActions.toggle(item)}
                 onRemove={() => itemActions.remove(item.id)}
                 isStar={itemActions.togglingId === item.id}
