@@ -6,6 +6,14 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.database import Base
 
+# Side-effect import: registers Tenant (public.tenants) in Base.metadata.
+# AuditLog.tenant_id carries ForeignKey("public.tenants.id"), which SQLAlchemy
+# resolves during configure_mappers(). In Celery worker processes the FastAPI
+# app (and its routers) is never loaded, so auth models are never imported and
+# public.tenants is absent from Base.metadata — causing NoReferencedTableError.
+# This import is the canonical fix; it must stay here, adjacent to the FK.
+import app.core.auth.models  # noqa: F401
+
 
 class AuditEventType(str, enum.Enum):
     # Tenant auth flows

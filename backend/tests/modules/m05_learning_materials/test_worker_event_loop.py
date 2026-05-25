@@ -74,3 +74,31 @@ def test_index_package_rag_engine_uses_nullpool():
         "index_package_rag._get_async_engine() must pass poolclass=NullPool "
         "to prevent cross-event-loop connection reuse on Windows --pool=solo."
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: AuditLog FK to public.tenants must resolve in worker context
+# ---------------------------------------------------------------------------
+
+def test_audit_log_model_import_registers_public_tenants():
+    """Importing AuditLog must also register public.tenants in Base.metadata.
+
+    In Celery worker processes the FastAPI app is never loaded, so
+    app.core.auth.models (which defines Tenant → public.tenants) is not
+    imported via routers.  Without the side-effect import in audit_log/models.py,
+    configure_mappers() raises NoReferencedTableError when the worker calls
+    AuditService.log() — even though the exception is swallowed, the audit row
+    is never written.
+
+    Regression for: audit_write_failed NoReferencedTableError in M05 workers.
+    """
+    from app.core.audit_log.models import AuditLog  # noqa: F401
+    from app.database import Base
+
+    table_keys = {
+        (t.schema, t.name) for t in Base.metadata.tables.values()
+    }
+    assert ("public", "tenants") in table_keys, (
+        "public.tenants is not in Base.metadata after importing AuditLog. "
+        "The side-effect import in audit_log/models.py may have been removed."
+    )
