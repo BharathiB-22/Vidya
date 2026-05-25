@@ -344,3 +344,42 @@ class GradeLedger(Base):
     )
 
     submission = relationship("LabSubmission", back_populates="grade_entry")
+
+
+# ---------------------------------------------------------------------------
+# EvaluatorAssignment — maps an EVALUATOR user to a specific lab assignment
+# ---------------------------------------------------------------------------
+
+class EvaluatorAssignment(Base):
+    """
+    Scoping record: one row per (evaluator, assignment) pair.
+
+    is_active=False soft-deletes the mapping without losing audit history.
+    Unique constraint (assignment_id, evaluator_user_id) prevents duplicates.
+    """
+    __tablename__ = "evaluator_assignments"
+    __table_args__ = (
+        UniqueConstraint("assignment_id", "evaluator_user_id",
+                         name="uq_evaluator_assignment"),
+        Index("ix_evaluator_assignments_evaluator", "evaluator_user_id"),
+        Index("ix_evaluator_assignments_assignment", "assignment_id"),
+    )
+
+    id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    assignment_id       = Column(
+        UUID(as_uuid=True),
+        ForeignKey("lab_assignments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    evaluator_user_id   = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    assigned_by_user_id = Column(UUID(as_uuid=True), nullable=False)
+    assigned_at         = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    is_active           = Column(Boolean, nullable=False, default=True)
+
+    assignment = relationship("LabAssignment")

@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
-  GraduationCap, Package, UserPlus,
+  GraduationCap, Package, UserPlus, ClipboardCheck,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -21,7 +21,7 @@ interface NavSection {
   items: NavItem[]
 }
 
-const ALL_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE']
+const ALL_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE', 'EVALUATOR']
 
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -59,6 +59,17 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Labs',     to: '/student/labs',      icon: FlaskConical, roles: ['STUDENT'] },
       { label: 'My Research', to: '/student/research',  icon: Microscope,   roles: ['STUDENT'] },
+    ],
+  },
+  {
+    heading: 'Evaluate',
+    items: [
+      {
+        label: 'My Evaluations',
+        to: '/evaluator',
+        icon: ClipboardCheck,
+        roles: ['EVALUATOR'],
+      },
     ],
   },
   {

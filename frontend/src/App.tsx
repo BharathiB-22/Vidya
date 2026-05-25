@@ -46,6 +46,9 @@ import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import UsersPage from '@/pages/UsersPage'
 import BulkOnboardingPage from '@/pages/BulkOnboardingPage'
 import SettingsPage from '@/pages/SettingsPage'
+import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
+import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
+import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
 
 export default function App() {
   return (
@@ -99,6 +102,13 @@ export default function App() {
             <Route path="/labs" element={<LabAssignmentListPage />} />
             <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
             <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
+          </Route>
+
+          {/* Evaluator area — EVALUATOR only */}
+          <Route element={<AuthGuard allowedRoles={['EVALUATOR']} />}>
+            <Route path="/evaluator" element={<EvaluatorDashboardPage />} />
+            <Route path="/evaluator/:assignmentId/submissions" element={<EvaluatorSubmissionsPage />} />
+            <Route path="/evaluator/submissions/:submissionId" element={<EvaluatorReviewPanel />} />
           </Route>
 
           {/* Student area — STUDENT, ADMIN */}

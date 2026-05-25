@@ -8,12 +8,13 @@ import enum
 
 
 class TenantRole(str, enum.Enum):
-    ADMIN = "ADMIN"
-    DEAN = "DEAN"
-    FACULTY = "FACULTY"
-    STUDENT = "STUDENT"
-    BOARD = "BOARD"
-    GUIDE = "GUIDE"
+    ADMIN     = "ADMIN"
+    DEAN      = "DEAN"
+    FACULTY   = "FACULTY"
+    STUDENT   = "STUDENT"
+    BOARD     = "BOARD"
+    GUIDE     = "GUIDE"
+    EVALUATOR = "EVALUATOR"
 
 
 class TenantStatus(str, enum.Enum):

@@ -3,10 +3,12 @@ M06 Labs & Assignment Evaluator — router.
 
 RBAC
 ----
-  _WRITE   = ADMIN + FACULTY     (create/update/publish/close assignments, ratify)
-  _READ    = ADMIN + DEAN + FACULTY
-  _STUDENT = STUDENT             (submit, view own, view ratified result)
-  _FULL    = ADMIN + DEAN + FACULTY + STUDENT
+  _WRITE    = ADMIN + FACULTY    (create/update/publish/close assignments, ratify)
+  _READ     = ADMIN + DEAN + FACULTY
+  _EVALUATE = ADMIN + FACULTY + EVALUATOR  (evaluator recommendation path)
+  _STUDENT  = STUDENT            (submit, view own, view ratified result)
+  _FULL     = ADMIN + DEAN + FACULTY + STUDENT + EVALUATOR
+  _EVAL_ONLY = EVALUATOR only    (evaluator-scoped routes)
 
 Router is pure HTTP glue. All business logic lives in service.py.
 
@@ -45,6 +47,14 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.modules.m06_labs_evaluator.evaluator_schemas import (
+    EvaluatorAnalytics,
+    EvaluatorAssignmentList,
+    EvaluatorAssignmentResponse,
+    EvaluatorAssignRequest,
+    EvaluatorRecommendRequest,
+)
+from app.modules.m06_labs_evaluator.evaluator_service import EvaluatorService
 from app.modules.m06_labs_evaluator.repository import TaskJobPublicRepository
 from app.modules.m06_labs_evaluator.schemas import (
     AssignmentCreate,
@@ -70,11 +80,14 @@ from app.modules.m06_labs_evaluator.service import (
 
 router = APIRouter(tags=["labs-evaluator"])
 
-_WRITE   = require_roles(TenantRole.ADMIN, TenantRole.FACULTY)
-_READ    = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
-_STUDENT = require_roles(TenantRole.STUDENT)
-_FULL    = require_roles(
-    TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.STUDENT
+_WRITE    = require_roles(TenantRole.ADMIN, TenantRole.FACULTY)
+_READ     = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
+_EVALUATE = require_roles(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.EVALUATOR)
+_STUDENT  = require_roles(TenantRole.STUDENT)
+_EVAL_ONLY = require_roles(TenantRole.EVALUATOR)
+_FULL     = require_roles(
+    TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY,
+    TenantRole.STUDENT, TenantRole.EVALUATOR,
 )
 
 
@@ -390,6 +403,244 @@ async def get_moderation_report(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ===========================================================================
+# Faculty — Evaluator assignment management
+# ===========================================================================
+
+@router.post(
+    "/assignments/{assignment_id}/evaluators",
+    response_model=EvaluatorAssignmentResponse,
+    status_code=201,
+)
+async def assign_evaluator(
+    assignment_id: UUID,
+    payload: EvaluatorAssignRequest,
+    current_user: CurrentUser = Depends(_WRITE),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    try:
+        mapping = await EvaluatorService.assign(
+            assignment_id,
+            evaluator_user_id=payload.evaluator_user_id,
+            assigned_by_user_id=current_user.user_id,
+            db=db,
+        )
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+
+    await AuditService.log(
+        AuditEventType.LAB_EVALUATOR_ASSIGNED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="lab_assignment",
+        target_id=str(assignment_id),
+        metadata={"evaluator_user_id": str(payload.evaluator_user_id)},
+    )
+    return EvaluatorAssignmentResponse.model_validate(mapping)
+
+
+@router.get(
+    "/assignments/{assignment_id}/evaluators",
+    response_model=EvaluatorAssignmentList,
+)
+async def list_assignment_evaluators(
+    assignment_id: UUID,
+    current_user: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    items = await EvaluatorService.list_for_assignment(assignment_id, db=db)
+    return EvaluatorAssignmentList(
+        items=[EvaluatorAssignmentResponse.model_validate(m) for m in items],
+        total=len(items),
+    )
+
+
+@router.delete(
+    "/assignments/{assignment_id}/evaluators/{evaluator_user_id}",
+    status_code=204,
+)
+async def remove_evaluator(
+    assignment_id: UUID,
+    evaluator_user_id: UUID,
+    current_user: CurrentUser = Depends(_WRITE),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    try:
+        await EvaluatorService.remove(assignment_id, evaluator_user_id, db=db)
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+
+    await AuditService.log(
+        AuditEventType.LAB_EVALUATOR_REMOVED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="lab_assignment",
+        target_id=str(assignment_id),
+        metadata={"evaluator_user_id": str(evaluator_user_id)},
+    )
+
+
+# ===========================================================================
+# Evaluator — scoped read + recommendation routes
+# ===========================================================================
+
+@router.get("/evaluator/assignments", response_model=AssignmentListResponse)
+async def evaluator_list_assignments(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: CurrentUser = Depends(_EVAL_ONLY),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    items, total = await EvaluatorService.list_assignments(
+        current_user.user_id, db=db, offset=offset, limit=limit
+    )
+    return AssignmentListResponse(
+        items=[AssignmentResponse.model_validate(a) for a in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get("/evaluator/assignments/{assignment_id}", response_model=AssignmentResponse)
+async def evaluator_get_assignment(
+    assignment_id: UUID,
+    current_user: CurrentUser = Depends(_EVAL_ONLY),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    try:
+        await EvaluatorService.require_scope(current_user.user_id, assignment_id, db)
+        assignment = await AssignmentService.get(assignment_id, db=db)
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+    return AssignmentResponse.model_validate(assignment)
+
+
+@router.get(
+    "/evaluator/assignments/{assignment_id}/submissions",
+    response_model=SubmissionListResponse,
+)
+async def evaluator_list_submissions(
+    assignment_id: UUID,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: CurrentUser = Depends(_EVAL_ONLY),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    try:
+        await EvaluatorService.require_scope(current_user.user_id, assignment_id, db)
+        items, total = await SubmissionService.list_for_assignment(
+            assignment_id, db=db, offset=offset, limit=limit
+        )
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+    return SubmissionListResponse(
+        items=[SubmissionResponse.model_validate(s) for s in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get("/evaluator/submissions/{submission_id}/review", response_model=ReviewPanelResponse)
+async def evaluator_get_review_panel(
+    submission_id: UUID,
+    current_user: CurrentUser = Depends(_EVAL_ONLY),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    try:
+        sub, assignment, grade_entry = await ReviewService.get_review_panel(
+            submission_id, db=db
+        )
+        await EvaluatorService.require_scope(current_user.user_id, assignment.id, db)
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+
+    await AuditService.log(
+        AuditEventType.LAB_EVALUATOR_OPENED_SUBMISSION,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="lab_submission",
+        target_id=str(submission_id),
+        metadata={"assignment_id": str(assignment.id)},
+    )
+
+    from app.modules.m06_labs_evaluator.schemas import EvaluationResponse
+    eval_resp = (
+        EvaluationResponse.model_validate(sub.evaluation)
+        if sub.evaluation
+        else None
+    )
+    sub_detail = SubmissionDetailResponse(
+        **SubmissionResponse.model_validate(sub).model_dump(),
+        content_text=sub.content_text,
+        ai_scan_result=sub.ai_scan_result,
+        evaluation=eval_resp,
+    )
+    return ReviewPanelResponse(
+        submission=sub_detail,
+        assignment=AssignmentResponse.model_validate(assignment),
+        grade_entry=GradeLedgerResponse.model_validate(grade_entry) if grade_entry else None,
+    )
+
+
+@router.patch("/evaluator/submissions/{submission_id}/recommend")
+async def evaluator_submit_recommendation(
+    submission_id: UUID,
+    payload: EvaluatorRecommendRequest,
+    current_user: CurrentUser = Depends(_EVAL_ONLY),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    from app.modules.m06_labs_evaluator.schemas import CriterionScoreUpdate, EvaluationResponse
+    score_updates = [
+        CriterionScoreUpdate(
+            criterion_id=s.criterion_id,
+            human_score=s.human_score,
+            human_note=s.human_note,
+        )
+        for s in payload.scores
+    ]
+    try:
+        evaluation = await EvaluatorService.submit_recommendation(
+            submission_id,
+            evaluator_user_id=current_user.user_id,
+            scores=score_updates,
+            db=db,
+        )
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+
+    await AuditService.log(
+        AuditEventType.LAB_EVALUATOR_SUBMITTED_RECOMMENDATION,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="lab_submission",
+        target_id=str(submission_id),
+        metadata={
+            "criteria_updated": len(payload.scores),
+            "note": payload.recommendation_note,
+        },
+    )
+    return EvaluationResponse.model_validate(evaluation)
+
+
+@router.get("/evaluator/analytics", response_model=EvaluatorAnalytics)
+async def evaluator_analytics(
+    current_user: CurrentUser = Depends(_EVAL_ONLY),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    stats = await EvaluatorService.get_analytics(current_user.user_id, db=db)
+    return EvaluatorAnalytics(**stats)
 
 
 # ===========================================================================

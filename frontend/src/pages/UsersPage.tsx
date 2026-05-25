@@ -19,16 +19,17 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-const ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE'] as const
+const ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE', 'EVALUATOR'] as const
 type Role = typeof ROLES[number]
 
 const ROLE_COLORS: Record<string, string> = {
-  ADMIN:   'bg-indigo-100 text-indigo-800',
-  DEAN:    'bg-purple-100 text-purple-800',
-  FACULTY: 'bg-blue-100 text-blue-800',
-  STUDENT: 'bg-green-100 text-green-800',
-  BOARD:   'bg-amber-100 text-amber-800',
-  GUIDE:   'bg-teal-100 text-teal-800',
+  ADMIN:     'bg-indigo-100 text-indigo-800',
+  DEAN:      'bg-purple-100 text-purple-800',
+  FACULTY:   'bg-blue-100 text-blue-800',
+  STUDENT:   'bg-green-100 text-green-800',
+  BOARD:     'bg-amber-100 text-amber-800',
+  GUIDE:     'bg-teal-100 text-teal-800',
+  EVALUATOR: 'bg-orange-100 text-orange-800',
 }
 
 // ---------------------------------------------------------------------------
