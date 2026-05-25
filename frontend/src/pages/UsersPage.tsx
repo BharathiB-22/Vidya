@@ -163,17 +163,19 @@ interface EditDialogProps {
 }
 
 function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
-  const [fullName, setFullName] = useState('')
-  const [role,     setRole]     = useState<Role>('FACULTY')
-  const [isActive, setIsActive] = useState(true)
-  const [error,    setError]    = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [fullName,   setFullName]   = useState('')
+  const [role,       setRole]       = useState<Role>('FACULTY')
+  const [isActive,   setIsActive]   = useState(true)
+  const [identifier, setIdentifier] = useState('')
+  const [error,      setError]      = useState('')
+  const [loading,    setLoading]    = useState(false)
 
   useEffect(() => {
     if (user) {
       setFullName(user.full_name)
       setRole(user.role as Role)
       setIsActive(user.is_active)
+      setIdentifier(user.identifier ?? '')
       setError('')
     }
   }, [user])
@@ -188,6 +190,7 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
       if (fullName.trim() !== user.full_name) payload.full_name = fullName.trim()
       if (role !== user.role) payload.role = role
       if (isActive !== user.is_active) payload.is_active = isActive
+      if (identifier.trim() !== (user.identifier ?? '')) payload.identifier = identifier.trim() || undefined
       const updated = await usersApi.update(user.id, payload)
       addToast('Changes saved.', 'success')
       onUpdated(updated)
@@ -226,6 +229,16 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
                   {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">
+                Identifier <span className="text-gray-400 font-normal">(optional — staff ID, employee no.)</span>
+              </label>
+              <Input
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="e.g. GUIDE001"
+              />
             </div>
             <div className="flex items-center gap-2">
               <input

@@ -63,6 +63,7 @@ class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
     role: Optional[TenantRole] = None
     is_active: Optional[bool] = None
+    identifier: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):

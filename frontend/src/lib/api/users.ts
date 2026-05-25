@@ -22,6 +22,7 @@ export interface UpdateUserPayload {
   full_name?: string
   role?: string
   is_active?: boolean
+  identifier?: string
 }
 
 export const usersApi = {
