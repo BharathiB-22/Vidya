@@ -561,6 +561,77 @@ class TestSubmissionServiceInvariants:
         assert exc_info.value.status_code == 409
         assert exc_info.value.code == "ALREADY_SUBMITTED"
 
+    @pytest.mark.asyncio
+    async def test_submit_code_assignment_creates_task_job(self):
+        """Student submitting a CODE assignment must create a task_jobs row and
+        dispatch the Celery task.  Regression for the task_name/task_type mismatch."""
+        from app.modules.m06_labs_evaluator.service import SubmissionService
+        from app.modules.m06_labs_evaluator.models import (
+            AssignmentStatus, LabAssignment, LabSubmission, SubmissionType,
+        )
+
+        mock_db = AsyncMock()
+        assignment = MagicMock(spec=LabAssignment)
+        assignment.status = AssignmentStatus.PUBLISHED
+        assignment.submission_type = SubmissionType.CODE
+        assignment.id = uuid.uuid4()
+        assignment.deadline = None
+        assignment.allow_late = False
+
+        submission = MagicMock(spec=LabSubmission)
+        submission.id = uuid.uuid4()
+
+        expected_job_id = uuid.uuid4()
+
+        with (
+            patch(
+                "app.modules.m06_labs_evaluator.repository.AssignmentRepository.get_by_id",
+                new=AsyncMock(return_value=assignment),
+            ),
+            patch(
+                "app.modules.m06_labs_evaluator.repository.SubmissionRepository.get_student_submission",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.modules.m06_labs_evaluator.repository.SubmissionRepository.create",
+                new=AsyncMock(return_value=submission),
+            ),
+            patch(
+                "app.modules.m06_labs_evaluator.repository.SubmissionRepository.set_eval_job",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.modules.m06_labs_evaluator.repository.TaskJobPublicRepository.create",
+                new=AsyncMock(return_value=expected_job_id),
+            ) as mock_task_create,
+            patch(
+                "app.workers.heavy.evaluate_lab_submission.evaluate_lab_submission.apply_async",
+                new=MagicMock(),
+            ) as mock_dispatch,
+        ):
+            result_submission, result_job_id = await SubmissionService.submit(
+                assignment_id=assignment.id,
+                student_user_id=uuid.uuid4(),
+                content_text="print('hello')",
+                tenant_id=uuid.uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+
+        # Correct arguments passed to TaskJobPublicRepository.create
+        call_kwargs = mock_task_create.call_args.kwargs
+        assert "task_name" not in call_kwargs, "task_name is not a valid parameter — use task_type"
+        assert call_kwargs["task_type"] == "evaluate_lab_submission"
+        assert call_kwargs["queue_name"] == "heavy"
+        assert "submission_id" in call_kwargs["payload"]
+
+        # Return values are correct
+        assert result_job_id == expected_job_id
+
+        # Celery task was dispatched with the job_id
+        dispatch_kwargs = mock_dispatch.call_args.kwargs["kwargs"]
+        assert dispatch_kwargs["job_id"] == str(expected_job_id)
+
 
 class TestGradeLedgerInvariant:
     """Grade ledger must never be written except via the ratify endpoint."""

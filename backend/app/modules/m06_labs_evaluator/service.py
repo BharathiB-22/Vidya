@@ -326,9 +326,10 @@ class SubmissionService:
         )
 
         # Create task_jobs row and dispatch evaluation task atomically
-        job = await TaskJobPublicRepository.create(
-            task_name="evaluate_lab_submission",
+        job_id = await TaskJobPublicRepository.create(
             tenant_id=tenant_id,
+            task_type="evaluate_lab_submission",
+            queue_name="heavy",
             payload={
                 "submission_id": str(submission.id),
                 "assignment_id": str(assignment_id),
@@ -336,7 +337,7 @@ class SubmissionService:
             },
             db=db,
         )
-        await SubmissionRepository.set_eval_job(submission.id, job.id, db=db)
+        await SubmissionRepository.set_eval_job(submission.id, job_id, db=db)
         await db.commit()
         await db.refresh(submission)
 
@@ -344,14 +345,14 @@ class SubmissionService:
         from app.workers.heavy.evaluate_lab_submission import evaluate_lab_submission
         evaluate_lab_submission.apply_async(
             kwargs={
-                "job_id":        str(job.id),
+                "job_id":        str(job_id),
                 "submission_id": str(submission.id),
                 "assignment_id": str(assignment_id),
                 "schema_name":   schema_name,
             }
         )
-        logger.info("Evaluation job %s dispatched for submission %s", job.id, submission.id)
-        return submission, job.id
+        logger.info("Evaluation job %s dispatched for submission %s", job_id, submission.id)
+        return submission, job_id
 
     @staticmethod
     async def get_submission(
