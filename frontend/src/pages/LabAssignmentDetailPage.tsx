@@ -6,10 +6,9 @@ import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
 import {
   useLabAssignment, useSubmissions, usePublishAssignment, useCloseAssignment,
-  useAssignmentEvaluators, useAssignEvaluator, useRemoveEvaluator,
+  useAssignmentEvaluators, useAssignEvaluator, useRemoveEvaluator, useTenantEvaluators,
 } from '@/hooks/labs'
 import { getModerationReportUrl } from '@/lib/api/labs'
-import { usersApi } from '@/lib/api/users'
 import { addToast } from '@/hooks/useToast'
 import type { LabSubmission, SubmissionStatus } from '@/types/labs'
 
@@ -67,51 +66,48 @@ function EvaluatorsPanel({
   assignmentId: string
   canWrite: boolean
 }) {
-  const [email, setEmail] = useState('')
-  const [searching, setSearching] = useState(false)
+  const [selectedId, setSelectedId] = useState('')
 
   const { data: evalsData } = useAssignmentEvaluators(assignmentId)
   const evaluators = evalsData?.items ?? []
+  const { data: available = [] } = useTenantEvaluators()
   const { mutate: assign, isPending: assigning } = useAssignEvaluator(assignmentId)
   const { mutate: remove } = useRemoveEvaluator(assignmentId)
 
-  async function handleAssign(e: React.FormEvent) {
+  const unassigned = available.filter(
+    (u) => !evaluators.some((ev) => ev.evaluator_user_id === u.id)
+  )
+
+  function handleAssign(e: React.FormEvent) {
     e.preventDefault()
-    setSearching(true)
-    try {
-      const users = await usersApi.list()
-      const match = users.find(
-        (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.role === 'EVALUATOR'
-      )
-      if (!match) {
-        addToast('No EVALUATOR user found with that email.', 'error')
-        return
-      }
-      assign(match.id, {
-        onSuccess: () => {
-          addToast('Evaluator assigned.', 'success')
-          setEmail('')
-        },
-      })
-    } finally {
-      setSearching(false)
-    }
+    if (!selectedId) return
+    assign(selectedId, {
+      onSuccess: () => {
+        addToast('Evaluator assigned.', 'success')
+        setSelectedId('')
+      },
+    })
   }
 
   return (
     <div className="space-y-4">
       {canWrite && (
         <form onSubmit={handleAssign} className="flex gap-2">
-          <input
-            type="email"
-            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
-            placeholder="Evaluator email address…"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+          <select
+            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 bg-white"
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
             required
-          />
-          <Button type="submit" size="sm" disabled={assigning || searching}>
-            {assigning || searching ? 'Assigning…' : 'Assign'}
+          >
+            <option value="">Select evaluator…</option>
+            {unassigned.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.full_name} ({u.email})
+              </option>
+            ))}
+          </select>
+          <Button type="submit" size="sm" disabled={assigning || !selectedId}>
+            {assigning ? 'Assigning…' : 'Assign'}
           </Button>
         </form>
       )}
@@ -123,30 +119,35 @@ function EvaluatorsPanel({
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden">
-          {evaluators.map((ev) => (
-            <div key={ev.id} className="px-4 py-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-mono text-gray-600">{ev.evaluator_user_id}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Assigned {new Date(ev.assigned_at).toLocaleDateString()}
-                </p>
+          {evaluators.map((ev) => {
+            const user = available.find((u) => u.id === ev.evaluator_user_id)
+            return (
+              <div key={ev.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">
+                    {user ? `${user.full_name} (${user.email})` : ev.evaluator_user_id}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Assigned {new Date(ev.assigned_at).toLocaleDateString()}
+                  </p>
+                </div>
+                {canWrite && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() =>
+                      remove(ev.evaluator_user_id, {
+                        onSuccess: () => addToast('Evaluator removed.', 'success'),
+                      })
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
-              {canWrite && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                  onClick={() =>
-                    remove(ev.evaluator_user_id, {
-                      onSuccess: () => addToast('Evaluator removed.', 'success'),
-                    })
-                  }
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

@@ -212,6 +212,66 @@ def test_grade_ledger_has_submission_unique_constraint():
     )
 
 
+# ===========================================================================
+# 7. Rubric scorer — dict-wrapped AI response parsing
+# ===========================================================================
+
+def test_parse_response_accepts_dict_wrapped_scores():
+    """_parse_response must unwrap {"scores": [...]} without raising."""
+    import json
+    from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+
+    rubric = [
+        {"criterion_id": "c1", "name": "Quality", "max_marks": 10, "weight": 1.0},
+        {"criterion_id": "c2", "name": "Clarity",  "max_marks": 5,  "weight": 0.5},
+    ]
+    # Simulate an LLM that wraps the array in {"scores": [...]}
+    wrapped = json.dumps({
+        "scores": [
+            {"criterion_id": "c1", "ai_score": 8.0, "ai_justification": "Good work."},
+            {"criterion_id": "c2", "ai_score": 4.0, "ai_justification": "Clear writing."},
+        ]
+    })
+
+    result = _parse_response(wrapped, rubric)
+
+    assert len(result) == 2
+    assert result[0].criterion_id == "c1"
+    assert result[0].ai_score == 8.0
+    assert result[1].criterion_id == "c2"
+    assert result[1].ai_score == 4.0
+
+
+def test_parse_response_accepts_bare_array():
+    """_parse_response still handles a bare JSON array (original format)."""
+    import json
+    from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+
+    rubric = [
+        {"criterion_id": "c1", "name": "Quality", "max_marks": 10, "weight": 1.0},
+    ]
+    bare = json.dumps([
+        {"criterion_id": "c1", "ai_score": 7.5, "ai_justification": "Solid."},
+    ])
+
+    result = _parse_response(bare, rubric)
+
+    assert len(result) == 1
+    assert result[0].ai_score == 7.5
+
+
+def test_parse_response_rejects_unrecognised_dict():
+    """A dict with no recognised array key must still raise ValueError."""
+    import json, pytest
+    from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+
+    rubric = [{"criterion_id": "c1", "name": "Q", "max_marks": 10, "weight": 1.0}]
+    bad = json.dumps({"unknown_key": "not a list"})
+
+    with pytest.raises(ValueError, match="Expected JSON array"):
+        _parse_response(bad, rubric)
+
+
 def test_grade_ledger_submission_fk_is_restrict():
     """GradeLedger FK to submissions must use ondelete=RESTRICT."""
     from app.modules.m06_labs_evaluator.models import GradeLedger

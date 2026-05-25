@@ -136,6 +136,13 @@ def _parse_response(raw: str, rubric: list[dict]) -> list[CriterionScore]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"AI response is not valid JSON: {exc}\nRaw: {raw[:400]}") from exc
 
+    # Unwrap dict envelope — LLMs sometimes return {"scores": [...]} instead of a bare array
+    if isinstance(parsed, dict):
+        for key in ("scores", "criteria_scores", "rubric_scores", "results"):
+            if key in parsed and isinstance(parsed[key], list):
+                parsed = parsed[key]
+                break
+
     if not isinstance(parsed, list):
         raise ValueError(f"Expected JSON array; got {type(parsed).__name__}")
 
@@ -251,17 +258,6 @@ async def _score_with_groq(
     raw = (response.choices[0].message.content or "").strip()
     if not raw:
         raise ValueError("Groq returned empty response.")
-
-    # Groq may return {"scores": [...]} instead of bare array
-    try:
-        parsed_outer = json.loads(raw)
-        if isinstance(parsed_outer, dict):
-            for key in ("scores", "criteria_scores", "rubric_scores", "results"):
-                if key in parsed_outer and isinstance(parsed_outer[key], list):
-                    raw = json.dumps(parsed_outer[key])
-                    break
-    except json.JSONDecodeError:
-        pass
 
     scores = _parse_response(raw, rubric)
     return RubricScoringResult(
