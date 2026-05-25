@@ -166,6 +166,14 @@ async def evaluator_user_a(test_tenant_a):
 
 
 @pytest_asyncio.fixture
+async def guide_user_a(test_tenant_a):
+    user = await _insert_tenant_user(
+        SCHEMA_A, "guide_a@test.com", "Guide1234!", "GUIDE", "Guide A"
+    )
+    yield {**user, "tenant_id": test_tenant_a["id"], "schema_name": SCHEMA_A, "slug": SLUG_A}
+
+
+@pytest_asyncio.fixture
 async def admin_user_b(test_tenant_b):
     user = await _insert_tenant_user(SCHEMA_B, "admin_b@test.com", "Admin1234!", "ADMIN", "Admin B")
     yield {**user, "tenant_id": test_tenant_b["id"], "schema_name": SCHEMA_B, "slug": SLUG_B}

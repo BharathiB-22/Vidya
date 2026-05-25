@@ -109,6 +109,20 @@ export async function ratifyViva(id: string, payload: VivaRatifyRequest): Promis
   return data
 }
 
+// ── Guide directory ───────────────────────────────────────────────────────────
+
+export interface GuideUser {
+  id: string
+  full_name: string
+  email: string
+  identifier: string | null
+}
+
+export async function listActiveGuides(): Promise<GuideUser[]> {
+  const { data } = await api.get<GuideUser[]>(`${BASE}/guides`)
+  return data
+}
+
 // ── Student — Problems ────────────────────────────────────────────────────────
 
 export async function studentListProblems(params?: {

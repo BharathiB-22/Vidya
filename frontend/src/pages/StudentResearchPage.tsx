@@ -5,7 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, BookOpen, ChevronRight, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getErrorMessage } from '@/lib/api'
-import { studentListProblems, studentPropose } from '@/lib/api/research'
+import { studentListProblems, studentPropose, listActiveGuides } from '@/lib/api/research'
+import type { GuideUser } from '@/lib/api/research'
 import type { ResearchProblem, ResearchQuestion } from '@/types/research'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -16,6 +17,11 @@ const STATUS_COLOR: Record<string, string> = {
   REJECTED:           'bg-red-100 text-red-600',
 }
 
+function guideLabel(g: GuideUser): string {
+  const prefix = g.identifier ? `${g.identifier} - ` : ''
+  return `${prefix}${g.full_name} (${g.email})`
+}
+
 function ProposeDialog({ onClose }: { onClose: () => void }) {
   const qc       = useQueryClient()
   const navigate = useNavigate()
@@ -24,6 +30,12 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
   const [title, setTitle]       = useState('')
   const [abstract, setAbstract] = useState('')
   const [questions, setQuestions] = useState<string[]>([''])
+
+  const { data: guides = [], isLoading: guidesLoading } = useQuery({
+    queryKey: ['research-guides'],
+    queryFn: listActiveGuides,
+    staleTime: 60_000,
+  })
 
   const { mutate, isPending, isError, error } = useMutation({
     mutationFn: () =>
@@ -54,11 +66,8 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
     setQuestions(questions.map((q, idx) => (idx === i ? v : q)))
   }
 
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  const guideIdValid = UUID_RE.test(guideId.trim())
-
   const valid =
-    guideIdValid &&
+    !!guideId &&
     title.trim() &&
     abstract.trim().length >= 50 &&
     questions.some((q) => q.trim())
@@ -72,21 +81,26 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
         <h2 className="text-lg font-semibold text-gray-900">Submit Research Proposal</h2>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">Guide User UUID</label>
-          <input
-            className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 font-mono ${
-              guideId && !guideIdValid ? 'border-red-300 bg-red-50' : 'border-gray-200'
-            }`}
-            value={guideId}
-            onChange={(e) => setGuideId(e.target.value)}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-          />
-          {guideId && !guideIdValid ? (
-            <p className="text-xs text-red-600">Must be a valid UUID (e.g. from Admin → Users → Guide details).</p>
-          ) : (
-            <p className="text-xs text-gray-400">
-              Copy this UUID from <strong>Admin → Users</strong>, click the Guide user's <strong>Edit</strong> button to reveal their UUID.
+          <label className="text-sm font-medium text-gray-700">Select Guide</label>
+          {guidesLoading ? (
+            <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading guides…
+            </div>
+          ) : guides.length === 0 ? (
+            <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+              No active guides are registered yet. Please ask your admin to add a GUIDE user.
             </p>
+          ) : (
+            <select
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+              value={guideId}
+              onChange={(e) => setGuideId(e.target.value)}
+            >
+              <option value="">— Select a guide —</option>
+              {guides.map((g) => (
+                <option key={g.id} value={g.id}>{guideLabel(g)}</option>
+              ))}
+            </select>
           )}
         </div>
 

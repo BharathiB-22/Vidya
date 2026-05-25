@@ -24,6 +24,15 @@ class ResearchQuestion(BaseModel):
     question: str = Field(..., min_length=1)
 
 
+class GuideUserResponse(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    identifier: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 # ---------------------------------------------------------------------------
 # ResearchProblem schemas
 # ---------------------------------------------------------------------------

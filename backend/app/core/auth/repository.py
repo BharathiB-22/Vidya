@@ -284,6 +284,17 @@ class TenantRepository:
         return result.scalars().all()
 
     @staticmethod
+    async def list_active_guides(db: AsyncSession):
+        from app.core.auth.models import TenantRole
+        stmt = (
+            select(User)
+            .where(User.role == TenantRole.GUIDE, User.is_active.is_(True))
+            .order_by(User.full_name)
+        )
+        result = await db.execute(stmt)
+        return result.scalars().all()
+
+    @staticmethod
     async def create_refresh_token(
         user_id: UUID,
         token_hash: str,

@@ -62,6 +62,7 @@ from app.modules.m07_research_supervision.schemas import (
     GeneratedProblemsResponse,
     GuideDecisionRequest,
     GuideDocumentReviewRequest,
+    GuideUserResponse,
     JobStatusResponse,
     ProblemCreate,
     ProblemListResponse,
@@ -83,9 +84,13 @@ from app.modules.m07_research_supervision.service import (
 
 router = APIRouter(tags=["research-supervision"])
 
-_GUIDE   = require_roles(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.GUIDE)
-_STUDENT = require_roles(TenantRole.STUDENT)
-_READ    = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.GUIDE)
+_GUIDE    = require_roles(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.GUIDE)
+_STUDENT  = require_roles(TenantRole.STUDENT)
+_READ     = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.GUIDE)
+_ALL      = require_roles(
+    TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY,
+    TenantRole.GUIDE, TenantRole.STUDENT, TenantRole.BOARD,
+)
 
 
 def _svc_error(exc: ResearchServiceError) -> HTTPException:
@@ -391,6 +396,21 @@ async def ratify_viva(
         },
     )
     return VivaSessionResponse.model_validate(viva)
+
+
+# ===========================================================================
+# Guide directory — accessible to all authenticated tenant users
+# ===========================================================================
+
+@router.get("/guides", response_model=list[GuideUserResponse])
+async def list_active_guides(
+    current_user: CurrentUser = Depends(_ALL),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Return active GUIDE users in this tenant for research proposal guide selection."""
+    from app.core.auth.repository import TenantRepository
+    guides = await TenantRepository.list_active_guides(db)
+    return [GuideUserResponse.model_validate(g) for g in guides]
 
 
 # ===========================================================================
