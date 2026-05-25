@@ -196,9 +196,9 @@ async def _search_qdrant(
 
     qdrant = get_rag_client()
     try:
-        results = await qdrant.search(
+        response = await qdrant.query_points(
             collection_name=_QDRANT_COLLECTION,
-            query_vector=question_vector,
+            query=question_vector,
             query_filter=Filter(
                 must=[
                     FieldCondition(
@@ -217,7 +217,7 @@ async def _search_qdrant(
     except Exception as exc:
         raise RagServiceError(f"Qdrant search failed: {exc}") from exc
 
-    return [{**r.payload, "_score": r.score} for r in results]
+    return [{**r.payload, "_score": r.score} for r in response.points]
 
 
 # ---------------------------------------------------------------------------

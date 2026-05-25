@@ -498,16 +498,25 @@ class LearningPackageService:
                 409,
             )
 
-        from app.modules.m05_learning_materials.rag_service import ask_package_question
-
-        return await ask_package_question(
-            package_id=package_id,
-            student_user_id=student_user_id,
-            question=question,
-            tenant_schema=tenant_schema,
-            session_id=session_id,
-            db=db,
+        from app.modules.m05_learning_materials.rag_service import (
+            ask_package_question,
+            RagAIError,
+            RagServiceError,
         )
+
+        try:
+            return await ask_package_question(
+                package_id=package_id,
+                student_user_id=student_user_id,
+                question=question,
+                tenant_schema=tenant_schema,
+                session_id=session_id,
+                db=db,
+            )
+        except RagAIError as exc:
+            raise PackageServiceError("AI_ERROR", str(exc), 503)
+        except RagServiceError as exc:
+            raise PackageServiceError("RAG_ERROR", str(exc), 503)
 
     # =========================================================================
     # Syllabus-bump hook (R7)

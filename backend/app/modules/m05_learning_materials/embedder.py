@@ -24,7 +24,7 @@ from app.modules.m05_learning_materials.source_adapters.base import RawItem
 
 logger = logging.getLogger("vidya.m05.embedder")
 
-_EMBED_MODEL = "text-embedding-004"
+_EMBED_MODEL = "models/gemini-embedding-001"
 
 
 # ---------------------------------------------------------------------------

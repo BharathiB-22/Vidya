@@ -13,7 +13,7 @@ from app.modules.m05_learning_materials.source_adapters.base import (
     get_adapter_logger,
 )
 
-_SEARCH_URL = "http://export.arxiv.org/api/query"
+_SEARCH_URL = "https://export.arxiv.org/api/query"
 _ATOM_NS    = {"atom": "http://www.w3.org/2005/Atom"}
 
 
@@ -33,8 +33,10 @@ class ArxivAdapter:
             "sortBy":       "relevance",
             "sortOrder":    "descending",
         }
-        async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(_SEARCH_URL, params=params)
+            if resp.status_code == 429:
+                raise SourceAdapterError("arXiv rate-limited (429); retry later")
             resp.raise_for_status()
             return resp.text
 

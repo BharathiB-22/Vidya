@@ -173,7 +173,7 @@ async def _run_curation(
             # ------------------------------------------------------------------
             prompt_text = f"unit:{unit_number} syllabus:{syllabus_id} context:{unit_context}"
             prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()
-            ai_model = "text-embedding-004"
+            ai_model = "gemini-embedding-001"
 
             if pkg.status != PackageStatus.CURATING:
                 await LearningPackageRepository.set_curating(
@@ -233,12 +233,51 @@ async def _run_curation(
             await asyncio.gather(*[_fetch(name, adapter) for name, adapter in adapters])
 
             if not all_raw_items:
+                # Case B or C: no external items at all.
+                # Both cases mark the package READY so faculty can add resources
+                # and trigger RAG indexing.  The difference is item_count.
                 if not faculty_items:
-                    # Case C: no external items AND no faculty items — hard fail.
-                    raise RuntimeError(
-                        f"All source adapters failed for package {package_id} and no "
-                        f"faculty-added resources exist. Failed providers: {failed_providers}"
+                    # Case C: no external items AND no faculty items.
+                    # External providers are optional enhancements; the package
+                    # is still created so faculty can populate it later.
+                    warning = (
+                        f"All external providers unavailable "
+                        f"({', '.join(failed_providers) if failed_providers else 'all'}).  "
+                        "No items curated.  Add resources manually or retry curation."
                     )
+                    logger.warning(
+                        "m05.curate: all adapters returned nothing, no faculty items; "
+                        "package marked READY with 0 items (providers: %s)",
+                        failed_providers or "all empty",
+                        extra=_log_extra,
+                    )
+                    await LearningPackageRepository.set_ready(
+                        package_id, item_count=0, db=session
+                    )
+                    await session.commit()
+                    # Emit a dedicated audit event so operators can triage.
+                    await AuditService.log(
+                        AuditEventType.LEARNING_PACKAGE_CURATION_UNAVAILABLE,
+                        actor_role="SYSTEM",
+                        tenant_id=tenant_id,
+                        schema_name=tenant_schema,
+                        target_entity="LearningPackage",
+                        target_id=str(package_id),
+                        metadata={
+                            "failed_providers": failed_providers,
+                            "unit_number":      unit_number,
+                            "warning":          warning,
+                        },
+                    )
+                    return {
+                        "package_id":         str(package_id),
+                        "items_created":      0,
+                        "faculty_items_kept": 0,
+                        "unit_number":        unit_number,
+                        "failed_providers":   failed_providers,
+                        "warning":            warning,
+                    }
+
                 # Case B: external providers all failed but faculty items exist.
                 # Preserve faculty items, mark READY, and surface a warning.
                 logger.warning(

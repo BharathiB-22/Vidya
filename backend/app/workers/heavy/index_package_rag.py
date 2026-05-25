@@ -3,7 +3,7 @@ Celery heavy-queue task: index curated learning package items into Qdrant (STEP-
 
 Flow
 ----
-  1. Ensure Qdrant collection m05_rag exists (create with 768-dim cosine if absent).
+  1. Ensure Qdrant collection m05_rag exists (create with 3072-dim cosine if absent).
   2. Load all package items via PackageItemRepository.list_by_package().
   3. For each item:
      a. Build index text from title + abstract_snippet in metadata.
@@ -45,7 +45,7 @@ from app.workers.celery_app import celery_app
 logger = logging.getLogger("vidya.worker.m05.index_package_rag")
 
 _QDRANT_COLLECTION = "m05_rag"
-_EMBED_DIM = 768  # text-embedding-004 default output dimension
+_EMBED_DIM = 3072  # gemini-embedding-001 output dimension
 
 _async_engine = None
 _qdrant_client = None

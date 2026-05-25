@@ -147,7 +147,9 @@ class Settings(BaseSettings):
 
     @property
     def SYNC_DATABASE_URL(self) -> str:
-        return self.DATABASE_URL.replace("+asyncpg", "+psycopg2", 1)
+        url = self.DATABASE_URL.replace("+asyncpg", "+psycopg2", 1)
+        # asyncpg uses ssl=disable; psycopg2 uses sslmode=disable
+        return url.replace("ssl=disable", "sslmode=disable", 1)
 
     # ------------------------------------------------------------------
     # Startup guards

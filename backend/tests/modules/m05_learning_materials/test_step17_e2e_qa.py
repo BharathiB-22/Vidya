@@ -660,24 +660,22 @@ class TestRunCurationWorker:
         assert "arxiv" not in result["failed_providers"]
 
     @pytest.mark.asyncio
-    async def test_all_adapters_fail_raises_and_audits_failed(self):
+    async def test_all_adapters_fail_marks_ready_and_audits_unavailable(self):
+        """Case C (H-17/13): all adapters fail, no faculty items.
+
+        Previously this raised RuntimeError.  Now the package is marked READY
+        with item_count=0 and a LEARNING_PACKAGE_CURATION_UNAVAILABLE audit
+        event is emitted so operators can triage without blocking faculty.
+        """
         pkg = _make_mock_pkg()
         unit = _make_mock_unit()
 
         session, cm = _build_session_mock()
-        session2, cm2 = _build_session_mock()
-        call_count = 0
-
-        def session_factory(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            return cm if call_count == 1 else cm2
-
         mock_audit = AsyncMock()
 
         with (
             patch("app.workers.heavy.curate_learning_package._get_async_engine"),
-            patch("sqlalchemy.ext.asyncio.AsyncSession", side_effect=session_factory),
+            patch("sqlalchemy.ext.asyncio.AsyncSession", return_value=cm),
             patch(
                 "app.modules.m05_learning_materials.repository.LearningPackageRepository.get_by_id",
                 new=AsyncMock(return_value=pkg),
@@ -690,6 +688,10 @@ class TestRunCurationWorker:
                 "app.modules.m05_learning_materials.repository.LearningPackageRepository.set_curating",
                 new=AsyncMock(),
             ),
+            patch(
+                "app.modules.m05_learning_materials.repository.LearningPackageRepository.set_ready",
+                new=AsyncMock(),
+            ) as mock_set_ready,
             patch(
                 "app.modules.m05_learning_materials.source_adapters.youtube.YouTubeAdapter.search",
                 new=AsyncMock(side_effect=SourceAdapterError("fail")),
@@ -706,7 +708,6 @@ class TestRunCurationWorker:
                 "app.modules.m05_learning_materials.source_adapters.mit_ocw.MitOcwAdapter.search",
                 new=AsyncMock(side_effect=SourceAdapterError("fail")),
             ),
-            # No faculty items → Case C: hard fail (RuntimeError)
             patch(
                 "app.modules.m05_learning_materials.repository.PackageItemRepository.list_faculty_added",
                 new=AsyncMock(return_value=[]),
@@ -714,26 +715,33 @@ class TestRunCurationWorker:
             patch(
                 "app.modules.m05_learning_materials.repository.LearningPackageRepository.update_status",
                 new=AsyncMock(),
-            ),
+            ) as mock_update_status,
             patch("app.core.audit_log.service.AuditService.log", new=mock_audit),
         ):
-            with pytest.raises(RuntimeError, match="All source adapters failed"):
-                await _run_curation(
-                    package_id=pkg.id,
-                    tenant_id=uuid4(),
-                    tenant_schema="test_tenant",
-                    syllabus_id=uuid4(),
-                    unit_number=3,
-                    top_n=5,
-                )
+            result = await _run_curation(
+                package_id=pkg.id,
+                tenant_id=uuid4(),
+                tenant_schema="test_tenant",
+                syllabus_id=uuid4(),
+                unit_number=3,
+                top_n=5,
+            )
 
-        # Audit FAILED event should be emitted
+        assert result["items_created"] == 0
+        assert result["faculty_items_kept"] == 0
+        assert "warning" in result and result["warning"]
+        # set_ready must have been called with item_count=0
+        mock_set_ready.assert_called_once()
+        assert mock_set_ready.call_args.kwargs.get("item_count") == 0
+        # update_status (PENDING reset) must NOT have been called
+        mock_update_status.assert_not_called()
+        # UNAVAILABLE audit event must have been emitted (not FAILED)
         assert mock_audit.called
-        failed_event_calls = [
-            call for call in mock_audit.call_args_list
-            if "FAILED" in str(call)
+        unavailable_calls = [
+            c for c in mock_audit.call_args_list
+            if "UNAVAILABLE" in str(c)
         ]
-        assert len(failed_event_calls) >= 1
+        assert len(unavailable_calls) >= 1
 
     @pytest.mark.asyncio
     async def test_package_not_found_raises(self):

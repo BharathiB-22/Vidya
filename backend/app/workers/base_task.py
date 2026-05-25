@@ -130,13 +130,13 @@ class VidyaTask(Task):
         if status in ("SUCCESS", "FAILED", "CANCELLED"):
             set_parts.append("completed_at = now()")
         if result is not None:
-            set_parts.append("result = :result::jsonb")
+            set_parts.append("result = CAST(:result AS jsonb)")
             params["result"] = json.dumps(result, default=str)
         if error is not None:
             set_parts.append("error = :error")
             params["error"] = error
 
-        sql = f"UPDATE public.task_jobs SET {', '.join(set_parts)} WHERE id = :job_id::uuid"
+        sql = f"UPDATE public.task_jobs SET {', '.join(set_parts)} WHERE id = CAST(:job_id AS uuid)"
 
         try:
             engine = _get_sync_engine()
