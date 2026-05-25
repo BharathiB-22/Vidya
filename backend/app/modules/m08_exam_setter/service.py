@@ -73,6 +73,19 @@ class ExamService:
         Create an ExamPaper record and dispatch the generation Celery task.
         Returns (paper, job_id).
         """
+        # Verify the course exists in this tenant before creating the paper
+        from sqlalchemy import select as _select
+        from app.modules.m01_program_advisor.models import Course as _Course
+        course_result = await db.execute(
+            _select(_Course).where(_Course.id == payload.course_id)
+        )
+        if course_result.scalar_one_or_none() is None:
+            raise ExamServiceError(
+                "COURSE_NOT_FOUND",
+                "The selected course was not found. Please select a valid course from the dropdown.",
+                404,
+            )
+
         paper = await ExamPaperRepository.create(
             course_id=payload.course_id,
             created_by=created_by,
@@ -102,14 +115,26 @@ class ExamService:
         await ExamPaperRepository.set_generation_job(paper.id, job_id=job.id, db=db)
         await db.commit()
 
-        from app.workers.heavy.generate_exam_paper import generate_exam_paper
-        generate_exam_paper.apply_async(
-            kwargs={
-                "job_id":      str(job.id),
-                "paper_id":    str(paper.id),
-                "schema_name": schema_name,
-            }
-        )
+        try:
+            from app.workers.heavy.generate_exam_paper import generate_exam_paper
+            generate_exam_paper.apply_async(
+                kwargs={
+                    "job_id":      str(job.id),
+                    "paper_id":    str(paper.id),
+                    "schema_name": schema_name,
+                }
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to dispatch exam generation task for paper %s: %s",
+                paper.id, exc,
+            )
+            raise ExamServiceError(
+                "QUEUE_UNAVAILABLE",
+                "Question generation could not be queued — the task worker appears to be offline. "
+                "Start the Celery worker (celery -A app.workers.celery_app worker) and try again.",
+                503,
+            )
 
         return paper, job.id
 

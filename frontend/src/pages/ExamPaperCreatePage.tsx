@@ -6,6 +6,7 @@ import { FileText, Loader2, ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createExamPaper } from '@/lib/api/exam'
 import { listPrograms, listCourses } from '@/lib/api/programs'
+import { getErrorMessage } from '@/lib/api'
 import type { BloomsDistribution, ExamPaperCreatePayload, ExamType, QuestionFormatConfig } from '@/types/exam'
 
 const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color: string }> = [
@@ -81,8 +82,7 @@ export default function ExamPaperCreatePage() {
       navigate(`/exams/${res.paper_id}`)
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setError(msg ?? 'Failed to create exam paper.')
+      setError(getErrorMessage(err))
     },
   })
 
@@ -95,7 +95,7 @@ export default function ExamPaperCreatePage() {
       return
     }
     if (!courseId.trim()) {
-      setError('Course ID is required.')
+      setError('Please select a course from the dropdown.')
       return
     }
 
