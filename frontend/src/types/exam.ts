@@ -11,6 +11,7 @@ export type ExamPaperStatus =
   | 'DRAFT'
   | 'GENERATING'
   | 'GENERATED'
+  | 'FAILED'
   | 'SUBMITTED'
   | 'BOARD_APPROVED'
   | 'BOARD_RETURNED'
@@ -63,6 +64,7 @@ export interface ExamPaper {
   ai_model:             string | null
   generation_job_id:    string | null
   status:               ExamPaperStatus
+  failure_reason:       string | null
   submitted_at:         string | null
   approved_by:          string | null
   approved_at:          string | null

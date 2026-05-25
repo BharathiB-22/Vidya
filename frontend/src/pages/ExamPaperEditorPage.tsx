@@ -4,13 +4,14 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft, Loader2, CheckCircle2, AlertTriangle,
-  LockKeyhole, Send, Pencil, Trash2
+  LockKeyhole, Send, Pencil, Trash2, XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   getExamPaper, listQuestions, getBloomsReport,
   submitForReview, sealPaper, editQuestion, deleteQuestion,
 } from '@/lib/api/exam'
+import { getErrorMessage } from '@/lib/api'
 import type { ExamPaper, ExamQuestion, BloomsComplianceReport, ExamQuestionUpdatePayload } from '@/types/exam'
 
 const BLOOM_COLORS: Record<string, string> = {
@@ -29,6 +30,8 @@ const QTYPE_LABEL: Record<string, string> = {
   PROBLEM_SOLVING: 'Problem',
 }
 
+const TERMINAL_STATUSES = new Set(['GENERATED', 'FAILED', 'SUBMITTED', 'BOARD_APPROVED', 'BOARD_RETURNED', 'SEALED', 'RELEASED'])
+
 export default function ExamPaperEditorPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -38,20 +41,28 @@ export default function ExamPaperEditorPage() {
   const [sealModal, setSealModal]     = useState(false)
   const [releaseAt, setReleaseAt]     = useState('')
   const [editModal, setEditModal]     = useState<ExamQuestion | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const { data: paper, isLoading: paperLoading } = useQuery({
+  const { data: paper, isLoading: paperLoading, isError: paperError } = useQuery({
     queryKey: ['exam-paper', id],
     queryFn:  () => getExamPaper(id!),
-    refetchInterval: (data) => {
-      const p = data?.state?.data as ExamPaper | undefined
-      return p?.status === 'GENERATING' ? 3000 : false
+    // Poll every 3 s while generating; stop once a terminal status is reached
+    refetchInterval: (query) => {
+      const p = query.state.data as ExamPaper | undefined
+      return p && TERMINAL_STATUSES.has(p.status) ? false : 3000
     },
   })
+
+  const questionsEnabled = !!(
+    paper &&
+    !['GENERATING', 'DRAFT', 'FAILED'].includes(paper.status)
+  )
 
   const { data: questions, isLoading: qLoading } = useQuery({
     queryKey: ['exam-questions', id, setLabel],
     queryFn:  () => listQuestions(id!, setLabel),
-    enabled:  !!(paper && paper.status !== 'GENERATING' && paper.status !== 'DRAFT'),
+    enabled:  questionsEnabled,
   })
 
   const { data: bloomsReport } = useQuery({
@@ -62,7 +73,11 @@ export default function ExamPaperEditorPage() {
 
   const submitMut = useMutation({
     mutationFn: () => submitForReview(id!),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['exam-paper', id] }),
+    onSuccess: () => {
+      setSubmitError(null)
+      qc.invalidateQueries({ queryKey: ['exam-paper', id] })
+    },
+    onError: (err) => setSubmitError(getErrorMessage(err)),
   })
 
   const sealMut = useMutation({
@@ -75,7 +90,11 @@ export default function ExamPaperEditorPage() {
 
   const deleteMut = useMutation({
     mutationFn: (qid: string) => deleteQuestion(id!, qid),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['exam-questions', id, setLabel] }),
+    onSuccess: () => {
+      setDeleteError(null)
+      qc.invalidateQueries({ queryKey: ['exam-questions', id, setLabel] })
+    },
+    onError: (err) => setDeleteError(getErrorMessage(err)),
   })
 
   if (paperLoading) {
@@ -87,8 +106,26 @@ export default function ExamPaperEditorPage() {
     )
   }
 
-  if (!paper) {
-    return <div className="p-8 text-red-600">Exam paper not found.</div>
+  if (paperError || !paper) {
+    return (
+      <div className="max-w-5xl mx-auto p-6">
+        <div className="flex gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+          <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Exam paper not found</p>
+            <p className="text-sm text-red-700 mt-1">
+              This paper may have been deleted or you do not have access to it.
+            </p>
+            <button
+              onClick={() => navigate('/exams')}
+              className="text-sm text-red-600 underline mt-2"
+            >
+              Back to Exam Papers
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const isEditable = paper.status === 'GENERATED' || paper.status === 'BOARD_RETURNED'
@@ -123,6 +160,30 @@ export default function ExamPaperEditorPage() {
         </div>
       )}
 
+      {/* DRAFT before generation has started (edge case: job dispatched but status not yet flipped) */}
+      {paper.status === 'DRAFT' && (
+        <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl p-4 text-gray-600">
+          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+          <p className="text-sm">Waiting for generation to start…</p>
+        </div>
+      )}
+
+      {/* Generation failed */}
+      {paper.status === 'FAILED' && (
+        <div className="flex gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+          <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Question generation failed</p>
+            <p className="text-sm text-red-700 mt-1">
+              {paper.failure_reason || 'An unexpected error occurred during generation.'}
+            </p>
+            <p className="text-xs text-red-600 mt-2">
+              Go back and create a new exam paper to retry.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Board return comment */}
       {paper.status === 'BOARD_RETURNED' && paper.board_comment && (
         <div className="flex gap-3 bg-orange-50 border border-orange-200 rounded-xl p-4">
@@ -139,8 +200,8 @@ export default function ExamPaperEditorPage() {
         {/* Left: Question list */}
         <div className="lg:col-span-2 space-y-4">
 
-          {/* Set switcher */}
-          {paper.status !== 'GENERATING' && paper.status !== 'DRAFT' && (
+          {/* Set switcher — only shown when questions are accessible */}
+          {questionsEnabled && (
             <div className="flex gap-2">
               {(['A', 'B'] as const).map(s => (
                 <button
@@ -160,7 +221,16 @@ export default function ExamPaperEditorPage() {
 
           {qLoading && <div className="text-gray-400 text-sm py-4">Loading questions…</div>}
 
-          {questions && questions.length === 0 && (
+          {/* Delete error */}
+          {deleteError && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              {deleteError}
+            </div>
+          )}
+
+          {/* Empty state when generation hasn't produced questions yet */}
+          {questionsEnabled && !qLoading && questions && questions.length === 0 && (
             <div className="text-gray-500 text-center py-8 border border-dashed border-gray-200 rounded-xl">
               No questions in Set {setLabel}.
             </div>
@@ -173,7 +243,10 @@ export default function ExamPaperEditorPage() {
               index={idx + 1}
               editable={isEditable}
               onEdit={() => setEditModal(q)}
-              onDelete={() => deleteMut.mutate(q.id)}
+              onDelete={() => {
+                setDeleteError(null)
+                deleteMut.mutate(q.id)
+              }}
             />
           ))}
         </div>
@@ -185,18 +258,25 @@ export default function ExamPaperEditorPage() {
           {/* Action buttons */}
           <div className="space-y-2">
             {canSubmit && (
-              <Button
-                onClick={() => submitMut.mutate()}
-                disabled={submitMut.isPending}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-              >
-                {submitMut.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
+              <div className="space-y-2">
+                <Button
+                  onClick={() => { setSubmitError(null); submitMut.mutate() }}
+                  disabled={submitMut.isPending}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                >
+                  {submitMut.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  Submit for Board Review
+                </Button>
+                {submitError && (
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    {submitError}
+                  </p>
                 )}
-                Submit for Board Review
-              </Button>
+              </div>
             )}
 
             {canSeal && (
@@ -261,7 +341,9 @@ export default function ExamPaperEditorPage() {
               </Button>
             </div>
             {sealMut.isError && (
-              <p className="text-sm text-red-600">Failed to seal paper. Check the release date and try again.</p>
+              <p className="text-sm text-red-600">
+                {getErrorMessage(sealMut.error)}
+              </p>
             )}
           </div>
         </div>
@@ -284,6 +366,7 @@ function StatusBadge({ status }: { status: string }) {
     DRAFT:          'bg-gray-100 text-gray-600',
     GENERATING:     'bg-blue-100 text-blue-600',
     GENERATED:      'bg-indigo-100 text-indigo-700',
+    FAILED:         'bg-red-100 text-red-600',
     SUBMITTED:      'bg-yellow-100 text-yellow-700',
     BOARD_APPROVED: 'bg-green-100 text-green-700',
     BOARD_RETURNED: 'bg-orange-100 text-orange-700',
@@ -397,7 +480,7 @@ function EditQuestionModal({
   const [marks, setMarks] = useState(question.marks)
   const [bloom, setBloom] = useState(question.bloom_level)
 
-  const { mutate, isPending, isError } = useMutation({
+  const { mutate, isPending, isError, error } = useMutation({
     mutationFn: (payload: ExamQuestionUpdatePayload) =>
       editQuestion(paperId, question.id, payload),
     onSuccess: onClose,
@@ -444,7 +527,9 @@ function EditQuestionModal({
             </div>
           </div>
         </div>
-        {isError && <p className="text-sm text-red-600">Failed to update question.</p>}
+        {isError && (
+          <p className="text-sm text-red-600">{getErrorMessage(error)}</p>
+        )}
         <div className="flex gap-3 pt-2">
           <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
           <Button

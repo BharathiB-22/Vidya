@@ -129,6 +129,14 @@ class ExamService:
                 "Failed to dispatch exam generation task for paper %s: %s",
                 paper.id, exc,
             )
+            # Mark the record FAILED so the user sees a clear error instead of
+            # a zombie GENERATING row that never resolves.
+            await ExamPaperRepository.set_failed(
+                paper.id,
+                reason=f"Task queue unavailable: {exc}",
+                db=db,
+            )
+            await db.commit()
             raise ExamServiceError(
                 "QUEUE_UNAVAILABLE",
                 "Question generation could not be queued — the task worker appears to be offline. "

@@ -13,19 +13,21 @@ import type { ExamPaper, ExamPaperStatus } from '@/types/exam'
 const STATUS_OPTS: Array<{ value: ExamPaperStatus | ''; label: string }> = [
   { value: '',               label: 'All' },
   { value: 'DRAFT',          label: 'Draft' },
-  { value: 'GENERATING',    label: 'Generating' },
-  { value: 'GENERATED',     label: 'Generated' },
-  { value: 'SUBMITTED',     label: 'Submitted' },
+  { value: 'GENERATING',     label: 'Generating' },
+  { value: 'GENERATED',      label: 'Generated' },
+  { value: 'FAILED',         label: 'Failed' },
+  { value: 'SUBMITTED',      label: 'Submitted' },
   { value: 'BOARD_APPROVED', label: 'Board Approved' },
   { value: 'BOARD_RETURNED', label: 'Board Returned' },
-  { value: 'SEALED',        label: 'Sealed' },
-  { value: 'RELEASED',      label: 'Released' },
+  { value: 'SEALED',         label: 'Sealed' },
+  { value: 'RELEASED',       label: 'Released' },
 ]
 
 const STATUS_COLOR: Record<string, string> = {
   DRAFT:          'bg-gray-100 text-gray-600',
   GENERATING:     'bg-blue-100 text-blue-600',
   GENERATED:      'bg-indigo-100 text-indigo-700',
+  FAILED:         'bg-red-100 text-red-600',
   SUBMITTED:      'bg-yellow-100 text-yellow-700',
   BOARD_APPROVED: 'bg-green-100 text-green-700',
   BOARD_RETURNED: 'bg-orange-100 text-orange-700',

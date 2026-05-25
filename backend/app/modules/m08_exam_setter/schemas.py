@@ -88,6 +88,7 @@ class ExamPaperResponse(BaseModel):
     ai_model:             str | None
     generation_job_id:    UUID | None
     status:               str
+    failure_reason:       str | None
     submitted_at:         datetime | None
     approved_by:          UUID | None
     approved_at:          datetime | None

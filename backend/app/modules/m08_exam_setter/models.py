@@ -48,6 +48,7 @@ class ExamPaperStatus(str, enum.Enum):
     DRAFT          = "DRAFT"           # initial record created
     GENERATING     = "GENERATING"      # Celery job running
     GENERATED      = "GENERATED"       # questions written; faculty can edit
+    FAILED         = "FAILED"          # generation failed; faculty must retry
     SUBMITTED      = "SUBMITTED"       # Gate 1: faculty submitted for Board review
     BOARD_APPROVED = "BOARD_APPROVED"  # Gate 2: Board approved; faculty can seal
     BOARD_RETURNED = "BOARD_RETURNED"  # Gate 2 return: Board returned with comments
@@ -138,6 +139,9 @@ class ExamPaper(Base):
     # AI provenance
     ai_model            = Column(String, nullable=True)
     prompt_hash         = Column(String, nullable=True)
+
+    # Set when status == FAILED; human-readable reason from worker or queue
+    failure_reason      = Column(Text, nullable=True)
 
     # FK to public.task_jobs for generation Celery task
     generation_job_id   = Column(UUID(as_uuid=True), nullable=True)

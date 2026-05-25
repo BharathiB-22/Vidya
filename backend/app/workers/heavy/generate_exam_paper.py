@@ -98,95 +98,135 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
     async with AsyncSession(engine, expire_on_commit=False) as session:
         await session.execute(text(f"SET search_path TO {schema_name}, public"))
 
-        # 1. Load paper
-        paper = await ExamPaperRepository.get_by_id(paper_uuid, db=session)
-        if paper is None:
-            raise ValueError(f"ExamPaper {paper_id} not found in schema {schema_name!r}.")
+        try:
+            # 1. Load paper
+            paper = await ExamPaperRepository.get_by_id(paper_uuid, db=session)
+            if paper is None:
+                raise ValueError(f"ExamPaper {paper_id} not found in schema {schema_name!r}.")
 
-        # 2. Fetch syllabus units from M02
-        units = await _fetch_syllabus_units(
-            course_id=paper.course_id,
-            units_included=list(paper.units_included or []),
-            session=session,
-        )
+            # 2. Fetch syllabus units from M02
+            units = await _fetch_syllabus_units(
+                course_id=paper.course_id,
+                units_included=list(paper.units_included or []),
+                session=session,
+            )
 
-        # 3. Generate questions
-        bloom_targets = dict(paper.requested_dist or {})
-        question_format = dict(paper.question_format or {})
+            # 3. Generate questions
+            bloom_targets = dict(paper.requested_dist or {})
+            question_format = dict(paper.question_format or {})
 
-        questions_raw, ai_model, prompt_hash = await generate_questions(
-            units=units,
-            bloom_targets=bloom_targets,
-            question_format=question_format,
-            total_marks=paper.total_marks,
-            special_instructions=paper.special_instructions,
-        )
+            questions_raw, ai_model, prompt_hash = await generate_questions(
+                units=units,
+                bloom_targets=bloom_targets,
+                question_format=question_format,
+                total_marks=paper.total_marks,
+                special_instructions=paper.special_instructions,
+            )
 
-        if not questions_raw:
-            raise ValueError("Question generator returned no questions.")
+            if not questions_raw:
+                raise ValueError("Question generator returned no questions.")
 
-        # 4. Bulk-write ExamQuestion rows
-        await ExamQuestionRepository.bulk_create(
-            questions_raw, exam_paper_id=paper_uuid, db=session
-        )
-        await session.commit()
+            # 4. Bulk-write ExamQuestion rows
+            await ExamQuestionRepository.bulk_create(
+                questions_raw, exam_paper_id=paper_uuid, db=session
+            )
+            await session.commit()
 
-        # 5. Compute Bloom's compliance
-        actual_dist = compute_actual_distribution(questions_raw)
-        report = check_compliance(
-            requested=bloom_targets,
-            actual=actual_dist,
-            tolerance=float(settings.M08_BLOOM_COMPLIANCE_TOLERANCE),
-        )
+            # 5. Compute Bloom's compliance
+            actual_dist = compute_actual_distribution(questions_raw)
+            report = check_compliance(
+                requested=bloom_targets,
+                actual=actual_dist,
+                tolerance=float(settings.M08_BLOOM_COMPLIANCE_TOLERANCE),
+            )
 
-        # 6. Write BloomsComplianceReport
-        await BloomsRepository.upsert(
-            paper_uuid,
-            requested_dist=bloom_targets,
-            actual_dist=actual_dist,
-            compliance_ok=report.compliance_ok,
-            violations=report.to_violations_list(),
-            db=session,
-        )
+            # 6. Write BloomsComplianceReport
+            await BloomsRepository.upsert(
+                paper_uuid,
+                requested_dist=bloom_targets,
+                actual_dist=actual_dist,
+                compliance_ok=report.compliance_ok,
+                violations=report.to_violations_list(),
+                db=session,
+            )
 
-        # 7. Update ExamPaper → GENERATED
-        await ExamPaperRepository.set_generation_result(
-            paper_uuid,
-            ai_model=ai_model,
-            prompt_hash=prompt_hash,
-            actual_dist=actual_dist,
-            db=session,
-        )
-        await session.commit()
+            # 7. Update ExamPaper → GENERATED
+            await ExamPaperRepository.set_generation_result(
+                paper_uuid,
+                ai_model=ai_model,
+                prompt_hash=prompt_hash,
+                actual_dist=actual_dist,
+                db=session,
+            )
+            await session.commit()
 
-        # 8. Audit
-        await AuditService.log(
-            AuditEventType.EXAM_PAPER_GENERATION_COMPLETED,
-            actor_user_id=None,
-            actor_role="SYSTEM",
-            tenant_id=None,
-            schema_name=schema_name,
-            target_entity="exam_paper",
-            target_id=paper_id,
-            metadata={
-                "question_count":  len(questions_raw),
-                "compliance_ok":   report.compliance_ok,
-                "violation_count": len(report.violations),
-                "ai_model":        ai_model,
-            },
-        )
+            # 8. Audit
+            await AuditService.log(
+                AuditEventType.EXAM_PAPER_GENERATION_COMPLETED,
+                actor_user_id=None,
+                actor_role="SYSTEM",
+                tenant_id=None,
+                schema_name=schema_name,
+                target_entity="exam_paper",
+                target_id=paper_id,
+                metadata={
+                    "question_count":  len(questions_raw),
+                    "compliance_ok":   report.compliance_ok,
+                    "violation_count": len(report.violations),
+                    "ai_model":        ai_model,
+                },
+            )
 
-        logger.info(
-            "Generation complete: paper=%s questions=%d compliance=%s",
-            paper_id, len(questions_raw), report.compliance_ok,
-        )
+            logger.info(
+                "Generation complete: paper=%s questions=%d compliance=%s",
+                paper_id, len(questions_raw), report.compliance_ok,
+            )
 
-        return {
-            "paper_id":       paper_id,
-            "question_count": len(questions_raw),
-            "compliance_ok":  report.compliance_ok,
-            "ai_model":       ai_model,
-        }
+            return {
+                "paper_id":       paper_id,
+                "question_count": len(questions_raw),
+                "compliance_ok":  report.compliance_ok,
+                "ai_model":       ai_model,
+            }
+
+        except Exception as exc:
+            failure_reason = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "Exam generation failed for paper %s: %s",
+                paper_id, failure_reason, exc_info=True,
+            )
+
+            # Roll back partial writes (e.g. partially inserted questions)
+            # then mark the paper FAILED so the UI shows a clear error state.
+            try:
+                await session.rollback()
+                # SET search_path is session-level in Postgres, survives rollback.
+                await ExamPaperRepository.set_failed(
+                    paper_uuid,
+                    reason=failure_reason,
+                    db=session,
+                )
+                await session.commit()
+            except Exception as mark_exc:
+                logger.error(
+                    "Could not mark paper %s as FAILED: %s", paper_id, mark_exc
+                )
+
+            try:
+                await AuditService.log(
+                    AuditEventType.EXAM_PAPER_GENERATION_FAILED,
+                    actor_user_id=None,
+                    actor_role="SYSTEM",
+                    tenant_id=None,
+                    schema_name=schema_name,
+                    target_entity="exam_paper",
+                    target_id=paper_id,
+                    metadata={"error": failure_reason},
+                )
+            except Exception:
+                pass
+
+            raise
 
 
 async def _fetch_syllabus_units(

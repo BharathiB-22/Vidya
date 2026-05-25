@@ -134,6 +134,23 @@ class ExamPaperRepository:
         )
 
     @staticmethod
+    async def set_failed(
+        paper_id: UUID,
+        *,
+        reason: str,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            sa_update(ExamPaper)
+            .where(ExamPaper.id == paper_id)
+            .values(
+                status=ExamPaperStatus.FAILED.value,
+                failure_reason=reason,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def set_generation_result(
         paper_id: UUID,
         *,
