@@ -28,6 +28,7 @@ import ResearchProblemListPage from '@/pages/ResearchProblemListPage'
 import ResearchDocumentPage from '@/pages/ResearchDocumentPage'
 import VivaRatifyPage from '@/pages/VivaRatifyPage'
 import StudentResearchPage from '@/pages/StudentResearchPage'
+import StudentResearchDetailPage from '@/pages/StudentResearchDetailPage'
 import StudentVivaPage from '@/pages/StudentVivaPage'
 import ExamPaperListPage from '@/pages/ExamPaperListPage'
 import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
@@ -117,6 +118,7 @@ export default function App() {
             <Route path="/student/labs/:id" element={<StudentSubmitPage />} />
             <Route path="/student/submissions/:submissionId/result" element={<StudentResultPage />} />
             <Route path="/student/research" element={<StudentResearchPage />} />
+            <Route path="/student/research/:id" element={<StudentResearchDetailPage />} />
             <Route path="/student/viva/:token" element={<StudentVivaPage />} />
           </Route>
 

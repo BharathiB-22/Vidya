@@ -122,3 +122,39 @@ test.describe('Settings page', () => {
     await expect(section.getByText('New passwords do not match')).toBeVisible()
   })
 })
+
+// ---------------------------------------------------------------------------
+// M07 — Student Research Proposal Detail page
+// ---------------------------------------------------------------------------
+
+test.describe('Student Research Detail (M07)', () => {
+  test('navigating to a non-existent proposal shows error state, not blank screen', async ({ page }) => {
+    // Use a valid-format UUID that won't exist in the DB
+    await page.goto('/student/research/00000000-0000-0000-0000-000000000000')
+    await page.waitForLoadState('networkidle')
+
+    // Must not be a blank white screen — the body should have visible content
+    const bodyText = await page.locator('body').innerText()
+    expect(bodyText.trim().length).toBeGreaterThan(0)
+
+    // Should show error state or redirect, never a 500 or unhandled exception
+    await expect(page.locator('body')).not.toContainText('Unhandled Error')
+    await expect(page.locator('body')).not.toContainText('Cannot read properties')
+
+    // Either the error card or a redirect to login/research list is acceptable
+    const hasErrorCard  = await page.getByText(/not found|failed to load|access denied/i).isVisible().catch(() => false)
+    const hasBackButton = await page.getByRole('button', { name: /back|my research/i }).isVisible().catch(() => false)
+    const onListPage    = page.url().includes('/student/research') && !page.url().includes('/00000000')
+    expect(hasErrorCard || hasBackButton || onListPage).toBe(true)
+  })
+
+  test('My Research list page loads without blank screen', async ({ page }) => {
+    await page.goto('/student/research')
+    await page.waitForLoadState('networkidle')
+    await expect(page.locator('body')).not.toContainText('Unhandled Error')
+    const hasHeading = await page.getByRole('heading', { name: /My Research/i }).isVisible().catch(() => false)
+    const hasEmpty   = await page.getByText(/No proposals/i).isVisible().catch(() => false)
+    const hasLoading = await page.locator('[class*="animate-spin"]').isVisible().catch(() => false)
+    expect(hasHeading || hasEmpty || hasLoading).toBe(true)
+  })
+})
