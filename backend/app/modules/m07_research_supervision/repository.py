@@ -109,6 +109,24 @@ class ProblemRepository:
         return list(items), total
 
     @staticmethod
+    async def find_active_by_student(
+        student_user_id: UUID,
+        guide_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> "ResearchProblem | None":
+        """Return any non-rejected proposal for this student+guide pair."""
+        terminal = {ProblemStatus.REJECTED}
+        result = await db.execute(
+            select(ResearchProblem).where(
+                ResearchProblem.student_user_id == student_user_id,
+                ResearchProblem.guide_user_id == guide_user_id,
+                ResearchProblem.status.notin_(terminal),
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
     async def set_eval_scores(
         problem_id: UUID,
         *,

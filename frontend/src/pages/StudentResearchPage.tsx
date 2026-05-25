@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, BookOpen, ChevronRight, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getErrorMessage } from '@/lib/api'
 import { studentListProblems, studentPropose } from '@/lib/api/research'
 import type { ResearchProblem, ResearchQuestion } from '@/types/research'
 
@@ -24,7 +25,7 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
   const [abstract, setAbstract] = useState('')
   const [questions, setQuestions] = useState<string[]>([''])
 
-  const { mutate, isPending, isError } = useMutation({
+  const { mutate, isPending, isError, error } = useMutation({
     mutationFn: () =>
       studentPropose({
         guide_user_id: guideId,
@@ -145,7 +146,9 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         {isError && (
-          <p className="text-sm text-red-600">Submission failed. Please try again.</p>
+          <p className="text-sm text-red-600">
+            {getErrorMessage(error) || 'Submission failed. Please try again.'}
+          </p>
         )}
 
         <div className="flex gap-2 justify-end pt-1">

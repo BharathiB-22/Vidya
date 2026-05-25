@@ -72,6 +72,33 @@ class ProblemService:
         db: AsyncSession,
     ):
         """Create a student-proposed research problem and queue evaluation."""
+        # Validate guide: must exist in tenant, role=GUIDE, is_active
+        from sqlalchemy import select
+        from app.core.auth.models import User, TenantRole
+        row = await db.execute(select(User).where(User.id == payload.guide_user_id))
+        guide = row.scalar_one_or_none()
+        if guide is None or guide.role != TenantRole.GUIDE or not guide.is_active:
+            raise ResearchServiceError(
+                "INVALID_GUIDE",
+                "Guide not found or is not an active GUIDE in this institution. "
+                "Please verify the UUID from Admin → Users.",
+                400,
+            )
+
+        # Prevent duplicate active proposals to the same guide
+        duplicate = await ProblemRepository.find_active_by_student(
+            student_user_id=student_user_id,
+            guide_user_id=payload.guide_user_id,
+            db=db,
+        )
+        if duplicate is not None:
+            raise ResearchServiceError(
+                "DUPLICATE_PROPOSAL",
+                "You already have an active research proposal with this guide. "
+                "Please wait for their decision before submitting another.",
+                409,
+            )
+
         problem = await ProblemRepository.create(
             guide_user_id=payload.guide_user_id,
             student_user_id=student_user_id,

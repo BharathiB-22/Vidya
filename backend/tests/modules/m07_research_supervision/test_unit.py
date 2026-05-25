@@ -360,6 +360,149 @@ class TestSchemas:
         with pytest.raises(pydantic.ValidationError):
             QuestionScoreOverride(question_id="q1", score_override=11.0)  # max is 10
 
+    def test_research_question_accepts_short_text(self):
+        """min_length=1 — any non-empty question string should be valid."""
+        from app.modules.m07_research_supervision.schemas import ResearchQuestion
+        q = ResearchQuestion(question="Why?")
+        assert q.question == "Why?"
+
+    def test_research_question_rejects_empty_string(self):
+        from app.modules.m07_research_supervision.schemas import ResearchQuestion
+        import pydantic
+        with pytest.raises(pydantic.ValidationError):
+            ResearchQuestion(question="")
+
+    def test_problem_create_valid_with_short_question(self):
+        """Proposal with a short (< 10 char) question should now validate."""
+        from uuid import uuid4
+        from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
+        payload = ProblemCreate(
+            guide_user_id=str(uuid4()),
+            title="My Research Title",
+            abstract=None,
+            research_questions=[ResearchQuestion(question="Why?")],
+        )
+        assert len(payload.research_questions) == 1
+
+
+# ===========================================================================
+# 9 — Guide validation in create_student_proposal
+# ===========================================================================
+
+class TestCreateStudentProposalValidation:
+    @pytest.mark.asyncio
+    async def test_invalid_guide_raises_clear_error(self):
+        """Non-existent guide_user_id must raise INVALID_GUIDE, not 500."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import ProblemService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
+
+        payload = ProblemCreate(
+            guide_user_id=str(uuid4()),
+            title="My Research Title",
+            abstract="A brief abstract for the proposal.",
+            research_questions=[ResearchQuestion(question="What is the impact?")],
+        )
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        # Simulate: no user found for the given guide_user_id
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        with pytest.raises(ResearchServiceError) as exc_info:
+            await ProblemService.create_student_proposal(
+                payload,
+                student_user_id=uuid4(),
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+        assert exc_info.value.code == "INVALID_GUIDE"
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_wrong_role_guide_raises_clear_error(self):
+        """User with role != GUIDE must raise INVALID_GUIDE."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import ProblemService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
+        from app.core.auth.models import TenantRole
+
+        payload = ProblemCreate(
+            guide_user_id=str(uuid4()),
+            title="My Research Title",
+            abstract="A brief abstract for the proposal.",
+            research_questions=[ResearchQuestion(question="What is the impact?")],
+        )
+
+        # Simulate: user found but is a FACULTY, not a GUIDE
+        fake_user = MagicMock()
+        fake_user.role = TenantRole.FACULTY
+        fake_user.is_active = True
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = fake_user
+        mock_db.execute.return_value = mock_result
+
+        with pytest.raises(ResearchServiceError) as exc_info:
+            await ProblemService.create_student_proposal(
+                payload,
+                student_user_id=uuid4(),
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+        assert exc_info.value.code == "INVALID_GUIDE"
+
+    @pytest.mark.asyncio
+    async def test_duplicate_proposal_raises_clear_error(self):
+        """Existing active proposal with same guide must raise DUPLICATE_PROPOSAL."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, call
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import ProblemService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
+        from app.core.auth.models import TenantRole
+
+        guide_id = uuid4()
+        payload = ProblemCreate(
+            guide_user_id=str(guide_id),
+            title="My Research Title",
+            abstract="A brief abstract for the proposal.",
+            research_questions=[ResearchQuestion(question="What is the impact?")],
+        )
+
+        fake_guide = MagicMock()
+        fake_guide.role = TenantRole.GUIDE
+        fake_guide.is_active = True
+
+        fake_duplicate = MagicMock()  # existing proposal
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        # First execute → guide lookup; second → duplicate lookup
+        guide_result = MagicMock()
+        guide_result.scalar_one_or_none.return_value = fake_guide
+        dup_result = MagicMock()
+        dup_result.scalar_one_or_none.return_value = fake_duplicate
+        mock_db.execute.side_effect = [guide_result, dup_result]
+
+        with pytest.raises(ResearchServiceError) as exc_info:
+            await ProblemService.create_student_proposal(
+                payload,
+                student_user_id=uuid4(),
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+        assert exc_info.value.code == "DUPLICATE_PROPOSAL"
+        assert exc_info.value.status_code == 409
+
 
 # ===========================================================================
 # 6 — Celery task wiring
