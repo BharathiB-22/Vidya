@@ -99,6 +99,7 @@ class UserResponse(BaseModel):
     full_name: str
     identifier: Optional[str]
     is_active: bool
+    must_change_password: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

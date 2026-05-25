@@ -159,10 +159,11 @@ async def get_me(
         full_name=user.full_name,
         identifier=user.identifier,
         is_active=user.is_active,
+        must_change_password=user.must_change_password,
         created_at=user.created_at,
         tenant_id=current_user.tenant_id,
         schema_name=current_user.schema_name,
-        first_login=user.password_changed_at is None,
+        first_login=user.password_changed_at is None or user.must_change_password,
     )
 
 

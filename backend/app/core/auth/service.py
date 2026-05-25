@@ -719,7 +719,13 @@ class TenantAuthService:
         new_hash = hash_password(new_password)
         now = datetime.now(timezone.utc)
         await TenantRepository.update_user(
-            user_id, {"password_hash": new_hash, "password_changed_at": now}, db
+            user_id,
+            {
+                "password_hash": new_hash,
+                "password_changed_at": now,
+                "must_change_password": False,
+            },
+            db,
         )
         await TenantRepository.revoke_all_user_refresh_tokens(user_id, schema_name, db)
         await AuditService.log(

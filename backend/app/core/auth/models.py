@@ -119,6 +119,7 @@ class User(Base):
     full_name = Column(String, nullable=False)
     identifier = Column(String, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    must_change_password = Column(Boolean, default=False, nullable=False)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     last_login_at = Column(DateTime(timezone=True), nullable=True)

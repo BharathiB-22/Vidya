@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createTenant } from '@/lib/api/tenants'
 import { getAdminErrorMessage } from '@/lib/adminApi'
+import type { Tenant } from '@/lib/api/tenants'
 
 function validatePassword(pw: string): string | null {
   if (pw.length < 8)            return 'Minimum 8 characters'
@@ -14,6 +15,73 @@ function validatePassword(pw: string): string | null {
   if (!/[0-9]/.test(pw))        return 'Must contain a digit'
   if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain a special character'
   return null
+}
+
+function CopyableField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 bg-gray-100 rounded px-3 py-1.5 text-sm font-mono text-gray-800 break-all">
+          {value}
+        </code>
+        <button
+          onClick={handleCopy}
+          className="shrink-0 p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+          title="Copy"
+        >
+          {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface SuccessData {
+  tenant: Tenant
+  adminEmail: string
+  adminPassword: string
+}
+
+function ProvisioningSuccess({ data, onContinue }: { data: SuccessData; onContinue: () => void }) {
+  return (
+    <main className="max-w-xl mx-auto px-6 py-10">
+      <div className="bg-white rounded-xl border border-green-200 overflow-hidden">
+        <div className="bg-green-50 border-b border-green-200 px-6 py-5 flex items-start gap-3">
+          <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-lg font-semibold text-green-900">Tenant provisioned</h2>
+            <p className="text-sm text-green-700 mt-0.5">
+              Schema created and admin user seeded. Share the credentials below with the tenant admin.
+            </p>
+          </div>
+        </div>
+
+        <div className="px-6 py-6 space-y-5">
+          <CopyableField label="Institution slug (used at login)" value={data.tenant.slug} />
+          <CopyableField label="Admin email" value={data.adminEmail} />
+          <CopyableField label="Temporary password" value={data.adminPassword} />
+
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+            The admin will be prompted to change this password on first login.
+          </div>
+
+          <Button className="w-full" onClick={onContinue}>
+            Go to tenant detail
+          </Button>
+        </div>
+      </div>
+    </main>
+  )
 }
 
 export default function TenantCreatePage() {
@@ -26,6 +94,7 @@ export default function TenantCreatePage() {
   const [contactEmail,  setContactEmail]  = useState('')
   const [touched,       setTouched]       = useState(false)
   const [error,         setError]         = useState<string | null>(null)
+  const [successData,   setSuccessData]   = useState<SuccessData | null>(null)
 
   const passwordError = touched ? validatePassword(adminPassword) : null
 
@@ -38,8 +107,9 @@ export default function TenantCreatePage() {
         admin_full_name: adminFullName.trim(),
         contact_email:   contactEmail.trim() || undefined,
       }),
-    onSuccess: (tenant) => navigate(`/admin/tenants/${tenant.id}`, { replace: true }),
-    onError:   (err: unknown) => setError(getAdminErrorMessage(err)),
+    onSuccess: (tenant) =>
+      setSuccessData({ tenant, adminEmail: adminEmail.trim(), adminPassword }),
+    onError: (err: unknown) => setError(getAdminErrorMessage(err)),
   })
 
   function handleSubmit(e: React.FormEvent) {
@@ -48,6 +118,15 @@ export default function TenantCreatePage() {
     if (validatePassword(adminPassword)) return
     setError(null)
     mut.mutate()
+  }
+
+  if (successData) {
+    return (
+      <ProvisioningSuccess
+        data={successData}
+        onContinue={() => navigate(`/admin/tenants/${successData.tenant.id}`, { replace: true })}
+      />
+    )
   }
 
   return (
@@ -65,8 +144,8 @@ export default function TenantCreatePage() {
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <p className="text-sm text-gray-500 mb-6">
-          Creates an isolated database schema and seeds an admin user. The admin will receive
-          a welcome email after provisioning completes.
+          Creates an isolated database schema and seeds an admin user. The admin will be prompted
+          to change the temporary password on first login.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -121,7 +200,7 @@ export default function TenantCreatePage() {
             </div>
             <div className="space-y-1">
               <label className="block text-sm font-medium text-gray-700" htmlFor="admin-password">
-                Password
+                Temporary password
               </label>
               <Input
                 id="admin-password"
@@ -138,7 +217,7 @@ export default function TenantCreatePage() {
                 <p className="text-xs text-green-600 mt-0.5">Password looks good.</p>
               )}
               <p className="text-xs text-gray-400 mt-0.5">
-                Requires upper + lowercase + digit + special character.
+                Requires upper + lowercase + digit + special character. Admin must change on first login.
               </p>
             </div>
           </fieldset>

@@ -2,13 +2,12 @@ import asyncio
 import os
 import re
 import unicodedata
+import uuid as _uuid
 from pathlib import Path
 
 from sqlalchemy import text
 
 from app.config import settings
-from app.core.auth.models import TenantRole
-from app.core.auth.repository import TenantRepository as TenantUserRepository
 from app.database import AsyncSessionLocal
 
 # Lock ensures only one tenant is provisioned at a time.
@@ -72,16 +71,50 @@ async def seed_admin_user(
     password_hash: str,
     full_name: str,
 ) -> None:
+    """Insert the initial ADMIN user directly via raw SQL.
+
+    Using raw SQL (rather than the ORM) avoids asyncpg type-OID resolution
+    issues with the per-schema native PostgreSQL enum ``tenantrole``.  The
+    explicit ``CAST(:role AS tenantrole)`` lets PostgreSQL resolve the type
+    from the current ``search_path`` rather than relying on SQLAlchemy's
+    schema-metadata machinery.
+    """
+    user_id = str(_uuid.uuid4())
     async with AsyncSessionLocal() as session:
         async with session.begin():
             await session.execute(
                 text(f"SET LOCAL search_path = {schema_name}, public")
             )
-            await TenantUserRepository.create_user(
-                email=email,
-                password_hash=password_hash,
-                role=TenantRole.ADMIN,
-                full_name=full_name,
-                identifier=None,
-                db=session,
+            await session.execute(
+                text(
+                    "INSERT INTO users "
+                    "    (id, email, password_hash, role, full_name, "
+                    "     is_active, must_change_password) "
+                    "VALUES "
+                    "    (:id, :email, :pw_hash, CAST(:role AS tenantrole), "
+                    "     :full_name, true, true)"
+                ),
+                {
+                    "id": user_id,
+                    "email": email,
+                    "pw_hash": password_hash,
+                    "role": "ADMIN",
+                    "full_name": full_name,
+                },
             )
+
+    # Verify the row was committed — fail loudly if not (avoids silent ghost tenants).
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(
+                text(f"SET LOCAL search_path = {schema_name}, public")
+            )
+            result = await session.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": email},
+            )
+            if result.scalar_one_or_none() is None:
+                raise RuntimeError(
+                    f"seed_admin_user: user '{email}' not found in {schema_name} "
+                    "after INSERT — provisioning cannot continue"
+                )
