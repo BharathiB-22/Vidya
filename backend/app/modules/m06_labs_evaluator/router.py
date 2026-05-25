@@ -53,6 +53,7 @@ from app.modules.m06_labs_evaluator.evaluator_schemas import (
     EvaluatorAssignmentResponse,
     EvaluatorAssignRequest,
     EvaluatorRecommendRequest,
+    TenantEvaluatorUser,
 )
 from app.modules.m06_labs_evaluator.evaluator_service import EvaluatorService
 from app.modules.m06_labs_evaluator.repository import TaskJobPublicRepository
@@ -484,6 +485,27 @@ async def remove_evaluator(
         target_id=str(assignment_id),
         metadata={"evaluator_user_id": str(evaluator_user_id)},
     )
+
+
+# ===========================================================================
+# Faculty — Tenant evaluator user lookup (safe, role-filtered)
+# ===========================================================================
+
+@router.get("/evaluators", response_model=list[TenantEvaluatorUser])
+async def list_tenant_evaluators(
+    current_user: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Return all active EVALUATOR users in this tenant — for the faculty picker."""
+    from sqlalchemy import select
+    from app.core.auth.models import User
+
+    result = await db.execute(
+        select(User)
+        .where(User.role == TenantRole.EVALUATOR, User.is_active.is_(True))
+        .order_by(User.full_name)
+    )
+    return [TenantEvaluatorUser.model_validate(u) for u in result.scalars().all()]
 
 
 # ===========================================================================

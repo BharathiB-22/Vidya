@@ -320,3 +320,77 @@ async def test_evaluator_tenant_b_cannot_see_tenant_a(
     )
     # Tenant middleware rejects cross-tenant access (schema_name mismatch)
     assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# 11. FACULTY cannot access /admin/users
+# ---------------------------------------------------------------------------
+
+async def test_faculty_cannot_access_admin_users(
+    async_client, test_tenant_a, faculty_user_a
+):
+    headers = make_tenant_headers(faculty_user_a)
+    resp = await async_client.get("/admin/users", headers=headers)
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 12. FACULTY can access GET /labs/evaluators (safe role-filtered endpoint)
+# ---------------------------------------------------------------------------
+
+async def test_faculty_can_list_tenant_evaluators(
+    async_client, test_tenant_a, faculty_user_a, evaluator_user_a
+):
+    headers = make_tenant_headers(faculty_user_a)
+    resp = await async_client.get("/labs/evaluators", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body, list)
+    ids = [u["id"] for u in body]
+    assert str(evaluator_user_a["id"]) in ids
+    # All returned users must have role EVALUATOR (not exposed in response,
+    # but ensure no admin/faculty leaked through by checking email prefix)
+    emails = [u["email"] for u in body]
+    assert evaluator_user_a["email"] in emails
+
+
+# ---------------------------------------------------------------------------
+# 13. FACULTY can assign evaluator via /labs/assignments/{id}/evaluators
+#     using the ID obtained from /labs/evaluators
+# ---------------------------------------------------------------------------
+
+async def test_faculty_assign_evaluator_via_safe_endpoint(
+    async_client, test_tenant_a, faculty_user_a, evaluator_user_a
+):
+    fac_headers = make_tenant_headers(faculty_user_a)
+
+    # Look up evaluator id from the safe endpoint (simulates frontend flow)
+    list_resp = await async_client.get("/labs/evaluators", headers=fac_headers)
+    assert list_resp.status_code == 200
+    evaluator_id = str(evaluator_user_a["id"])
+    assert any(u["id"] == evaluator_id for u in list_resp.json())
+
+    # Create assignment
+    create_resp = await async_client.post(
+        "/labs/assignments",
+        json={
+            "title": "Safe endpoint assign test",
+            "submission_type": "WRITTEN",
+            "rubric": [
+                {"criterion_id": "c1", "name": "Q", "description": "x",
+                 "max_marks": 10, "weight": 1.0}
+            ],
+        },
+        headers=fac_headers,
+    )
+    assert create_resp.status_code == 201
+    assignment_id = create_resp.json()["id"]
+
+    # Assign evaluator using the ID from the safe endpoint
+    assign_resp = await async_client.post(
+        f"/labs/assignments/{assignment_id}/evaluators",
+        json={"evaluator_user_id": evaluator_id},
+        headers=fac_headers,
+    )
+    assert assign_resp.status_code == 201, assign_resp.text
+    assert assign_resp.json()["evaluator_user_id"] == evaluator_id

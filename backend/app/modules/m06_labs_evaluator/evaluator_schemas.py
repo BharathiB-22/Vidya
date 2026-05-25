@@ -52,6 +52,18 @@ class EvaluatorRecommendRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Tenant evaluator user (for faculty evaluator-picker dropdown)
+# ---------------------------------------------------------------------------
+
+class TenantEvaluatorUser(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id:        UUID
+    email:     str
+    full_name: str
+
+
+# ---------------------------------------------------------------------------
 # Evaluator analytics summary
 # ---------------------------------------------------------------------------
 

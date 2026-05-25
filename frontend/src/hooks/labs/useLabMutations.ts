@@ -75,3 +75,40 @@ export function useStudentSubmit(assignmentId: string) {
     },
   })
 }
+
+// ── Evaluator mutations ──────────────────────────────────────────────────────
+
+export function useEvaluatorRecommend(submissionId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: ScoresUpdateRequest & { recommendation_note?: string }) =>
+      labsApi.evaluatorSubmitRecommendation(submissionId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: labKeys.evaluatorReview(submissionId) })
+    },
+  })
+}
+
+// ── Faculty evaluator management mutations ──────────────────────────────────
+
+export function useAssignEvaluator(assignmentId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (evaluatorUserId: string) =>
+      labsApi.assignEvaluator(assignmentId, evaluatorUserId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: labKeys.assignmentEvaluators(assignmentId) })
+    },
+  })
+}
+
+export function useRemoveEvaluator(assignmentId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (evaluatorUserId: string) =>
+      labsApi.removeEvaluator(assignmentId, evaluatorUserId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: labKeys.assignmentEvaluators(assignmentId) })
+    },
+  })
+}
