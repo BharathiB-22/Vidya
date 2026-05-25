@@ -29,6 +29,7 @@ dependencies = [
     "scipy>=1.13.0",
     "celery[redis]>=5.4.0",
     "prometheus-client>=0.20.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

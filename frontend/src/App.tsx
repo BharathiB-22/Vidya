@@ -44,6 +44,7 @@ import FairnessReportPage from '@/pages/FairnessReportPage'
 import FirstLoginPage from '@/pages/FirstLoginPage'
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import UsersPage from '@/pages/UsersPage'
+import BulkOnboardingPage from '@/pages/BulkOnboardingPage'
 import SettingsPage from '@/pages/SettingsPage'
 
 export default function App() {
@@ -76,6 +77,7 @@ export default function App() {
           {/* User management & settings — ADMIN only */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
             <Route path="/users" element={<UsersPage />} />
+            <Route path="/users/bulk-onboarding" element={<BulkOnboardingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
 

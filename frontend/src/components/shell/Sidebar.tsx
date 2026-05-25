@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
-  GraduationCap, Package,
+  GraduationCap, Package, UserPlus,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -64,8 +64,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Administration',
     items: [
-      { label: 'Users',    to: '/users',    icon: Users,    roles: ['ADMIN'] },
-      { label: 'Settings', to: '/settings', icon: Settings, roles: ['ADMIN'] },
+      { label: 'Users',            to: '/users',                  icon: Users,    roles: ['ADMIN'] },
+      { label: 'Bulk Onboarding',  to: '/users/bulk-onboarding',  icon: UserPlus, roles: ['ADMIN'] },
+      { label: 'Settings',         to: '/settings',               icon: Settings, roles: ['ADMIN'] },
     ],
   },
 ]
