@@ -13,6 +13,7 @@ _ALL_TENANT_ROLES = (
     TenantRole.DEAN,
     TenantRole.BOARD,
     TenantRole.GUIDE,
+    TenantRole.EVALUATOR,
 )
 from app.core.auth.schemas import CurrentUser
 from app.core.notifications.schemas import (

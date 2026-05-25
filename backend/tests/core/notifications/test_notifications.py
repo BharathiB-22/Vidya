@@ -568,6 +568,29 @@ async def test_mark_all_read_does_not_touch_other_user(
 # --- Dev-mode email (no SMTP configured) ---
 
 
+# ---------------------------------------------------------------------------
+# Group 5 — RBAC: all tenant roles can read their own notifications
+# ---------------------------------------------------------------------------
+
+
+async def test_evaluator_can_list_notifications(async_client, test_tenant_a, evaluator_user_a):
+    """EVALUATOR must get 200 on GET /notifications — not 403."""
+    resp = await async_client.get(
+        "/notifications",
+        params={"page": 1, "page_size": 1},
+        headers=make_tenant_headers(evaluator_user_a),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "items" in body
+    assert "unread_count" in body
+
+
+# ---------------------------------------------------------------------------
+# Group 6 — Dev-mode email
+# ---------------------------------------------------------------------------
+
+
 async def test_dev_mode_email_prints_not_sends(capsys, test_tenant_a, admin_user_a):
     nid = None
     # apply_async NOT patched — we let the real path run, but SMTP_USER is
