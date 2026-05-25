@@ -91,6 +91,9 @@ export interface LabSubmission {
   eval_job_id: string | null
   ai_scan_status: AIScanStatus
   status: SubmissionStatus
+  // Populated for RATIFIED submissions
+  final_score: number | null
+  graded_max_marks: number | null
 }
 
 export interface LabSubmissionDetail extends LabSubmission {

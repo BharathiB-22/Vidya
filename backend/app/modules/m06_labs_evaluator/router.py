@@ -56,7 +56,7 @@ from app.modules.m06_labs_evaluator.evaluator_schemas import (
     TenantEvaluatorUser,
 )
 from app.modules.m06_labs_evaluator.evaluator_service import EvaluatorService
-from app.modules.m06_labs_evaluator.repository import TaskJobPublicRepository
+from app.modules.m06_labs_evaluator.repository import GradeLedgerRepository, TaskJobPublicRepository
 from app.modules.m06_labs_evaluator.schemas import (
     AssignmentCreate,
     AssignmentListResponse,
@@ -779,18 +779,44 @@ async def student_my_submissions(
     current_user: CurrentUser = Depends(_STUDENT),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
+    from sqlalchemy import select
+    from app.modules.m06_labs_evaluator.models import GradeLedger
+
     items, total = await SubmissionService.list_for_student(
         current_user.user_id, db=db, offset=offset, limit=limit
     )
+
+    # Batch-fetch grade ledger for RATIFIED submissions so we can surface
+    # final_score / graded_max_marks without N+1 queries.
+    ratified_ids = [s.id for s in items if s.status == "RATIFIED"]
+    grade_map: dict = {}
+    if ratified_ids:
+        rows = await db.execute(
+            select(GradeLedger).where(GradeLedger.submission_id.in_(ratified_ids))
+        )
+        for g in rows.scalars().all():
+            grade_map[g.submission_id] = g
+
+    resp_items = []
+    for s in items:
+        sub_resp = SubmissionResponse.model_validate(s)
+        if s.id in grade_map:
+            g = grade_map[s.id]
+            sub_resp = sub_resp.model_copy(update={
+                "final_score": g.final_score,
+                "graded_max_marks": g.max_marks,
+            })
+        resp_items.append(sub_resp)
+
     return SubmissionListResponse(
-        items=[SubmissionResponse.model_validate(s) for s in items],
+        items=resp_items,
         total=total,
         offset=offset,
         limit=limit,
     )
 
 
-@router.get("/student/submissions/{submission_id}/result", response_model=SubmissionDetailResponse)
+@router.get("/student/submissions/{submission_id}/result", response_model=ReviewPanelResponse)
 async def student_get_result(
     submission_id: UUID,
     current_user: CurrentUser = Depends(_STUDENT),
@@ -806,15 +832,26 @@ async def student_get_result(
             status_code=403,
             detail={"error": "NOT_RATIFIED", "message": "Results are only visible after faculty ratification."},
         )
+
+    # Load assignment and grade entry directly — do NOT call ReviewService.get_review_panel
+    # which has the side effect of advancing EVALUATED→REVIEWED status.
+    assignment = await AssignmentService.get(sub.assignment_id, db=db)
+    grade_entry = await GradeLedgerRepository.get_by_submission(submission_id, db=db)
+
     from app.modules.m06_labs_evaluator.schemas import EvaluationResponse
     eval_resp = (
         EvaluationResponse.model_validate(sub.evaluation)
         if sub.evaluation
         else None
     )
-    return SubmissionDetailResponse(
+    sub_detail = SubmissionDetailResponse(
         **SubmissionResponse.model_validate(sub).model_dump(),
-        content_text=None,          # content not returned in result view
+        content_text=None,
         ai_scan_result=sub.ai_scan_result,
         evaluation=eval_resp,
+    )
+    return ReviewPanelResponse(
+        submission=sub_detail,
+        assignment=AssignmentResponse.model_validate(assignment),
+        grade_entry=GradeLedgerResponse.model_validate(grade_entry) if grade_entry else None,
     )

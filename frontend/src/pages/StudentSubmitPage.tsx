@@ -1,10 +1,57 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { ChevronLeft, Clock, AlertTriangle, CheckCircle2, Circle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useStudentAssignments, useMySubmissions } from '@/hooks/labs'
 import { useStudentSubmit } from '@/hooks/labs'
-import type { LabAssignment } from '@/types/labs'
+import type { LabAssignment, LabSubmission, SubmissionStatus } from '@/types/labs'
+
+const TIMELINE_STEPS: { status: SubmissionStatus; label: string; desc: string }[] = [
+  { status: 'SUBMITTED',  label: 'Submitted',    desc: 'Your work was received.' },
+  { status: 'EVALUATING', label: 'AI Evaluation', desc: 'Automated review in progress.' },
+  { status: 'EVALUATED',  label: 'Evaluated',     desc: 'AI scoring complete.' },
+  { status: 'REVIEWED',   label: 'Under Review',  desc: 'Faculty is reviewing.' },
+  { status: 'RATIFIED',   label: 'Graded',        desc: 'Grade finalised by faculty.' },
+]
+const STATUS_ORDER: SubmissionStatus[] = ['SUBMITTED', 'EVALUATING', 'EVALUATED', 'REVIEWED', 'RATIFIED']
+
+function EvaluationTimeline({ submission }: { submission: LabSubmission }) {
+  const current = STATUS_ORDER.indexOf(submission.status)
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Evaluation Progress</span>
+      </div>
+      <div className="px-4 py-3 space-y-3">
+        {TIMELINE_STEPS.map((step, i) => {
+          const done   = i < current
+          const active = i === current
+          return (
+            <div key={step.status} className="flex items-start gap-3">
+              <div className="mt-0.5 shrink-0">
+                {done ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                ) : active ? (
+                  <div className="h-4 w-4 rounded-full border-2 border-blue-500 bg-blue-100" />
+                ) : (
+                  <Circle className="h-4 w-4 text-gray-200" />
+                )}
+              </div>
+              <div>
+                <p className={`text-sm font-medium ${done ? 'text-green-700' : active ? 'text-blue-700' : 'text-gray-300'}`}>
+                  {step.label}
+                </p>
+                <p className={`text-xs ${done || active ? 'text-gray-400' : 'text-gray-200'}`}>
+                  {step.desc}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function DeadlineWarning({ deadline }: { deadline: string }) {
   const ms = new Date(deadline).getTime() - Date.now()
@@ -61,36 +108,59 @@ export default function StudentSubmitPage() {
 
   if (submitted || existingSub) {
     const sub = existingSub
+    const isRatified = sub?.status === 'RATIFIED'
+    const hasScore = isRatified && sub?.final_score != null && sub?.graded_max_marks != null
+    const pct = hasScore ? Math.round((sub!.final_score! / sub!.graded_max_marks!) * 100) : null
     return (
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <Button variant="ghost" size="sm" className="-ml-1" onClick={() => navigate('/student/labs')}>
           <ChevronLeft className="h-4 w-4 mr-1" />
-          Back
+          All Assignments
         </Button>
-        <div className="rounded-xl border border-green-200 bg-green-50 px-6 py-8 text-center">
-          <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
-          <h2 className="text-lg font-semibold text-green-900 mb-1">Submission received</h2>
-          <p className="text-sm text-green-700">
-            Your work has been submitted for <strong>{assignment.title}</strong>.
-            You will be notified when evaluation is complete.
-          </p>
-          {sub && (
-            <div className="mt-4 text-xs text-green-600">
-              Submitted {new Date(sub.submitted_at).toLocaleString()}
-              {sub.is_late && <span className="ml-2 text-orange-600">· Late</span>}
+
+        {/* Confirmation / grade preview card */}
+        {isRatified && hasScore ? (
+          <div className="rounded-xl border border-green-200 bg-green-50 px-6 py-6 text-center">
+            <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-green-600" />
+            <h2 className="text-lg font-semibold text-green-900">{assignment.title}</h2>
+            <p className="text-sm text-green-600 mt-0.5">Grade finalised</p>
+            <div className="mt-4">
+              <span className="text-4xl font-extrabold text-green-800">{sub!.final_score}</span>
+              <span className="text-lg text-green-600"> / {sub!.graded_max_marks}</span>
             </div>
-          )}
-          <div className="mt-6 flex gap-3 justify-center">
-            <Button variant="outline" onClick={() => navigate('/student/labs')}>
-              All Assignments
-            </Button>
-            {sub?.status === 'RATIFIED' && (
-              <Button onClick={() => navigate(`/student/submissions/${sub.id}/result`)}>
-                View Result
-              </Button>
+            <p className="text-base font-semibold text-green-700 mt-1">{pct}%</p>
+            {sub?.is_late && (
+              <p className="text-xs text-orange-600 mt-1">Late submission</p>
             )}
+            <div className="mt-5 flex gap-3 justify-center">
+              <Button variant="outline" onClick={() => navigate('/student/labs')}>All Assignments</Button>
+              <Button onClick={() => navigate(`/student/submissions/${sub!.id}/result`)}>
+                Full Breakdown
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-xl border border-green-200 bg-green-50 px-6 py-6 text-center">
+            <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-green-500" />
+            <h2 className="text-lg font-semibold text-green-900 mb-1">Submission received</h2>
+            <p className="text-sm text-green-700">
+              Your work has been submitted for <strong>{assignment.title}</strong>.
+              You will be notified when evaluation is complete.
+            </p>
+            {sub && (
+              <div className="mt-3 text-xs text-green-600">
+                Submitted {new Date(sub.submitted_at).toLocaleString()}
+                {sub.is_late && <span className="ml-2 text-orange-600">· Late</span>}
+              </div>
+            )}
+            <div className="mt-5 flex gap-3 justify-center">
+              <Button variant="outline" onClick={() => navigate('/student/labs')}>All Assignments</Button>
+            </div>
+          </div>
+        )}
+
+        {/* Evaluation timeline */}
+        {sub && <EvaluationTimeline submission={sub} />}
       </div>
     )
   }

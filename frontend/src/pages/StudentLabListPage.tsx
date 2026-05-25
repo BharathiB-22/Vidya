@@ -73,16 +73,24 @@ function AssignmentRow({
 
 function SubmissionPill({ submission }: { submission: LabSubmission }) {
   const CFG: Record<string, { label: string; cls: string }> = {
-    SUBMITTED:  { label: 'Submitted',  cls: 'text-blue-700 bg-blue-50' },
-    EVALUATING: { label: 'Evaluating', cls: 'text-yellow-700 bg-yellow-50' },
-    EVALUATED:  { label: 'Evaluated',  cls: 'text-purple-700 bg-purple-50' },
+    SUBMITTED:  { label: 'Submitted',    cls: 'text-blue-700 bg-blue-50' },
+    EVALUATING: { label: 'Evaluating',   cls: 'text-yellow-700 bg-yellow-50' },
+    EVALUATED:  { label: 'Evaluated',    cls: 'text-purple-700 bg-purple-50' },
     REVIEWED:   { label: 'Under review', cls: 'text-indigo-700 bg-indigo-50' },
-    RATIFIED:   { label: 'Graded',     cls: 'text-green-700 bg-green-50' },
+    RATIFIED:   { label: 'Graded',       cls: 'text-green-700 bg-green-50' },
   }
   const cfg = CFG[submission.status] ?? { label: submission.status, cls: 'text-gray-500 bg-gray-50' }
+  const hasScore = submission.status === 'RATIFIED' && submission.final_score != null && submission.graded_max_marks != null
   return (
     <div className="flex items-center gap-1.5">
-      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.cls}`}>{cfg.label}</span>
+      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.cls}`}>
+        {cfg.label}
+        {hasScore && (
+          <span className="ml-1 font-bold">
+            · {submission.final_score}/{submission.graded_max_marks}
+          </span>
+        )}
+      </span>
       {submission.ai_scan_status !== 'PENDING' && (
         <AIScanBadge status={submission.ai_scan_status} />
       )}

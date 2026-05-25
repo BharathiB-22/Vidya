@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, CheckCircle2, Loader2, AlertTriangle, Lock } from 'lucide-react'
+import { ChevronLeft, CheckCircle2, Loader2, AlertTriangle, Lock, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
 import { ConfidenceBadge } from '@/components/labs/ConfidenceBadge'
@@ -74,13 +74,21 @@ export default function StudentResultPage() {
           <span className="text-xl text-green-600"> / {grade_entry.max_marks}</span>
         </div>
         <p className="text-lg font-semibold text-green-700 mt-1">{percentage}%</p>
-        <p className="text-xs text-green-600 mt-2">
-          Ratified on {new Date(grade_entry.ratified_at).toLocaleString()}
-        </p>
+        <div className="mt-2 flex items-center justify-center gap-3 text-xs text-green-600 flex-wrap">
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Submitted {new Date(submission.submitted_at).toLocaleDateString()}
+          </span>
+          {submission.is_late && (
+            <span className="text-orange-600 font-medium">· Late</span>
+          )}
+          <span>· Graded {new Date(grade_entry.ratified_at).toLocaleDateString()}</span>
+        </div>
         {grade_entry.ratification_note && (
-          <p className="mt-3 text-sm text-gray-700 italic bg-white rounded-lg px-4 py-2 border border-green-100">
-            "{grade_entry.ratification_note}"
-          </p>
+          <div className="mt-4 text-left bg-white rounded-lg px-4 py-3 border border-green-100">
+            <p className="text-xs font-semibold text-gray-500 mb-1">Faculty note</p>
+            <p className="text-sm text-gray-700 italic">"{grade_entry.ratification_note}"</p>
+          </div>
         )}
       </div>
 
@@ -113,10 +121,15 @@ export default function StudentResultPage() {
                     <div>
                       <p className="text-sm font-medium text-gray-800">{rubric.name}</p>
                       {score?.human_note && (
-                        <p className="text-xs text-gray-500 mt-0.5 italic">"{score.human_note}"</p>
+                        <p className="text-xs text-gray-500 mt-0.5 italic">
+                          <span className="not-italic font-medium text-gray-400">Feedback: </span>
+                          "{score.human_note}"
+                        </p>
                       )}
                       {score?.ai_justification && !score?.human_note && (
-                        <p className="text-xs text-gray-400 mt-0.5">{score.ai_justification}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          <span className="font-medium">AI: </span>{score.ai_justification}
+                        </p>
                       )}
                     </div>
                     <div className="text-right shrink-0">

@@ -140,6 +140,9 @@ class SubmissionResponse(BaseModel):
     eval_job_id: UUID | None
     ai_scan_status: str
     status: str
+    # Populated for RATIFIED submissions (joined from grade_ledger)
+    final_score: float | None = None
+    graded_max_marks: int | None = None
 
     model_config = {"from_attributes": True}
 
