@@ -1,10 +1,11 @@
 // M08 Exam Setter — Faculty: create exam paper configuration form
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { FileText, Loader2, ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createExamPaper } from '@/lib/api/exam'
+import { listPrograms, listCourses } from '@/lib/api/programs'
 import type { BloomsDistribution, ExamPaperCreatePayload, ExamType, QuestionFormatConfig } from '@/types/exam'
 
 const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color: string }> = [
@@ -29,6 +30,8 @@ const DEFAULT_FORMAT: QuestionFormatConfig = {
 export default function ExamPaperCreatePage() {
   const navigate = useNavigate()
 
+  const [programId,         setProgramId]         = useState('')
+  const [semesterFilter,    setSemesterFilter]     = useState<number | ''>('')
   const [courseId,          setCourseId]          = useState('')
   const [title,             setTitle]             = useState('')
   const [examType,          setExamType]          = useState<ExamType>('END_SEM')
@@ -41,6 +44,36 @@ export default function ExamPaperCreatePage() {
   const [error,             setError]             = useState<string | null>(null)
 
   const bloomSum = Object.values(dist).reduce((a, b) => a + b, 0)
+
+  const { data: programsData, isLoading: programsLoading } = useQuery({
+    queryKey: ['programs', 'approved'],
+    queryFn: () => listPrograms({ status: 'APPROVED', page_size: 200 }),
+    staleTime: 60_000,
+  })
+  const programs = programsData?.items ?? []
+
+  const { data: allCourses = [], isLoading: coursesLoading } = useQuery({
+    queryKey: ['program-courses', programId],
+    queryFn: () => listCourses(programId),
+    enabled: !!programId,
+    staleTime: 60_000,
+  })
+
+  const semesters = [...new Set(allCourses.map(c => c.semester))].sort((a, b) => a - b)
+  const visibleCourses = semesterFilter === ''
+    ? allCourses
+    : allCourses.filter(c => c.semester === semesterFilter)
+
+  function handleProgramChange(pid: string) {
+    setProgramId(pid)
+    setSemesterFilter('')
+    setCourseId('')
+  }
+
+  function handleSemesterChange(val: string) {
+    setSemesterFilter(val === '' ? '' : Number(val))
+    setCourseId('')
+  }
 
   const { mutate, isPending } = useMutation({
     mutationFn: (payload: ExamPaperCreatePayload) => createExamPaper(payload),
@@ -125,29 +158,94 @@ export default function ExamPaperCreatePage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Course ID *</label>
-              <input
-                required
-                value={courseId}
-                onChange={e => setCourseId(e.target.value)}
-                placeholder="UUID of course"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
+          {/* Course selection — Program → Semester → Course */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Course Selection</p>
+
+            {/* Program */}
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Program *</label>
+              {programsLoading ? (
+                <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading programs…
+                </div>
+              ) : programs.length === 0 ? (
+                <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                  No approved programs found. Please approve a program first.
+                </p>
+              ) : (
+                <select
+                  value={programId}
+                  onChange={e => handleProgramChange(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                >
+                  <option value="">— Select a program —</option>
+                  {programs.map(p => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                </select>
+              )}
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Exam Type</label>
-              <select
-                value={examType}
-                onChange={e => setExamType(e.target.value as ExamType)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              >
-                {EXAM_TYPES.map(t => (
-                  <option key={t} value={t}>{t.replace('_', ' ')}</option>
-                ))}
-              </select>
-            </div>
+
+            {/* Semester filter — only shown when program has multiple semesters */}
+            {programId && !coursesLoading && semesters.length > 1 && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Semester</label>
+                <select
+                  value={semesterFilter}
+                  onChange={e => handleSemesterChange(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                >
+                  <option value="">All semesters</option>
+                  {semesters.map(s => (
+                    <option key={s} value={s}>Semester {s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Course */}
+            {programId && (
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Course *</label>
+                {coursesLoading ? (
+                  <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading courses…
+                  </div>
+                ) : visibleCourses.length === 0 ? (
+                  <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    No courses available for this program
+                    {semesterFilter !== '' ? ` in Semester ${semesterFilter}` : ''}.
+                  </p>
+                ) : (
+                  <select
+                    value={courseId}
+                    onChange={e => setCourseId(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                  >
+                    <option value="">— Select a course —</option>
+                    {visibleCourses.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.title}{semesters.length > 1 && semesterFilter === '' ? ` (Sem ${c.semester})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Exam Type</label>
+            <select
+              value={examType}
+              onChange={e => setExamType(e.target.value as ExamType)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            >
+              {EXAM_TYPES.map(t => (
+                <option key={t} value={t}>{t.replace('_', ' ')}</option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
