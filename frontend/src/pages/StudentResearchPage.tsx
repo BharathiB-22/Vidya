@@ -53,8 +53,11 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
     setQuestions(questions.map((q, idx) => (idx === i ? v : q)))
   }
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const guideIdValid = UUID_RE.test(guideId.trim())
+
   const valid =
-    guideId.trim() &&
+    guideIdValid &&
     title.trim() &&
     abstract.trim().length >= 50 &&
     questions.some((q) => q.trim())
@@ -68,13 +71,22 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
         <h2 className="text-lg font-semibold text-gray-900">Submit Research Proposal</h2>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">Guide User ID</label>
+          <label className="text-sm font-medium text-gray-700">Guide User UUID</label>
           <input
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 font-mono"
+            className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 font-mono ${
+              guideId && !guideIdValid ? 'border-red-300 bg-red-50' : 'border-gray-200'
+            }`}
             value={guideId}
             onChange={(e) => setGuideId(e.target.value)}
-            placeholder="Guide's user UUID"
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
           />
+          {guideId && !guideIdValid ? (
+            <p className="text-xs text-red-600">Must be a valid UUID (e.g. from Admin → Users → Guide details).</p>
+          ) : (
+            <p className="text-xs text-gray-400">
+              Copy this UUID from <strong>Admin → Users</strong>, click the Guide user's <strong>Edit</strong> button to reveal their UUID.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1">

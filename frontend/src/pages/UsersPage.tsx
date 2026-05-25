@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { usersApi, UserRecord, CreateUserPayload, UpdateUserPayload } from '@/lib/api/users'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
@@ -30,6 +30,33 @@ const ROLE_COLORS: Record<string, string> = {
   BOARD:     'bg-amber-100 text-amber-800',
   GUIDE:     'bg-teal-100 text-teal-800',
   EVALUATOR: 'bg-orange-100 text-orange-800',
+}
+
+// ---------------------------------------------------------------------------
+// UUID copy button (used in table row and edit dialog for GUIDE users)
+// ---------------------------------------------------------------------------
+
+function CopyUuidButton({ uuid }: { uuid: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(uuid).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [uuid])
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title="Copy UUID"
+      className="ml-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-mono text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors"
+    >
+      <span className="truncate max-w-[9rem]">{uuid}</span>
+      <span className="shrink-0">{copied ? '✓' : '⎘'}</span>
+    </button>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +208,12 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
         {user && (
           <form onSubmit={handleSubmit} className="space-y-3 mt-2">
             <p className="text-sm text-gray-500">{user.email}</p>
+            {user.role === 'GUIDE' && (
+              <div className="rounded-lg bg-teal-50 border border-teal-200 px-3 py-2">
+                <p className="text-xs font-semibold text-teal-700 mb-1">User UUID <span className="font-normal text-teal-600">(used as guide_user_id in research proposals)</span></p>
+                <CopyUuidButton uuid={user.id} />
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Full name</label>
               <Input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
@@ -324,7 +357,15 @@ export default function UsersPage() {
                       {u.role}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{u.identifier ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500">
+                    {u.identifier ?? '—'}
+                    {u.role === 'GUIDE' && (
+                      <div className="mt-0.5">
+                        <span className="text-xs text-teal-600 font-medium">UUID: </span>
+                        <CopyUuidButton uuid={u.id} />
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {u.is_active ? (
                       <span className="text-green-700 font-medium">Active</span>
