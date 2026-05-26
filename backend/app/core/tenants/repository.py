@@ -15,6 +15,9 @@ class TenantRepository:
         schema_name: str,
         db: AsyncSession,
         contact_email: str | None = None,
+        logo_url: str | None = None,
+        primary_color: str | None = None,
+        secondary_color: str | None = None,
     ) -> Tenant:
         tenant = Tenant(
             name=name,
@@ -23,6 +26,9 @@ class TenantRepository:
             status=TenantStatus.PROVISIONING,
             is_active=False,
             contact_email=contact_email,
+            logo_url=logo_url,
+            primary_color=primary_color,
+            secondary_color=secondary_color,
         )
         db.add(tenant)
         await db.flush()

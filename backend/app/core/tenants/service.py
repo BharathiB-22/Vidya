@@ -82,6 +82,9 @@ class TenantService:
             schema_name=schema_name,
             db=db,
             contact_email=contact_email,
+            logo_url=body.logo_url,
+            primary_color=body.primary_color,
+            secondary_color=body.secondary_color,
         )
         await db.commit()
 

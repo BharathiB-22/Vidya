@@ -10,6 +10,9 @@ export interface Tenant {
   status: TenantStatus
   is_active: boolean
   contact_email: string | null
+  logo_url: string | null
+  primary_color: string | null
+  secondary_color: string | null
   created_at: string
 }
 
@@ -19,6 +22,9 @@ export interface CreateTenantPayload {
   admin_password: string
   admin_full_name: string
   contact_email?: string
+  logo_url?: string
+  primary_color?: string
+  secondary_color?: string
 }
 
 export async function listTenants(includeInactive = true): Promise<Tenant[]> {
@@ -45,7 +51,13 @@ export async function retryTenantProvisioning(id: string): Promise<Tenant> {
 
 export async function updateTenant(
   id: string,
-  updates: { name?: string; is_active?: boolean },
+  updates: {
+    name?: string
+    is_active?: boolean
+    logo_url?: string
+    primary_color?: string
+    secondary_color?: string
+  },
 ): Promise<Tenant> {
   const { data } = await adminApi.patch<Tenant>(`/tenants/${id}`, updates)
   return data

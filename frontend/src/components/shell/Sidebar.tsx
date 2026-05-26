@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
-  GraduationCap, Package, UserPlus, ClipboardCheck,
+  GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -31,7 +31,7 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    heading: 'Teach & Prepare',
+    heading: 'Academics',
     items: [
       { label: 'Programs',          to: '/programs',          icon: BookOpen,       roles: ['FACULTY', 'DEAN', 'ADMIN'] },
       { label: 'Syllabuses',        to: '/syllabuses',        icon: GraduationCap,  roles: ['FACULTY', 'DEAN', 'ADMIN'] },
@@ -71,9 +71,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Administration',
     items: [
-      { label: 'Users',           to: '/users',                 icon: Users,    roles: ['ADMIN'] },
-      { label: 'Bulk Onboarding', to: '/users/bulk-onboarding', icon: UserPlus, roles: ['ADMIN'] },
-      { label: 'Settings',        to: '/settings',              icon: Settings, roles: ['ADMIN'] },
+      { label: 'Users',                to: '/users',                 icon: Users,    roles: ['ADMIN'] },
+      { label: 'Bulk Onboarding',      to: '/users/bulk-onboarding', icon: UserPlus, roles: ['ADMIN'] },
+      { label: 'Institution Branding', to: '/settings/branding',     icon: Palette,  roles: ['ADMIN'] },
+      { label: 'Settings',             to: '/settings',              icon: Settings, roles: ['ADMIN'] },
     ],
   },
 ]
@@ -106,6 +107,11 @@ export function Sidebar({ onClose }: SidebarProps) {
   const displayName = user?.fullName || user?.email || ''
   const initials = displayName ? getInitials(displayName) : role?.slice(0, 2) || '??'
 
+  // Read institution logo from localStorage branding settings
+  const savedLogo = typeof window !== 'undefined'
+    ? localStorage.getItem('vidya_institution_logo') ?? ''
+    : ''
+
   function isActive(to: string): boolean {
     if (to === '/dashboard') return location.pathname === '/dashboard'
     return location.pathname.startsWith(to)
@@ -120,11 +126,19 @@ export function Sidebar({ onClose }: SidebarProps) {
         <div className="absolute top-0 left-0 w-24 h-full bg-sv-primary/10 blur-2xl pointer-events-none" />
 
         <div className="relative flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 bg-sv-primary rounded-lg flex items-center justify-center flex-shrink-0 shadow-md shadow-sv-primary/40">
-            <span className="text-white font-extrabold text-xs tracking-tight">SV</span>
-          </div>
+          {savedLogo ? (
+            <img
+              src={savedLogo}
+              alt="Institution logo"
+              className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 flex-shrink-0"
+            />
+          ) : (
+            <div className="w-8 h-8 bg-sv-primary rounded-lg flex items-center justify-center flex-shrink-0 shadow-md shadow-sv-primary/40">
+              <span className="text-white font-extrabold text-xs tracking-tight">SV</span>
+            </div>
+          )}
           <div className="min-w-0">
-            <p className="text-[13px] font-bold text-white leading-none tracking-wide">VIDYA ERP AI</p>
+            <p className="text-[13px] font-bold text-white leading-none tracking-wide">VIDYA AI</p>
             <p className="text-[10px] text-slate-500 truncate mt-0.5" title={institution}>
               {institution}
             </p>
@@ -161,7 +175,6 @@ export function Sidebar({ onClose }: SidebarProps) {
                   const active = isActive(item.to)
                   return (
                     <li key={item.to} className="relative">
-                      {/* Left accent indicator */}
                       {active && (
                         <div className="absolute -left-2 top-1.5 bottom-1.5 w-[3px] bg-sv-accent rounded-r-full" />
                       )}
@@ -205,7 +218,6 @@ export function Sidebar({ onClose }: SidebarProps) {
       {/* ── Footer ──────────────────────────────────────────────── */}
       <div className="px-3 py-3 border-t border-white/10">
         <div className="flex items-center gap-2.5">
-          {/* Avatar */}
           <div className="w-7 h-7 rounded-full bg-sv-primary/30 border border-sv-primary/40 flex items-center justify-center flex-shrink-0">
             <span className="text-[10px] font-bold text-sv-muted uppercase">{initials}</span>
           </div>
@@ -219,7 +231,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           </div>
         </div>
         <p className="text-[8px] text-slate-700 mt-2.5 font-bold tracking-[0.18em] uppercase">
-          SherpaVector · VIDYA ERP AI
+          SherpaVector · VIDYA AI
         </p>
       </div>
 

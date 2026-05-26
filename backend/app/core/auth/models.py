@@ -42,6 +42,9 @@ class Tenant(Base):
     status = Column(Enum(TenantStatus, native_enum=False), nullable=False, default=TenantStatus.PROVISIONING)
     is_active = Column(Boolean, default=False, nullable=False)
     contact_email = Column(String, nullable=True)
+    logo_url = Column(String, nullable=True)
+    primary_color = Column(String(7), nullable=True)
+    secondary_color = Column(String(7), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 

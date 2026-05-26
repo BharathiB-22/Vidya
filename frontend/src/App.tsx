@@ -9,6 +9,7 @@ import DashboardPage from '@/pages/DashboardPage'
 import TenantListPage from '@/pages/admin/TenantListPage'
 import TenantCreatePage from '@/pages/admin/TenantCreatePage'
 import TenantDetailPage from '@/pages/admin/TenantDetailPage'
+import AdminDashboardPage from '@/pages/admin/AdminDashboardPage'
 import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
@@ -47,6 +48,7 @@ import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import UsersPage from '@/pages/UsersPage'
 import BulkOnboardingPage from '@/pages/BulkOnboardingPage'
 import SettingsPage from '@/pages/SettingsPage'
+import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
@@ -61,10 +63,11 @@ export default function App() {
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route element={<AdminAuthGuard />}>
         <Route element={<AdminShell />}>
+          <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
           <Route path="/admin/tenants" element={<TenantListPage />} />
           <Route path="/admin/tenants/new" element={<TenantCreatePage />} />
           <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
-          <Route path="/admin" element={<Navigate to="/admin/tenants" replace />} />
+          <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
       </Route>
 
@@ -83,6 +86,7 @@ export default function App() {
             <Route path="/users" element={<UsersPage />} />
             <Route path="/users/bulk-onboarding" element={<BulkOnboardingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/branding" element={<SettingsBrandingPage />} />
           </Route>
 
           {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}

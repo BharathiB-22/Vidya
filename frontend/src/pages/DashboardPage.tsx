@@ -255,7 +255,7 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
   const visitedSettings = localStorage.getItem('vidya_onboarding_settings') === '1'
 
   const items: OnboardingItem[] = [
-    { label: 'Sign in to VIDYA ERP AI',       done: true,             href: '/dashboard' },
+    { label: 'Sign in to VIDYA AI',            done: true,             href: '/dashboard' },
     { label: 'Set your permanent password',    done: passwordChanged,  href: '/settings'  },
     { label: 'Add faculty and students',       done: visitedUsers,     href: '/users'     },
     { label: 'Review institution settings',    done: visitedSettings,  href: '/settings'  },
@@ -357,7 +357,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold text-sv-primary uppercase tracking-[0.18em] mb-1.5">
-            VIDYA ERP AI · SherpaVector
+            VIDYA AI · SherpaVector
           </p>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">
             {getGreeting()}{firstName ? `, ${firstName}` : ''}

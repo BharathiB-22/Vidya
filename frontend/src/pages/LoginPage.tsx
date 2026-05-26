@@ -69,7 +69,7 @@ export default function LoginPage() {
           <div className="mb-4">
             <span className="inline-flex items-center gap-1.5 text-sv-accent text-[11px] font-semibold uppercase tracking-[0.15em] bg-sv-accent/10 px-3 py-1 rounded-full border border-sv-accent/20">
               <Brain className="h-3 w-3" />
-              AI-Powered University ERP
+              AI-Powered Academic Intelligence
             </span>
           </div>
 
@@ -77,7 +77,7 @@ export default function LoginPage() {
             VIDYA
           </h1>
           <p className="text-xl font-bold text-sv-primary mb-5 tracking-widest uppercase">
-            ERP AI
+            AI
           </p>
           <p className="text-slate-400 text-base leading-relaxed mb-10 max-w-xs">
             The intelligent academic management platform built for modern universities and institutions.
@@ -97,7 +97,7 @@ export default function LoginPage() {
         <div className="relative z-10 pt-6 border-t border-white/5">
           <p className="text-slate-600 text-xs">© 2026 SherpaVector Pvt. Ltd. All rights reserved.</p>
           <p className="text-slate-700 text-[10px] mt-0.5 font-medium tracking-wide uppercase">
-            Enterprise Academic Management Platform
+            Powered by SherpaVector · VIDYA AI
           </p>
         </div>
       </div>
@@ -112,7 +112,7 @@ export default function LoginPage() {
               <span className="text-white font-extrabold text-xs">SV</span>
             </div>
             <div>
-              <p className="text-sm font-bold text-gray-900 leading-none">VIDYA ERP AI</p>
+              <p className="text-sm font-bold text-gray-900 leading-none">VIDYA AI</p>
               <p className="text-[10px] text-gray-400 mt-0.5">by SherpaVector</p>
             </div>
           </div>
@@ -200,7 +200,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs text-center text-gray-400 mt-4">
-            VIDYA ERP AI · SherpaVector · Enterprise Academic Platform
+            VIDYA AI · Powered by SherpaVector
           </p>
         </div>
       </div>
