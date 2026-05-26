@@ -67,7 +67,7 @@ export function Breadcrumbs() {
           {crumb.to ? (
             <Link
               to={crumb.to}
-              className="hover:text-indigo-600 transition-colors truncate max-w-[120px]"
+              className="hover:text-sv-primary transition-colors truncate max-w-[120px]"
             >
               {crumb.label}
             </Link>

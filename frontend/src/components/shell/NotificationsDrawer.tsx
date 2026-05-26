@@ -64,10 +64,10 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <Bell className="w-4 h-4 text-indigo-600" />
+            <Bell className="w-4 h-4 text-sv-primary" />
             <span className="font-semibold text-gray-900 text-sm">Notifications</span>
             {unread > 0 && (
-              <span className="bg-indigo-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+              <span className="bg-sv-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                 {unread}
               </span>
             )}
@@ -79,7 +79,7 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
                 size="sm"
                 onClick={() => markAllMut.mutate()}
                 disabled={markAllMut.isPending}
-                className="text-xs text-indigo-600 h-7 px-2 gap-1"
+                className="text-xs text-sv-primary h-7 px-2 gap-1"
               >
                 {markAllMut.isPending
                   ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -123,14 +123,14 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
           {items.map((n) => (
             <div
               key={n.id}
-              className={`px-4 py-3 border-b border-gray-50 ${!n.is_read ? 'bg-indigo-50/40' : ''}`}
+              className={`px-4 py-3 border-b border-gray-50 ${!n.is_read ? 'bg-sv-light/60' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
                   {n.title}
                 </p>
                 {!n.is_read && (
-                  <span className="w-2 h-2 mt-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                  <span className="w-2 h-2 mt-1.5 rounded-full bg-sv-primary flex-shrink-0" />
                 )}
               </div>
               {n.body && (

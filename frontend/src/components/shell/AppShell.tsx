@@ -20,7 +20,7 @@ export function AppShell() {
           Mobile: fixed off-screen, slides in when sidebarOpen
           Desktop (lg+): static, always visible */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-60 bg-white border-r border-gray-200
+        className={`fixed inset-y-0 left-0 z-30 w-60 bg-sv-dark border-r border-white/5
           transform transition-transform duration-200 ease-in-out
           lg:translate-x-0 lg:static lg:flex-shrink-0
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}

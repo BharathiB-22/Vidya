@@ -1,8 +1,8 @@
 import { useNavigate, Link } from 'react-router-dom'
 import {
-  BookOpen, Layers, FlaskConical, Microscope,
-  FileText, ClipboardList, BarChart2, ChevronRight, CheckCircle, Circle,
-  GraduationCap, Package,
+  BookOpen, Layers, FlaskConical, Microscope, FileText, ClipboardList,
+  BarChart2, ChevronRight, CheckCircle, Circle, GraduationCap, Package,
+  ClipboardCheck, Cpu, ShieldCheck, Building2,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -15,57 +15,74 @@ interface ModuleCard {
   to: string
   icon: IconComponent
   roles: string[]
-  accent: string
+  badge: string   // icon badge colors (bg/text/border)
+  bar: string     // top accent bar bg color
+  section: string // grouping key
 }
 
 const CARDS: ModuleCard[] = [
+  // ── Teach & Prepare ──────────────────────────────────────────────────────
   {
     title: 'Programs',
-    description: 'Design academic programs, add courses, and manage outcomes.',
+    description: 'Design academic programs, add courses, and manage learning outcomes.',
     to: '/programs',
     icon: BookOpen,
     roles: ['FACULTY', 'DEAN', 'ADMIN'],
-    accent: 'bg-blue-50 text-blue-600 border-blue-100',
+    badge: 'bg-blue-50 text-blue-600 border-blue-100',
+    bar:   'bg-blue-500',
+    section: 'teach',
   },
   {
     title: 'Syllabuses',
-    description: 'Generate course syllabuses with CO-PO matrices and compliance checks.',
+    description: 'Generate AI-assisted syllabuses with CO-PO matrices and compliance checks.',
     to: '/syllabuses',
     icon: GraduationCap,
     roles: ['FACULTY', 'DEAN', 'ADMIN'],
-    accent: 'bg-violet-50 text-violet-600 border-violet-100',
+    badge: 'bg-violet-50 text-violet-600 border-violet-100',
+    bar:   'bg-violet-500',
+    section: 'teach',
   },
   {
     title: 'Course Kits',
-    description: 'Generate slides, quizlets, and assignments for your courses.',
+    description: 'Generate lecture slides, quizlets, and assignments for your courses.',
     to: '/course-kits',
     icon: Layers,
     roles: ['FACULTY', 'DEAN', 'ADMIN'],
-    accent: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    badge: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    bar:   'bg-indigo-500',
+    section: 'teach',
   },
   {
     title: 'Learning Packages',
-    description: 'Build and curate multimedia learning packages for your courses.',
+    description: 'Build and curate multimedia learning packages for your students.',
     to: '/learning-packages',
     icon: Package,
     roles: ['FACULTY', 'DEAN', 'ADMIN'],
-    accent: 'bg-pink-50 text-pink-600 border-pink-100',
+    badge: 'bg-pink-50 text-pink-600 border-pink-100',
+    bar:   'bg-pink-500',
+    section: 'teach',
   },
+
+  // ── Assess & Research ─────────────────────────────────────────────────────
   {
     title: 'Lab Assignments',
     description: 'Create, publish, and evaluate written and code lab submissions.',
     to: '/labs',
     icon: FlaskConical,
     roles: ['FACULTY', 'ADMIN'],
-    accent: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    badge: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    bar:   'bg-emerald-500',
+    section: 'assess',
   },
   {
     title: 'Research Supervision',
-    description: 'Review student research proposals, supervise documents, and ratify viva reports.',
+    description: 'Review student proposals, supervise documents, and ratify viva reports.',
     to: '/research/problems',
     icon: Microscope,
     roles: ['FACULTY', 'ADMIN', 'GUIDE'],
-    accent: 'bg-purple-50 text-purple-600 border-purple-100',
+    badge: 'bg-purple-50 text-purple-600 border-purple-100',
+    bar:   'bg-purple-500',
+    section: 'assess',
   },
   {
     title: 'Exam Papers',
@@ -73,7 +90,9 @@ const CARDS: ModuleCard[] = [
     to: '/exams',
     icon: FileText,
     roles: ['FACULTY', 'ADMIN', 'BOARD'],
-    accent: 'bg-amber-50 text-amber-600 border-amber-100',
+    badge: 'bg-amber-50 text-amber-600 border-amber-100',
+    bar:   'bg-amber-500',
+    section: 'assess',
   },
   {
     title: 'Scanned Scripts',
@@ -81,23 +100,33 @@ const CARDS: ModuleCard[] = [
     to: '/scripts',
     icon: ClipboardList,
     roles: ['ADMIN', 'BOARD'],
-    accent: 'bg-orange-50 text-orange-600 border-orange-100',
+    badge: 'bg-orange-50 text-orange-600 border-orange-100',
+    bar:   'bg-orange-500',
+    section: 'assess',
   },
+
+  // ── Analytics ─────────────────────────────────────────────────────────────
   {
     title: 'Bell Curve',
     description: 'Analyse score distributions and advise on normalisation. Advisory only.',
     to: '/bell-curve',
     icon: BarChart2,
     roles: ['DEAN', 'ADMIN', 'BOARD'],
-    accent: 'bg-teal-50 text-teal-600 border-teal-100',
+    badge: 'bg-teal-50 text-teal-600 border-teal-100',
+    bar:   'bg-teal-500',
+    section: 'analytics',
   },
+
+  // ── Student ───────────────────────────────────────────────────────────────
   {
     title: 'My Labs',
     description: 'View your published lab assignments and submit solutions.',
     to: '/student/labs',
     icon: FlaskConical,
     roles: ['STUDENT'],
-    accent: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    badge: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    bar:   'bg-emerald-500',
+    section: 'student',
   },
   {
     title: 'My Research',
@@ -105,17 +134,41 @@ const CARDS: ModuleCard[] = [
     to: '/student/research',
     icon: Microscope,
     roles: ['STUDENT'],
-    accent: 'bg-purple-50 text-purple-600 border-purple-100',
+    badge: 'bg-purple-50 text-purple-600 border-purple-100',
+    bar:   'bg-purple-500',
+    section: 'student',
+  },
+
+  // ── Evaluate ──────────────────────────────────────────────────────────────
+  {
+    title: 'My Evaluations',
+    description: 'Review and score assigned student submissions.',
+    to: '/evaluator',
+    icon: ClipboardCheck,
+    roles: ['EVALUATOR'],
+    badge: 'bg-sky-50 text-sky-600 border-sky-100',
+    bar:   'bg-sky-500',
+    section: 'evaluate',
   },
 ]
 
+// Module sections define the grouping order and labels
+const MODULE_SECTIONS = [
+  { key: 'teach',    label: 'Teach & Prepare' },
+  { key: 'assess',   label: 'Assess & Research' },
+  { key: 'analytics',label: 'Analytics' },
+  { key: 'student',  label: 'Student Portal' },
+  { key: 'evaluate', label: 'Evaluation' },
+]
+
 const ROLE_SUBTITLE: Record<string, string> = {
-  ADMIN:   'Manage programs, users, and platform settings for your institution.',
-  DEAN:    'Review academic programs and analytics across your institution.',
-  FACULTY: 'Build courses, set exams, evaluate labs, and supervise research.',
-  BOARD:   'Review exam papers, evaluate scripts, and advise on grade distributions.',
-  GUIDE:   'Review research proposals assigned to you and supervise student projects.',
-  STUDENT: 'Access your lab assignments and research project below.',
+  ADMIN:     'Manage programs, users, and platform settings for your institution.',
+  DEAN:      'Review academic programs and analytics across your institution.',
+  FACULTY:   'Build courses, set exams, evaluate labs, and supervise research.',
+  BOARD:     'Review exam papers, evaluate scripts, and advise on grade distributions.',
+  GUIDE:     'Review research proposals assigned to you and supervise student projects.',
+  STUDENT:   'Access your lab assignments and research project below.',
+  EVALUATOR: 'Review and score student submissions assigned to you.',
 }
 
 const ROLE_CONTEXT: Partial<Record<string, { heading: string; body: string }>> = {
@@ -127,6 +180,64 @@ const ROLE_CONTEXT: Partial<Record<string, { heading: string; body: string }>> =
     heading: 'What to expect',
     body: 'Lab assignments appear in My Labs when your faculty publishes them. Use My Research to register your thesis topic and track progress with your assigned guide.',
   },
+}
+
+// ---------------------------------------------------------------------------
+// Stat card
+// ---------------------------------------------------------------------------
+
+interface StatCardProps {
+  label: string
+  value: string
+  icon: IconComponent
+  accent?: boolean
+}
+
+function StatCard({ label, value, icon: Icon, accent }: StatCardProps) {
+  return (
+    <div className={`rounded-xl border px-4 py-3.5 flex items-start gap-3 ${
+      accent
+        ? 'bg-sv-light border-sv-primary/20'
+        : 'bg-white border-gray-200'
+    }`}>
+      <div className={`p-1.5 rounded-lg mt-0.5 ${accent ? 'bg-sv-primary/10' : 'bg-gray-100'}`}>
+        <Icon className={`h-3.5 w-3.5 ${accent ? 'text-sv-primary' : 'text-gray-400'}`} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
+        <p className={`text-sm font-bold mt-0.5 truncate ${accent ? 'text-sv-primary' : 'text-gray-900'}`}>
+          {value}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Module card
+// ---------------------------------------------------------------------------
+
+function ModuleCardItem({ card, onClick }: { card: ModuleCard; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-left w-full rounded-xl border border-gray-200 bg-white hover:border-sv-primary/30 hover:shadow-lg hover:shadow-sv-primary/5 transition-all duration-200 group relative overflow-hidden"
+    >
+      {/* Top accent bar */}
+      <div className={`absolute inset-x-0 top-0 h-[3px] ${card.bar}`} />
+
+      <div className="p-5 pt-6">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className={`p-2 rounded-lg border ${card.badge}`}>
+            <card.icon className="h-4 w-4" />
+          </div>
+          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200" />
+        </div>
+        <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
+        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
+      </div>
+    </button>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -144,22 +255,22 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
   const visitedSettings = localStorage.getItem('vidya_onboarding_settings') === '1'
 
   const items: OnboardingItem[] = [
-    { label: 'Sign in to Vidya',            done: true,             href: '/dashboard' },
-    { label: 'Set your permanent password',  done: passwordChanged,  href: '/settings'  },
-    { label: 'Add faculty and students',     done: visitedUsers,     href: '/users'     },
-    { label: 'Review institution settings',  done: visitedSettings,  href: '/settings'  },
+    { label: 'Sign in to VIDYA ERP AI',       done: true,             href: '/dashboard' },
+    { label: 'Set your permanent password',    done: passwordChanged,  href: '/settings'  },
+    { label: 'Add faculty and students',       done: visitedUsers,     href: '/users'     },
+    { label: 'Review institution settings',    done: visitedSettings,  href: '/settings'  },
   ]
   const completed = items.filter((i) => i.done).length
 
   if (completed === items.length) {
     return (
-      <div data-testid="onboarding-checklist" className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-5 py-4">
-        <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+      <div data-testid="onboarding-checklist" className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+        <CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0" />
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-green-800">Setup complete</p>
-          <p className="text-xs text-green-700 mt-0.5">
-            Your institution is ready. Add more users from{' '}
-            <Link to="/users" className="font-medium underline underline-offset-2 hover:text-green-900">
+          <p className="text-sm font-semibold text-emerald-800">Institution ready</p>
+          <p className="text-xs text-emerald-700 mt-0.5">
+            Setup complete. Add more users from{' '}
+            <Link to="/users" className="font-semibold underline underline-offset-2 hover:text-emerald-900">
               Users
             </Link>{' '}
             whenever needed.
@@ -170,22 +281,33 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
   }
 
   return (
-    <div data-testid="onboarding-checklist" className="bg-amber-50 border border-amber-200 rounded-xl p-5">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-amber-900">Getting started</p>
-        <p className="text-xs text-amber-600">{completed}/{items.length} done</p>
+    <div data-testid="onboarding-checklist" className="rounded-xl border border-sv-primary/20 bg-sv-light p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-sm font-bold text-sv-dark">Getting started</p>
+          <p className="text-xs text-gray-500 mt-0.5">Complete these steps to set up your institution</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-1.5 w-16 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-sv-primary rounded-full transition-all"
+              style={{ width: `${(completed / items.length) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-500 font-medium whitespace-nowrap">{completed}/{items.length}</p>
+        </div>
       </div>
-      <ul className="space-y-2">
+      <ul className="space-y-2.5">
         {items.map((item) => (
           <li key={item.label} className="flex items-center gap-2.5">
             {item.done
-              ? <CheckCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-              : <Circle      className="h-4 w-4 text-amber-300 flex-shrink-0" />
+              ? <CheckCircle className="h-4 w-4 text-sv-primary flex-shrink-0" />
+              : <Circle      className="h-4 w-4 text-gray-300 flex-shrink-0" />
             }
             {item.done ? (
-              <span className="text-sm text-amber-700 line-through">{item.label}</span>
+              <span className="text-sm text-gray-400 line-through">{item.label}</span>
             ) : (
-              <Link to={item.href} className="text-sm text-amber-800 hover:underline font-medium">
+              <Link to={item.href} className="text-sm text-sv-dark font-medium hover:text-sv-primary hover:underline">
                 {item.label}
               </Link>
             )}
@@ -207,13 +329,18 @@ function getGreeting(): string {
   return 'Good evening'
 }
 
+function prettifySlug(slug: string): string {
+  if (!slug) return 'Institution'
+  return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const user = useCurrentUser()
+  const user     = useCurrentUser()
   const { user: authUser } = useAuth()
   const role = user?.role ?? ''
 
@@ -221,58 +348,97 @@ export default function DashboardPage() {
   const firstName    = user?.fullName ? user.fullName.split(' ')[0] : null
   const subtitle     = ROLE_SUBTITLE[role] ?? 'Select a module below to get started.'
   const roleContext  = ROLE_CONTEXT[role]
+  const institution  = prettifySlug(user?.tenantSlug ?? '')
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
 
-      {/* Welcome */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          {getGreeting()}{firstName ? `, ${firstName}` : ''}
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+      {/* ── Welcome header ─────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold text-sv-primary uppercase tracking-[0.18em] mb-1.5">
+            VIDYA ERP AI · SherpaVector
+          </p>
+          <h1 className="text-2xl font-bold text-gray-900 leading-tight">
+            {getGreeting()}{firstName ? `, ${firstName}` : ''}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+        </div>
+        <div className="hidden sm:flex items-center gap-1.5 bg-sv-light border border-sv-primary/20 text-sv-primary text-[11px] font-bold px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-sv-accent animate-pulse" />
+          AI Platform Active
+        </div>
       </div>
 
-      {/* Admin onboarding checklist */}
+      {/* ── Stats strip ────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard
+          label="Modules available"
+          value={String(visibleCards.length)}
+          icon={Cpu}
+          accent
+        />
+        <StatCard
+          label="Access level"
+          value={role || '—'}
+          icon={ShieldCheck}
+        />
+        <StatCard
+          label="Workspace"
+          value={institution}
+          icon={Building2}
+        />
+      </div>
+
+      {/* ── Admin onboarding ───────────────────────────────────── */}
       {role === 'ADMIN' && authUser && (
         <AdminOnboarding passwordChanged={!authUser.firstLogin} />
       )}
 
-      {/* Module cards */}
+      {/* ── Module sections ────────────────────────────────────── */}
       {visibleCards.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visibleCards.map((card) => (
-            <button
-              key={card.to}
-              onClick={() => navigate(card.to)}
-              className="text-left rounded-xl border border-gray-200 bg-white p-5 hover:border-indigo-300 hover:shadow-sm transition-all group"
-            >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className={`p-2 rounded-lg border ${card.accent}`}>
-                  <card.icon className="h-5 w-5" />
+        <div className="space-y-8">
+          {MODULE_SECTIONS.map((section) => {
+            const sectionCards = visibleCards.filter((c) => c.section === section.key)
+            if (sectionCards.length === 0) return null
+
+            return (
+              <div key={section.key}>
+                <div className="flex items-center gap-3 mb-4">
+                  <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                    {section.label}
+                  </h2>
+                  <div className="flex-1 h-px bg-gray-100" />
                 </div>
-                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-indigo-400 mt-1 transition-colors" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {sectionCards.map((card) => (
+                    <ModuleCardItem
+                      key={card.to}
+                      card={card}
+                      onClick={() => navigate(card.to)}
+                    />
+                  ))}
+                </div>
               </div>
-              <p className="text-sm font-semibold text-gray-900">{card.title}</p>
-              <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
-            </button>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {/* Contextual guidance for sparse roles (GUIDE, STUDENT) */}
+      {/* ── Contextual guidance (GUIDE, STUDENT) ──────────────── */}
       {roleContext && (
-        <div className="rounded-xl border border-gray-100 bg-gray-50 px-5 py-4 text-sm space-y-1">
-          <p className="font-medium text-gray-700">{roleContext.heading}</p>
-          <p className="text-gray-500 leading-relaxed">{roleContext.body}</p>
+        <div className="rounded-xl border border-sv-primary/10 bg-sv-light px-5 py-4 space-y-1.5">
+          <p className="text-sm font-semibold text-sv-dark">{roleContext.heading}</p>
+          <p className="text-sm text-gray-500 leading-relaxed">{roleContext.body}</p>
         </div>
       )}
 
-      {/* Fallback for roles with no visible modules */}
+      {/* ── Empty state ────────────────────────────────────────── */}
       {visibleCards.length === 0 && (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <p className="text-sm text-gray-400">
-            No modules are currently available for your role. Contact your administrator.
+            No modules are currently available for your role.{' '}
+            <span className="text-gray-500">Contact your administrator.</span>
           </p>
         </div>
       )}
