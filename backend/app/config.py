@@ -143,6 +143,11 @@ class Settings(BaseSettings):
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         ],
+        "scanned_script": [
+            "application/pdf",
+            "image/jpeg",
+            "image/png",
+        ],
     }
 
     @property
