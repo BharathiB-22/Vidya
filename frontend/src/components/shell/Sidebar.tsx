@@ -118,32 +118,42 @@ export function Sidebar({ onClose }: SidebarProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-sv-dark">
+    <div className="flex flex-col h-full bg-gradient-to-b from-sv-dark via-[#0b1938] to-[#071026] text-white">
 
       {/* ── Brand header ─────────────────────────────────────────── */}
-      <div className="relative px-4 py-4 border-b border-white/10 flex items-center justify-between gap-2 overflow-hidden">
+      <div className="relative px-4 py-4 border-b border-white/10 flex items-center justify-between gap-2 overflow-hidden bg-white/[0.02] backdrop-blur">
         {/* Subtle gradient glow behind logo */}
-        <div className="absolute top-0 left-0 w-24 h-full bg-sv-primary/10 blur-2xl pointer-events-none" />
+        <div className="absolute top-0 left-0 w-32 h-full bg-sv-primary/15 blur-2xl pointer-events-none" />
+        <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-emerald-400/10 blur-3xl pointer-events-none" />
 
         <div className="relative flex items-center gap-2.5 min-w-0">
           {savedLogo ? (
-            <img
-              src={savedLogo}
-              alt="Institution logo"
-              className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 flex-shrink-0"
-            />
+            <div className="relative h-9 w-9 flex-shrink-0 rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
+              <img
+                src={savedLogo}
+                alt="Institution logo"
+                className="h-full w-full rounded-xl object-contain p-1"
+              />
+            </div>
           ) : (
-            <img
-              src="/branding/sherpavector-logo.png"
-              alt="VIDYA AI"
-              className="w-8 h-8 rounded-full object-contain flex-shrink-0"
-              style={{ filter: 'drop-shadow(0 0 4px rgba(37,99,235,0.4))' }}
-            />
+            <div className="relative h-9 w-9 flex-shrink-0 rounded-xl bg-sv-primary/10 border border-sv-primary/30">
+              <img
+                src="/branding/sherpavector-logo.png"
+                alt="VIDYA AI"
+                className="h-full w-full rounded-xl object-contain p-1.5"
+                style={{ filter: 'drop-shadow(0 0 10px rgba(37,99,235,0.35))' }}
+              />
+            </div>
           )}
           <div className="min-w-0">
-            <p className="text-[13px] font-bold text-white leading-none tracking-wide">VIDYA AI</p>
-            <p className="text-[10px] text-slate-500 truncate mt-0.5" title={institution}>
+            <p
+              className="text-[13px] font-black leading-none tracking-wide truncate"
+              title={institution}
+            >
               {institution}
+            </p>
+            <p className="text-[10px] text-slate-500 truncate mt-0.5">
+              VIDYA AI Workspace
             </p>
           </div>
         </div>
@@ -158,7 +168,7 @@ export function Sidebar({ onClose }: SidebarProps) {
       </div>
 
       {/* ── Nav ──────────────────────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0">
+      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0">
         {NAV_SECTIONS.map((section) => {
           const visibleItems = section.items.filter((item) => item.roles.includes(role))
           if (visibleItems.length === 0) return null
@@ -167,10 +177,10 @@ export function Sidebar({ onClose }: SidebarProps) {
             <div key={section.heading || '__root'} className="mb-4">
               {section.heading && (
                 <div className="flex items-center gap-2 px-2 mb-1.5">
-                  <span className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.14em] whitespace-nowrap">
+                  <span className="text-[9px] font-extrabold text-slate-500 uppercase tracking-[0.16em] whitespace-nowrap">
                     {section.heading}
                   </span>
-                  <div className="flex-1 h-px bg-white/[0.04]" />
+                  <div className="flex-1 h-px bg-white/[0.06]" />
                 </div>
               )}
               <ul className="space-y-0.5">
@@ -184,10 +194,10 @@ export function Sidebar({ onClose }: SidebarProps) {
                       <Link
                         to={item.to}
                         onClick={onClose}
-                        className={`flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-sm font-medium transition-all duration-150 ${
+                        className={`flex items-center gap-2.5 px-3 py-[9px] rounded-xl text-sm font-semibold transition-all duration-150 border border-transparent ${
                           active
-                            ? 'bg-sv-primary text-white shadow-sm shadow-sv-primary/30'
-                            : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100'
+                            ? 'bg-[linear-gradient(135deg,rgba(37,99,235,0.35),rgba(16,185,129,0.12))] text-white border-sv-primary/35 shadow-[0_0_0_1px_rgba(37,99,235,0.18),0_14px_34px_rgba(0,0,0,0.25)]'
+                            : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 hover:border-white/[0.08]'
                         }`}
                       >
                         <item.icon
@@ -211,7 +221,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         <Link
           to="/first-login"
           onClick={onClose}
-          className="mx-2 mb-2 flex items-center gap-2 rounded-lg bg-amber-950/60 border border-amber-700/30 px-3 py-2 text-xs text-amber-400 hover:bg-amber-900/40 transition-colors"
+          className="mx-2 mb-2 flex items-center gap-2 rounded-xl bg-amber-950/60 border border-amber-700/30 px-3 py-2 text-xs text-amber-300 hover:bg-amber-900/40 transition-colors"
         >
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
           Set your permanent password
@@ -219,10 +229,10 @@ export function Sidebar({ onClose }: SidebarProps) {
       )}
 
       {/* ── Footer ──────────────────────────────────────────────── */}
-      <div className="px-3 py-3 border-t border-white/10">
+      <div className="px-3 py-3 border-t border-white/10 bg-white/[0.02]">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-sv-primary/30 border border-sv-primary/40 flex items-center justify-center flex-shrink-0">
-            <span className="text-[10px] font-bold text-sv-muted uppercase">{initials}</span>
+          <div className="w-8 h-8 rounded-xl bg-sv-primary/22 border border-sv-primary/35 flex items-center justify-center flex-shrink-0 shadow-[0_10px_22px_rgba(0,0,0,0.25)]">
+            <span className="text-[10px] font-extrabold text-white/90 uppercase tracking-wide">{initials}</span>
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-semibold text-slate-300 truncate leading-tight">
@@ -233,7 +243,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             </p>
           </div>
         </div>
-        <p className="text-[8px] text-slate-700 mt-2.5 font-bold tracking-[0.18em] uppercase">
+        <p className="text-[8px] text-slate-600 mt-2.5 font-extrabold tracking-[0.2em] uppercase">
           SherpaVector · VIDYA AI
         </p>
       </div>
