@@ -3,9 +3,13 @@ M08 Exam Setter — Router.
 
 RBAC
 ----
-  _FACULTY  = ADMIN + FACULTY          (create, edit, submit, seal)
-  _BOARD    = BOARD + ADMIN            (board review + decision)
+  _CREATE   = ADMIN + FACULTY + BOARD  (create paper — Board may set official END SEM papers)
+  _FACULTY  = ADMIN + FACULTY          (edit questions, submit for review, seal after approval)
+  _BOARD    = BOARD + ADMIN            (board review, approve/return decision)
   _READ     = ADMIN + DEAN + FACULTY + BOARD
+
+Per PRD Flow 3: Faculty seals the paper after Board approval (Faculty configures
+release date and clicks Seal). Board does NOT seal — that is Faculty Gate 3.
 
 Endpoint summary (faculty)
 --------------------------
@@ -70,9 +74,14 @@ logger = logging.getLogger("vidya.router.m08")
 # Role groups
 # ---------------------------------------------------------------------------
 
+_CREATE  = [TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.BOARD]
 _FACULTY = [TenantRole.ADMIN, TenantRole.FACULTY]
 _BOARD   = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ    = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
+
+
+def _create_dep():
+    return require_roles(*_CREATE)
 
 
 def _faculty_dep():
@@ -107,10 +116,10 @@ def _raise(exc: ExamServiceError) -> None:
 async def create_exam_paper(
     request: Request,
     payload: ExamPaperCreate,
-    current_user: CurrentUser = Depends(_faculty_dep()),
+    current_user: CurrentUser = Depends(_create_dep()),
     db_info=Depends(get_tenant_context_dep),
 ):
-    """Create an exam paper configuration and queue AI question generation."""
+    """Create an exam paper and queue AI generation. FACULTY (course papers) and BOARD (official END SEM papers) may create."""
     db: AsyncSession = db_info["db"]
     schema: str      = db_info["schema_name"]
     tenant_id: UUID  = db_info["tenant_id"]

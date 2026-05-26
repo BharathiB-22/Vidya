@@ -1,13 +1,14 @@
-// M08 Exam Setter — Faculty: list of exam papers
+// M08 Exam Setter — Exam paper list (role-aware: Faculty/Admin vs Board)
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
-import { listExamPapers } from '@/lib/api/exam'
+import { listExamPapers, listAllExamPapers, listBoardPending } from '@/lib/api/exam'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 import type { ExamPaper, ExamPaperStatus } from '@/types/exam'
 
 const STATUS_OPTS: Array<{ value: ExamPaperStatus | ''; label: string }> = [
@@ -37,21 +38,41 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function ExamPaperListPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const user = useCurrentUser()
+  const role = user?.role ?? ''
+
+  const isBoardPendingRoute = location.pathname === '/exams/board/pending'
+  const isBoard = role === 'BOARD'
+
   const [statusFilter, setStatusFilter] = useState<ExamPaperStatus | ''>('')
   const [offset, setOffset] = useState(0)
   const limit = 20
 
+  // Route-aware query: board/pending → listBoardPending, board on /exams → listAllExamPapers, faculty → own papers
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['exam-papers', statusFilter, offset],
-    queryFn:  () => listExamPapers({ status: statusFilter || undefined, offset, limit }),
+    queryKey: ['exam-papers', role, isBoardPendingRoute, statusFilter, offset],
+    queryFn: () => {
+      if (isBoardPendingRoute) return listBoardPending({ offset, limit })
+      if (isBoard) return listAllExamPapers({ status: statusFilter || undefined, offset, limit })
+      return listExamPapers({ status: statusFilter || undefined, offset, limit })
+    },
   })
+
+  // Board clicks open the review page; faculty/admin open the editor
+  function handlePaperClick(paperId: string) {
+    if (isBoard) navigate(`/exams/${paperId}/review`)
+    else navigate(`/exams/${paperId}`)
+  }
+
+  const pageTitle = isBoardPendingRoute ? 'Pending Board Review' : 'Exam Papers'
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FileText className="w-6 h-6 text-indigo-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Exam Papers</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
         </div>
         <Button
           onClick={() => navigate('/exams/create')}
@@ -62,8 +83,8 @@ export default function ExamPaperListPage() {
         </Button>
       </div>
 
-      {/* Status filter */}
-      <div className="flex flex-wrap gap-2">
+      {/* Status filter — hidden on board/pending (already filtered to SUBMITTED) */}
+      {!isBoardPendingRoute && <div className="flex flex-wrap gap-2">
         {STATUS_OPTS.map(opt => (
           <button
             key={opt.value}
@@ -77,7 +98,7 @@ export default function ExamPaperListPage() {
             {opt.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {isLoading && <PageLoading message="Loading exam papers…" />}
 
@@ -104,7 +125,7 @@ export default function ExamPaperListPage() {
               <PaperCard
                 key={paper.id}
                 paper={paper}
-                onClick={() => navigate(`/exams/${paper.id}`)}
+                onClick={() => handlePaperClick(paper.id)}
               />
             ))}
           </div>

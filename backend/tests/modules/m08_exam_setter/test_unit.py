@@ -780,10 +780,10 @@ class TestM08AuditEvents:
 # ===========================================================================
 
 class TestM08Models:
-    def test_exam_paper_status_all_eight_values(self):
+    def test_exam_paper_status_all_values(self):
         from app.modules.m08_exam_setter.models import ExamPaperStatus
         expected = {
-            "DRAFT", "GENERATING", "GENERATED", "SUBMITTED",
+            "DRAFT", "GENERATING", "GENERATED", "FAILED", "SUBMITTED",
             "BOARD_APPROVED", "BOARD_RETURNED", "SEALED", "RELEASED",
         }
         actual = {s.value for s in ExamPaperStatus}
@@ -952,3 +952,85 @@ class TestBloomNormalization:
         actual    = {"APPLY": 50.0, "REMEMBER": 50.0}
         report = check_compliance(requested, actual, tolerance=5.0)
         assert report.compliance_ok is True
+
+
+# ===========================================================================
+# 11 — RBAC: role group membership for M08 endpoints
+# ===========================================================================
+
+class TestM08RBAC:
+    """Verify role groups are correctly defined and used in the M08 router.
+
+    PRD flow: Faculty creates/edits → Faculty submits (Gate 1) →
+    Board reviews/approves (Gate 2) → Faculty seals (Gate 3) →
+    auto-released.  DEAN has no M08 write access.
+    """
+
+    def test_read_roles_include_board_and_dean(self):
+        """GET endpoints must be accessible by BOARD and DEAN (read-only oversight)."""
+        from app.modules.m08_exam_setter.router import _READ
+        from app.core.auth.models import TenantRole
+        assert TenantRole.BOARD in _READ
+        assert TenantRole.DEAN  in _READ
+
+    def test_read_roles_include_faculty_and_admin(self):
+        from app.modules.m08_exam_setter.router import _READ
+        from app.core.auth.models import TenantRole
+        assert TenantRole.FACULTY in _READ
+        assert TenantRole.ADMIN   in _READ
+
+    def test_board_roles_exclude_faculty(self):
+        """Board decision endpoint must NOT allow Faculty to self-approve."""
+        from app.modules.m08_exam_setter.router import _BOARD
+        from app.core.auth.models import TenantRole
+        assert TenantRole.FACULTY not in _BOARD
+
+    def test_board_roles_include_board_and_admin(self):
+        from app.modules.m08_exam_setter.router import _BOARD
+        from app.core.auth.models import TenantRole
+        assert TenantRole.BOARD in _BOARD
+        assert TenantRole.ADMIN in _BOARD
+
+    def test_faculty_roles_exclude_board(self):
+        """Edit/submit/seal endpoints belong to Faculty, not Board."""
+        from app.modules.m08_exam_setter.router import _FACULTY
+        from app.core.auth.models import TenantRole
+        assert TenantRole.BOARD not in _FACULTY
+
+    def test_faculty_roles_include_faculty_and_admin(self):
+        from app.modules.m08_exam_setter.router import _FACULTY
+        from app.core.auth.models import TenantRole
+        assert TenantRole.FACULTY in _FACULTY
+        assert TenantRole.ADMIN   in _FACULTY
+
+    def test_create_roles_include_board(self):
+        """Board may create official END SEM papers per PRD."""
+        from app.modules.m08_exam_setter.router import _CREATE
+        from app.core.auth.models import TenantRole
+        assert TenantRole.BOARD in _CREATE
+
+    def test_create_roles_include_faculty_and_admin(self):
+        from app.modules.m08_exam_setter.router import _CREATE
+        from app.core.auth.models import TenantRole
+        assert TenantRole.FACULTY in _CREATE
+        assert TenantRole.ADMIN   in _CREATE
+
+    def test_dean_not_in_create_roles(self):
+        """DEAN does not create exam papers (oversight role only)."""
+        from app.modules.m08_exam_setter.router import _CREATE
+        from app.core.auth.models import TenantRole
+        assert TenantRole.DEAN not in _CREATE
+
+    def test_dean_not_in_faculty_roles(self):
+        """DEAN has no edit/submit/seal access."""
+        from app.modules.m08_exam_setter.router import _FACULTY
+        from app.core.auth.models import TenantRole
+        assert TenantRole.DEAN not in _FACULTY
+
+    def test_role_groups_exported_from_router(self):
+        """All four role groups must be importable from the router module."""
+        import app.modules.m08_exam_setter.router as router_mod
+        assert hasattr(router_mod, "_READ")
+        assert hasattr(router_mod, "_FACULTY")
+        assert hasattr(router_mod, "_BOARD")
+        assert hasattr(router_mod, "_CREATE")
