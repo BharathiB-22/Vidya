@@ -825,3 +825,38 @@ class TestM08Models:
     def test_status_machine_released_is_terminal(self):
         from app.modules.m08_exam_setter.models import ExamPaperStatus
         assert ExamPaperStatus.RELEASED.value == "RELEASED"
+
+
+# ===========================================================================
+# 9 — Import smoke: service and router must not reference async_session_public
+# ===========================================================================
+
+class TestM08ImportSmoke:
+    def test_service_imports_cleanly(self):
+        """ExamService must be importable without ImportError."""
+        from app.modules.m08_exam_setter.service import ExamService
+        assert ExamService is not None
+
+    def test_router_imports_cleanly(self):
+        """M08 router must be importable without ImportError."""
+        from app.modules.m08_exam_setter.router import router
+        assert router is not None
+
+    def test_no_async_session_public_in_service(self):
+        """Service must use AsyncSessionLocal, not the non-existent async_session_public."""
+        import inspect
+        import app.modules.m08_exam_setter.service as svc_mod
+        src = inspect.getsource(svc_mod)
+        assert "async_session_public" not in src
+
+    def test_no_async_session_public_in_router(self):
+        """Router must use AsyncSessionLocal, not the non-existent async_session_public."""
+        import inspect
+        import app.modules.m08_exam_setter.router as router_mod
+        src = inspect.getsource(router_mod)
+        assert "async_session_public" not in src
+
+    def test_async_session_local_importable_from_database(self):
+        """AsyncSessionLocal is the correct session factory for public-schema jobs."""
+        from app.database import AsyncSessionLocal
+        assert AsyncSessionLocal is not None

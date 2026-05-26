@@ -5,14 +5,17 @@ All queries use the tenant search_path set on the session.
 No cross-tenant queries. No raw SQL strings beyond SET search_path (done by caller).
 
 TaskJobPublicRepository operates on the public schema (public.task_jobs)
-and requires a session bound to async_session_public().
+and requires a session from AsyncSessionLocal() (not the tenant session).
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
+
+logger = logging.getLogger("vidya.repo.m08")
 
 from sqlalchemy import select, update as sa_update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -311,8 +314,19 @@ class ExamQuestionRepository:
         )
         result = await db.execute(q)
         rows = list(result.scalars().all())
+        logger.debug(
+            "list_by_paper paper=%s total_rows=%d set_label=%r",
+            exam_paper_id, len(rows), set_label,
+        )
         if set_label:
-            rows = [r for r in rows if set_label in (r.set_membership or [])]
+            filtered = [r for r in rows if set_label in (r.set_membership or [])]
+            logger.debug(
+                "list_by_paper after set_label=%r filter: %d/%d rows pass; "
+                "sample memberships=%r",
+                set_label, len(filtered), len(rows),
+                [r.set_membership for r in rows[:3]],
+            )
+            return filtered
         return rows
 
     @staticmethod
@@ -409,34 +423,36 @@ class BloomsRepository:
 
 class TaskJobPublicRepository:
     """
-    Operates on public.task_jobs. Caller must pass a session from
-    async_session_public() (not the tenant session).
+    Operates on public.task_jobs. Caller must pass a session scoped to the
+    public schema (AsyncSessionLocal(), not the tenant session).
+    Returns the new job UUID.
     """
 
     @staticmethod
     async def create(
         *,
-        task_name: str,
+        task_type: str,
+        queue_name: str,
         tenant_id: UUID,
+        payload: dict | None = None,
         db: AsyncSession,
-    ):
+    ) -> UUID:
+        import json as _json
         from sqlalchemy import text as sa_text
-        result = await db.execute(
+        job_id = uuid.uuid4()
+        await db.execute(
             sa_text(
-                "INSERT INTO public.task_jobs (id, task_name, tenant_id, status, created_at) "
-                "VALUES (:id, :task_name, :tenant_id, 'PENDING', now()) RETURNING *"
+                "INSERT INTO public.task_jobs "
+                "(id, tenant_id, task_type, queue_name, status, payload) "
+                "VALUES (CAST(:id AS uuid), CAST(:tenant_id AS uuid), "
+                ":task_type, :queue_name, 'PENDING', CAST(:payload AS jsonb))"
             ),
             {
-                "id":        str(uuid.uuid4()),
-                "task_name": task_name,
-                "tenant_id": str(tenant_id),
+                "id":         str(job_id),
+                "tenant_id":  str(tenant_id),
+                "task_type":  task_type,
+                "queue_name": queue_name,
+                "payload":    _json.dumps(payload or {}),
             },
         )
-        row = result.mappings().one()
-
-        class _Job:
-            pass
-
-        job = _Job()
-        job.id = UUID(row["id"]) if isinstance(row["id"], str) else row["id"]
-        return job
+        return job_id

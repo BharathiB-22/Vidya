@@ -36,11 +36,13 @@ Common
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_context_dep, require_roles
@@ -62,6 +64,7 @@ from app.modules.m08_exam_setter.schemas import (
 from app.modules.m08_exam_setter.service import ExamService, ExamServiceError
 
 router = APIRouter(tags=["M08 Exam Setter"])
+logger = logging.getLogger("vidya.router.m08")
 
 # ---------------------------------------------------------------------------
 # Role groups
@@ -122,6 +125,10 @@ async def create_exam_paper(
         )
     except ExamServiceError as exc:
         _raise(exc)
+    except Exception as exc:
+        logger.exception("ExamService.create failed for tenant %s: %s", tenant_id, exc)
+        detail = str(exc) if settings.ENVIRONMENT == "development" else "An unexpected error occurred"
+        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "message": detail})
 
     await AuditService.log(
         AuditEventType.EXAM_PAPER_CREATED,
@@ -261,7 +268,27 @@ async def list_questions(
         )
     except ExamServiceError as exc:
         _raise(exc)
-    return [ExamQuestionResponse.model_validate(q) for q in questions]
+    except Exception as exc:
+        logger.exception(
+            "list_questions failed for paper=%s set_label=%r: %s",
+            paper_id, set_label, exc,
+        )
+        detail = str(exc) if settings.ENVIRONMENT == "development" else "Failed to load questions"
+        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "message": detail})
+
+    logger.debug(
+        "list_questions paper=%s set_label=%r → %d questions",
+        paper_id, set_label, len(questions),
+    )
+    try:
+        return [ExamQuestionResponse.model_validate(q) for q in questions]
+    except Exception as exc:
+        logger.exception(
+            "ExamQuestionResponse serialization failed for paper=%s: %s",
+            paper_id, exc,
+        )
+        detail = str(exc) if settings.ENVIRONMENT == "development" else "Question serialization error"
+        raise HTTPException(status_code=500, detail={"error": "SERIALIZATION_ERROR", "message": detail})
 
 
 # ---------------------------------------------------------------------------
@@ -596,9 +623,9 @@ async def get_job_status(
 ):
     """Poll Celery task job status."""
     from sqlalchemy import text as sa_text
-    from app.database import async_session_public
+    from app.database import AsyncSessionLocal
 
-    async with async_session_public() as pub_db:
+    async with AsyncSessionLocal() as pub_db:
         result = await pub_db.execute(
             sa_text("SELECT id, status, result FROM public.task_jobs WHERE id = :id"),
             {"id": str(job_id)},

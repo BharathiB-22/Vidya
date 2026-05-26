@@ -103,23 +103,25 @@ class ExamService:
         await db.refresh(paper)
 
         # Dispatch Celery generation task
-        from app.database import async_session_public
-        async with async_session_public() as pub_db:
-            job = await TaskJobPublicRepository.create(
-                task_name="app.workers.heavy.generate_exam_paper",
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            job_id = await TaskJobPublicRepository.create(
+                task_type="generate_exam_paper",
+                queue_name="heavy",
                 tenant_id=tenant_id,
+                payload={"paper_id": str(paper.id), "schema_name": schema_name},
                 db=pub_db,
             )
             await pub_db.commit()
 
-        await ExamPaperRepository.set_generation_job(paper.id, job_id=job.id, db=db)
+        await ExamPaperRepository.set_generation_job(paper.id, job_id=job_id, db=db)
         await db.commit()
 
         try:
             from app.workers.heavy.generate_exam_paper import generate_exam_paper
             generate_exam_paper.apply_async(
                 kwargs={
-                    "job_id":      str(job.id),
+                    "job_id":      str(job_id),
                     "paper_id":    str(paper.id),
                     "schema_name": schema_name,
                 }
@@ -129,8 +131,6 @@ class ExamService:
                 "Failed to dispatch exam generation task for paper %s: %s",
                 paper.id, exc,
             )
-            # Mark the record FAILED so the user sees a clear error instead of
-            # a zombie GENERATING row that never resolves.
             await ExamPaperRepository.set_failed(
                 paper.id,
                 reason=f"Task queue unavailable: {exc}",
@@ -144,7 +144,7 @@ class ExamService:
                 503,
             )
 
-        return paper, job.id
+        return paper, job_id
 
     # -----------------------------------------------------------------------
     # Read
@@ -454,11 +454,13 @@ class ExamService:
         )
 
         # Create release job
-        from app.database import async_session_public
-        async with async_session_public() as pub_db:
-            release_job = await TaskJobPublicRepository.create(
-                task_name="app.workers.heavy.release_exam_paper",
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            release_job_id = await TaskJobPublicRepository.create(
+                task_type="release_exam_paper",
+                queue_name="heavy",
                 tenant_id=tenant_id,
+                payload={"paper_id": str(paper_id), "schema_name": schema_name},
                 db=pub_db,
             )
             await pub_db.commit()
@@ -469,7 +471,7 @@ class ExamService:
             release_at=payload.release_at,
             encrypted_blob_key=s3_key,
             encryption_key_ref=key_ref,
-            release_job_id=release_job.id,
+            release_job_id=release_job_id,
             db=db,
         )
         await db.commit()
@@ -478,7 +480,7 @@ class ExamService:
         from app.workers.heavy.release_exam_paper import release_exam_paper
         release_exam_paper.apply_async(
             kwargs={
-                "job_id":      str(release_job.id),
+                "job_id":      str(release_job_id),
                 "paper_id":    str(paper_id),
                 "schema_name": schema_name,
             },

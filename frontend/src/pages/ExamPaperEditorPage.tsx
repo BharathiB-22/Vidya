@@ -59,11 +59,19 @@ export default function ExamPaperEditorPage() {
     !['GENERATING', 'DRAFT', 'FAILED'].includes(paper.status)
   )
 
-  const { data: questions, isLoading: qLoading } = useQuery({
+  const { data: questions, isLoading: qLoading, isError: qError, error: qErrorObj } = useQuery({
     queryKey: ['exam-questions', id, setLabel],
     queryFn:  () => listQuestions(id!, setLabel),
     enabled:  questionsEnabled,
   })
+
+  // Temporary diagnostic: log questions result to browser console
+  if (questions !== undefined) {
+    console.log('[M08] questions data count:', questions.length, 'set:', setLabel, 'sample:', questions[0])
+  }
+  if (qError) {
+    console.error('[M08] questions query error:', qErrorObj)
+  }
 
   const { data: bloomsReport } = useQuery({
     queryKey: ['exam-blooms', id],
@@ -220,6 +228,20 @@ export default function ExamPaperEditorPage() {
           )}
 
           {qLoading && <div className="text-gray-400 text-sm py-4">Loading questions…</div>}
+
+          {/* Questions fetch error — surfaces API/serialization errors that were silent before */}
+          {qError && (
+            <div className="flex gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+              <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-red-800 text-sm">Could not load questions</p>
+                <p className="text-sm text-red-700 mt-1 font-mono">
+                  {getErrorMessage(qErrorObj)}
+                </p>
+                <p className="text-xs text-red-500 mt-1">Check browser console and backend logs for details.</p>
+              </div>
+            </div>
+          )}
 
           {/* Delete error */}
           {deleteError && (

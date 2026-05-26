@@ -127,10 +127,16 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 raise ValueError("Question generator returned no questions.")
 
             # 4. Bulk-write ExamQuestion rows
-            await ExamQuestionRepository.bulk_create(
+            saved = await ExamQuestionRepository.bulk_create(
                 questions_raw, exam_paper_id=paper_uuid, db=session
             )
             await session.commit()
+            logger.info(
+                "Saved %d questions for paper %s; sample set_memberships=%r",
+                len(saved),
+                paper_id,
+                [q.get("set_membership") for q in questions_raw[:3]],
+            )
 
             # 5. Compute Bloom's compliance
             actual_dist = compute_actual_distribution(questions_raw)
