@@ -160,12 +160,7 @@ export default function AdminDashboardPage() {
             />
             <span className="text-xs font-bold text-slate-300">SherpaVector</span>
             <span className="text-slate-700">·</span>
-            <img
-              src="/branding/vidya-logo.png"
-              alt="VIDYA AI"
-              className="h-5 w-auto object-contain max-w-[72px]"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
+            <span className="text-xs font-bold text-slate-200">VIDYA <span className="text-emerald-400">AI</span></span>
             <span
               className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide"
               style={{ background: 'rgba(16,185,129,0.08)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.15)' }}

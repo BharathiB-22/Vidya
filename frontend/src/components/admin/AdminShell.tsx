@@ -81,7 +81,7 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
           <img
             src="/branding/sherpavector-logo.png"
             alt="SherpaVector"
-            className="w-8 h-8 rounded-lg object-contain flex-shrink-0"
+            className="w-8 h-8 rounded-full object-contain flex-shrink-0"
             style={{ filter: 'drop-shadow(0 0 6px rgba(16,185,129,0.35))' }}
           />
           <div className="min-w-0">
@@ -198,7 +198,7 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <p className="text-[8px] text-slate-700 mt-2.5 font-bold tracking-[0.18em] uppercase">
-          SherpaVector · Platform Console
+          VIDYA AI · Platform Console
         </p>
       </div>
 

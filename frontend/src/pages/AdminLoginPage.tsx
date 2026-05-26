@@ -72,7 +72,7 @@ export default function AdminLoginPage() {
           <img
             src="/branding/sherpavector-logo.png"
             alt="SherpaVector"
-            className="h-9 w-9 rounded-xl object-contain flex-shrink-0"
+            className="h-9 w-9 rounded-full object-contain flex-shrink-0"
             style={{ filter: 'drop-shadow(0 0 8px rgba(16,185,129,0.4))' }}
           />
           <span className="text-slate-200 font-semibold text-base tracking-wide">SherpaVector</span>
@@ -87,13 +87,6 @@ export default function AdminLoginPage() {
             </span>
           </div>
 
-          <img
-            src="/branding/vidya-logo.png"
-            alt="VIDYA AI"
-            className="h-16 w-auto object-contain mb-3"
-            style={{ filter: 'brightness(1.05) drop-shadow(0 0 12px rgba(16,185,129,0.15))' }}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-          />
           <h1 className="text-4xl font-extrabold text-white leading-none tracking-tight mb-2">
             VIDYA <span className="text-emerald-400">AI</span>
           </h1>
@@ -126,7 +119,8 @@ export default function AdminLoginPage() {
 
         {/* Footer */}
         <div className="relative z-10 pt-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-          <p className="text-slate-700 text-xs">© 2026 SherpaVector Pvt. Ltd. All rights reserved.</p>
+          <p className="text-slate-600 text-xs">© 2026 SherpaVector Pvt. Ltd.</p>
+          <p className="text-slate-700 text-[10px] mt-0.5 tracking-wide">VIDYA AI · Platform Console</p>
         </div>
       </div>
 
@@ -142,7 +136,7 @@ export default function AdminLoginPage() {
             <img
               src="/branding/sherpavector-logo.png"
               alt="SherpaVector"
-              className="h-8 w-8 rounded-xl object-contain flex-shrink-0"
+              className="h-8 w-8 rounded-full object-contain flex-shrink-0"
             />
             <div>
               <p className="text-sm font-bold text-white leading-none">SherpaVector</p>

@@ -133,9 +133,12 @@ export function Sidebar({ onClose }: SidebarProps) {
               className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 flex-shrink-0"
             />
           ) : (
-            <div className="w-8 h-8 bg-sv-primary rounded-lg flex items-center justify-center flex-shrink-0 shadow-md shadow-sv-primary/40">
-              <span className="text-white font-extrabold text-xs tracking-tight">SV</span>
-            </div>
+            <img
+              src="/branding/sherpavector-logo.png"
+              alt="VIDYA AI"
+              className="w-8 h-8 rounded-full object-contain flex-shrink-0"
+              style={{ filter: 'drop-shadow(0 0 4px rgba(37,99,235,0.4))' }}
+            />
           )}
           <div className="min-w-0">
             <p className="text-[13px] font-bold text-white leading-none tracking-wide">VIDYA AI</p>
