@@ -1,7 +1,10 @@
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger("vidya.storage.router")
 
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles, resolve_tenant
 from app.core.auth.models import TenantRole
@@ -34,6 +37,14 @@ def _storage_error(e: StorageError) -> HTTPException:
     )
 
 
+def _unexpected_error(e: Exception) -> HTTPException:
+    """Convert unexpected exceptions to a 500 with the real message exposed in dev."""
+    from app.config import settings
+    logger.exception("Unexpected storage error: %s", e)
+    msg = str(e) if settings.ENVIRONMENT == "development" else "An unexpected storage error occurred."
+    return HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "message": msg})
+
+
 @router.post("/upload-url", response_model=GenerateUploadUrlResponse)
 async def generate_upload_url(
     request: GenerateUploadUrlRequest,
@@ -54,6 +65,8 @@ async def generate_upload_url(
         )
     except StorageError as e:
         raise _storage_error(e)
+    except Exception as e:
+        raise _unexpected_error(e)
 
 
 @router.post("/assets", response_model=StorageAssetListResponse)
@@ -89,6 +102,8 @@ async def create_asset_metadata(
         )
     except StorageError as e:
         raise _storage_error(e)
+    except Exception as e:
+        raise _unexpected_error(e)
 
 
 @router.get("/{asset_id}/download-url", response_model=DownloadUrlResponse)
@@ -119,6 +134,8 @@ async def get_download_url(
         )
     except StorageError as e:
         raise _storage_error(e)
+    except Exception as e:
+        raise _unexpected_error(e)
 
 
 @router.get("", response_model=StorageAssetListResponse)
@@ -141,6 +158,8 @@ async def list_assets(
         )
     except StorageError as e:
         raise _storage_error(e)
+    except Exception as e:
+        raise _unexpected_error(e)
 
 
 @router.delete("/{asset_id}")
@@ -162,3 +181,5 @@ async def delete_asset(
         return {"status": "deleted"}
     except StorageError as e:
         raise _storage_error(e)
+    except Exception as e:
+        raise _unexpected_error(e)

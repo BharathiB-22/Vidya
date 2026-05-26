@@ -15,9 +15,11 @@ from app.core.storage.models import StorageAsset, StorageEntityType
 class StorageRepository:
 
     # Validates object_key format: vidya-assets/tenant_slug/entity_type/entity_id/uuid-filename
+    # Entity type is validated against StorageEntityType enum in the service layer;
+    # the regex only enforces structural safety (no traversal, no free-form segments).
     _KEY_PATTERN = re.compile(
         r"^vidya-assets/[a-z0-9_-]+/"
-        r"(submission|research_doc|course_kit|course_kit_export|viva_recording|program_export|syllabus_export)"
+        r"[a-z0-9_]+"
         r"/[a-f0-9\-]{36}/[a-f0-9\-]{36}-[^/]+$"
     )
 
