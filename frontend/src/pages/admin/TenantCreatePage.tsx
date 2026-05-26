@@ -93,7 +93,7 @@ function ProvisioningSuccess({
   data: SuccessData; onViewDetail: () => void; onBackToList: () => void
 }) {
   return (
-    <main className="max-w-xl mx-auto px-6 py-10">
+    <main className="max-w-2xl mx-auto px-8 py-10">
       <div
         className="rounded-xl overflow-hidden"
         style={{ background: 'rgba(12,22,41,0.9)', border: '1px solid rgba(16,185,129,0.2)' }}
@@ -236,212 +236,260 @@ export default function TenantCreatePage() {
   const labelCls = 'block text-xs font-semibold text-slate-400'
 
   return (
-    <main className="max-w-xl mx-auto px-6 py-10">
-      <div className="flex items-center gap-3 mb-6">
+    <main className="max-w-5xl mx-auto px-8 py-8">
+
+      {/* Page header */}
+      <div className="flex items-center gap-3 mb-8">
         <button
           onClick={() => navigate('/admin/tenants')}
-          className="p-1.5 rounded-lg text-slate-600 transition-colors"
+          className="p-1.5 rounded-lg text-slate-600 transition-colors flex-shrink-0"
           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#cbd5e1' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = '' }}
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h2 className="text-xl font-semibold text-slate-100">New University</h2>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100">Provision University</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Create an isolated tenant with a seeded admin account</p>
+        </div>
       </div>
 
-      <div
-        className="rounded-xl p-6"
-        style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-      >
-        <p className="text-sm text-slate-500 mb-6">
-          Creates an isolated database schema and seeds an admin user. The admin will be prompted
-          to change the temporary password on first login.
-        </p>
+      {/* Two-column: info panel + form */}
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8">
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {/* Left: provisioning context */}
+        <aside className="space-y-4">
+          <div
+            className="rounded-xl p-5"
+            style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-[0.12em] mb-4">
+              What gets created
+            </h2>
+            <ul className="space-y-3">
+              {[
+                'Isolated PostgreSQL schema',
+                'Tenant record with branding',
+                'Admin account seeded',
+                'First-login password change enforced',
+                'Action logged to audit trail',
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <span className="text-xs text-slate-400 leading-relaxed">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-          {/* Institution */}
-          <fieldset className="space-y-1">
-            <legend className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em] mb-2">
-              Institution
-            </legend>
-            <label className={labelCls} htmlFor="name">University name</label>
-            <DarkInput
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="MIT University"
-              minLength={3}
-              maxLength={100}
-              required
-              autoFocus
-            />
-            <p className="text-[10px] text-slate-600 mt-0.5">3–100 characters. Used to derive the Institution ID (slug).</p>
-          </fieldset>
-
-          {/* Admin account */}
-          <fieldset className="space-y-3">
-            <legend className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em] mb-2">
-              Admin account
-            </legend>
-            <div className="space-y-1">
-              <label className={labelCls} htmlFor="admin-full-name">Full name</label>
-              <DarkInput
-                id="admin-full-name"
-                value={adminFullName}
-                onChange={(e) => setAdminFullName(e.target.value)}
-                placeholder="Admin User"
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls} htmlFor="admin-email">Email</label>
-              <DarkInput
-                id="admin-email"
-                type="email"
-                value={adminEmail}
-                onChange={(e) => setAdminEmail(e.target.value)}
-                placeholder="admin@university.edu"
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <label className={labelCls} htmlFor="admin-password">Temporary password</label>
-              <DarkInput
-                id="admin-password"
-                type="password"
-                value={adminPassword}
-                onChange={(e) => { setAdminPassword(e.target.value); setTouched(true) }}
-                placeholder="Min 8 chars"
-                required
-              />
-              {passwordError && (
-                <p className="text-xs mt-0.5" style={{ color: '#f87171' }}>{passwordError}</p>
-              )}
-              {!passwordError && adminPassword.length > 0 && (
-                <p className="text-xs mt-0.5 text-emerald-500">Password looks good.</p>
-              )}
-              <p className="text-[10px] text-slate-600 mt-0.5">
-                Upper + lowercase + digit + special character. Admin must change on first login.
+          <div
+            className="rounded-xl p-4"
+            style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)' }}
+          >
+            <div className="flex items-start gap-2.5">
+              <Lock className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Each university gets a fully isolated schema. No data is ever shared across tenants.
               </p>
             </div>
-          </fieldset>
+          </div>
+        </aside>
 
-          {/* Contact email */}
-          <fieldset className="space-y-1">
-            <legend className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em] mb-2">
-              Welcome email (optional)
-            </legend>
-            <label className={labelCls} htmlFor="contact-email">Contact email</label>
-            <DarkInput
-              id="contact-email"
-              type="email"
-              value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
-              placeholder="Defaults to admin email if blank"
-            />
-          </fieldset>
+        {/* Right: form */}
+        <div
+          className="rounded-xl p-7"
+          style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <form onSubmit={handleSubmit} className="space-y-7">
 
-          {/* Branding */}
-          <fieldset className="space-y-3">
-            <legend className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.12em] mb-2 flex items-center gap-1.5">
-              <Palette className="h-3.5 w-3.5 text-slate-600" />
-              Branding (optional)
-            </legend>
-            <div className="space-y-1">
-              <label className={labelCls} htmlFor="logo-url">University logo URL</label>
-              <DarkInput
-                id="logo-url"
-                type="url"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://university.edu/logo.png"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+            {/* Institution */}
+            <section>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.14em] mb-3">
+                Institution
+              </h3>
               <div className="space-y-1">
-                <label className={labelCls} htmlFor="primary-color">Primary color</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    id="primary-color"
-                    type="color"
-                    value={primaryColor}
-                    onChange={(e) => setPrimaryColor(e.target.value)}
-                    className="w-9 h-9 rounded-lg cursor-pointer p-0.5"
-                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                  />
+                <label className={labelCls} htmlFor="name">University name</label>
+                <DarkInput
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="MIT University"
+                  minLength={3}
+                  maxLength={100}
+                  required
+                  autoFocus
+                />
+                <p className="text-[10px] text-slate-600 mt-0.5">3–100 characters. Used to derive the Institution ID (slug).</p>
+              </div>
+            </section>
+
+            {/* Admin account */}
+            <section>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.14em] mb-3">
+                Admin account
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div className="space-y-1">
+                  <label className={labelCls} htmlFor="admin-full-name">Full name</label>
                   <DarkInput
-                    value={primaryColor}
-                    onChange={(e) => setPrimaryColor(e.target.value)}
-                    placeholder="#2563eb"
-                    maxLength={7}
+                    id="admin-full-name"
+                    value={adminFullName}
+                    onChange={(e) => setAdminFullName(e.target.value)}
+                    placeholder="Admin User"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls} htmlFor="admin-email">Email</label>
+                  <DarkInput
+                    id="admin-email"
+                    type="email"
+                    value={adminEmail}
+                    onChange={(e) => setAdminEmail(e.target.value)}
+                    placeholder="admin@university.edu"
+                    required
                   />
                 </div>
               </div>
               <div className="space-y-1">
-                <label className={labelCls} htmlFor="secondary-color">Secondary color</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    id="secondary-color"
-                    type="color"
-                    value={secondaryColor || '#06b6d4'}
-                    onChange={(e) => setSecondaryColor(e.target.value)}
-                    className="w-9 h-9 rounded-lg cursor-pointer p-0.5"
-                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
-                  />
+                <label className={labelCls} htmlFor="admin-password">Temporary password</label>
+                <DarkInput
+                  id="admin-password"
+                  type="password"
+                  value={adminPassword}
+                  onChange={(e) => { setAdminPassword(e.target.value); setTouched(true) }}
+                  placeholder="Min 8 chars — upper, lower, digit, special"
+                  required
+                />
+                {passwordError && (
+                  <p className="text-xs mt-0.5" style={{ color: '#f87171' }}>{passwordError}</p>
+                )}
+                {!passwordError && adminPassword.length > 0 && (
+                  <p className="text-xs mt-0.5 text-emerald-500">Password looks good.</p>
+                )}
+                <p className="text-[10px] text-slate-600 mt-0.5">
+                  Must contain uppercase, lowercase, digit, and special character. Admin must change on first login.
+                </p>
+              </div>
+            </section>
+
+            {/* Optional fields: contact email + branding */}
+            <section>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.14em] mb-3 flex items-center gap-1.5">
+                <Palette className="h-3 w-3 text-slate-600" />
+                Branding &amp; contact
+                <span className="text-slate-700 font-normal normal-case text-[9px] tracking-normal">(optional)</span>
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div className="space-y-1">
+                  <label className={labelCls} htmlFor="contact-email">Contact email</label>
                   <DarkInput
-                    value={secondaryColor}
-                    onChange={(e) => setSecondaryColor(e.target.value)}
-                    placeholder="#06b6d4"
-                    maxLength={7}
+                    id="contact-email"
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder="Defaults to admin email"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls} htmlFor="logo-url">University logo URL</label>
+                  <DarkInput
+                    id="logo-url"
+                    type="url"
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="https://university.edu/logo.png"
                   />
                 </div>
               </div>
-            </div>
-          </fieldset>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className={labelCls} htmlFor="primary-color">Primary color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="primary-color"
+                      type="color"
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      className="w-9 h-9 rounded-lg cursor-pointer p-0.5 flex-shrink-0"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    />
+                    <DarkInput
+                      value={primaryColor}
+                      onChange={(e) => setPrimaryColor(e.target.value)}
+                      placeholder="#2563eb"
+                      maxLength={7}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className={labelCls} htmlFor="secondary-color">Secondary color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="secondary-color"
+                      type="color"
+                      value={secondaryColor || '#06b6d4'}
+                      onChange={(e) => setSecondaryColor(e.target.value)}
+                      className="w-9 h-9 rounded-lg cursor-pointer p-0.5 flex-shrink-0"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    />
+                    <DarkInput
+                      value={secondaryColor}
+                      onChange={(e) => setSecondaryColor(e.target.value)}
+                      placeholder="#06b6d4"
+                      maxLength={7}
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
 
-          {error && (
+            {error && (
+              <div
+                className="text-sm rounded-lg px-3 py-2.5"
+                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
+              >
+                {error}
+              </div>
+            )}
+
             <div
-              className="text-sm rounded-lg px-3 py-2"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
+              className="flex items-center justify-between gap-4 pt-2"
+              style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
             >
-              {error}
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={mut.isPending || !!passwordError}
+                  className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    boxShadow: '0 0 16px rgba(16,185,129,0.2)',
+                  }}
+                >
+                  {mut.isPending ? 'Provisioning…' : 'Provision university'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/admin/tenants')}
+                  disabled={mut.isPending}
+                  className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-400 transition-all disabled:opacity-50"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#cbd5e1' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = '' }}
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Lock className="h-3 w-3 text-slate-700" />
+                <p className="text-[10px] text-slate-700">Isolated schema · Logged</p>
+              </div>
             </div>
-          )}
 
-          <div className="flex gap-3 pt-1">
-            <button
-              type="submit"
-              disabled={mut.isPending || !!passwordError}
-              className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                boxShadow: '0 0 16px rgba(16,185,129,0.2)',
-              }}
-            >
-              {mut.isPending ? 'Provisioning…' : 'Provision university'}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/admin/tenants')}
-              disabled={mut.isPending}
-              className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-400 transition-all disabled:opacity-50"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = '#cbd5e1' }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = '' }}
-            >
-              Cancel
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <Lock className="h-3 w-3 text-slate-700 flex-shrink-0" />
-            <p className="text-[10px] text-slate-700">
-              Provisioning creates an isolated database schema. This action is logged.
-            </p>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </main>
   )

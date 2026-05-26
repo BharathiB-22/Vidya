@@ -145,7 +145,7 @@ export default function AdminDashboardPage() {
   const recentFive   = [...all].slice(0, 5)
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+    <div className="max-w-screen-xl mx-auto px-8 py-7 space-y-7">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
@@ -185,7 +185,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         <KpiCard
           label="Total Universities"
           value={isLoading ? '—' : all.length}
@@ -214,11 +214,11 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-6">
 
         {/* Recent tenants */}
         <div
-          className="lg:col-span-2 rounded-xl overflow-hidden"
+          className="rounded-xl overflow-hidden"
           style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
           <div

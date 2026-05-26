@@ -135,8 +135,8 @@ export default function AdminLoginPage() {
 
   return (
     <div className="min-h-screen overflow-hidden bg-slate-50 text-slate-950">
-      <div className="grid min-h-screen lg:grid-cols-[54%_46%]">
-        <section className="relative hidden overflow-hidden rounded-r-[2rem] bg-[#020b12] px-10 py-10 text-white lg:block">
+      <div className="grid min-h-screen lg:grid-cols-[55%_45%]">
+        <section className="relative hidden overflow-hidden rounded-r-[2rem] bg-[#020b12] px-12 py-10 text-white lg:block">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_40%,rgba(34,197,94,0.18),transparent_32%),radial-gradient(circle_at_30%_90%,rgba(20,184,166,0.16),transparent_35%)]" />
           <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:48px_48px] opacity-40" />
           <div className="absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-emerald-950/50 to-transparent" />
@@ -161,7 +161,7 @@ export default function AdminLoginPage() {
               Super Admin Portal
             </div>
 
-            <div className="mt-10 grid grid-cols-[44%_56%] items-center gap-2">
+            <div className="mt-10 grid grid-cols-[48%_52%] items-center gap-4">
               <div>
                 <h2 className="text-6xl font-black leading-[1.05] tracking-tight">
                   Welcome,
@@ -214,7 +214,7 @@ export default function AdminLoginPage() {
           <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-emerald-100 blur-3xl" />
           <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-sky-100 blur-3xl" />
 
-          <div className="relative z-10 w-full max-w-[520px]">
+          <div className="relative z-10 w-full max-w-[560px]">
             <div className="mb-10 flex justify-end">
               <div className="flex items-center gap-3 text-sm">
                 <span className="text-slate-600">Need help?</span>

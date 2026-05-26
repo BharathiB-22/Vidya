@@ -306,7 +306,7 @@ export function AdminShell() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-56
+        className={`fixed inset-y-0 left-0 z-30 w-60
           transform transition-transform duration-200 ease-in-out
           lg:translate-x-0 lg:static lg:flex-shrink-0
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}

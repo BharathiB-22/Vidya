@@ -138,7 +138,7 @@ export default function TenantListPage() {
   const failedCount  = all.filter((t) => t.status === 'FAILED').length
 
   return (
-    <main className="max-w-5xl mx-auto px-6 py-8">
+    <main className="max-w-screen-xl mx-auto px-8 py-8">
 
       {/* Search bar */}
       <div className="relative mb-4">
