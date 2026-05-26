@@ -108,6 +108,11 @@ export async function sealPaper(paperId: string, payload: SealPayload): Promise<
   return data
 }
 
+export async function releasePaper(paperId: string): Promise<ExamPaper> {
+  const { data } = await api.post(`${BASE}/${paperId}/release`)
+  return data
+}
+
 // ---- Export ----
 
 export async function exportQuestions(paperId: string, setLabel = 'A') {

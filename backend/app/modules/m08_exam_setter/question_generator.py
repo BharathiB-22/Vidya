@@ -29,7 +29,7 @@ import re
 logger = logging.getLogger("vidya.m08.question_generator")
 
 # ---------------------------------------------------------------------------
-# Marks per question type (defaults; adjusted to hit total_marks target)
+# Marks per question type (defaults)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MARKS: dict[str, float] = {
@@ -39,6 +39,116 @@ _DEFAULT_MARKS: dict[str, float] = {
     "PROBLEM_SOLVING": 8.0,
 }
 
+# ---------------------------------------------------------------------------
+# Question templates for realistic mock generation
+# ---------------------------------------------------------------------------
+
+_Q_TEMPLATES: dict[tuple[str, str], str] = {
+    ("MCQ", "REMEMBER"):   "Which of the following correctly defines {topic}?",
+    ("MCQ", "UNDERSTAND"): "Which statement best explains {topic} in the context of {unit_title}?",
+    ("MCQ", "APPLY"):      "When applying {topic} to a real-world scenario in {unit_title}, which approach is most appropriate?",
+    ("MCQ", "ANALYSE"):    "Analysing {topic} in {unit_title}, which option correctly identifies its primary components?",
+    ("MCQ", "EVALUATE"):   "Which criterion is most important when evaluating a {topic}-based solution?",
+    ("MCQ", "CREATE"):     "To design a new system incorporating {topic}, what is the most effective first step?",
+
+    ("SHORT_ANSWER", "REMEMBER"):   "Define {topic} and state its two most important properties.",
+    ("SHORT_ANSWER", "UNDERSTAND"): "Explain the concept of {topic} and its significance in {unit_title}.",
+    ("SHORT_ANSWER", "APPLY"):      "Describe how {topic} can be applied to solve a practical problem in {unit_title}.",
+    ("SHORT_ANSWER", "ANALYSE"):    "Analyse the role of {topic} within {unit_title} and identify its key dependencies.",
+    ("SHORT_ANSWER", "EVALUATE"):   "Evaluate the advantages and limitations of {topic} in real-world applications.",
+    ("SHORT_ANSWER", "CREATE"):     "Propose a novel approach that uses {topic} to improve outcomes in {unit_title}.",
+
+    ("LONG_ANSWER", "REMEMBER"):   (
+        "Describe in detail the major aspects of {topic} as covered in {unit_title}. "
+        "Include definitions, properties, and at least two illustrative examples."
+    ),
+    ("LONG_ANSWER", "UNDERSTAND"): (
+        "Explain the concept of {topic} with suitable examples. "
+        "Discuss its significance and typical use cases within {unit_title}."
+    ),
+    ("LONG_ANSWER", "APPLY"): (
+        "Apply the principles of {topic} to the following scenario: a system in {unit_title} "
+        "requires a structured solution. Provide a step-by-step answer with justification."
+    ),
+    ("LONG_ANSWER", "ANALYSE"): (
+        "Critically analyse {topic} in the context of {unit_title}. "
+        "Compare it with at least one alternative approach and identify strengths and limitations."
+    ),
+    ("LONG_ANSWER", "EVALUATE"): (
+        "Evaluate two or more strategies for implementing {topic} within {unit_title}. "
+        "Recommend the best approach with evidence-based justification."
+    ),
+    ("LONG_ANSWER", "CREATE"): (
+        "Design a comprehensive solution that leverages {topic} to address a key challenge in {unit_title}. "
+        "Include components, rationale, and expected outcomes."
+    ),
+
+    ("PROBLEM_SOLVING", "REMEMBER"):   "Using the standard procedure for {topic}, solve the following step-by-step problem related to {unit_title}.",
+    ("PROBLEM_SOLVING", "UNDERSTAND"): "Interpret the following scenario involving {topic} in {unit_title} and provide a structured solution.",
+    ("PROBLEM_SOLVING", "APPLY"):      "Apply the principles of {topic} to derive a solution for the following problem in {unit_title}. Show all working.",
+    ("PROBLEM_SOLVING", "ANALYSE"):    "Analyse the following {topic} problem in {unit_title} using structured techniques and solve it with full justification.",
+    ("PROBLEM_SOLVING", "EVALUATE"):   "A proposed solution for a {topic} problem in {unit_title} is given. Critically evaluate its correctness and suggest improvements.",
+    ("PROBLEM_SOLVING", "CREATE"):     "Formulate and solve an original problem in {unit_title} that demonstrates your mastery of {topic}.",
+}
+
+
+def _make_mcq_options(topic: str) -> tuple[list[dict], str]:
+    """Generate realistic MCQ options. Option A is always correct."""
+    opts = [
+        {"label": "A", "text": f"The formal definition and established principles of {topic}"},
+        {"label": "B", "text": f"A broad approach that does not directly involve {topic}"},
+        {"label": "C", "text": f"A method that partially applies {topic} but omits its core properties"},
+        {"label": "D", "text": f"An alternative technique often confused with {topic}"},
+    ]
+    return opts, "A"
+
+
+def _make_model_answer(qtype: str, bloom: str, topic: str, unit_title: str, marks: float) -> str:
+    if qtype == "MCQ":
+        return (
+            f"Option A — {topic} is correctly characterized by its formal definition and "
+            f"established principles within {unit_title}."
+        )
+    intros = {
+        "REMEMBER": (
+            f"{topic} is a core concept in {unit_title}. It is defined by its key properties "
+            f"and standard terminology. Key points: (1) formal definition, (2) primary "
+            f"characteristics, (3) standard use cases. [{marks:.0f} marks: award proportionally "
+            f"for each key property with examples.]"
+        ),
+        "UNDERSTAND": (
+            f"{topic} contributes to {unit_title} by enabling systematic problem-solving. "
+            f"Its significance lies in connecting theoretical foundations to practical applications. "
+            f"Relevant examples illustrate how {topic} is applied in standard scenarios."
+        ),
+        "APPLY": (
+            f"Applying {topic} to the scenario — Step 1: identify relevant components. "
+            f"Step 2: map {topic} principles to the problem context. "
+            f"Step 3: derive and verify the solution. "
+            f"Conclusion: {topic} provides a systematic approach for resolving challenges in {unit_title}."
+        ),
+        "ANALYSE": (
+            f"Analysis of {topic} in {unit_title}: Primary components include its structural "
+            f"elements, inter-dependencies, and operational constraints. "
+            f"Compared with alternatives, {topic} offers greater consistency but requires "
+            f"more setup. Key relationships and trade-offs should be identified with supporting evidence."
+        ),
+        "EVALUATE": (
+            f"Evaluation of {topic}: Advantages include structured applicability and broad "
+            f"industry adoption. Limitations include complexity in edge cases. "
+            f"In {unit_title}, {topic} is most effective when applied to well-defined problems. "
+            f"Recommended approach: [justify with domain-specific criteria]."
+        ),
+        "CREATE": (
+            f"Proposed design using {topic}: Component 1 — core processing layer. "
+            f"Component 2 — interface and integration module. "
+            f"Rationale: leverages {topic} to address the primary challenge in {unit_title}. "
+            f"Expected outcomes: improved efficiency and correctness. "
+            f"Implementation steps: (1) define scope, (2) design components, (3) validate with test cases."
+        ),
+    }
+    return intros.get(bloom, f"Model answer for {topic} in {unit_title}. Address all parts systematically.")
+
 
 def _build_prompt(
     units: list[dict],
@@ -46,8 +156,18 @@ def _build_prompt(
     question_format: dict[str, int],
     total_marks: int,
     special_instructions: str | None,
+    course_title: str = "",
+    course_code: str = "",
+    exam_type: str = "END_SEM",
 ) -> str:
     """Build the LLM generation prompt."""
+    course_header = ""
+    if course_title:
+        course_header = (
+            f"Course: {course_code} — {course_title}\n"
+            f"Exam type: {exam_type.replace('_', ' ')}\n\n"
+        )
+
     unit_text = "\n".join(
         f"Unit {u.get('unit_no', u.get('unit_number', '?'))}: {u.get('title','')}\n"
         f"Topics: {', '.join(u.get('topics', []))}"
@@ -75,7 +195,7 @@ def _build_prompt(
 
     return f"""You are an experienced university examiner. Generate an exam question paper.
 
-SYLLABUS UNITS:
+{course_header}SYLLABUS UNITS:
 {unit_text}
 
 REQUIREMENTS:
@@ -89,7 +209,7 @@ For EACH question output a JSON object with these fields:
   unit_number     (integer — which unit this question covers)
   bloom_level     (one of: REMEMBER, UNDERSTAND, APPLY, ANALYSE, EVALUATE, CREATE)
   question_type   (one of: MCQ, SHORT_ANSWER, LONG_ANSWER, PROBLEM_SOLVING)
-  question_text   (the full question text)
+  question_text   (the full question text — specific, subject-relevant, no placeholders)
   marks           (number — marks allocated to this question)
   model_answer    (clear, complete model answer)
   marking_scheme  (array of {{criterion: str, marks: number, description: str}})
@@ -201,53 +321,86 @@ def _mock_questions(
     total_marks: int,
 ) -> list[dict]:
     """
-    Mock question generation for dev/test when no LLM key is configured.
-    Produces structurally valid but placeholder questions.
+    Fallback question generation when no LLM key is configured.
+    Produces structurally valid questions using actual unit/topic names.
     """
     import itertools
 
     bloom_cycle = itertools.cycle([
-        lvl for lvl, pct in bloom_targets.items()
-        if pct > 0
+        lvl.upper() for lvl, pct in bloom_targets.items() if pct > 0
     ] or ["REMEMBER", "UNDERSTAND", "APPLY"])
 
-    questions = []
-    mark_per_q = max(2.0, total_marks / max(
-        1,
-        question_format.get("mcq_count", 0) +
-        question_format.get("short_count", 0) +
-        question_format.get("long_count", 0) +
-        question_format.get("problem_count", 0),
-    ))
+    # Build flat (unit_dict, topic_str) pairs from all units
+    topic_pairs: list[tuple[dict, str]] = []
+    for unit in (units or []):
+        unit_title = unit.get("title", "General Concepts")
+        topics = unit.get("topics") or [unit_title]
+        for topic in topics:
+            topic_pairs.append((unit, str(topic)))
 
-    def _make(qtype: str, unit: dict, bloom: str, marks: float, sets: list[str]) -> dict:
-        unit_no = int(unit.get("unit_no") or unit.get("unit_number") or 1)
-        title   = unit.get("title", "Topic")
+    if not topic_pairs:
+        topic_pairs = [({"unit_no": 1, "title": "General Concepts"}, "Core Concepts")]
+
+    topic_cycle = itertools.cycle(topic_pairs)
+    sets_cycle  = itertools.cycle([["A", "B"], ["A", "B"], ["A"], ["B"]])
+
+    def _make(qtype: str, marks: float) -> dict:
+        unit, topic = next(topic_cycle)
+        bloom       = next(bloom_cycle)
+        sets        = next(sets_cycle)
+        unit_no     = int(unit.get("unit_no") or unit.get("unit_number") or 1)
+        unit_title  = unit.get("title", "General Concepts")
+
+        key    = (qtype, bloom)
+        q_text = _Q_TEMPLATES.get(key, "Answer the following on {topic} in {unit_title}.").format(
+            topic=topic, unit_title=unit_title,
+        )
+
+        options, correct = None, None
+        if qtype == "MCQ":
+            options, correct = _make_mcq_options(topic)
+
+        answer = _make_model_answer(qtype, bloom, topic, unit_title, marks)
+
         return {
             "unit_number":    unit_no,
             "co_code":        None,
-            "bloom_level":    bloom.upper().strip(),
-            "question_type":  qtype.upper().replace(" ", "_").strip(),
-            "question_text":  f"[Mock] {qtype} question on {title} ({bloom})",
+            "bloom_level":    bloom,
+            "question_type":  qtype,
+            "question_text":  q_text,
             "marks":          marks,
-            "model_answer":   f"[Mock] Model answer for {title}",
-            "marking_scheme": [{"criterion": "Accuracy", "marks": marks, "description": "Full marks for correct answer"}],
+            "model_answer":   answer,
+            "marking_scheme": [
+                {
+                    "criterion":   "Accuracy",
+                    "marks":       round(marks * 0.6, 1),
+                    "description": "Correct and complete answer addressing all required points.",
+                },
+                {
+                    "criterion":   "Explanation",
+                    "marks":       round(marks * 0.3, 1),
+                    "description": "Clear explanation with relevant examples.",
+                },
+                {
+                    "criterion":   "Presentation",
+                    "marks":       round(marks * 0.1, 1),
+                    "description": "Well-organized and logically structured response.",
+                },
+            ],
             "set_membership": sets,
-            "options":        [{"label": l, "text": f"Option {l}"} for l in ["A","B","C","D"]] if qtype == "MCQ" else None,
-            "correct_option": "A" if qtype == "MCQ" else None,
+            "options":        options,
+            "correct_option": correct,
         }
 
-    unit_cycle = itertools.cycle(units or [{"unit_no": 1, "title": "General", "topics": []}])
-    sets_cycle = itertools.cycle([["A","B"], ["A","B"], ["A"], ["B"]])
-
+    questions: list[dict] = []
     for _ in range(question_format.get("mcq_count", 0)):
-        questions.append(_make("MCQ", next(unit_cycle), next(bloom_cycle), 2.0, next(sets_cycle)))
+        questions.append(_make("MCQ", 2.0))
     for _ in range(question_format.get("short_count", 0)):
-        questions.append(_make("SHORT_ANSWER", next(unit_cycle), next(bloom_cycle), 5.0, next(sets_cycle)))
+        questions.append(_make("SHORT_ANSWER", 5.0))
     for _ in range(question_format.get("long_count", 0)):
-        questions.append(_make("LONG_ANSWER", next(unit_cycle), next(bloom_cycle), 10.0, next(sets_cycle)))
+        questions.append(_make("LONG_ANSWER", 10.0))
     for _ in range(question_format.get("problem_count", 0)):
-        questions.append(_make("PROBLEM_SOLVING", next(unit_cycle), next(bloom_cycle), 8.0, next(sets_cycle)))
+        questions.append(_make("PROBLEM_SOLVING", 8.0))
 
     return questions
 
@@ -258,6 +411,9 @@ async def generate_questions(
     question_format: dict[str, int],
     total_marks: int,
     special_instructions: str | None = None,
+    course_title: str = "",
+    course_code: str = "",
+    exam_type: str = "END_SEM",
 ) -> tuple[list[dict], str, str]:
     """
     Generate exam questions from syllabus units.
@@ -268,6 +424,9 @@ async def generate_questions(
         question_format:      {mcq_count, short_count, long_count, problem_count}
         total_marks:          target total marks for Set A
         special_instructions: optional faculty hint
+        course_title:         course name for richer prompt context
+        course_code:          course code (e.g. "CS301")
+        exam_type:            exam type string (e.g. "END_SEM")
 
     Returns:
         (questions, ai_model, prompt_hash)
@@ -278,7 +437,7 @@ async def generate_questions(
     no_keys = (not settings.GEMINI_API_KEY.strip()) and (not settings.GROQ_API_KEY.strip())
 
     if no_keys:
-        logger.warning("No LLM API keys configured — using mock question generation.")
+        logger.warning("No LLM API keys configured — using syllabus-aware fallback generation.")
         questions = _mock_questions(units, question_format, bloom_targets, total_marks)
         return questions, "mock", "mock"
 
@@ -288,6 +447,9 @@ async def generate_questions(
         question_format=question_format,
         total_marks=total_marks,
         special_instructions=special_instructions,
+        course_title=course_title,
+        course_code=course_code,
+        exam_type=exam_type,
     )
 
     try:
@@ -295,8 +457,8 @@ async def generate_questions(
         raw_questions = _parse_questions(raw)
         questions = [_normalise_question(q) for q in raw_questions]
     except Exception as exc:
-        logger.error("Question generation failed: %s — falling back to mock.", exc)
-        questions = _mock_questions(units, question_format, bloom_targets, total_marks)
+        logger.error("Question generation failed: %s — falling back to syllabus-aware generation.", exc)
+        questions  = _mock_questions(units, question_format, bloom_targets, total_marks)
         model_name  = "mock-fallback"
         prompt_hash = "error"
 

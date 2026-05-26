@@ -1,10 +1,10 @@
-// M08 Exam Setter — Examination Board: read-only paper review + approve/return
+// M08 Exam Setter — Examination Board: review + approve/return + seal + release
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, CheckCircle2, XCircle, Loader2, AlertTriangle, Lock, Unlock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getExamPaper, listQuestions, getBloomsReport, boardDecision } from '@/lib/api/exam'
+import { getExamPaper, listQuestions, getBloomsReport, boardDecision, sealPaper, releasePaper } from '@/lib/api/exam'
 import type { BoardDecisionPayload, ExamQuestion, BloomsComplianceReport } from '@/types/exam'
 
 const BLOOM_COLORS: Record<string, string> = {
@@ -25,6 +25,9 @@ export default function BoardReviewPage() {
   const [decision, setDecision]   = useState<'approve' | 'return' | null>(null)
   const [comment, setComment]     = useState('')
   const [error, setError]         = useState<string | null>(null)
+  const [releaseAt, setReleaseAt] = useState('')
+  const [sealError, setSealError] = useState<string | null>(null)
+  const [releaseError, setReleaseError] = useState<string | null>(null)
 
   const { data: paper, isLoading: paperLoading } = useQuery({
     queryKey: ['exam-paper', id],
@@ -55,6 +58,34 @@ export default function BoardReviewPage() {
     },
   })
 
+  const sealMut = useMutation({
+    mutationFn: () => {
+      if (!releaseAt) throw new Error('Select a release date and time.')
+      const iso = new Date(releaseAt).toISOString()
+      return sealPaper(id!, { release_at: iso })
+    },
+    onSuccess: () => {
+      setSealError(null)
+      qc.invalidateQueries({ queryKey: ['exam-paper', id] })
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setSealError(msg ?? 'Seal failed.')
+    },
+  })
+
+  const releaseMut = useMutation({
+    mutationFn: () => releasePaper(id!),
+    onSuccess: () => {
+      setReleaseError(null)
+      qc.invalidateQueries({ queryKey: ['exam-paper', id] })
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setReleaseError(msg ?? 'Release failed.')
+    },
+  })
+
   function handleDecide() {
     setError(null)
     if (!decision) return
@@ -79,7 +110,10 @@ export default function BoardReviewPage() {
 
   if (!paper) return <div className="p-8 text-red-600">Exam paper not found.</div>
 
-  const alreadyDecided = paper.status !== 'SUBMITTED'
+  const alreadyDecided    = paper.status !== 'SUBMITTED'
+  const canSeal           = paper.status === 'BOARD_APPROVED'
+  const canRelease        = paper.status === 'SEALED'
+  const isTerminal        = paper.status === 'RELEASED'
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -97,9 +131,12 @@ export default function BoardReviewPage() {
         </div>
       </div>
 
-      {alreadyDecided && (
+      {alreadyDecided && !canSeal && !canRelease && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
-          This paper has already been processed (status: <strong>{paper.status}</strong>).
+          This paper has already been processed (status: <strong>{paper.status.replace('_', ' ')}</strong>).
+          {paper.board_comment && (
+            <p className="mt-1 text-gray-500">Board comment: {paper.board_comment}</p>
+          )}
         </div>
       )}
 
@@ -135,6 +172,87 @@ export default function BoardReviewPage() {
         {/* Right panel: compliance + decision */}
         <div className="space-y-4">
           {bloomsReport && <BloomsPanel report={bloomsReport} />}
+
+          {/* GATE 3 — Seal Paper (after Board Approval) */}
+          {canSeal && (
+            <div className="border border-purple-200 rounded-xl bg-purple-50 p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
+                <Lock className="w-4 h-4" /> Seal Paper
+              </h3>
+              <p className="text-xs text-purple-700">
+                Set a release date and time. The paper will be encrypted and automatically released at the scheduled time.
+              </p>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-purple-700">Release Date &amp; Time (UTC) *</label>
+                <input
+                  type="datetime-local"
+                  value={releaseAt}
+                  onChange={e => setReleaseAt(e.target.value)}
+                  className="w-full border border-purple-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 bg-white"
+                />
+              </div>
+              {sealError && (
+                <div className="flex gap-2 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-600">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {sealError}
+                </div>
+              )}
+              <Button
+                onClick={() => { setSealError(null); sealMut.mutate() }}
+                disabled={!releaseAt || sealMut.isPending}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white gap-2"
+              >
+                {sealMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                Seal &amp; Schedule Release
+              </Button>
+            </div>
+          )}
+
+          {/* Sealed info + Release Now */}
+          {canRelease && (
+            <div className="border border-emerald-200 rounded-xl bg-emerald-50 p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-emerald-800 flex items-center gap-1.5">
+                <Lock className="w-4 h-4" /> Paper Sealed
+              </h3>
+              {paper.sealed_at && (
+                <p className="text-xs text-emerald-700">
+                  Sealed at: {new Date(paper.sealed_at).toLocaleString()}
+                </p>
+              )}
+              {paper.release_at && (
+                <p className="text-xs text-emerald-700">
+                  Scheduled release: {new Date(paper.release_at).toLocaleString()}
+                </p>
+              )}
+              {releaseError && (
+                <div className="flex gap-2 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-600">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {releaseError}
+                </div>
+              )}
+              <Button
+                onClick={() => { setReleaseError(null); releaseMut.mutate() }}
+                disabled={releaseMut.isPending}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+              >
+                {releaseMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unlock className="w-4 h-4" />}
+                Release Now
+              </Button>
+            </div>
+          )}
+
+          {isTerminal && (
+            <div className="border border-emerald-200 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <CheckCircle2 className="w-4 h-4" /> Paper Released
+              </div>
+              {paper.released_at && (
+                <p className="text-xs mt-1 text-emerald-600">
+                  Released at: {new Date(paper.released_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
 
           {!alreadyDecided && (
             <div className="border border-gray-200 rounded-xl bg-white p-4 space-y-4">

@@ -386,7 +386,7 @@ class ExamService:
         return await ExamPaperRepository.get_by_id(paper_id, db=db)
 
     # -----------------------------------------------------------------------
-    # GATE 3 — Faculty seals the paper
+    # GATE 3 — Board seals the paper
     # -----------------------------------------------------------------------
 
     @staticmethod
@@ -394,24 +394,19 @@ class ExamService:
         paper_id: UUID,
         payload: SealRequest,
         *,
-        faculty_user_id: UUID,
+        sealing_user_id: UUID,
         tenant_id: UUID,
         schema_name: str,
         db: AsyncSession,
     ):
         """
-        HUMAN GATE 3: Faculty seals the paper with AES encryption.
-        Paper must be BOARD_APPROVED. Only the creator or Admin can seal.
+        HUMAN GATE 3: Board seals the paper with AES encryption.
+        Paper must be BOARD_APPROVED. RBAC at router restricts to BOARD/ADMIN.
         Schedules an ETA Celery task to auto-release at release_at.
         """
         paper = await ExamPaperRepository.get_by_id(paper_id, db=db)
         if paper is None:
             raise ExamServiceError("NOT_FOUND", "Exam paper not found.", 404)
-
-        if paper.created_by != faculty_user_id:
-            raise ExamServiceError(
-                "FORBIDDEN", "Only the paper creator can seal it.", 403
-            )
 
         if paper.status != ExamPaperStatus.BOARD_APPROVED.value:
             raise ExamServiceError(
@@ -543,6 +538,30 @@ class ExamService:
                 "TOO_EARLY",
                 f"Release time {paper.release_at.isoformat()} has not passed yet.",
                 400,
+            )
+
+        await ExamPaperRepository.set_released(paper_id, db=db)
+        await db.commit()
+        return await ExamPaperRepository.get_by_id(paper_id, db=db)
+
+    # -----------------------------------------------------------------------
+    # Force-release — Board-triggered immediate release
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def force_release(paper_id: UUID, *, schema_name: str, db: AsyncSession):
+        """
+        Board-triggered immediate release. Transitions SEALED → RELEASED.
+        Bypasses the scheduled release_at time. RBAC at router restricts to BOARD/ADMIN.
+        """
+        paper = await ExamPaperRepository.get_by_id(paper_id, db=db)
+        if paper is None:
+            raise ExamServiceError("NOT_FOUND", "Exam paper not found.", 404)
+
+        if paper.status != ExamPaperStatus.SEALED.value:
+            raise ExamServiceError(
+                "INVALID_STATUS",
+                f"Paper must be SEALED to release immediately (current: {paper.status!r}).",
             )
 
         await ExamPaperRepository.set_released(paper_id, db=db)

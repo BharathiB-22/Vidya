@@ -3,13 +3,13 @@ M08 Exam Setter — Router.
 
 RBAC
 ----
-  _CREATE   = ADMIN + FACULTY + BOARD  (create paper — Board may set official END SEM papers)
-  _FACULTY  = ADMIN + FACULTY          (edit questions, submit for review, seal after approval)
-  _BOARD    = BOARD + ADMIN            (board review, approve/return decision)
+  _CREATE   = ADMIN + FACULTY + BOARD  (create paper)
+  _FACULTY  = ADMIN + FACULTY          (edit questions, submit for review)
+  _BOARD    = BOARD + ADMIN            (review, approve/return, seal, release)
   _READ     = ADMIN + DEAN + FACULTY + BOARD
 
-Per PRD Flow 3: Faculty seals the paper after Board approval (Faculty configures
-release date and clicks Seal). Board does NOT seal — that is Faculty Gate 3.
+Workflow: Faculty creates → Faculty submits (Gate 1) → Board reviews →
+Board approves (Gate 2) → Board seals (Gate 3) → Board/auto releases.
 
 Endpoint summary (faculty)
 --------------------------
@@ -468,17 +468,17 @@ async def board_decision(
 
 
 # ---------------------------------------------------------------------------
-# GATE 3 — Faculty seals paper
+# GATE 3 — Board seals paper
 # ---------------------------------------------------------------------------
 
 @router.post("/{paper_id}/seal", response_model=ExamPaperResponse)
 async def seal_paper(
     paper_id: UUID,
     payload:  SealRequest,
-    current_user: CurrentUser = Depends(_faculty_dep()),
+    current_user: CurrentUser = Depends(_board_dep()),
     db_info=Depends(get_tenant_context_dep),
 ):
-    """GATE 3: Faculty seals the paper with AES encryption and schedules release."""
+    """GATE 3: Board seals the paper with AES encryption and schedules auto-release."""
     db: AsyncSession = db_info["db"]
     schema: str      = db_info["schema_name"]
     tenant_id: UUID  = db_info["tenant_id"]
@@ -487,7 +487,7 @@ async def seal_paper(
         paper = await ExamService.seal(
             paper_id,
             payload,
-            faculty_user_id=current_user.user_id,
+            sealing_user_id=current_user.user_id,
             tenant_id=tenant_id,
             schema_name=schema,
             db=db,
@@ -504,6 +504,39 @@ async def seal_paper(
         target_entity="exam_paper",
         target_id=str(paper_id),
         metadata={"release_at": payload.release_at.isoformat(), "title": paper.title},
+    )
+    return ExamPaperResponse.model_validate(paper)
+
+
+# ---------------------------------------------------------------------------
+# Board: immediate release
+# ---------------------------------------------------------------------------
+
+@router.post("/{paper_id}/release", response_model=ExamPaperResponse)
+async def release_paper(
+    paper_id: UUID,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Board immediately releases a sealed paper (bypasses scheduled release_at time)."""
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.force_release(paper_id, schema_name=schema, db=db)
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_RELEASED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_paper",
+        target_id=str(paper_id),
+        metadata={"title": paper.title, "released_by": str(current_user.user_id)},
     )
     return ExamPaperResponse.model_validate(paper)
 

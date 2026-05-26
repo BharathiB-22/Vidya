@@ -104,10 +104,14 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
             if paper is None:
                 raise ValueError(f"ExamPaper {paper_id} not found in schema {schema_name!r}.")
 
-            # 2. Fetch syllabus units from M02
+            # 2. Fetch syllabus units and course info from M01/M02
             units = await _fetch_syllabus_units(
                 course_id=paper.course_id,
                 units_included=list(paper.units_included or []),
+                session=session,
+            )
+            course_info = await _fetch_course_info(
+                course_id=paper.course_id,
                 session=session,
             )
 
@@ -121,6 +125,9 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 question_format=question_format,
                 total_marks=paper.total_marks,
                 special_instructions=paper.special_instructions,
+                course_title=course_info.get("title", ""),
+                course_code=course_info.get("code", ""),
+                exam_type=paper.exam_type or "END_SEM",
             )
 
             if not questions_raw:
@@ -296,3 +303,17 @@ def _stub_units(units_included: list[int]) -> list[dict]:
         }
         for n in units_included
     ]
+
+
+async def _fetch_course_info(*, course_id, session) -> dict:
+    """Fetch course title and code from M01 for richer question generation context."""
+    try:
+        from sqlalchemy import select
+        from app.modules.m01_program_advisor.models import Course
+        result = await session.execute(select(Course).where(Course.id == course_id))
+        course = result.scalar_one_or_none()
+        if course:
+            return {"title": course.title or "", "code": course.code or ""}
+    except Exception as exc:
+        logger.warning("Failed to fetch course info for %s: %s", course_id, exc)
+    return {"title": "", "code": ""}
