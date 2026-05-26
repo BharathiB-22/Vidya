@@ -23,6 +23,10 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
 class PasswordResetRequestIn(BaseModel):
     email: EmailStr
 

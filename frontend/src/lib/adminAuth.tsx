@@ -5,6 +5,7 @@ interface AdminAuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
+  loginWithGoogle: (credential: string) => Promise<void>
   logout: () => void
 }
 
@@ -32,8 +33,13 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   async function login(email: string, password: string): Promise<void> {
-    // /api/platform/auth/login → backend /platform/auth/login
     const { data: tokens } = await adminApi.post('/platform/auth/login', { email, password })
+    localStorage.setItem('vidya_admin_token', tokens.access_token)
+    setIsAuthenticated(true)
+  }
+
+  async function loginWithGoogle(credential: string): Promise<void> {
+    const { data: tokens } = await adminApi.post('/platform/auth/google', { credential })
     localStorage.setItem('vidya_admin_token', tokens.access_token)
     setIsAuthenticated(true)
   }
@@ -45,7 +51,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AdminAuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+    <AdminAuthContext.Provider value={{ isAuthenticated, isLoading, login, loginWithGoogle, logout }}>
       {children}
     </AdminAuthContext.Provider>
   )

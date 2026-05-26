@@ -7,6 +7,7 @@ from app.core.auth.dependencies import require_super_admin
 from app.core.auth.repository import PublicRepository
 from app.core.auth.schemas import (
     CurrentUser,
+    GoogleAuthRequest,
     PasswordResetConfirmIn,
     PasswordResetRequestIn,
     PasswordResetVerifyIn,
@@ -37,6 +38,24 @@ async def platform_login(
         return await PlatformAuthService.login(
             body.email,
             body.password,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent"),
+            db,
+        )
+    except AuthError as e:
+        raise _auth_error(e)
+
+
+@router.post("/google", response_model=TokenResponse)
+@limiter.limit("5/minute")
+async def platform_google_login(
+    request: Request,
+    body: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    try:
+        return await PlatformAuthService.login_with_google(
+            body.credential,
             request.client.host if request.client else None,
             request.headers.get("user-agent"),
             db,

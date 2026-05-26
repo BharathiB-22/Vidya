@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRY_MINUTES_GET: int = 60
     STORAGE_ASSET_RETENTION_YEARS: int = 3
 
+    # Google OAuth (for Super Admin Google Sign-In)
+    GOOGLE_CLIENT_ID: str = ""
+
     # CORS
     # Comma-separated origins accepted by the API, e.g.
     # CORS_ALLOWED_ORIGINS=https://app.vidya.example,https://admin.vidya.example

@@ -6,6 +6,7 @@ from uuid import UUID
 from jose import JWTError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.database import AsyncSessionLocal
@@ -113,6 +114,75 @@ class PlatformAuthService:
             AuditEventType.PLATFORM_LOGIN_SUCCESS,
             actor_user_id=user.id, actor_role="SUPER_ADMIN",
             ip_address=ip, user_agent=user_agent,
+        )
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=raw_refresh,
+            expires_in=int(expires.total_seconds()),
+        )
+
+    @staticmethod
+    async def login_with_google(
+        google_credential: str,
+        ip: str | None,
+        user_agent: str | None,
+        db: AsyncSession,
+    ) -> TokenResponse:
+        if not settings.GOOGLE_CLIENT_ID:
+            raise AuthError("GOOGLE_AUTH_DISABLED", "Google Sign-In is not configured on this server", 501)
+
+        try:
+            from google.oauth2 import id_token as gid_token
+            from google.auth.transport import requests as google_requests
+
+            idinfo = await run_in_threadpool(
+                gid_token.verify_oauth2_token,
+                google_credential,
+                google_requests.Request(),
+                settings.GOOGLE_CLIENT_ID,
+            )
+        except Exception:
+            raise AuthError("INVALID_TOKEN", "Invalid Google credential")
+
+        email = idinfo.get("email")
+        if not email or not idinfo.get("email_verified"):
+            raise AuthError("INVALID_TOKEN", "Google account email is not verified")
+
+        user = await PublicRepository.get_platform_user_by_email(email, db)
+        if not user or not user.is_active:
+            await AuditService.log(
+                AuditEventType.PLATFORM_LOGIN_FAILURE,
+                metadata={"attempted_email": email, "method": "google"},
+                ip_address=ip, user_agent=user_agent,
+            )
+            raise AuthError("UNAUTHORIZED", "This Google account is not authorized as a Super Admin", 403)
+
+        expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            {
+                "sub": str(user.id),
+                "tenant_id": None,
+                "schema_name": None,
+                "role": "SUPER_ADMIN",
+                "email": user.email,
+            },
+            expires_delta=expires,
+        )
+        raw_refresh = generate_refresh_token()
+        token_hash = hash_token(raw_refresh)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        await PublicRepository.create_platform_refresh_token(
+            user.id, token_hash, expires_at, ip, user_agent, db
+        )
+        await PublicRepository.update_platform_user(
+            user.id, {"last_login_at": datetime.now(timezone.utc)}, db
+        )
+        await db.commit()
+        await AuditService.log(
+            AuditEventType.PLATFORM_LOGIN_SUCCESS,
+            actor_user_id=user.id, actor_role="SUPER_ADMIN",
+            ip_address=ip, user_agent=user_agent,
+            metadata={"method": "google"},
         )
         return TokenResponse(
             access_token=access_token,
