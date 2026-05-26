@@ -860,3 +860,95 @@ class TestM08ImportSmoke:
         """AsyncSessionLocal is the correct session factory for public-schema jobs."""
         from app.database import AsyncSessionLocal
         assert AsyncSessionLocal is not None
+
+
+# ===========================================================================
+# 10 — Bloom level normalization: lowercase input must be accepted everywhere
+# ===========================================================================
+
+class TestBloomNormalization:
+    """Regression tests for lowercase bloom_level handling.
+
+    Root cause: requested_dist is stored with lowercase keys (frontend BloomsDistribution
+    type uses lowercase). Mock/fallback question generation pulled those keys directly as
+    bloom_level values, bypassing _normalise_question's .upper() call.
+    """
+
+    def test_mock_questions_produce_uppercase_bloom(self):
+        from app.modules.m08_exam_setter.question_generator import _mock_questions
+        units = [{"unit_no": 1, "title": "Intro", "topics": ["A", "B"]}]
+        bloom_targets = {"apply": 50.0, "remember": 50.0}  # lowercase keys (as stored in DB)
+        fmt = {"mcq_count": 2, "short_count": 0, "long_count": 0, "problem_count": 0}
+        qs = _mock_questions(units, fmt, bloom_targets, total_marks=10)
+        for q in qs:
+            assert q["bloom_level"] == q["bloom_level"].upper(), (
+                f"Expected uppercase bloom_level, got {q['bloom_level']!r}"
+            )
+
+    def test_normalise_question_upcases_bloom(self):
+        from app.modules.m08_exam_setter.question_generator import _normalise_question
+        q = {"bloom_level": "apply", "question_type": "short_answer",
+             "question_text": "Describe X.", "marks": 5, "unit_number": 1}
+        result = _normalise_question(q)
+        assert result["bloom_level"] == "APPLY"
+        assert result["question_type"] == "SHORT_ANSWER"
+
+    def test_normalise_question_mixed_case(self):
+        from app.modules.m08_exam_setter.question_generator import _normalise_question
+        for raw, expected in [
+            ("analyse", "ANALYSE"),
+            ("Evaluate", "EVALUATE"),
+            ("REMEMBER", "REMEMBER"),
+            ("create", "CREATE"),
+        ]:
+            result = _normalise_question({"bloom_level": raw, "marks": 5, "unit_number": 1})
+            assert result["bloom_level"] == expected
+
+    def test_exam_question_model_validates_bloom(self):
+        from app.modules.m08_exam_setter.models import ExamQuestion
+        import uuid
+        q = ExamQuestion(
+            exam_paper_id=uuid.uuid4(),
+            unit_number=1,
+            bloom_level="apply",       # lowercase — must be normalized
+            question_type="short_answer",
+            question_text="Test?",
+            marks=5,
+            set_membership=["A", "B"],
+        )
+        assert q.bloom_level == "APPLY", f"Expected APPLY, got {q.bloom_level!r}"
+        assert q.question_type == "SHORT_ANSWER"
+
+    def test_exam_question_update_schema_normalizes_bloom(self):
+        from app.modules.m08_exam_setter.schemas import ExamQuestionUpdate
+        payload = ExamQuestionUpdate(bloom_level="analyse", marks=5.0)
+        assert payload.bloom_level == "ANALYSE"
+
+    def test_exam_question_update_schema_normalizes_set_membership(self):
+        from app.modules.m08_exam_setter.schemas import ExamQuestionUpdate
+        payload = ExamQuestionUpdate(set_membership=["a", "b"])
+        assert payload.set_membership == ["A", "B"]
+
+    def test_bulk_create_normalizes_lowercase_bloom(self):
+        """bulk_create must apply .upper() before handing to the ORM."""
+        import inspect
+        import app.modules.m08_exam_setter.repository as repo_mod
+        src = inspect.getsource(repo_mod)
+        assert ".upper()" in src, "repository must contain .upper() normalization"
+
+    def test_blooms_analyser_accepts_lowercase_input(self):
+        from app.modules.m08_exam_setter.blooms_analyser import compute_actual_distribution
+        questions = [
+            {"bloom_level": "apply",    "marks": 40},
+            {"bloom_level": "remember", "marks": 60},
+        ]
+        dist = compute_actual_distribution(questions)
+        assert dist["APPLY"] == pytest.approx(40.0)
+        assert dist["REMEMBER"] == pytest.approx(60.0)
+
+    def test_check_compliance_accepts_lowercase_requested(self):
+        from app.modules.m08_exam_setter.blooms_analyser import check_compliance
+        requested = {"apply": 50.0, "remember": 50.0}
+        actual    = {"APPLY": 50.0, "REMEMBER": 50.0}
+        report = check_compliance(requested, actual, tolerance=5.0)
+        assert report.compliance_ok is True

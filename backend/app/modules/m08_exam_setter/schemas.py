@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +160,18 @@ class ExamQuestionUpdate(BaseModel):
     marking_scheme:  list[MarkingCriterion] | None = None
     set_membership:  list[str] | None = None
     bloom_level:     str | None = None
+
+    @field_validator("bloom_level", mode="before")
+    @classmethod
+    def _norm_bloom(cls, v: str | None) -> str | None:
+        return v.upper().strip() if v else v
+
+    @field_validator("set_membership", mode="before")
+    @classmethod
+    def _norm_sets(cls, v: list | None) -> list | None:
+        if v is None:
+            return v
+        return [str(s).upper().strip() for s in v]
 
 
 # ---------------------------------------------------------------------------

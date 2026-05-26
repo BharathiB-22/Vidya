@@ -226,8 +226,8 @@ def _mock_questions(
         return {
             "unit_number":    unit_no,
             "co_code":        None,
-            "bloom_level":    bloom,
-            "question_type":  qtype,
+            "bloom_level":    bloom.upper().strip(),
+            "question_type":  qtype.upper().replace(" ", "_").strip(),
             "question_text":  f"[Mock] {qtype} question on {title} ({bloom})",
             "marks":          marks,
             "model_answer":   f"[Mock] Model answer for {title}",

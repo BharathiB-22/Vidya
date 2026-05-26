@@ -27,7 +27,7 @@ from sqlalchemy import (
     UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from app.database import Base
 
@@ -276,6 +276,14 @@ class ExamQuestion(Base):
     updated_at      = Column(DateTime(timezone=True), nullable=True)
 
     paper = relationship("ExamPaper", back_populates="questions")
+
+    @validates("bloom_level")
+    def _norm_bloom(self, _key: str, value: str) -> str:
+        return value.upper().strip() if value else value
+
+    @validates("question_type")
+    def _norm_qtype(self, _key: str, value: str) -> str:
+        return value.upper().replace(" ", "_").strip() if value else value
 
 
 # ---------------------------------------------------------------------------

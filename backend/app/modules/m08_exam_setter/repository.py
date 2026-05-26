@@ -283,8 +283,8 @@ class ExamQuestionRepository:
                 exam_paper_id=exam_paper_id,
                 unit_number=q["unit_number"],
                 co_code=q.get("co_code"),
-                bloom_level=q["bloom_level"],
-                question_type=q["question_type"],
+                bloom_level=(q["bloom_level"] or "REMEMBER").upper().strip(),
+                question_type=(q["question_type"] or "SHORT_ANSWER").upper().replace(" ", "_").strip(),
                 question_text=q["question_text"],
                 options=q.get("options"),
                 correct_option=q.get("correct_option"),
@@ -347,6 +347,10 @@ class ExamQuestionRepository:
         updates: dict,
         db: AsyncSession,
     ) -> None:
+        if "bloom_level" in updates and updates["bloom_level"]:
+            updates["bloom_level"] = updates["bloom_level"].upper().strip()
+        if "question_type" in updates and updates["question_type"]:
+            updates["question_type"] = updates["question_type"].upper().replace(" ", "_").strip()
         updates["is_edited"] = True
         updates["updated_at"] = datetime.now(timezone.utc)
         await db.execute(

@@ -89,8 +89,10 @@ def check_compliance(
     """
     violations: list[BloomsViolation] = []
 
-    req_norm = {lvl.upper(): float(requested.get(lvl, 0) or 0) for lvl in BLOOM_LEVELS}
-    act_norm = {lvl.upper(): float(actual.get(lvl, 0) or 0) for lvl in BLOOM_LEVELS}
+    req_upper = {k.upper(): v for k, v in requested.items()}
+    act_upper = {k.upper(): v for k, v in actual.items()}
+    req_norm = {lvl: float(req_upper.get(lvl, 0) or 0) for lvl in BLOOM_LEVELS}
+    act_norm = {lvl: float(act_upper.get(lvl, 0) or 0) for lvl in BLOOM_LEVELS}
 
     for lvl in BLOOM_LEVELS:
         req_pct = req_norm[lvl]
