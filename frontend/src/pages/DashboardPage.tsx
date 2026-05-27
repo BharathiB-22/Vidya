@@ -4,6 +4,7 @@ import {
   BarChart2, ChevronRight, CheckCircle, Circle, GraduationCap, Package,
   ClipboardCheck, Cpu, ShieldCheck, Building2,
 } from 'lucide-react'
+import { PageShell } from '@/components/shell/PageShell'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
 
@@ -180,6 +181,10 @@ const ROLE_CONTEXT: Partial<Record<string, { heading: string; body: string }>> =
     heading: 'What to expect',
     body: 'Lab assignments appear in My Labs when your faculty publishes them. Use My Research to register your thesis topic and track progress with your assigned guide.',
   },
+  BOARD: {
+    heading: 'Board responsibilities',
+    body: 'Review submitted exam papers and approve or return with feedback. Once evaluators finalise scripts, review and ratify marks. Bell curve analysis is advisory — raw scores are never altered.',
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -351,7 +356,7 @@ export default function DashboardPage() {
   const institution  = prettifySlug(user?.tenantSlug ?? '')
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+    <PageShell>
 
       {/* ── Welcome header ─────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
@@ -370,25 +375,27 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Stats strip ────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <StatCard
-          label="Modules available"
-          value={String(visibleCards.length)}
-          icon={Cpu}
-          accent
-        />
-        <StatCard
-          label="Access level"
-          value={role || '—'}
-          icon={ShieldCheck}
-        />
-        <StatCard
-          label="Workspace"
-          value={institution}
-          icon={Building2}
-        />
-      </div>
+      {/* ── Stats strip — hidden for narrow single-purpose roles ── */}
+      {!['STUDENT', 'GUIDE'].includes(role) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <StatCard
+            label="Modules available"
+            value={String(visibleCards.length)}
+            icon={Cpu}
+            accent
+          />
+          <StatCard
+            label="Access level"
+            value={role || '—'}
+            icon={ShieldCheck}
+          />
+          <StatCard
+            label="Workspace"
+            value={institution}
+            icon={Building2}
+          />
+        </div>
+      )}
 
       {/* ── Admin onboarding ───────────────────────────────────── */}
       {role === 'ADMIN' && authUser && (
@@ -443,6 +450,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-    </div>
+    </PageShell>
   )
 }

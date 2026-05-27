@@ -1,6 +1,10 @@
 import { useNavigate } from 'react-router-dom'
-import { ClipboardCheck, Clock, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react'
+import { ClipboardCheck, Clock, CheckCircle2 } from 'lucide-react'
 import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
+import { PageLoading } from '@/components/shared/PageLoading'
+import { PageError } from '@/components/shared/PageError'
 import { useEvaluatorAssignments, useEvaluatorAnalytics } from '@/hooks/labs'
 import type { LabAssignment } from '@/types/labs'
 
@@ -77,14 +81,12 @@ export default function EvaluatorDashboardPage() {
   const assignments = assignmentsData?.items ?? []
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">My Evaluations</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Lab assignments assigned to you for evaluation
-        </p>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={ClipboardCheck}
+        title="My Evaluations"
+        subtitle="Lab assignments assigned to you for evaluation"
+      />
 
       {/* Analytics strip */}
       {analytics && (
@@ -118,14 +120,9 @@ export default function EvaluatorDashboardPage() {
 
       {/* Assignment list */}
       {assignmentsLoading ? (
-        <div className="flex items-center justify-center h-48">
-          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-        </div>
+        <PageLoading message="Loading assignments…" />
       ) : isError ? (
-        <div className="text-center py-12">
-          <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-400" />
-          <p className="text-sm text-gray-500">Failed to load assignments.</p>
-        </div>
+        <PageError message="Failed to load assignments." />
       ) : assignments.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <ClipboardCheck className="h-10 w-10 mx-auto mb-3 text-gray-200" />
@@ -146,6 +143,6 @@ export default function EvaluatorDashboardPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }
