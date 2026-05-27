@@ -53,6 +53,10 @@ import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
+import DepartmentsPage from '@/pages/academics/DepartmentsPage'
+import ProgramsPage from '@/pages/academics/ProgramsPage'
+import BatchesPage from '@/pages/academics/BatchesPage'
+import SectionsPage from '@/pages/academics/SectionsPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -94,6 +98,14 @@ export default function App() {
 
           {/* Dashboard — all authenticated roles */}
           <Route path="/dashboard" element={<DashboardPage />} />
+
+          {/* Academic structure — ADMIN only */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
+            <Route path="/academics/departments" element={<DepartmentsPage />} />
+            <Route path="/academics/programs"    element={<ProgramsPage />} />
+            <Route path="/academics/batches"     element={<BatchesPage />} />
+            <Route path="/academics/sections"    element={<SectionsPage />} />
+          </Route>
 
           {/* User management & settings — ADMIN only */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>

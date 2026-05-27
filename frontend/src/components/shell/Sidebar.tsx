@@ -3,6 +3,7 @@ import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
+  Building2, Calendar, LayoutList,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -67,6 +68,15 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Evaluate',
     items: [
       { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'] },
+    ],
+  },
+  {
+    heading: 'Academics',
+    items: [
+      { label: 'Departments', to: '/academics/departments', icon: Building2,    roles: ['ADMIN'] },
+      { label: 'Programs',    to: '/academics/programs',    icon: GraduationCap, roles: ['ADMIN'] },
+      { label: 'Batches',     to: '/academics/batches',     icon: Calendar,      roles: ['ADMIN'] },
+      { label: 'Sections',    to: '/academics/sections',    icon: LayoutList,    roles: ['ADMIN'] },
     ],
   },
   {

@@ -1,0 +1,102 @@
+import api from '@/lib/api'
+
+export interface Department {
+  id: string
+  name: string
+  code: string
+  description: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface AcadProgram {
+  id: string
+  department_id: string
+  name: string
+  code: string
+  degree_type: string
+  duration_years: number
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface Batch {
+  id: string
+  program_id: string
+  name: string
+  start_year: number
+  end_year: number
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface Semester {
+  id: string
+  batch_id: string
+  number: number
+  label: string | null
+  start_date: string | null
+  end_date: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface Section {
+  id: string
+  semester_id: string
+  name: string
+  max_strength: number | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface GenerateSemestersResult {
+  created: number
+  skipped: number
+  semesters: Semester[]
+}
+
+const B = '/academics'
+
+export const academicsApi = {
+  // Departments
+  listDepartments: (includeInactive = false) =>
+    api.get<Department[]>(`${B}/departments`, { params: { include_inactive: includeInactive } }).then(r => r.data),
+  createDepartment: (body: { name: string; code: string; description?: string }) =>
+    api.post<Department>(`${B}/departments`, body).then(r => r.data),
+  updateDepartment: (id: string, body: Partial<{ name: string; code: string; description: string; is_active: boolean }>) =>
+    api.put<Department>(`${B}/departments/${id}`, body).then(r => r.data),
+
+  // Programs
+  listPrograms: (departmentId?: string, includeInactive = false) =>
+    api.get<AcadProgram[]>(`${B}/programs`, { params: { department_id: departmentId || undefined, include_inactive: includeInactive } }).then(r => r.data),
+  createProgram: (body: { department_id: string; name: string; code: string; degree_type: string; duration_years: number }) =>
+    api.post<AcadProgram>(`${B}/programs`, body).then(r => r.data),
+  updateProgram: (id: string, body: Partial<{ name: string; code: string; degree_type: string; duration_years: number; is_active: boolean }>) =>
+    api.put<AcadProgram>(`${B}/programs/${id}`, body).then(r => r.data),
+
+  // Batches
+  listBatches: (programId?: string, includeInactive = false) =>
+    api.get<Batch[]>(`${B}/batches`, { params: { program_id: programId || undefined, include_inactive: includeInactive } }).then(r => r.data),
+  createBatch: (body: { program_id: string; name: string; start_year: number; end_year: number }) =>
+    api.post<Batch>(`${B}/batches`, body).then(r => r.data),
+  updateBatch: (id: string, body: Partial<{ name: string; is_active: boolean }>) =>
+    api.put<Batch>(`${B}/batches/${id}`, body).then(r => r.data),
+  generateSemesters: (batchId: string) =>
+    api.post<GenerateSemestersResult>(`${B}/batches/${batchId}/generate-semesters`).then(r => r.data),
+
+  // Semesters
+  listSemesters: (batchId?: string, includeInactive = false) =>
+    api.get<Semester[]>(`${B}/semesters`, { params: { batch_id: batchId || undefined, include_inactive: includeInactive } }).then(r => r.data),
+
+  // Sections
+  listSections: (semesterId?: string, includeInactive = false) =>
+    api.get<Section[]>(`${B}/sections`, { params: { semester_id: semesterId || undefined, include_inactive: includeInactive } }).then(r => r.data),
+  createSection: (body: { semester_id: string; name: string; max_strength?: number }) =>
+    api.post<Section>(`${B}/sections`, body).then(r => r.data),
+  updateSection: (id: string, body: Partial<{ name: string; max_strength: number | null; is_active: boolean }>) =>
+    api.put<Section>(`${B}/sections/${id}`, body).then(r => r.data),
+}
