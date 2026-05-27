@@ -357,7 +357,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold text-sv-primary uppercase tracking-[0.18em] mb-1.5">
-            VIDYA AI · SherpaVector
+            VIDYA AI · Academic Workspace
           </p>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">
             {getGreeting()}{firstName ? `, ${firstName}` : ''}

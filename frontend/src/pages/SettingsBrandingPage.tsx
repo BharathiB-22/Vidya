@@ -13,6 +13,15 @@ function prettifySlug(slug: string): string {
   return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase())
+    .slice(0, 2)
+    .join('')
+}
+
 function SidebarPreview({
   institutionName,
   logoUrl,
@@ -23,9 +32,10 @@ function SidebarPreview({
   primaryColor: string
 }) {
   const navItems = ['Dashboard', 'Programs', 'Syllabuses', 'Exam Papers']
+  const initials = getInitials(institutionName) || 'IN'
 
   return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden" style={{ maxWidth: 200 }}>
+    <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm" style={{ maxWidth: 200 }}>
       {/* Header */}
       <div className="px-3 py-3 flex items-center gap-2" style={{ backgroundColor: '#0f2044' }}>
         {logoUrl ? (
@@ -37,15 +47,15 @@ function SidebarPreview({
           />
         ) : (
           <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-white font-extrabold text-xs"
+            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-white font-extrabold text-[10px]"
             style={{ backgroundColor: primaryColor }}
           >
-            SV
+            {initials}
           </div>
         )}
         <div className="min-w-0">
-          <p className="text-[11px] font-bold text-white leading-none truncate">VIDYA AI</p>
-          <p className="text-[9px] text-slate-500 truncate mt-0.5">{institutionName}</p>
+          <p className="text-[11px] font-bold text-white leading-none truncate">{institutionName}</p>
+          <p className="text-[9px] text-slate-400 truncate mt-0.5">VIDYA AI Workspace</p>
         </div>
       </div>
 
@@ -71,8 +81,8 @@ function SidebarPreview({
 
       {/* Footer */}
       <div className="px-3 py-2 border-t border-white/5" style={{ backgroundColor: '#0f2044' }}>
-        <p className="text-[8px] text-slate-700 font-bold tracking-widest uppercase">
-          SherpaVector · VIDYA AI
+        <p className="text-[8px] text-slate-600 font-bold tracking-widest uppercase">
+          Powered by VIDYA AI
         </p>
       </div>
     </div>
@@ -126,7 +136,9 @@ export default function SettingsBrandingPage() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-gray-900">Institution Branding</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Customize how your workspace looks for all users</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Personalize your institution's Academic AI Workspace — logo, colors, and identity
+          </p>
         </div>
       </div>
 
@@ -134,8 +146,8 @@ export default function SettingsBrandingPage() {
       <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
         <Info className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-blue-700 leading-relaxed">
-          Branding changes are saved in your browser for preview. To apply platform-wide (across all devices),
-          contact your SherpaVector Platform Admin to sync via the Platform Console.
+          Branding applies to <strong>this institution only</strong> and is previewed in your browser.
+          To sync across all devices for your institution, contact your Platform Administrator via the VIDYA AI Platform Console.
         </p>
       </div>
 
@@ -162,7 +174,7 @@ export default function SettingsBrandingPage() {
 
             {/* Logo */}
             <div className="space-y-1">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Logo</h2>
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Institution Logo</h2>
               <label className="block text-sm font-medium text-gray-700" htmlFor="logo-url">
                 Logo URL
               </label>
@@ -173,7 +185,10 @@ export default function SettingsBrandingPage() {
                 onChange={(e) => setLogoUrl(e.target.value)}
                 placeholder="https://your-university.edu/logo.png"
               />
-              <p className="text-xs text-gray-400">PNG or SVG recommended. Shown in sidebar header.</p>
+              <p className="text-xs text-gray-400">
+                PNG or SVG recommended · Appears in the sidebar header for all users of your institution.
+                Direct upload coming soon — for now, host your logo and paste the URL.
+              </p>
             </div>
 
             {/* Colors */}

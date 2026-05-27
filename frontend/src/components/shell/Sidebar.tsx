@@ -244,7 +244,7 @@ export function Sidebar({ onClose }: SidebarProps) {
           </div>
         </div>
         <p className="text-[8px] text-slate-600 mt-2.5 font-extrabold tracking-[0.2em] uppercase">
-          SherpaVector · VIDYA AI
+          Powered by VIDYA AI
         </p>
       </div>
 

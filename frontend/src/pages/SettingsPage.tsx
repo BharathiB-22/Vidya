@@ -78,13 +78,13 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
             <img
               src="/branding/sherpavector-logo.png"
-              alt="SherpaVector"
+              alt="VIDYA AI"
               className="h-9 w-9 rounded-lg object-contain"
             />
             <div className="text-right">
               <p className="text-xs font-semibold text-slate-700">VIDYA AI</p>
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                by SherpaVector
+                Academic AI Workspace
               </p>
             </div>
           </div>
@@ -214,7 +214,7 @@ export default function SettingsPage() {
                   <div>
                     <h2 className="text-sm font-semibold text-slate-900">Branding & appearance</h2>
                     <p className="text-xs text-slate-500">
-                      Tenant-level theming for VIDYA AI by SherpaVector.
+                      Customize your institution's Academic AI Workspace theme.
                     </p>
                   </div>
                 </div>

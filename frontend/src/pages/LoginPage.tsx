@@ -69,10 +69,10 @@ export default function LoginPage() {
         <div className="relative z-10 flex items-center gap-3">
           <img
             src="/branding/sherpavector-logo.png"
-            alt="SherpaVector"
+            alt="VIDYA AI"
             className="h-10 w-10 rounded-xl object-contain drop-shadow-[0_0_18px_rgba(16,185,129,0.55)]"
           />
-          <span className="text-slate-200 font-semibold text-base tracking-wide">SherpaVector</span>
+          <span className="text-slate-200 font-semibold text-base tracking-wide">VIDYA AI</span>
         </div>
 
         {/* Hero copy */}
@@ -120,9 +120,9 @@ export default function LoginPage() {
             Trusted by institutions. Designed for leadership.
           </div>
           <div className="mt-6 border-t border-white/10 pt-6">
-            <p className="text-slate-400 text-xs">© 2026 SherpaVector Pvt. Ltd. All rights reserved.</p>
+            <p className="text-slate-400 text-xs">© 2026 VIDYA AI Academic Platform. All rights reserved.</p>
             <p className="text-slate-500 text-[10px] mt-0.5 font-medium tracking-wide uppercase">
-              Powered by SherpaVector · VIDYA AI
+              Powered by VIDYA AI
             </p>
           </div>
         </div>
@@ -138,12 +138,12 @@ export default function LoginPage() {
           <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
             <img
               src="/branding/sherpavector-logo.png"
-              alt="SherpaVector"
+              alt="VIDYA AI"
               className="h-9 w-9 rounded-xl object-contain drop-shadow-[0_0_14px_rgba(16,185,129,0.35)]"
             />
             <div>
               <p className="text-sm font-bold text-gray-900 leading-none">VIDYA AI</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">by SherpaVector</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Academic AI Workspace</p>
             </div>
           </div>
 
@@ -247,7 +247,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs text-center text-gray-400 mt-4">
-            VIDYA AI · Powered by SherpaVector
+            Powered by VIDYA AI
           </p>
         </div>
       </div>
