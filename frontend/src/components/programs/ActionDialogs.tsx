@@ -83,6 +83,7 @@ interface ApproveDialogProps {
   onOpenChange: (open: boolean) => void
   onSubmit: (comment?: string) => void
   isPending?: boolean
+  hasAcadLink?: boolean
 }
 
 export function ApproveDialog({
@@ -90,6 +91,7 @@ export function ApproveDialog({
   onOpenChange,
   onSubmit,
   isPending,
+  hasAcadLink,
 }: ApproveDialogProps) {
   const [comment, setComment] = useState('')
 
@@ -118,6 +120,11 @@ export function ApproveDialog({
               placeholder="Any notes for the record…"
             />
           </div>
+          {hasAcadLink === false && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+              This program is not linked to an Academic Structure entry. You may still approve — this is advisory only.
+            </p>
+          )}
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
             Once approved, the program becomes immutable. Future changes require a version fork.
           </p>

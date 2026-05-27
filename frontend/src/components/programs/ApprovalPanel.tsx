@@ -2,6 +2,7 @@ import { CheckCircle2, Circle } from 'lucide-react'
 import { useProgramVersions } from '@/hooks/programs'
 import { ProgramStatusBadge } from './ProgramStatusBadge'
 import type { Program, ProgramStatus } from '@/types/program'
+import type { AcadProgram } from '@/lib/api/academics'
 
 interface Step {
   label: string
@@ -25,9 +26,10 @@ const STATUS_ORDER: Record<ProgramStatus, number> = {
 
 interface Props {
   program: Program
+  linkedAcadProgram?: AcadProgram
 }
 
-export function ApprovalPanel({ program }: Props) {
+export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
   const { data: versions = [], isLoading } = useProgramVersions(program.id)
   const current = STATUS_ORDER[program.status]
 
@@ -80,6 +82,28 @@ export function ApprovalPanel({ program }: Props) {
           })}
         </div>
       </div>
+
+      {/* Academic Structure context */}
+      {(program.status === 'PENDING_APPROVAL' || program.status === 'APPROVED') && (
+        linkedAcadProgram ? (
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4">
+            <h3 className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">
+              Linked Academic Program
+            </h3>
+            <p className="text-sm font-semibold text-indigo-900">{linkedAcadProgram.name}</p>
+            <p className="text-xs text-indigo-500 mt-0.5">
+              {linkedAcadProgram.code} · {linkedAcadProgram.degree_type} · {linkedAcadProgram.duration_years} yr
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <p className="text-sm text-gray-500">
+              <span className="font-medium text-gray-600">Not linked to an Academic Structure entry.</span>
+              {' '}Link it via the program edit flow if needed. Approval is not affected.
+            </p>
+          </div>
+        )
+      )}
 
       {/* Approval details */}
       {program.status === 'APPROVED' && program.approved_at && (

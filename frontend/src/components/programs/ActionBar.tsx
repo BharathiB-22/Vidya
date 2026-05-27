@@ -149,6 +149,7 @@ export function ActionBar({ program }: Props) {
         onOpenChange={setApproveOpen}
         onSubmit={(comment) => approve.mutate({ id: program.id, payload: { comment } })}
         isPending={approve.isPending}
+        hasAcadLink={Boolean(program.acad_program_id)}
       />
       <RejectDialog
         open={rejectOpen}

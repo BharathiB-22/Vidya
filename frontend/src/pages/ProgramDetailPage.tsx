@@ -112,7 +112,7 @@ export default function ProgramDetailPage() {
         </TabsContent>
 
         <TabsContent value="approval" className="mt-4">
-          <ApprovalPanel program={program} />
+          <ApprovalPanel program={program} linkedAcadProgram={linkedAcadProgram} />
         </TabsContent>
       </Tabs>
     </div>
