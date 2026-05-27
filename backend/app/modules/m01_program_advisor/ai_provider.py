@@ -253,10 +253,18 @@ def _normalize_groq_structure(
         data = data["program_structure"]
 
     # --- flatten semester-wise courses into a flat list ---
-    # Handles: {"semesters": [{"semester_number": N, "courses": [...]}]}
+    # Handles:
+    #   {"semesters": [{"semester_number": N, "courses": [...]}]}
+    #   {"semester_wise_courses": [{"semester": N, "courses": [...]}]}
+    _sem_key = None
     if "semesters" in data and "courses" not in data:
+        _sem_key = "semesters"
+    elif "semester_wise_courses" in data and "courses" not in data:
+        _sem_key = "semester_wise_courses"
+
+    if _sem_key is not None:
         flat: list[Any] = []
-        for sem in data.pop("semesters"):
+        for sem in data.pop(_sem_key):
             if not isinstance(sem, dict):
                 continue
             sem_num = sem.get("semester_number") or sem.get("semester") or 1
@@ -300,6 +308,17 @@ def _normalize_groq_structure(
         # name -> title (must happen before description synthesis)
         if "title" not in c and "name" in c:
             c["title"] = c.pop("name")
+
+        # clamp AI-generated credits to valid range [1, 6]
+        raw_credits = c.get("credits")
+        if isinstance(raw_credits, (int, float)):
+            clamped = max(1, min(6, int(raw_credits)))
+            if clamped != int(raw_credits):
+                logger.warning(
+                    "Groq course %r: credits %s out of range [1, 6], clamped to %d.",
+                    c.get("code", "?"), raw_credits, clamped,
+                )
+                c["credits"] = clamped
 
         # infer semester from course code when absent
         if not c.get("semester"):

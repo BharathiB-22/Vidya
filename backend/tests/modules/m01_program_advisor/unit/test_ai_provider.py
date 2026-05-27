@@ -418,6 +418,126 @@ def test_normalize_missing_outcomes_synthesises_four_fallbacks():
     assert "Computer Science" in descs or "BCA" in descs
 
 
+def test_normalize_semester_wise_courses_key():
+    """
+    semester_wise_courses (new Groq variant) must be flattened identically to semesters.
+    Shape: {"program_structure": {"semester_wise_courses": [{"semester": N, "courses": [...]}]}}
+    """
+    raw = """{
+        "program_structure": {
+            "programme_outcomes": [
+                {"code": "PO1", "description": "Apply computing concepts to solve problems",
+                 "bloom_level": "Apply", "display_order": 1}
+            ],
+            "semester_wise_courses": [
+                {
+                    "semester": 1,
+                    "courses": [
+                        {"code": "CS101", "name": "Intro to CS", "credits": 4,
+                         "is_elective": false, "hours_lecture": 3, "hours_tutorial": 1,
+                         "hours_practical": 0, "prerequisite_codes": []},
+                        {"code": "MATH101", "name": "Engineering Maths I", "credits": 4,
+                         "is_elective": false, "hours_lecture": 4, "hours_tutorial": 0,
+                         "hours_practical": 0, "prerequisite_codes": []}
+                    ]
+                },
+                {
+                    "semester": 3,
+                    "courses": [
+                        {"code": "CS301", "name": "Data Structures", "credits": 4,
+                         "is_elective": false, "hours_lecture": 3, "hours_tutorial": 1,
+                         "hours_practical": 2, "prerequisite_codes": ["CS101"]}
+                    ]
+                }
+            ]
+        }
+    }"""
+    data = _normalize_groq_structure(raw)
+
+    # wrapper and semester_wise_courses key removed
+    assert "program_structure" not in data
+    assert "semester_wise_courses" not in data
+    assert "semesters" not in data
+
+    # 3 courses flattened
+    assert len(data["courses"]) == 3
+
+    # semester injected from parent "semester" key
+    sems = [c["semester"] for c in data["courses"]]
+    assert sems == [1, 1, 3]
+
+    # name → title
+    for c in data["courses"]:
+        assert "title" in c
+        assert "name" not in c
+        assert "description" in c and c["description"]
+
+
+def test_normalize_semester_wise_courses_exact_failure_shape():
+    """
+    Regression test for the exact Groq response shape that triggered the
+    'ValidationError: courses Field required' production error:
+      program_structure wrapper + semester_wise_courses list with 'semester' key.
+    After normalisation _ProgramStructureAI must validate cleanly.
+    """
+    from app.modules.m01_program_advisor.ai_provider import _ProgramStructureAI
+
+    raw = """{
+        "program_structure": {
+            "semester_wise_courses": [
+                {
+                    "semester": 1,
+                    "courses": [
+                        {"code": "BCA101", "name": "Problem Solving using C", "credits": 4,
+                         "is_elective": false, "hours_lecture": 3, "hours_tutorial": 1,
+                         "hours_practical": 2, "prerequisite_codes": []},
+                        {"code": "BCA102", "name": "Mathematics for Computing", "credits": 4,
+                         "is_elective": false, "hours_lecture": 4, "hours_tutorial": 0,
+                         "hours_practical": 0, "prerequisite_codes": []}
+                    ]
+                },
+                {
+                    "semester": 2,
+                    "courses": [
+                        {"code": "BCA201", "name": "Object Oriented Programming", "credits": 4,
+                         "is_elective": false, "hours_lecture": 3, "hours_tutorial": 1,
+                         "hours_practical": 2, "prerequisite_codes": ["BCA101"]},
+                        {"code": "BCA202", "name": "Digital Electronics", "credits": 3,
+                         "is_elective": false, "hours_lecture": 3, "hours_tutorial": 0,
+                         "hours_practical": 0, "prerequisite_codes": []}
+                    ]
+                }
+            ]
+        }
+    }"""
+    data = _normalize_groq_structure(raw, department="Computer Applications", degree_type="BCA")
+
+    # structure unwrapped
+    assert "program_structure" not in data
+    assert "semester_wise_courses" not in data
+
+    # fallback outcomes synthesised (no outcomes in payload)
+    assert len(data["outcomes"]) >= 4
+    descs = " ".join(o["description"] for o in data["outcomes"])
+    assert "Computer Applications" in descs or "BCA" in descs
+
+    # 4 courses flattened with correct semesters
+    assert len(data["courses"]) == 4
+    assert [c["semester"] for c in data["courses"]] == [1, 1, 2, 2]
+
+    # every course satisfies _CourseAI requirements
+    for c in data["courses"]:
+        assert "title" in c and c["title"]
+        assert "name" not in c
+        assert "description" in c and c["description"]
+        assert "prerequisite_codes" in c
+
+    # end-to-end Pydantic validation must pass
+    parsed = _ProgramStructureAI.model_validate(data)
+    assert len(parsed.courses) == 4
+    assert len(parsed.outcomes) >= 4
+
+
 def test_normalize_missing_outcomes_no_context():
     """Fallback outcomes must be valid even without department/degree_type."""
     raw = '{"outcomes": null, "courses": []}'
@@ -489,6 +609,73 @@ def test_normalize_missing_outcomes_exact_failure_shape():
     # discipline referenced in at least one outcome
     descs = " ".join(o["description"] for o in data["outcomes"])
     assert "Computer Applications" in descs or "BCA" in descs
+
+
+# ---------------------------------------------------------------------------
+# Credit clamping
+# ---------------------------------------------------------------------------
+
+def test_normalize_credits_over_max_clamped():
+    """Credits > 6 must be clamped to 6."""
+    raw = """{
+        "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+        "courses": [
+            {"code": "BCA602", "title": "Advanced Topics", "credits": 8,
+             "semester": 6, "is_elective": false,
+             "hours_lecture": 3, "hours_tutorial": 1, "hours_practical": 2,
+             "description": "Advanced course.", "prerequisite_codes": []}
+        ]
+    }"""
+    data = _normalize_groq_structure(raw)
+    assert data["courses"][0]["credits"] == 6
+
+
+def test_normalize_credits_under_min_clamped():
+    """Credits < 1 must be clamped to 1."""
+    raw = """{
+        "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+        "courses": [
+            {"code": "CS101", "title": "Intro", "credits": 0,
+             "semester": 1, "is_elective": false,
+             "hours_lecture": 1, "hours_tutorial": 0, "hours_practical": 0,
+             "description": "Intro course.", "prerequisite_codes": []}
+        ]
+    }"""
+    data = _normalize_groq_structure(raw)
+    assert data["courses"][0]["credits"] == 1
+
+
+def test_normalize_credits_in_range_unchanged():
+    """Credits within [1, 6] must not be modified."""
+    raw = """{
+        "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+        "courses": [
+            {"code": "CS301", "title": "Algorithms", "credits": 4,
+             "semester": 3, "is_elective": false,
+             "hours_lecture": 3, "hours_tutorial": 1, "hours_practical": 0,
+             "description": "Algorithms course.", "prerequisite_codes": []}
+        ]
+    }"""
+    data = _normalize_groq_structure(raw)
+    assert data["courses"][0]["credits"] == 4
+
+
+def test_normalize_credits_clamped_passes_pydantic():
+    """Credits=8 clamped to 6 must allow _ProgramStructureAI validation to succeed."""
+    import json
+    from app.modules.m01_program_advisor.ai_provider import _ProgramStructureAI
+    raw = """{
+        "outcomes": [{"code": "PO1", "description": "Apply computing", "bloom_level": "Apply", "display_order": 1}],
+        "courses": [
+            {"code": "BCA602", "title": "Advanced Topics", "credits": 8,
+             "semester": 6, "is_elective": false,
+             "hours_lecture": 3, "hours_tutorial": 1, "hours_practical": 2,
+             "description": "Advanced course.", "prerequisite_codes": []}
+        ]
+    }"""
+    data = _normalize_groq_structure(raw)
+    parsed = _ProgramStructureAI.model_validate(data)
+    assert parsed.courses[0].credits == 6
 
 
 # ---------------------------------------------------------------------------
