@@ -22,6 +22,22 @@ const ROLE_COLORS: Record<string, string> = {
   EVALUATOR: 'bg-gray-100 text-gray-600',
 }
 
+function getGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
+const HONORIFICS = new Set(['dr.', 'prof.', 'mr.', 'ms.', 'mrs.', 'mx.', 'sir'])
+
+function getDisplayFirstName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length <= 1) return parts[0] ?? ''
+  if (HONORIFICS.has(parts[0].toLowerCase())) return `${parts[0]} ${parts[1]}`
+  return parts[0]
+}
+
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/)
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
@@ -154,7 +170,9 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold text-gray-900 truncate leading-tight">
-                    {displayName}
+                    {user?.fullName
+                      ? `${getGreeting()}, ${getDisplayFirstName(user.fullName)}`
+                      : getGreeting()}
                   </p>
                   <p className="text-[11px] text-gray-400 truncate mt-0.5">
                     {user?.email}

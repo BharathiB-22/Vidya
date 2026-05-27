@@ -100,7 +100,7 @@ function CreateUserDialog({ open, onClose, onCreated }: CreateDialogProps) {
         ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
       }
       const user = await usersApi.create(payload)
-      addToast('User created.', 'success')
+      addToast(`${payload.full_name} added successfully.`, 'success')
       onCreated(user)
       reset()
       onClose()
@@ -168,6 +168,7 @@ interface EditDialogProps {
 
 function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
   const [fullName,   setFullName]   = useState('')
+  const [email,      setEmail]      = useState('')
   const [role,       setRole]       = useState<Role>('FACULTY')
   const [isActive,   setIsActive]   = useState(true)
   const [identifier, setIdentifier] = useState('')
@@ -177,6 +178,7 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
   useEffect(() => {
     if (user) {
       setFullName(user.full_name)
+      setEmail(user.email)
       setRole(user.role as Role)
       setIsActive(user.is_active)
       setIdentifier(user.identifier ?? '')
@@ -192,11 +194,12 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
     try {
       const payload: UpdateUserPayload = {}
       if (fullName.trim() !== user.full_name) payload.full_name = fullName.trim()
+      if (email.trim().toLowerCase() !== user.email.toLowerCase()) payload.email = email.trim()
       if (role !== user.role) payload.role = role
       if (isActive !== user.is_active) payload.is_active = isActive
       if (identifier.trim() !== (user.identifier ?? '')) payload.identifier = identifier.trim() || undefined
       const updated = await usersApi.update(user.id, payload)
-      addToast('Changes saved.', 'success')
+      addToast('User updated successfully.', 'success')
       onUpdated(updated)
       onClose()
     } catch (err) {
@@ -214,7 +217,21 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
         </DialogHeader>
         {user && (
           <form onSubmit={handleSubmit} className="space-y-3 mt-2">
-            <p className="text-sm text-gray-500">{user.email}</p>
+            <div className="space-y-1">
+              <label htmlFor="edit-email" className="text-sm font-medium text-gray-700">Email address</label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              {email.trim().toLowerCase() !== user.email.toLowerCase() && (
+                <p className="text-xs text-amber-600">
+                  Changing this email updates the user's sign-in address. Their role, permissions, and existing records remain unchanged.
+                </p>
+              )}
+            </div>
             {user.role === 'GUIDE' && (
               <div className="rounded-lg bg-teal-50 border border-teal-200 px-3 py-2">
                 <p className="text-xs font-semibold text-teal-700 mb-1">User UUID <span className="font-normal text-teal-600">(used as guide_user_id in research proposals)</span></p>
@@ -307,7 +324,11 @@ export default function UsersPage() {
     setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u))
   }
 
-  if (loading) return <PageLoading />
+  if (loading) return (
+    <PageShell>
+      <PageLoading message="Loading users…" />
+    </PageShell>
+  )
 
   return (
     <PageShell>

@@ -91,6 +91,22 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
+function getGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
+const HONORIFICS = new Set(['dr.', 'prof.', 'mr.', 'ms.', 'mrs.', 'mx.', 'sir'])
+
+function getDisplayFirstName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length <= 1) return parts[0] ?? ''
+  if (HONORIFICS.has(parts[0].toLowerCase())) return `${parts[0]} ${parts[1]}`
+  return parts[0]
+}
+
 function prettifySlug(slug: string): string {
   if (!slug) return 'Institution'
   return slug
@@ -251,7 +267,9 @@ export function Sidebar({ onClose }: SidebarProps) {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-semibold text-slate-300 truncate leading-tight">
-              {displayName || role}
+              {user?.fullName
+                ? `${getGreeting()}, ${getDisplayFirstName(user.fullName)}`
+                : getGreeting()}
             </p>
             <p className="text-[9px] text-slate-600 leading-tight mt-0.5 uppercase tracking-wide font-medium">
               {role}

@@ -5,6 +5,7 @@ import {
   ClipboardCheck, Cpu, ShieldCheck, Building2,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
 
@@ -334,6 +335,15 @@ function getGreeting(): string {
   return 'Good evening'
 }
 
+const HONORIFICS = new Set(['dr.', 'prof.', 'mr.', 'ms.', 'mrs.', 'mx.', 'sir'])
+
+function getDisplayFirstName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length <= 1) return parts[0] ?? ''
+  if (HONORIFICS.has(parts[0].toLowerCase())) return `${parts[0]} ${parts[1]}`
+  return parts[0]
+}
+
 function prettifySlug(slug: string): string {
   if (!slug) return 'Institution'
   return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
@@ -350,7 +360,7 @@ export default function DashboardPage() {
   const role = user?.role ?? ''
 
   const visibleCards = CARDS.filter((c) => c.roles.includes(role))
-  const firstName    = user?.fullName ? user.fullName.split(' ')[0] : null
+  const displayFirstName = user?.fullName ? getDisplayFirstName(user.fullName) : null
   const subtitle     = ROLE_SUBTITLE[role] ?? 'Select a module below to get started.'
   const roleContext  = ROLE_CONTEXT[role]
   const institution  = prettifySlug(user?.tenantSlug ?? '')
@@ -365,7 +375,7 @@ export default function DashboardPage() {
             VIDYA AI · Academic Workspace
           </p>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">
-            {getGreeting()}{firstName ? `, ${firstName}` : ''}
+            {getGreeting()}{displayFirstName ? `, ${displayFirstName}` : ''}
           </h1>
           <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
         </div>
@@ -442,12 +452,7 @@ export default function DashboardPage() {
 
       {/* ── Empty state ────────────────────────────────────────── */}
       {visibleCards.length === 0 && (
-        <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
-          <p className="text-sm text-gray-400">
-            No modules are currently available for your role.{' '}
-            <span className="text-gray-500">Contact your administrator.</span>
-          </p>
-        </div>
+        <PageEmpty message="No modules are available for your role. Contact your administrator." />
       )}
 
     </PageShell>
