@@ -91,6 +91,10 @@ export const academicsApi = {
   // Semesters
   listSemesters: (batchId?: string, includeInactive = false) =>
     api.get<Semester[]>(`${B}/semesters`, { params: { batch_id: batchId || undefined, include_inactive: includeInactive } }).then(r => r.data),
+  createSemester: (body: { batch_id: string; number: number; label?: string }) =>
+    api.post<Semester>(`${B}/semesters`, body).then(r => r.data),
+  updateSemester: (id: string, body: Partial<{ label: string | null; is_active: boolean }>) =>
+    api.put<Semester>(`${B}/semesters/${id}`, body).then(r => r.data),
 
   // Sections
   listSections: (semesterId?: string, includeInactive = false) =>

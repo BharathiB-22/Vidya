@@ -8,6 +8,9 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
+import { PageLoading } from '@/components/shared/PageLoading'
 import { academicsApi, Batch, AcadProgram } from '@/lib/api/academics'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
@@ -210,26 +213,16 @@ export default function BatchesPage() {
     }
   }
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-48">
-      <div className="h-6 w-6 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
-    </div>
-  )
+  if (loading) return <PageLoading />
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-lg bg-blue-50 border border-blue-100">
-            <Calendar className="h-5 w-5 text-blue-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Batches</h1>
-            <p className="text-sm text-gray-500">{batches.length} batch{batches.length !== 1 ? 'es' : ''}</p>
-          </div>
-        </div>
-        <Button onClick={() => setShowCreate(true)}>Add batch</Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={Calendar}
+        title="Batches"
+        subtitle={`${batches.length} batch${batches.length !== 1 ? 'es' : ''}`}
+        action={<Button onClick={() => setShowCreate(true)}>Add batch</Button>}
+      />
 
       {err && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{err}</p>}
 
@@ -253,11 +246,11 @@ export default function BatchesPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Batch</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Years</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600 hidden lg:table-cell">Program</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Status</th>
-              <th className="px-4 py-2.5 text-right font-medium text-gray-600">Actions</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Batch</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Years</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Program</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+              <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -305,6 +298,6 @@ export default function BatchesPage() {
         batch={editing} onClose={() => setEditing(null)}
         onUpdated={updated => setBatches(prev => prev.map(b => b.id === updated.id ? updated : b))}
       />
-    </div>
+    </PageShell>
   )
 }

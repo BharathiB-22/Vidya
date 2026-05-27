@@ -8,7 +8,12 @@ interface Crumb {
 
 const SEGMENT_LABELS: Record<string, string> = {
   dashboard:            'Dashboard',
-  programs:             'Programs',
+  programs:             'Program Advisor',
+  academics:            'Academic Structure',
+  departments:          'Departments',
+  semesters:            'Semesters',
+  batches:              'Batches',
+  sections:             'Sections',
   syllabuses:           'Syllabuses',
   'course-kits':        'Course Kits',
   'learning-packages':  'Learning Packages',

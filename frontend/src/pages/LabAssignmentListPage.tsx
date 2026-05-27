@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, ClipboardList, ChevronRight, ChevronLeft, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { useLabAssignments } from '@/hooks/labs'
 import { useCreateAssignment, usePublishAssignment, useCloseAssignment } from '@/hooks/labs'
@@ -149,28 +151,23 @@ export default function LabAssignmentListPage() {
   const { mutate: close,   isPending: closing }    = useCloseAssignment()
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <PageShell>
       <Button variant="ghost" size="sm" className="-mt-2 -ml-1" onClick={() => navigate(-1)}>
         <ChevronLeft className="h-4 w-4 mr-1" />
         Back
       </Button>
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Lab Assignments</h1>
-          {syllabusId && (
-            <p className="text-sm text-gray-500 mt-0.5">
-              Syllabus: <span className="font-mono text-gray-700">{syllabusId}</span>
-            </p>
-          )}
-        </div>
-        {canWrite && (
+      <PageHeader
+        icon={ClipboardList}
+        title="Lab Assignments"
+        subtitle={syllabusId ? `Syllabus: ${syllabusId}` : undefined}
+        action={canWrite ? (
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
             New Assignment
           </Button>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {/* Status filter */}
       <div className="flex gap-2 flex-wrap">
@@ -302,6 +299,6 @@ export default function LabAssignmentListPage() {
           onCreated={(id) => { setCreateOpen(false); navigate(`/labs/${id}`) }}
         />
       )}
-    </div>
+    </PageShell>
   )
 }

@@ -8,6 +8,8 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { academicsApi, AcadProgram, Batch, Section, Semester } from '@/lib/api/academics'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
@@ -216,23 +218,17 @@ export default function SectionsPage() {
   const canAdd = filterSem !== 'NONE'
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-lg bg-teal-50 border border-teal-100">
-            <LayoutList className="h-5 w-5 text-teal-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Sections</h1>
-            <p className="text-sm text-gray-500">
-              {filterSem !== 'NONE' ? `${sections.length} section${sections.length !== 1 ? 's' : ''}` : 'Select a semester to view sections'}
-            </p>
-          </div>
-        </div>
-        <Button onClick={() => setShowCreate(true)} disabled={!canAdd} title={!canAdd ? 'Select a semester first' : ''}>
-          Add section
-        </Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={LayoutList}
+        title="Sections"
+        subtitle={filterSem !== 'NONE' ? `${sections.length} section${sections.length !== 1 ? 's' : ''}` : 'Select a semester to view sections'}
+        action={
+          <Button onClick={() => setShowCreate(true)} disabled={!canAdd} title={!canAdd ? 'Select a semester first' : ''}>
+            Add section
+          </Button>
+        }
+      />
 
       {err && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{err}</p>}
 
@@ -289,17 +285,20 @@ export default function SectionsPage() {
       {/* Table */}
       {filterSem !== 'NONE' && (
         loading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="h-6 w-6 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+          <div className="py-8">
+            <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
+              <div className="h-5 w-5 animate-spin rounded-full border-4 border-gray-300 border-t-gray-500" />
+              Loading…
+            </div>
           </div>
         ) : (
           <div className="border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="text-left px-4 py-2.5 font-medium text-gray-600">Section</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-gray-600">Max strength</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-gray-600">Status</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Section</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Max strength</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
@@ -342,6 +341,6 @@ export default function SectionsPage() {
         onClose={() => setEditing(null)}
         onUpdated={updated => setSections(prev => prev.map(s => s.id === updated.id ? updated : s))}
       />
-    </div>
+    </PageShell>
   )
 }

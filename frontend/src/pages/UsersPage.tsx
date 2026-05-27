@@ -1,9 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
+import { Users } from 'lucide-react'
 import { usersApi, UserRecord, CreateUserPayload, UpdateUserPayload } from '@/lib/api/users'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
+import { PageLoading } from '@/components/shared/PageLoading'
 import {
   Dialog,
   DialogContent,
@@ -303,23 +307,16 @@ export default function UsersPage() {
     setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u))
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-48">
-        <div className="h-6 w-6 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
-      </div>
-    )
-  }
+  if (loading) return <PageLoading />
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{users.length} user{users.length !== 1 ? 's' : ''} in this institution</p>
-        </div>
-        <Button onClick={() => setShowCreate(true)}>Add user</Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={Users}
+        title="Users"
+        subtitle={`${users.length} user${users.length !== 1 ? 's' : ''} in this institution`}
+        action={<Button onClick={() => setShowCreate(true)}>Add user</Button>}
+      />
 
       {error && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{error}</p>}
 
@@ -345,11 +342,11 @@ export default function UsersPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Name</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Email</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Role</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Identifier</th>
-              <th className="text-left px-4 py-2.5 font-medium text-gray-600">Status</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Identifier</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
               <th className="px-4 py-2.5" />
             </tr>
           </thead>
@@ -400,6 +397,6 @@ export default function UsersPage() {
 
       <CreateUserDialog open={showCreate} onClose={() => setShowCreate(false)} onCreated={handleCreated} />
       <EditUserDialog user={editingUser} onClose={() => setEditingUser(null)} onUpdated={handleUpdated} />
-    </div>
+    </PageShell>
   )
 }

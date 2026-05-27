@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { getAdminErrorMessage } from '@/lib/adminApi'
 import {
   onboardingApi,
@@ -663,13 +665,12 @@ export default function BulkOnboardingPage() {
   const [activeTab, setActiveTab] = useState<Tab>('generate')
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Bulk Onboarding</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Generate student accounts in bulk or import users via CSV. All accounts require a password change on first login.
-        </p>
-      </div>
+    <PageShell width="sm">
+      <PageHeader
+        icon={Users}
+        title="Bulk Onboarding"
+        subtitle="Generate student accounts in bulk or import users via CSV. All accounts require a password change on first login."
+      />
 
       <MasterDataPanel />
 
@@ -698,6 +699,6 @@ export default function BulkOnboardingPage() {
         {activeTab === 'import-students' && <CSVImportTab role="students" />}
         {activeTab === 'import-faculty' && <CSVImportTab role="faculty" />}
       </div>
-    </div>
+    </PageShell>
   )
 }

@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, BookOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -125,18 +127,17 @@ export default function ResearchProblemListPage() {
     queryFn: () => listProblems({ status: statusFilter || undefined }),
   })
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <PageShell>
       <Button variant="ghost" size="sm" className="-mt-2 -ml-1" onClick={() => navigate(-1)}>
         <ChevronLeft className="h-4 w-4 mr-1" />
         Back
       </Button>
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Research Proposals</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Student proposals assigned to you as guide</p>
-        </div>
-      </div>
+      <PageHeader
+        icon={BookOpen}
+        title="Research Proposals"
+        subtitle="Student proposals assigned to you as guide"
+      />
 
       {/* Status filter */}
       <div className="flex gap-2 flex-wrap">
@@ -221,6 +222,6 @@ export default function ResearchProblemListPage() {
       {deciding && (
         <DecideModal problem={deciding} onClose={() => setDeciding(null)} />
       )}
-    </div>
+    </PageShell>
   )
 }

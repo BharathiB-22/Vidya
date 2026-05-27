@@ -5,6 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart2, ChevronRight, Loader2, AlertTriangle, Info, PlusCircle,
 } from 'lucide-react'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -177,34 +179,28 @@ export default function BellCurveListPage() {
   })
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <BarChart2 className="w-6 h-6 text-indigo-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Bell Curve Analyses</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/bell-curve/reports')}
-          >
-            Fairness Report
-          </Button>
-          {canTrigger && (
-            <Button
-              size="sm"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
-              onClick={() => setShowTrigger(v => !v)}
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              New Analysis
+    <PageShell>
+      <PageHeader
+        icon={BarChart2}
+        title="Bell Curve Analyses"
+        action={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/bell-curve/reports')}>
+              Fairness Report
             </Button>
-          )}
-        </div>
-      </div>
+            {canTrigger && (
+              <Button
+                size="sm"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
+                onClick={() => setShowTrigger(v => !v)}
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                New Analysis
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       {/* Advisory banner */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex gap-3 text-sm text-blue-800">
@@ -272,6 +268,6 @@ export default function BellCurveListPage() {
           )}
         </>
       )}
-    </div>
+    </PageShell>
   )
 }

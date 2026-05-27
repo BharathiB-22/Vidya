@@ -4,6 +4,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -68,20 +70,17 @@ export default function ExamPaperListPage() {
   const pageTitle = isBoardPendingRoute ? 'Pending Board Review' : 'Exam Papers'
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <FileText className="w-6 h-6 text-indigo-600" />
-          <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
-        </div>
-        <Button
-          onClick={() => navigate('/exams/create')}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          New Exam Paper
-        </Button>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={FileText}
+        title={pageTitle}
+        action={!isBoardPendingRoute ? (
+          <Button onClick={() => navigate('/exams/create')} className="gap-2">
+            <Plus className="w-4 h-4" />
+            New Exam Paper
+          </Button>
+        ) : undefined}
+      />
 
       {/* Status filter — hidden on board/pending (already filtered to SUBMITTED) */}
       {!isBoardPendingRoute && <div className="flex flex-wrap gap-2">
@@ -154,7 +153,7 @@ export default function ExamPaperListPage() {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   )
 }
 

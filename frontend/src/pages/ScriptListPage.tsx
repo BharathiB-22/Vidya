@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PageShell } from '@/components/shell/PageShell'
+import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -43,29 +45,22 @@ export default function ScriptListPage() {
   })
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <FileText className="w-6 h-6 text-indigo-600" />
-          <h1 className="text-2xl font-bold text-gray-900">Scanned Scripts</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => navigate('/scripts/board')}
-            className="gap-2"
-          >
-            Board Review
-          </Button>
-          <Button
-            onClick={() => navigate('/scripts/upload')}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Upload Script
-          </Button>
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader
+        icon={FileText}
+        title="Scanned Scripts"
+        action={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/scripts/board')}>
+              Board Review
+            </Button>
+            <Button onClick={() => navigate('/scripts/upload')} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+              <Plus className="w-4 h-4" />
+              Upload Script
+            </Button>
+          </div>
+        }
+      />
 
       {/* Status filter chips */}
       <div className="flex flex-wrap gap-2">
@@ -138,7 +133,7 @@ export default function ScriptListPage() {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   )
 }
 
