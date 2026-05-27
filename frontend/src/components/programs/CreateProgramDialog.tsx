@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Dialog,
   DialogContent,
@@ -9,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useCreateProgram } from '@/hooks/programs'
+import { academicsApi } from '@/lib/api/academics'
 
 interface Props {
   open: boolean
@@ -25,10 +27,39 @@ const DEFAULTS = {
 
 export function CreateProgramDialog({ open, onOpenChange }: Props) {
   const [form, setForm] = useState(DEFAULTS)
+  const [linkedAcadProgramId, setLinkedAcadProgramId] = useState<string | undefined>(undefined)
   const create = useCreateProgram()
+
+  const { data: acadPrograms = [] } = useQuery({
+    queryKey: ['acad-programs-active'],
+    queryFn: () => academicsApi.listPrograms(undefined, false),
+    enabled: open,
+  })
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['acad-departments'],
+    queryFn: () => academicsApi.listDepartments(false),
+    enabled: open,
+  })
 
   function set(field: keyof typeof DEFAULTS, value: string | number) {
     setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  function handleAcadProgramSelect(e: React.ChangeEvent<HTMLSelectElement>) {
+    const id = e.target.value
+    if (!id) {
+      setLinkedAcadProgramId(undefined)
+      return
+    }
+    const acad = acadPrograms.find((p) => p.id === id)
+    if (!acad) return
+    setLinkedAcadProgramId(id)
+    // Auto-populate degree_type from academic program
+    set('degree_type', acad.degree_type)
+    // Auto-populate department name from departments list
+    const dept = departments.find((d) => d.id === acad.department_id)
+    if (dept) set('department', dept.name)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -39,8 +70,10 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
       department: form.department,
       duration_years: Number(form.duration_years),
       total_credits: Number(form.total_credits),
+      acad_program_id: linkedAcadProgramId,
     })
     setForm(DEFAULTS)
+    setLinkedAcadProgramId(undefined)
     onOpenChange(false)
   }
 
@@ -51,6 +84,32 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
           <DialogTitle>Create Program</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
+
+          {/* Academic Program link (optional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Link to Academic Program
+              <span className="text-gray-400 font-normal ml-1">(optional)</span>
+            </label>
+            <select
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+              value={linkedAcadProgramId ?? ''}
+              onChange={handleAcadProgramSelect}
+            >
+              <option value="">— Not linked —</option>
+              {acadPrograms.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.code}) · {p.degree_type} · {p.duration_years}yr
+                </option>
+              ))}
+            </select>
+            {linkedAcadProgramId && (
+              <p className="text-xs text-indigo-600 mt-1">
+                Degree type and department auto-populated. You can still edit them below.
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
             <Input

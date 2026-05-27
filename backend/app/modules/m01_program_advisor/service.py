@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.m_academics.repository import ProgramRepo as AcadProgramRepo
 from app.modules.m01_program_advisor.compliance import (
     ComplianceResult,
     CourseNode,
@@ -109,6 +110,14 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> Program:
+        if payload.acad_program_id is not None:
+            acad_prog = await AcadProgramRepo.get_by_id(payload.acad_program_id, db=db)
+            if acad_prog is None or not acad_prog.is_active:
+                raise ProgramServiceError(
+                    "INVALID_ACAD_PROGRAM",
+                    "Academic program not found or is not active.",
+                    404,
+                )
         program = await ProgramRepository.create(
             title=payload.title,
             degree_type=payload.degree_type,
@@ -116,6 +125,7 @@ class ProgramService:
             duration_years=payload.duration_years,
             total_credits=payload.total_credits,
             created_by_user_id=created_by,
+            acad_program_id=payload.acad_program_id,
             db=db,
         )
         if payload.outcomes:
@@ -196,6 +206,14 @@ class ProgramService:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise ProgramServiceError("NO_FIELDS", "No fields to update.", 422)
+        if "acad_program_id" in updates:
+            acad_prog = await AcadProgramRepo.get_by_id(updates["acad_program_id"], db=db)
+            if acad_prog is None or not acad_prog.is_active:
+                raise ProgramServiceError(
+                    "INVALID_ACAD_PROGRAM",
+                    "Academic program not found or is not active.",
+                    404,
+                )
         updates["updated_at"] = datetime.now(timezone.utc)
         program = await ProgramRepository.update(program_id, updates, db=db)
         if program is None:
@@ -346,6 +364,7 @@ class ProgramService:
             duration_years=original.duration_years,
             total_credits=original.total_credits,
             created_by_user_id=created_by,
+            acad_program_id=original.acad_program_id,
             db=db,
         )
         await ProgramRepository.update(

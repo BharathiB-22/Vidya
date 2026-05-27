@@ -22,10 +22,11 @@ class ProgramStatus(str, enum.Enum):
 class Program(Base):
     __tablename__ = "programs"
     __table_args__ = (
-        Index("ix_programs_status",         "status"),
-        Index("ix_programs_created_by",     "created_by_user_id"),
-        Index("ix_programs_parent_version", "parent_version_id"),
-        Index("ix_programs_created_at",     "created_at"),
+        Index("ix_programs_status",           "status"),
+        Index("ix_programs_created_by",       "created_by_user_id"),
+        Index("ix_programs_parent_version",   "parent_version_id"),
+        Index("ix_programs_created_at",       "created_at"),
+        Index("ix_programs_acad_program_id",  "acad_program_id"),
     )
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -36,6 +37,7 @@ class Program(Base):
     department          = Column(String, nullable=False)
     duration_years      = Column(Integer, nullable=False)
     total_credits       = Column(Integer, nullable=False)
+    acad_program_id     = Column(UUID(as_uuid=True), ForeignKey("acad_programs.id", ondelete="SET NULL"), nullable=True)
     status              = Column(
         Enum(ProgramStatus, native_enum=False),
         nullable=False,

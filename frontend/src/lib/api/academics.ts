@@ -73,6 +73,8 @@ export const academicsApi = {
   // Programs
   listPrograms: (departmentId?: string, includeInactive = false) =>
     api.get<AcadProgram[]>(`${B}/programs`, { params: { department_id: departmentId || undefined, include_inactive: includeInactive } }).then(r => r.data),
+  getProgram: (id: string) =>
+    api.get<AcadProgram>(`${B}/programs/${id}`).then(r => r.data),
   createProgram: (body: { department_id: string; name: string; code: string; degree_type: string; duration_years: number }) =>
     api.post<AcadProgram>(`${B}/programs`, body).then(r => r.data),
   updateProgram: (id: string, body: Partial<{ name: string; code: string; degree_type: string; duration_years: number; is_active: boolean }>) =>

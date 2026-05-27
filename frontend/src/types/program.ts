@@ -21,6 +21,7 @@ export interface Program {
   duration_years: number
   total_credits: number
   status: ProgramStatus
+  acad_program_id: string | null
   version: number
   parent_version_id: string | null
   created_by_user_id: string
@@ -66,6 +67,7 @@ export interface ProgramCreate {
   department: string
   duration_years: number
   total_credits: number
+  acad_program_id?: string
 }
 
 export interface ProgramUpdate {
@@ -74,6 +76,7 @@ export interface ProgramUpdate {
   department?: string
   duration_years?: number
   total_credits?: number
+  acad_program_id?: string
 }
 
 export interface ProgramListFilters {

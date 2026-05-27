@@ -38,6 +38,7 @@ class ProgramRepository:
         created_by_user_id: UUID,
         *,
         db: AsyncSession,
+        acad_program_id: UUID | None = None,
     ) -> Program:
         program = Program(
             title=title,
@@ -46,6 +47,7 @@ class ProgramRepository:
             duration_years=duration_years,
             total_credits=total_credits,
             created_by_user_id=created_by_user_id,
+            acad_program_id=acad_program_id,
         )
         db.add(program)
         await db.flush()

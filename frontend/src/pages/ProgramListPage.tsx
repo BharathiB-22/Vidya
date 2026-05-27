@@ -112,7 +112,14 @@ export default function ProgramListPage() {
                   <td className="px-4 py-3 text-sm text-gray-500">{p.total_credits}</td>
                   <td className="px-4 py-3 text-sm text-gray-500">v{p.version}</td>
                   <td className="px-4 py-3">
-                    <ProgramStatusBadge status={p.status} />
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <ProgramStatusBadge status={p.status} />
+                      {p.acad_program_id && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                          Linked
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-400">
                     {new Date(p.created_at).toLocaleDateString()}

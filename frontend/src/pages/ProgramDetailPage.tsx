@@ -14,6 +14,7 @@ import { programKeys, useProgramCourses } from '@/hooks/programs'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import * as programsApi from '@/lib/api/programs'
+import { academicsApi } from '@/lib/api/academics'
 
 export default function ProgramDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -28,6 +29,12 @@ export default function ProgramDetailPage() {
   })
 
   const { data: courses = [] } = useProgramCourses(id!)
+
+  const { data: linkedAcadProgram } = useQuery({
+    queryKey: ['acad-program', program?.acad_program_id],
+    queryFn: () => academicsApi.getProgram(program!.acad_program_id!),
+    enabled: Boolean(program?.acad_program_id),
+  })
 
   if (isLoading) {
     return <div className="p-6"><PageLoading message="Loading program…" /></div>
@@ -61,6 +68,14 @@ export default function ProgramDetailPage() {
               <span>{program.duration_years} yr / {program.total_credits} cr</span>
               <span className="text-gray-300">·</span>
               <span>v{program.version}</span>
+              {linkedAcadProgram && (
+                <>
+                  <span className="text-gray-300">·</span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    {linkedAcadProgram.name} ({linkedAcadProgram.code})
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <ProgramStatusBadge status={program.status} />

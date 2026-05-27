@@ -106,21 +106,23 @@ class ProgramOutcomeResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ProgramCreate(BaseModel):
-    title:          str
-    degree_type:    str
-    department:     str
-    duration_years: int = Field(..., ge=1)
-    total_credits:  int = Field(..., ge=1)
-    outcomes:       list[ProgramOutcomeCreate] = []
-    courses:        list[CourseCreate] = []
+    title:            str
+    degree_type:      str
+    department:       str
+    duration_years:   int = Field(..., ge=1)
+    total_credits:    int = Field(..., ge=1)
+    acad_program_id:  Optional[UUID] = None
+    outcomes:         list[ProgramOutcomeCreate] = []
+    courses:          list[CourseCreate] = []
 
 
 class ProgramUpdate(BaseModel):
-    title:          Optional[str] = None
-    degree_type:    Optional[str] = None
-    department:     Optional[str] = None
-    duration_years: Optional[int] = Field(default=None, ge=1)
-    total_credits:  Optional[int] = Field(default=None, ge=1)
+    title:           Optional[str] = None
+    degree_type:     Optional[str] = None
+    department:      Optional[str] = None
+    duration_years:  Optional[int] = Field(default=None, ge=1)
+    total_credits:   Optional[int] = Field(default=None, ge=1)
+    acad_program_id: Optional[UUID] = None
 
 
 class ProgramResponse(BaseModel):
@@ -135,6 +137,7 @@ class ProgramResponse(BaseModel):
     duration_years:      int
     total_credits:       int
     status:              ProgramStatus
+    acad_program_id:     Optional[UUID]
     ai_model:            Optional[str]
     prompt_hash:         Optional[str]
     approved_by_user_id: Optional[UUID]
