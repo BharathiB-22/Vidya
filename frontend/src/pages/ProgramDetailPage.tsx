@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -19,6 +20,7 @@ import { academicsApi } from '@/lib/api/academics'
 export default function ProgramDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
   const { data: program, isLoading } = useQuery({
     queryKey: programKeys.detail(id!),
@@ -29,6 +31,22 @@ export default function ProgramDetailPage() {
   })
 
   const { data: courses = [] } = useProgramCourses(id!)
+
+  // When generation finishes (AI_GENERATING → any other status), the program
+  // detail cache is already fresh from polling, but courses/outcomes/compliance
+  // are separate cache entries that were never invalidated. Force-refresh them
+  // so the Structure, Outcomes, and Compliance tabs update without Ctrl+R.
+  const prevStatusRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const prev = prevStatusRef.current
+    const curr = program?.status
+    prevStatusRef.current = curr
+    if (prev === 'AI_GENERATING' && curr && curr !== 'AI_GENERATING') {
+      qc.invalidateQueries({ queryKey: programKeys.courses(id!) })
+      qc.invalidateQueries({ queryKey: programKeys.outcomes(id!) })
+      qc.invalidateQueries({ queryKey: programKeys.compliance(id!) })
+    }
+  }, [program?.status, id, qc])
 
   const { data: linkedAcadProgram } = useQuery({
     queryKey: ['acad-program', program?.acad_program_id],
