@@ -8,8 +8,10 @@ from app.core.auth.dependencies import (
     get_current_user,
     resolve_tenant,
 )
-from app.core.auth.repository import TenantRepository
+from app.core.auth.repository import PublicRepository, TenantRepository
 from app.core.auth.schemas import (
+    BrandingResponse,
+    BrandingUpdateRequest,
     ChangePasswordRequest,
     LoginRequest,
     MeResponse,
@@ -262,3 +264,47 @@ async def confirm_reset(
     except AuthError as e:
         raise _auth_error(e)
     return {"message": "Password reset successful"}
+
+
+# ---------------------------------------------------------------------------
+# Institution branding — public GET (no JWT), admin-only PATCH
+# ---------------------------------------------------------------------------
+
+@router.get("/branding", response_model=BrandingResponse)
+async def get_branding(
+    tenant: TenantInfo = Depends(resolve_tenant),
+    db: AsyncSession = Depends(get_db),
+) -> BrandingResponse:
+    """Return institution branding (logo, colors). No auth token required."""
+    tenant_row = await PublicRepository.get_tenant_by_slug(tenant.slug, db)
+    if tenant_row is None:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "message": "Institution not found"})
+    return BrandingResponse.model_validate(tenant_row)
+
+
+@router.patch("/branding", response_model=BrandingResponse)
+async def update_branding(
+    body: BrandingUpdateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BrandingResponse:
+    """Update institution branding. Requires ADMIN role within the institution."""
+    if current_user.role != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Only institution administrators can update branding"},
+        )
+    if not current_user.schema_name:
+        raise HTTPException(status_code=400, detail={"error": "BAD_REQUEST", "message": "No institution context"})
+    tenant_row = await PublicRepository.get_tenant_by_schema_name(current_user.schema_name, db)
+    if tenant_row is None:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "message": "Institution not found"})
+    updated = await PublicRepository.update_tenant_branding(
+        tenant_row.id,
+        body.logo_url,
+        body.primary_color,
+        body.secondary_color,
+        db,
+    )
+    await db.commit()
+    return BrandingResponse.model_validate(updated)

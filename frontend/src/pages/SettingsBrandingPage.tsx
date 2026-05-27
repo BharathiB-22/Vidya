@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Palette, Save, CheckCircle2, Info } from 'lucide-react'
+import { Palette, Save, CheckCircle2, Info, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/lib/auth'
-
-const LS_LOGO  = 'vidya_institution_logo'
-const LS_COLOR = 'vidya_institution_color'
-const LS_COLOR2 = 'vidya_institution_color2'
+import { useBranding } from '@/lib/branding'
+import api, { getErrorMessage } from '@/lib/api'
 
 function prettifySlug(slug: string): string {
   if (!slug) return 'Your Institution'
@@ -91,39 +89,58 @@ function SidebarPreview({
 
 export default function SettingsBrandingPage() {
   const { user } = useAuth()
+  const { branding, fetchBranding } = useBranding()
   const institutionName = prettifySlug(user?.tenantSlug ?? '')
 
-  const [logoUrl,      setLogoUrl]      = useState('')
-  const [primaryColor, setPrimaryColor] = useState('#2563eb')
-  const [secondaryColor, setSecondaryColor] = useState('#06b6d4')
-  const [saved,        setSaved]        = useState(false)
+  const [logoUrl,        setLogoUrl]        = useState(branding.logoUrl)
+  const [primaryColor,   setPrimaryColor]   = useState(branding.primaryColor)
+  const [secondaryColor, setSecondaryColor] = useState(branding.accentColor)
+  const [saved,          setSaved]          = useState(false)
+  const [saving,         setSaving]         = useState(false)
+  const [error,          setError]          = useState('')
 
-  // Load from localStorage on mount
+  // Sync form fields when the branding context updates (e.g. after fetchBranding on login)
   useEffect(() => {
-    const logo  = localStorage.getItem(LS_LOGO)  ?? ''
-    const color = localStorage.getItem(LS_COLOR) ?? '#2563eb'
-    const color2 = localStorage.getItem(LS_COLOR2) ?? '#06b6d4'
-    setLogoUrl(logo)
-    setPrimaryColor(color)
-    setSecondaryColor(color2)
-  }, [])
+    setLogoUrl(branding.logoUrl)
+    setPrimaryColor(branding.primaryColor)
+    setSecondaryColor(branding.accentColor)
+  }, [branding])
 
-  function handleSave(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    localStorage.setItem(LS_LOGO,  logoUrl.trim())
-    localStorage.setItem(LS_COLOR, primaryColor)
-    localStorage.setItem(LS_COLOR2, secondaryColor)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    setError('')
+    setSaving(true)
+    try {
+      await api.patch('/auth/branding', {
+        logo_url:        logoUrl.trim() || null,
+        primary_color:   primaryColor,
+        secondary_color: secondaryColor,
+      })
+      await fetchBranding()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  function handleReset() {
-    localStorage.removeItem(LS_LOGO)
-    localStorage.removeItem(LS_COLOR)
-    localStorage.removeItem(LS_COLOR2)
-    setLogoUrl('')
-    setPrimaryColor('#2563eb')
-    setSecondaryColor('#06b6d4')
+  async function handleReset() {
+    setError('')
+    setSaving(true)
+    try {
+      await api.patch('/auth/branding', {
+        logo_url:        null,
+        primary_color:   '#2563eb',
+        secondary_color: '#06b6d4',
+      })
+      await fetchBranding()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -146,8 +163,8 @@ export default function SettingsBrandingPage() {
       <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
         <Info className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-blue-700 leading-relaxed">
-          Branding applies to <strong>this institution only</strong> and is previewed in your browser.
-          To sync across all devices for your institution, contact your Platform Administrator via the VIDYA AI Platform Console.
+          Branding applies to <strong>this institution only</strong>.
+          Changes are saved to the server and will appear for all users of your institution after they next load the workspace.
         </p>
       </div>
 
@@ -245,16 +262,23 @@ export default function SettingsBrandingPage() {
             {saved && (
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                Branding saved. Reload to see changes in sidebar.
+                Branding saved and applied to your institution workspace.
+              </div>
+            )}
+
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {error}
               </div>
             )}
 
             <div className="flex gap-3 pt-1">
-              <Button type="submit" className="gap-1.5">
+              <Button type="submit" disabled={saving} className="gap-1.5">
                 <Save className="h-4 w-4" />
-                Save branding
+                {saving ? 'Saving…' : 'Save branding'}
               </Button>
-              <Button type="button" variant="ghost" onClick={handleReset} className="text-gray-500">
+              <Button type="button" variant="ghost" disabled={saving} onClick={handleReset} className="text-gray-500">
                 Reset to defaults
               </Button>
             </div>

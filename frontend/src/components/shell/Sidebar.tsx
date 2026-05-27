@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
+import { useBranding } from '@/lib/branding'
 
 type LucideIconType = typeof LayoutDashboard
 
@@ -101,16 +102,15 @@ export function Sidebar({ onClose }: SidebarProps) {
   const location = useLocation()
   const user = useCurrentUser()
   const { user: authUser } = useAuth()
+  const { branding } = useBranding()
   const role = user?.role ?? ''
   const institution = prettifySlug(user?.tenantSlug ?? '')
   const setupIncomplete = role === 'ADMIN' && authUser?.firstLogin === true
   const displayName = user?.fullName || user?.email || ''
   const initials = displayName ? getInitials(displayName) : role?.slice(0, 2) || '??'
 
-  // Read institution logo from localStorage branding settings
-  const savedLogo = typeof window !== 'undefined'
-    ? localStorage.getItem('vidya_institution_logo') ?? ''
-    : ''
+  const savedLogo = branding.logoUrl
+  const primaryColor = branding.primaryColor
 
   function isActive(to: string): boolean {
     if (to === '/dashboard') return location.pathname === '/dashboard'
@@ -196,9 +196,13 @@ export function Sidebar({ onClose }: SidebarProps) {
                         onClick={onClose}
                         className={`flex items-center gap-2.5 px-3 py-[9px] rounded-xl text-sm font-semibold transition-all duration-150 border border-transparent ${
                           active
-                            ? 'bg-[linear-gradient(135deg,rgba(37,99,235,0.35),rgba(16,185,129,0.12))] text-white border-sv-primary/35 shadow-[0_0_0_1px_rgba(37,99,235,0.18),0_14px_34px_rgba(0,0,0,0.25)]'
+                            ? 'text-white shadow-[0_0_0_1px_rgba(37,99,235,0.18),0_14px_34px_rgba(0,0,0,0.25)]'
                             : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-100 hover:border-white/[0.08]'
                         }`}
+                        style={active ? {
+                          backgroundColor: `${primaryColor}55`,
+                          borderColor: `${primaryColor}50`,
+                        } : {}}
                       >
                         <item.icon
                           className={`h-[15px] w-[15px] flex-shrink-0 transition-colors ${

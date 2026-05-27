@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthGuard } from '@/components/AuthGuard'
 import { AdminAuthGuard } from '@/components/AdminAuthGuard'
@@ -52,8 +53,21 @@ import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
+import { useAuth } from '@/lib/auth'
+import { useBranding } from '@/lib/branding'
 
 export default function App() {
+  const { isAuthenticated } = useAuth()
+  const { fetchBranding, clearBranding } = useBranding()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchBranding()
+    } else {
+      clearBranding()
+    }
+  }, [isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

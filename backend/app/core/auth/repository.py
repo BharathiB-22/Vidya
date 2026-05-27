@@ -199,6 +199,26 @@ class PublicRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def update_tenant_branding(
+        tenant_id: UUID,
+        logo_url: str | None,
+        primary_color: str | None,
+        secondary_color: str | None,
+        db: AsyncSession,
+    ):
+        stmt = select(Tenant).where(Tenant.id == tenant_id)
+        result = await db.execute(stmt)
+        tenant = result.scalar_one_or_none()
+        if tenant is None:
+            return None
+        tenant.logo_url = logo_url
+        tenant.primary_color = primary_color
+        tenant.secondary_color = secondary_color
+        await db.flush()
+        await db.refresh(tenant)
+        return tenant
+
+    @staticmethod
     async def get_index_entry_by_hash(token_hash: str, db: AsyncSession):
         stmt = select(RefreshTokenIndex).where(RefreshTokenIndex.token_hash == token_hash)
         result = await db.execute(stmt)

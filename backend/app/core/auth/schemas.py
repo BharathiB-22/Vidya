@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
@@ -140,3 +141,40 @@ class TenantInfo(BaseModel):
     id: UUID
     slug: str
     schema_name: str
+
+
+# ---------------------------------------------------------------------------
+# Institution branding (GET /auth/branding, PATCH /auth/branding)
+# ---------------------------------------------------------------------------
+
+class BrandingResponse(BaseModel):
+    name: str
+    slug: str
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class BrandingUpdateRequest(BaseModel):
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+
+    @field_validator("logo_url", mode="before")
+    @classmethod
+    def empty_logo_to_none(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
+    @field_validator("primary_color", "secondary_color", mode="before")
+    @classmethod
+    def color_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        v = v.strip()
+        if not re.match(r"^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$", v):
+            raise ValueError("Color must be a hex code like #2563eb or #abc")
+        return v.lower()
