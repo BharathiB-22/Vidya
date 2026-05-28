@@ -19,12 +19,29 @@ from app.modules.m03_course_kit.models import (
 # Embedded JSONB sub-models
 # ---------------------------------------------------------------------------
 
+_VALID_SLIDE_TYPES = {
+    "TITLE", "CONCEPT", "DEFINITION", "EXAMPLE",
+    "CODE", "DIAGRAM", "ACTIVITY", "SUMMARY", "QUIZ",
+}
+
+
 class SlideContent(BaseModel):
-    """Structure stored in KitSlide.content JSONB."""
-    bullets:      list[str]      = Field(default_factory=list)
-    key_concepts: list[str]      = Field(default_factory=list)
-    image_hint:   Optional[str]  = None
-    code_snippet: Optional[str]  = None
+    """Structure stored in KitSlide.content JSONB.
+
+    All fields are optional so that old kits (without the richer fields) remain
+    fully readable.  New AI-generated kits will populate all fields.
+    """
+    slide_type:         Optional[str]  = Field(default=None, description="TITLE|CONCEPT|DEFINITION|EXAMPLE|CODE|DIAGRAM|ACTIVITY|SUMMARY|QUIZ")
+    bullets:            list[str]      = Field(default_factory=list)
+    key_concepts:       list[str]      = Field(default_factory=list)
+    definitions:        list[str]      = Field(default_factory=list)
+    examples:           list[str]      = Field(default_factory=list)
+    code_snippet:       Optional[str]  = None
+    diagram_prompt:     Optional[str]  = None
+    image_hint:         Optional[str]  = None   # kept for backward compat
+    classroom_activity: Optional[str]  = None
+    student_summary:    Optional[str]  = None
+    teaching_notes:     Optional[str]  = None   # faculty-only guidance
 
 
 class QuizletOption(BaseModel):

@@ -143,15 +143,64 @@ _VALID_COMPLEXITY      = {c.value for c in ComplexityLevel}
 # (never returned to callers; mapped to dataclasses in KitGenerationResult)
 # ---------------------------------------------------------------------------
 
+_VALID_SLIDE_TYPES = frozenset({
+    "TITLE", "CONCEPT", "DEFINITION", "EXAMPLE",
+    "CODE", "DIAGRAM", "ACTIVITY", "SUMMARY", "QUIZ",
+})
+
+# Map slide title keywords → inferred slide_type used when AI omits the field.
+_SLIDE_TYPE_KEYWORDS: list[tuple[str, str]] = [
+    ("overview",  "TITLE"),
+    ("introducti","TITLE"),
+    ("summary",   "SUMMARY"),
+    ("recap",     "SUMMARY"),
+    ("quiz",      "QUIZ"),
+    ("assessment","QUIZ"),
+    ("activity",  "ACTIVITY"),
+    ("exercise",  "ACTIVITY"),
+    ("diagram",   "DIAGRAM"),
+    ("chart",     "DIAGRAM"),
+    ("code",      "CODE"),
+    ("implement", "CODE"),
+    ("example",   "EXAMPLE"),
+    ("case study","EXAMPLE"),
+    ("definition","DEFINITION"),
+    ("terminolog","DEFINITION"),
+]
+
+
+def _infer_slide_type(slide_number: int, title: str, has_code: bool) -> str:
+    """Return the best-guess slide type when the AI did not supply one."""
+    if slide_number == 1:
+        return "TITLE"
+    if has_code:
+        return "CODE"
+    tl = title.lower()
+    for keyword, stype in _SLIDE_TYPE_KEYWORDS:
+        if keyword in tl:
+            return stype
+    return "CONCEPT"
+
+
 class _SlideContentAI(BaseModel):
-    bullets:        list[str] = Field(default_factory=list)
-    key_concepts:   list[str] = Field(default_factory=list)
-    definitions:    list[str] = Field(default_factory=list)
-    examples:       list[str] = Field(default_factory=list)
-    image_hint:     str | None = None
-    code_snippet:   str | None = None
-    teaching_notes: str | None = None
-    student_summary: str | None = None
+    slide_type:         str | None = None   # TITLE|CONCEPT|DEFINITION|EXAMPLE|CODE|DIAGRAM|ACTIVITY|SUMMARY|QUIZ
+    bullets:            list[str]  = Field(default_factory=list)
+    key_concepts:       list[str]  = Field(default_factory=list)
+    definitions:        list[str]  = Field(default_factory=list)
+    examples:           list[str]  = Field(default_factory=list)
+    image_hint:         str | None = None
+    code_snippet:       str | None = None
+    diagram_prompt:     str | None = None
+    classroom_activity: str | None = None
+    teaching_notes:     str | None = None
+    student_summary:    str | None = None
+
+    @model_validator(mode="after")
+    def _normalise_slide_type(self) -> _SlideContentAI:
+        if self.slide_type:
+            up = self.slide_type.upper()
+            self.slide_type = up if up in _VALID_SLIDE_TYPES else None
+        return self
 
 
 class _SlideAI(BaseModel):
@@ -283,6 +332,12 @@ def _scan_slide_answer_leak(slides: list[_SlideAI]) -> list[str]:
         combined_texts = [slide.title]
         combined_texts.extend(slide.content.bullets)
         combined_texts.extend(slide.content.key_concepts)
+        combined_texts.extend(slide.content.definitions)
+        combined_texts.extend(slide.content.examples)
+        if slide.content.classroom_activity:
+            combined_texts.append(slide.content.classroom_activity)
+        if slide.content.teaching_notes:
+            combined_texts.append(slide.content.teaching_notes)
         if slide.speaker_notes:
             combined_texts.append(slide.speaker_notes)
 
@@ -378,12 +433,14 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "WHAT TO GENERATE:\n"
         f"  1. Slides: minimum {ctx.min_slides} slides covering all unit topics progressively.\n"
         "     Each slide: slide_number (1-based), title, content object with:\n"
+        "       - slide_type: one of TITLE|CONCEPT|DEFINITION|EXAMPLE|CODE|DIAGRAM|ACTIVITY|SUMMARY|QUIZ\n"
         "       - bullets: 4-6 clear teaching points\n"
         "       - key_concepts: 3-5 critical terms students must understand\n"
         "       - definitions: 2-4 formal definitions of key terms on this slide\n"
         "       - examples: 2-3 concrete real-world or applied examples\n"
-        "       - code_snippet: relevant code (if applicable, else null)\n"
-        "       - image_hint: suggestion for a diagram or visual aid\n"
+        "       - code_snippet: relevant code in the appropriate language (null if not applicable)\n"
+        "       - diagram_prompt: one-sentence description for a diagram or Mermaid chart (null if not applicable)\n"
+        "       - classroom_activity: a short interactive activity (5-10 min) for students during this slide\n"
         "       - teaching_notes: 2-3 sentences of faculty-facing guidance "
         "(how to present, common misconceptions to address, discussion prompts)\n"
         "       - student_summary: 1-2 student-friendly sentences summarising "
@@ -441,10 +498,14 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         f"{co_lines}\n\n"
         f"Requirements:\n"
         f"- Slides: minimum {ctx.min_slides}. "
-        f"First slide: unit overview. Last slide: summary + next steps.\n"
+        f"First slide type=TITLE (unit overview). Last slide type=SUMMARY (recap + next steps).\n"
+        f"  Assign appropriate slide_type from: TITLE, CONCEPT, DEFINITION, EXAMPLE, CODE, DIAGRAM, ACTIVITY, SUMMARY, QUIZ.\n"
         f"  Each slide MUST include rich content:\n"
+        f"    * slide_type: from the allowed list above\n"
         f"    * definitions: formal definitions of 2-4 key terms introduced on the slide\n"
         f"    * examples: 2-3 concrete real-world examples or applications\n"
+        f"    * classroom_activity: a brief (5-10 min) in-class activity for students\n"
+        f"    * diagram_prompt: a one-sentence description for a diagram or Mermaid chart (null if not relevant)\n"
         f"    * teaching_notes: guidance for faculty on how to teach this slide "
         f"(misconceptions, suggested discussion prompts, pacing advice)\n"
         f"    * student_summary: a brief student-friendly takeaway (1-2 sentences)\n"
@@ -486,13 +547,25 @@ class CourseKitProvider(Protocol):
 # Shared result builder — converts _KitAI → KitGenerationResult
 # ---------------------------------------------------------------------------
 
+def _enrich_slide_content(slide: _SlideAI) -> dict[str, Any]:
+    """Return the content dict for a slide, applying slide_type inference if needed."""
+    content = slide.content
+    if not content.slide_type:
+        content.slide_type = _infer_slide_type(
+            slide_number=slide.slide_number,
+            title=slide.title,
+            has_code=bool(content.code_snippet),
+        )
+    return content.model_dump(exclude_none=True)
+
+
 def _build_result(parsed: _KitAI, model_used: str, prompt_hash: str) -> KitGenerationResult:
     return KitGenerationResult(
         slides=[
             SlideAI(
                 slide_number=s.slide_number,
                 title=s.title,
-                content=s.content.model_dump(exclude_none=True),
+                content=_enrich_slide_content(s),
                 speaker_notes=s.speaker_notes,
                 bloom_level=s.bloom_level,
                 co_reference=s.co_reference,
@@ -682,18 +755,39 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             slide["content"] = {"bullets": content}
         elif not isinstance(content, dict):
             slide["content"] = {}
-        # key_concepts inside content dict: str → list[str]
         content_dict = slide["content"]
+
+        # key_concepts: str → list[str]
         kc = content_dict.get("key_concepts")
         if isinstance(kc, str):
             content_dict["key_concepts"] = [kc] if kc else []
-        # Hoist slide-level key_concepts into content when Groq puts it outside the content object
+        # Hoist slide-level key_concepts when Groq puts them outside the content object
         slide_kc = slide.get("key_concepts")
         if slide_kc is not None and not content_dict.get("key_concepts"):
             if isinstance(slide_kc, str):
                 content_dict["key_concepts"] = [slide_kc] if slide_kc else []
             elif isinstance(slide_kc, list):
                 content_dict["key_concepts"] = slide_kc
+
+        # definitions / examples: str → list[str] or hoist from slide-level
+        for field in ("definitions", "examples"):
+            val = content_dict.get(field)
+            if isinstance(val, str):
+                content_dict[field] = [val] if val else []
+            slide_val = slide.get(field)
+            if slide_val is not None and not content_dict.get(field):
+                if isinstance(slide_val, str):
+                    content_dict[field] = [slide_val] if slide_val else []
+                elif isinstance(slide_val, list):
+                    content_dict[field] = slide_val
+
+        # slide_type: hoist from slide-level if Groq puts it outside content
+        if "slide_type" not in content_dict:
+            for alias in ("slide_type", "type", "slide_category", "category"):
+                val = slide.get(alias)
+                if val and isinstance(val, str):
+                    content_dict["slide_type"] = val.upper()
+                    break
 
     # --- quizlet normalization ---
     for i, q in enumerate(data.get("quizlets", [])):
