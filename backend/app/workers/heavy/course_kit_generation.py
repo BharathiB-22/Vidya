@@ -36,8 +36,13 @@ def _get_async_engine():
     global _async_engine
     if _async_engine is None:
         from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
         from app.config import settings
-        _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        # NullPool: no connection caching between asyncio.run() calls.
+        # On Windows --pool=solo each task runs in a fresh event loop; pooled
+        # asyncpg connections attached to the previous (closed) loop raise
+        # "Future attached to a different loop". NullPool prevents this.
+        _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
     return _async_engine
 
 
@@ -142,12 +147,12 @@ async def _run_generation(
                     f"Syllabus {kit.syllabus_id} not found for kit {kit_id}."
                 )
             if syllabus.status not in (
-                SyllabusStatus.FACULTY_APPROVED,
-                SyllabusStatus.ADMIN_LOCKED,
+                SyllabusStatus.DEAN_APPROVED,
+                SyllabusStatus.DEAN_LOCKED,
             ):
                 raise ValueError(
                     f"Syllabus {kit.syllabus_id} is {syllabus.status.value}; "
-                    "course kit generation requires an approved or locked syllabus."
+                    "course kit generation requires a Dean-approved or locked syllabus."
                 )
 
             # ------------------------------------------------------------------
