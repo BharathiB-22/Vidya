@@ -26,11 +26,22 @@ export type BloomLevel =
 // JSONB sub-models
 // ---------------------------------------------------------------------------
 
+export type SlideType =
+  | 'TITLE' | 'CONCEPT' | 'DEFINITION' | 'EXAMPLE'
+  | 'CODE' | 'DIAGRAM' | 'ACTIVITY' | 'SUMMARY' | 'QUIZ'
+
 export interface SlideContent {
-  bullets:      string[]
-  key_concepts: string[]
-  image_hint:   string | null
-  code_snippet: string | null
+  slide_type?:         SlideType | null
+  bullets:             string[]
+  key_concepts:        string[]
+  definitions:         string[]
+  examples:            string[]
+  code_snippet:        string | null
+  diagram_prompt:      string | null
+  image_hint:          string | null    // backward-compat alias
+  classroom_activity:  string | null
+  student_summary:     string | null
+  teaching_notes:      string | null    // faculty-only
 }
 
 export interface QuizletOption {
