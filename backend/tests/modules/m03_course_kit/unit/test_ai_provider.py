@@ -29,6 +29,7 @@ from app.modules.m03_course_kit.ai_provider import (
     _build_result,
     _salvage_parsed_kit,
     _is_soft_violation,
+    _normalize_groq_kit_response,
     _VALID_SLIDE_TYPES,
 )
 
@@ -580,3 +581,219 @@ class TestIsSoftViolation:
 
     def test_generic_critical_error_is_hard(self):
         assert not _is_soft_violation("Some unknown critical error occurred.")
+
+
+# ---------------------------------------------------------------------------
+# _normalize_groq_kit_response — defensive hardening regression tests
+# ---------------------------------------------------------------------------
+
+import json as _json
+
+
+def _wrap(slides=None, quizlets=None, assignments=None, **extra) -> str:
+    """Build a minimal valid JSON payload for normalization tests."""
+    payload: dict = {}
+    if slides is not None:
+        payload["slides"] = slides
+    if quizlets is not None:
+        payload["quizlets"] = quizlets
+    if assignments is not None:
+        payload["assignments"] = assignments
+    payload.update(extra)
+    return _json.dumps(payload)
+
+
+class TestNormalizeGroqKitResponse:
+
+    # ------------------------------------------------------------------
+    # options: null / missing / non-list — the original TypeError source
+    # ------------------------------------------------------------------
+
+    def test_options_null_does_not_crash(self):
+        """options: null must be treated as [] without raising TypeError."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "What is X?",
+            "question_type": "MCQ",
+            "options": None,
+            "answer_key": {"correct": "A"},
+        }])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"][0]["options"] == []
+
+    def test_options_missing_does_not_crash(self):
+        """Quizlet without 'options' key at all is safe."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "What is Y?",
+            "question_type": "MCQ",
+            "answer_key": {"correct": "B"},
+        }])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"][0]["options"] == []
+
+    def test_options_non_list_coerced_to_empty(self):
+        """options: "A, B, C" (string) is coerced to []."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "What is Z?",
+            "question_type": "MCQ",
+            "options": "A, B, C",
+            "answer_key": {"correct": "A"},
+        }])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"][0]["options"] == []
+
+    def test_options_list_of_strings_converted_to_dicts(self):
+        """options: ["Paris", "Berlin"] → [{label, text}]."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "Capital of France?",
+            "question_type": "MCQ",
+            "options": ["Paris", "Berlin"],
+            "answer_key": {"correct": "A"},
+        }])
+        result = _normalize_groq_kit_response(raw)
+        opts = result["quizlets"][0]["options"]
+        assert opts[0] == {"label": "A", "text": "Paris"}
+        assert opts[1] == {"label": "B", "text": "Berlin"}
+
+    def test_mcq_answer_key_inferred_from_options_when_null(self):
+        """MCQ with options but null answer_key gets answer_key inferred."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "Which is correct?",
+            "question_type": "MCQ",
+            "options": [{"label": "A", "text": "Right"}, {"label": "B", "text": "Wrong"}],
+            "answer_key": None,
+        }])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"][0]["answer_key"] == {"correct": "A"}
+
+    def test_mcq_answer_key_defaults_to_a_when_no_options(self):
+        """MCQ with no options and no answer_key defaults to {'correct': 'A'}."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "Which is correct?",
+            "question_type": "MCQ",
+            "options": None,
+        }])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"][0]["answer_key"] == {"correct": "A"}
+
+    # ------------------------------------------------------------------
+    # Non-dict items in collections
+    # ------------------------------------------------------------------
+
+    def test_non_dict_slide_dropped(self):
+        """A non-dict entry in slides is silently dropped."""
+        raw = _wrap(slides=[
+            "just a string",
+            {"slide_number": 1, "title": "Valid Slide", "content": {}},
+        ])
+        result = _normalize_groq_kit_response(raw)
+        assert len(result["slides"]) == 1
+        assert result["slides"][0]["title"] == "Valid Slide"
+
+    def test_non_dict_quizlet_dropped(self):
+        """A non-dict entry in quizlets is silently dropped."""
+        raw = _wrap(quizlets=[
+            42,
+            {"question_number": 1, "question_text": "What is X?", "answer_key": {"correct": "A"}},
+        ])
+        result = _normalize_groq_kit_response(raw)
+        assert len(result["quizlets"]) == 1
+
+    def test_non_dict_assignment_dropped(self):
+        """A non-dict entry in assignments is silently dropped."""
+        raw = _wrap(assignments=[
+            None,
+            {"assignment_number": 1, "title": "Essay task", "question_text": "Write 200 words."},
+        ])
+        result = _normalize_groq_kit_response(raw)
+        assert len(result["assignments"]) == 1
+
+    # ------------------------------------------------------------------
+    # Quizlet without question_text
+    # ------------------------------------------------------------------
+
+    def test_quizlet_without_question_text_dropped(self):
+        """Quizlet with no question_text (and no aliases) is dropped."""
+        raw = _wrap(quizlets=[
+            {"question_number": 1, "answer_key": {"correct": "A"}},
+        ])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"] == []
+
+    def test_quizlet_question_text_alias_prompt(self):
+        """'prompt' key is accepted as question_text alias."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "prompt": "Explain recursion.",
+            "question_type": "SHORT_ANSWER",
+            "answer_key": {"answer_points": ["Base case", "Recursive call"]},
+        }])
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"][0]["question_text"] == "Explain recursion."
+
+    # ------------------------------------------------------------------
+    # Null top-level collections
+    # ------------------------------------------------------------------
+
+    def test_null_slides_list_coerced_to_empty(self):
+        """slides: null → [] without crashing."""
+        raw = _json.dumps({"slides": None, "quizlets": [], "assignments": []})
+        result = _normalize_groq_kit_response(raw)
+        assert result["slides"] == []
+
+    def test_null_quizlets_list_coerced_to_empty(self):
+        """quizlets: null → []."""
+        raw = _json.dumps({"slides": [], "quizlets": None, "assignments": []})
+        result = _normalize_groq_kit_response(raw)
+        assert result["quizlets"] == []
+
+    def test_null_assignments_list_coerced_to_empty(self):
+        """assignments: null → []."""
+        raw = _json.dumps({"slides": [], "quizlets": [], "assignments": None})
+        result = _normalize_groq_kit_response(raw)
+        assert result["assignments"] == []
+
+    # ------------------------------------------------------------------
+    # Partial / mixed valid+invalid payload
+    # ------------------------------------------------------------------
+
+    def test_partial_payload_keeps_valid_slides(self):
+        """2 valid slides + 1 non-dict → only the valid ones survive."""
+        raw = _wrap(slides=[
+            {"slide_number": 1, "title": "Introduction", "content": {}},
+            "malformed",
+            {"slide_number": 2, "title": "Core Concepts", "content": {}},
+        ])
+        result = _normalize_groq_kit_response(raw)
+        assert len(result["slides"]) == 2
+
+    def test_malformed_option_entry_skipped(self):
+        """Malformed option dict (no 'text') is silently skipped."""
+        raw = _wrap(quizlets=[{
+            "question_number": 1,
+            "question_text": "Which?",
+            "question_type": "MCQ",
+            "options": [
+                {"label": "A", "text": "Good option"},
+                {"label": "B"},  # missing 'text' → skip
+                "raw string",    # str → converted
+            ],
+            "answer_key": {"correct": "A"},
+        }])
+        result = _normalize_groq_kit_response(raw)
+        opts = result["quizlets"][0]["options"]
+        # {"label": "B"} (no text) is skipped; "raw string" is converted
+        assert len(opts) == 2
+        assert opts[0]["text"] == "Good option"
+        assert opts[1]["text"] == "raw string"
+
+    def test_invalid_json_raises_parse_error(self):
+        """Non-JSON string raises CourseKitAIParseError."""
+        from app.modules.m03_course_kit.ai_provider import CourseKitAIParseError
+        with pytest.raises(CourseKitAIParseError):
+            _normalize_groq_kit_response("not json at all")

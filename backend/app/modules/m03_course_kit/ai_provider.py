@@ -757,6 +757,12 @@ class GeminiCourseKitProvider:
                 "m03.gemini: salvaged %d issue(s): %s", len(salvage_warns), salvage_warns
             )
 
+        if not parsed.slides:
+            raise CourseKitAIValidationError(
+                "Gemini returned 0 valid slides after normalization; "
+                "cannot commit a course kit without content."
+            )
+
         violations = _validate_result(parsed, ctx)
         if violations:
             hard = [v for v in violations if not _is_soft_violation(v)]
@@ -787,6 +793,16 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
     Called ONLY for Groq responses; the Gemini path is untouched.
     Raises CourseKitAIParseError if the raw string is not valid JSON.
 
+    Defensive contract
+    ------------------
+    - Never raises TypeError or AttributeError on malformed AI output.
+    - null / non-list collections are coerced to [].
+    - Non-dict items within slides / quizlets / assignments are silently dropped.
+    - Quizlets without question_text (and no recognised alias) are dropped.
+    - Assignments without title AND question_text are dropped.
+    - options: null / non-list → [] before iteration (fixes TypeError).
+    - Returns a dict safe to pass to _KitAI.model_validate().
+
     Aliases handled
     ---------------
     Top-level:
@@ -798,15 +814,15 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
       references / study_materials                    -> resources
 
     Per slide:
-      content (str)          -> {"bullets": [str]}  (wrapped if plain string)
-
+      content (str/list)     -> {"bullets": [...]}
     Per quizlet:
-      answer / correct_answer        -> answer_key (wrapped to dict if string)
-      options: list[str]             -> list of {label, text} objects
-
+      question/prompt/text   -> question_text
+      answer/correct_answer  -> answer_key  (string → {"correct": ...})
+      options: list[str]     -> list[{label, text}]
     Per assignment:
-      task                  -> title
-      solution              -> model_answer
+      task                   -> title
+      question/prompt        -> question_text
+      solution               -> model_answer
     """
     try:
         data: dict[str, Any] = json.loads(raw)
@@ -852,18 +868,29 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             data["resources"] = data.pop(alias)
             break
 
+    # Coerce null / non-list top-level collections to [] so iteration never crashes.
+    for _field in ("slides", "quizlets", "assignments", "teaching_plan", "lesson_plans", "resources"):
+        if not isinstance(data.get(_field), list):
+            data[_field] = []
+
     # --- slide normalization ---
-    for i, slide in enumerate(data.get("slides", [])):
+    valid_slides: list[dict] = []
+    for i, slide in enumerate(data["slides"]):
         if not isinstance(slide, dict):
+            logger.warning("m03.normalizer: dropped non-dict slide at index %d", i)
             continue
         if not slide.get("slide_number"):
             slide["slide_number"] = i + 1
+        # Ensure title meets _SlideAI min_length=2
+        title = slide.get("title")
+        if not title or len(str(title)) < 2:
+            slide["title"] = f"Slide {i + 1}"
         # Normalize content to a dict (Groq returns str, list, or dict)
         content = slide.get("content")
         if isinstance(content, str):
             slide["content"] = {"bullets": [content]}
         elif isinstance(content, list):
-            slide["content"] = {"bullets": content}
+            slide["content"] = {"bullets": [str(x) for x in content if x]}
         elif not isinstance(content, dict):
             slide["content"] = {}
         content_dict = slide["content"]
@@ -872,6 +899,8 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
         kc = content_dict.get("key_concepts")
         if isinstance(kc, str):
             content_dict["key_concepts"] = [kc] if kc else []
+        elif not isinstance(kc, list):
+            content_dict["key_concepts"] = []
         # Hoist slide-level key_concepts when Groq puts them outside the content object
         slide_kc = slide.get("key_concepts")
         if slide_kc is not None and not content_dict.get("key_concepts"):
@@ -881,16 +910,18 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                 content_dict["key_concepts"] = slide_kc
 
         # definitions / examples: str → list[str] or hoist from slide-level
-        for field in ("definitions", "examples"):
-            val = content_dict.get(field)
+        for fld in ("definitions", "examples"):
+            val = content_dict.get(fld)
             if isinstance(val, str):
-                content_dict[field] = [val] if val else []
-            slide_val = slide.get(field)
-            if slide_val is not None and not content_dict.get(field):
+                content_dict[fld] = [val] if val else []
+            elif not isinstance(val, list):
+                content_dict[fld] = []
+            slide_val = slide.get(fld)
+            if slide_val is not None and not content_dict.get(fld):
                 if isinstance(slide_val, str):
-                    content_dict[field] = [slide_val] if slide_val else []
+                    content_dict[fld] = [slide_val] if slide_val else []
                 elif isinstance(slide_val, list):
-                    content_dict[field] = slide_val
+                    content_dict[fld] = slide_val
 
         # slide_type: hoist from slide-level if Groq puts it outside content
         if "slide_type" not in content_dict:
@@ -900,12 +931,27 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                     content_dict["slide_type"] = val.upper()
                     break
 
+        valid_slides.append(slide)
+    data["slides"] = valid_slides
+
     # --- quizlet normalization ---
-    for i, q in enumerate(data.get("quizlets", [])):
+    valid_quizlets: list[dict] = []
+    for i, q in enumerate(data["quizlets"]):
         if not isinstance(q, dict):
+            logger.warning("m03.normalizer: dropped non-dict quizlet at index %d", i)
             continue
         if not q.get("question_number"):
             q["question_number"] = i + 1
+        # Normalise question_text aliases before the required-field check
+        for alias in ("question", "prompt", "text"):
+            if alias in q and "question_text" not in q:
+                q["question_text"] = q.pop(alias)
+                break
+        if not q.get("question_text"):
+            logger.warning(
+                "m03.normalizer: dropped quizlet %d — no question_text", i
+            )
+            continue
         # Normalize answer_key: string or alternative key names → dict
         if "answer_key" not in q:
             for alias in ("answer", "correct_answer", "correct"):
@@ -917,31 +963,39 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                         else raw_ans
                     )
                     break
-        # Normalize MCQ options: list[str] → list[{label, text}]
-        options: list[Any] = q.get("options", [])
+        # Normalize MCQ options: null / non-list → [], list[str] → list[{label, text}]
+        # KEY FIX: q.get("options", []) returns None when key exists with null value.
+        # Use `or []` to handle both missing-key and explicit-null cases.
+        options = q.get("options") or []
+        if not isinstance(options, list):
+            options = []
         normalised_options: list[Any] = []
         for j, opt in enumerate(options):
             if isinstance(opt, str):
                 normalised_options.append(
                     {"label": chr(ord("A") + j), "text": opt}
                 )
-            else:
+            elif isinstance(opt, dict) and opt.get("text"):
                 normalised_options.append(opt)
+            # else: skip malformed option entry silently
         q["options"] = normalised_options
         # Ensure MCQ has a non-empty answer_key after all alias normalisation
         q_type = (q.get("question_type") or "MCQ").upper()
         if q_type == "MCQ" and not q.get("answer_key"):
-            opts = q.get("options", [])
-            if opts:
-                first = opts[0]
+            if normalised_options:
+                first = normalised_options[0]
                 label = first.get("label", "A") if isinstance(first, dict) else "A"
                 q["answer_key"] = {"correct": label}
             else:
                 q["answer_key"] = {"correct": "A"}
+        valid_quizlets.append(q)
+    data["quizlets"] = valid_quizlets
 
     # --- assignment normalization ---
-    for i, asgn in enumerate(data.get("assignments", [])):
+    valid_assignments: list[dict] = []
+    for i, asgn in enumerate(data["assignments"]):
         if not isinstance(asgn, dict):
+            logger.warning("m03.normalizer: dropped non-dict assignment at index %d", i)
             continue
         if not asgn.get("assignment_number"):
             asgn["assignment_number"] = i + 1
@@ -949,6 +1003,23 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             asgn["title"] = asgn.pop("task")
         if "solution" in asgn and "model_answer" not in asgn:
             asgn["model_answer"] = asgn.pop("solution")
+        # Normalize question_text aliases
+        for alias in ("question", "prompt", "description"):
+            if alias in asgn and "question_text" not in asgn:
+                asgn["question_text"] = asgn.pop(alias)
+                break
+        # Skip only if both title AND question_text are absent
+        if not asgn.get("title") and not asgn.get("question_text"):
+            logger.warning(
+                "m03.normalizer: dropped assignment %d — no title or question_text", i
+            )
+            continue
+        # Ensure title meets _AssignmentAI min_length=3
+        if not asgn.get("title") or len(str(asgn.get("title", ""))) < 3:
+            asgn["title"] = str(asgn.get("question_text", ""))[:50] or f"Assignment {i + 1}"
+        # Ensure question_text exists (fall back to title)
+        if not asgn.get("question_text"):
+            asgn["question_text"] = str(asgn.get("title", ""))
         # Groq returns rubric as a flat dict OR a list with aliased keys;
         # _RubricAI expects list[{criterion, description, max_marks}]
         rubric = asgn.get("rubric")
@@ -973,33 +1044,51 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                         item["max_marks"] = 5
                 # ensure description exists
                 item.setdefault("description", "")
+        elif rubric is not None:
+            asgn["rubric"] = []
+        valid_assignments.append(asgn)
+    data["assignments"] = valid_assignments
 
-    # --- teaching_plan list-field normalization: Groq returns str, model expects list[str] ---
-    for week in data.get("teaching_plan", []):
+    # --- teaching_plan list-field normalization ---
+    valid_tp: list[dict] = []
+    for week in data["teaching_plan"]:
         if not isinstance(week, dict):
             continue
-        for field in ("objectives", "activities"):
-            val = week.get(field)
+        for fld in ("objectives", "activities"):
+            val = week.get(fld)
             if isinstance(val, str):
-                week[field] = [val] if val else []
+                week[fld] = [val] if val else []
+            elif not isinstance(val, list):
+                week[fld] = []
         # co_references: split "CO1, CO3" → ["CO1", "CO3"]
         val = week.get("co_references")
         if isinstance(val, str):
             week["co_references"] = [v.strip() for v in val.split(",") if v.strip()]
+        elif not isinstance(val, list):
+            week["co_references"] = []
+        valid_tp.append(week)
+    data["teaching_plan"] = valid_tp
 
-    # --- lesson_plans list-field normalization: Groq returns str, model expects list[str] ---
-    for session in data.get("lesson_plans", []):
+    # --- lesson_plans list-field normalization ---
+    valid_lp: list[dict] = []
+    for session in data["lesson_plans"]:
         if not isinstance(session, dict):
             continue
-        for field in ("objectives", "materials_needed"):
-            val = session.get(field)
+        for fld in ("objectives", "materials_needed"):
+            val = session.get(fld)
             if isinstance(val, str):
-                session[field] = [val] if val else []
+                session[fld] = [val] if val else []
+            elif not isinstance(val, list):
+                session[fld] = []
         # bloom_levels and co_references: split comma-separated strings
-        for field in ("bloom_levels", "co_references"):
-            val = session.get(field)
+        for fld in ("bloom_levels", "co_references"):
+            val = session.get(fld)
             if isinstance(val, str):
-                session[field] = [v.strip() for v in val.split(",") if v.strip()]
+                session[fld] = [v.strip() for v in val.split(",") if v.strip()]
+            elif not isinstance(val, list):
+                session[fld] = []
+        valid_lp.append(session)
+    data["lesson_plans"] = valid_lp
 
     return data
 
@@ -1065,6 +1154,12 @@ class GroqCourseKitProvider:
         if salvage_warns:
             logger.warning(
                 "m03.groq: salvaged %d issue(s): %s", len(salvage_warns), salvage_warns
+            )
+
+        if not parsed.slides:
+            raise CourseKitAIValidationError(
+                "Groq returned 0 valid slides after normalization; "
+                "cannot commit a course kit without content."
             )
 
         violations = _validate_result(parsed, ctx)
