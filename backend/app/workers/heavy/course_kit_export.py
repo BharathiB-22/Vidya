@@ -251,6 +251,90 @@ def _s3_put_object(object_key: str, file_bytes: bytes, content_type: str) -> Non
 
 
 # ---------------------------------------------------------------------------
+# PPTX slide-body helper  (H-36A Phase 1 — all H-34 SlideContent fields)
+# ---------------------------------------------------------------------------
+
+def _fill_slide_body(tf, content: dict) -> None:
+    """Render all H-34 SlideContent fields into a PPTX text-frame.
+
+    teaching_notes is excluded here — it belongs in the notes pane only.
+    Backward-compatible: missing or None fields are silently skipped.
+    """
+    from pptx.dml.color import RGBColor
+    from pptx.util import Pt
+
+    _ACCENT = RGBColor(0x44, 0x72, 0xC4)
+    _GREEN  = RGBColor(0x21, 0x7A, 0x3C)
+    _TEAL   = RGBColor(0x00, 0x7B, 0x8A)
+
+    bullets            = content.get("bullets") or []
+    key_concepts       = content.get("key_concepts") or []
+    definitions        = content.get("definitions") or []
+    examples           = content.get("examples") or []
+    code_snippet       = (content.get("code_snippet") or "").strip()
+    diagram_prompt     = (content.get("diagram_prompt") or "").strip()
+    classroom_activity = (content.get("classroom_activity") or "").strip()
+    student_summary    = (content.get("student_summary") or "").strip()
+
+    tf.clear()
+    _first = [True]
+
+    def _para(text: str, *, level: int = 0, size: int = 18,
+              bold: bool = False, italic: bool = False, color=None):
+        if _first[0]:
+            p = tf.paragraphs[0]
+            _first[0] = False
+        else:
+            p = tf.add_paragraph()
+        p.text  = text
+        p.level = level
+        for run in p.runs:
+            run.font.size   = Pt(size)
+            run.font.bold   = bold
+            run.font.italic = italic
+            if color is not None:
+                run.font.color.rgb = color
+
+    def _section(label: str, color=None):
+        _para("", level=0, size=6)
+        _para(label, level=0, size=13, bold=True, color=color or _ACCENT)
+
+    for bullet in bullets:
+        _para(bullet, level=0, size=18)
+
+    if key_concepts:
+        _section("Key Concepts")
+        _para("  |  ".join(key_concepts), level=1, size=13, bold=True)
+
+    if definitions:
+        _section("Definitions", color=_GREEN)
+        for defn in definitions:
+            _para(f"• {defn}", level=1, size=14)
+
+    if examples:
+        _section("Examples", color=_TEAL)
+        for ex in examples:
+            _para(f"• {ex}", level=1, size=14)
+
+    if code_snippet:
+        _section("Code")
+        for line in code_snippet.split("\n")[:20]:  # cap at 20 lines to prevent overflow
+            _para(line or " ", level=1, size=11, italic=True)
+
+    if diagram_prompt:
+        _section("Diagram Prompt")
+        _para(diagram_prompt, level=1, size=13)
+
+    if classroom_activity:
+        _section("Classroom Activity", color=_TEAL)
+        _para(classroom_activity, level=1, size=13)
+
+    if student_summary:
+        _section("Student Summary")
+        _para(student_summary, level=1, size=13)
+
+
+# ---------------------------------------------------------------------------
 # PPTX generation (python-pptx)
 # ---------------------------------------------------------------------------
 
@@ -285,41 +369,32 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool) -> None:
     slides_sorted = sorted(kit.slides or [], key=lambda s: s.slide_number)
     for kit_slide in slides_sorted:
         sl = prs.slides.add_slide(content_layout)
-        sl.shapes.title.text = kit_slide.title or f"Slide {kit_slide.slide_number}"
+        content = kit_slide.content or {}
 
-        content     = kit_slide.content or {}
-        bullets     = content.get("bullets") or []
-        key_concepts = content.get("key_concepts") or []
+        # Title — prefix with slide-type badge when available
+        slide_type = (content.get("slide_type") or "").strip().upper()
+        title_text = kit_slide.title or f"Slide {kit_slide.slide_number}"
+        sl.shapes.title.text = (
+            f"[{slide_type}]  {title_text}" if slide_type else title_text
+        )
 
-        tf = sl.placeholders[1].text_frame
-        tf.clear()
-        for i, bullet in enumerate(bullets):
-            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            p.text  = bullet
-            p.level = 0
-            for run in p.runs:
-                run.font.size = Pt(18)
+        # Body — all H-34 rich content fields
+        _fill_slide_body(sl.placeholders[1].text_frame, content)
 
-        if key_concepts:
-            p = tf.add_paragraph()
-            p.text  = ""
-            p = tf.add_paragraph()
-            p.text  = "Key Concepts: " + "  |  ".join(key_concepts)
-            p.level = 1
-            for run in p.runs:
-                run.font.size  = Pt(14)
-                run.font.bold  = True
-
-        # Speaker notes: faculty/admin see instructor notes; DEAN sees only meta
+        # Notes pane — teaching_notes + speaker_notes for faculty; Bloom/CO always
         notes_parts = []
-        if not is_dean and kit_slide.speaker_notes:
-            notes_parts.append(kit_slide.speaker_notes)
+        if not is_dean:
+            teaching_notes = (content.get("teaching_notes") or "").strip()
+            if teaching_notes:
+                notes_parts.append(f"TEACHING NOTES:\n{teaching_notes}")
+            if kit_slide.speaker_notes:
+                notes_parts.append(f"SPEAKER NOTES:\n{kit_slide.speaker_notes}")
         if kit_slide.bloom_level:
             notes_parts.append(f"Bloom: {kit_slide.bloom_level.value}")
         if kit_slide.co_reference:
             notes_parts.append(f"CO: {kit_slide.co_reference}")
         if notes_parts:
-            sl.notes_slide.notes_text_frame.text = "\n".join(notes_parts)
+            sl.notes_slide.notes_text_frame.text = "\n\n".join(notes_parts)
 
     # ── Teaching plan summary ─────────────────────────────────────────────
     teaching_plan = kit.teaching_plan or []
