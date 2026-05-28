@@ -73,3 +73,22 @@ def test_generate_syllabus_sets_windows_selector_policy():
     )
 
 
+def test_generate_course_kit_sets_windows_selector_policy():
+    """generate_course_kit must set WindowsSelectorEventLoopPolicy on win32.
+
+    Same event-loop issue as M02: ProactorEventLoop + asyncpg fails on
+    the second asyncio.run() call in a --pool=solo worker.
+    """
+    import inspect
+    import app.workers.heavy.course_kit_generation as mod
+
+    src = inspect.getsource(mod.generate_course_kit)
+    assert "WindowsSelectorEventLoopPolicy" in src, (
+        "generate_course_kit must call asyncio.set_event_loop_policy("
+        "asyncio.WindowsSelectorEventLoopPolicy()) when sys.platform == 'win32'."
+    )
+    assert "sys.platform" in src, (
+        "generate_course_kit must guard the policy with 'if sys.platform == \"win32\"'."
+    )
+
+

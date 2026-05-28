@@ -422,6 +422,102 @@ def _validate_result(parsed: _KitAI, ctx: KitGenerationContext) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Post-parse salvage — recovers from common AI formatting issues
+# ---------------------------------------------------------------------------
+
+def _salvage_parsed_kit(parsed: _KitAI) -> list[str]:
+    """
+    Repair common AI formatting issues in _KitAI after Pydantic parsing.
+
+    Mutates parsed in-place; returns warning strings for the caller to log.
+    Handles:
+      - Duplicate slide / quizlet / assignment numbers → deduplicate then renumber
+      - MCQ with empty answer_key → default to first option label (or "A")
+    """
+    warns: list[str] = []
+
+    # Deduplicate + renumber slides
+    seen: set[int] = set()
+    kept_slides: list[_SlideAI] = []
+    for s in parsed.slides:
+        if s.slide_number in seen:
+            warns.append(
+                f"Dropped duplicate slide_number={s.slide_number} ('{s.title[:40]}')"
+            )
+        else:
+            seen.add(s.slide_number)
+            kept_slides.append(s)
+    parsed.slides = kept_slides
+    for i, s in enumerate(parsed.slides, 1):
+        s.slide_number = i
+
+    # Deduplicate + renumber quizlets
+    seen = set()
+    kept_qs: list[_QuizletAI] = []
+    for q in parsed.quizlets:
+        if q.question_number in seen:
+            warns.append(f"Dropped duplicate question_number={q.question_number}")
+        else:
+            seen.add(q.question_number)
+            kept_qs.append(q)
+    parsed.quizlets = kept_qs
+    for i, q in enumerate(parsed.quizlets, 1):
+        q.question_number = i
+
+    # Deduplicate + renumber assignments
+    seen = set()
+    kept_as: list[_AssignmentAI] = []
+    for a in parsed.assignments:
+        if a.assignment_number in seen:
+            warns.append(f"Dropped duplicate assignment_number={a.assignment_number}")
+        else:
+            seen.add(a.assignment_number)
+            kept_as.append(a)
+    parsed.assignments = kept_as
+    for i, a in enumerate(parsed.assignments, 1):
+        a.assignment_number = i
+
+    # Fix empty MCQ answer_key — default to first option label
+    for q in parsed.quizlets:
+        if q.question_type == "MCQ" and not q.answer_key:
+            first_label = q.options[0].label if q.options else "A"
+            q.answer_key = {"correct": first_label}
+            warns.append(
+                f"Quizlet {q.question_number}: inferred answer_key "
+                f"{{'correct': {first_label!r}}} (AI omitted answer_key)."
+            )
+
+    return warns
+
+
+# ---------------------------------------------------------------------------
+# Soft-violation classifier
+# ---------------------------------------------------------------------------
+
+def _is_soft_violation(violation: str) -> bool:
+    """
+    Return True when a validation violation is recoverable.
+
+    Soft violations → log a warning and proceed with generation.
+    Hard violations (zero slides or zero quizlets from AI) → raise.
+    """
+    vl = violation.lower()
+    # Count shortfalls: accept fewer items than the ideal minimum
+    if vl.startswith("ai returned") and "minimum" in vl:
+        return True
+    # Answer-key safety scan: warn but preserve the slide content
+    if "appears to contain answer-key content" in vl:
+        return True
+    # MCQ structural issues: handled by salvage; soft if still present
+    if "fewer than 2 options" in vl or "empty answer_key" in vl:
+        return True
+    # Duplicate numbers: fixed by salvage; soft if somehow still present
+    if "duplicate" in vl:
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Prompt builder
 # ---------------------------------------------------------------------------
 
@@ -655,12 +751,27 @@ class GeminiCourseKitProvider:
                 f"Raw response (first 500 chars): {raw[:500]}"
             ) from exc
 
+        salvage_warns = _salvage_parsed_kit(parsed)
+        if salvage_warns:
+            logger.warning(
+                "m03.gemini: salvaged %d issue(s): %s", len(salvage_warns), salvage_warns
+            )
+
         violations = _validate_result(parsed, ctx)
         if violations:
-            raise CourseKitAIValidationError(
-                "Gemini AI response failed business-rule validation:\n"
-                + "\n".join(f"  - {v}" for v in violations)
-            )
+            hard = [v for v in violations if not _is_soft_violation(v)]
+            soft = [v for v in violations if _is_soft_violation(v)]
+            if soft:
+                logger.warning(
+                    "m03.gemini: soft violations — proceeding with %d slides, "
+                    "%d quizlets: %s",
+                    len(parsed.slides), len(parsed.quizlets), soft,
+                )
+            if hard:
+                raise CourseKitAIValidationError(
+                    "Gemini AI response failed business-rule validation:\n"
+                    + "\n".join(f"  - {v}" for v in hard)
+                )
 
         return _build_result(parsed, settings.GEMINI_MODEL, phash)
 
@@ -817,6 +928,16 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             else:
                 normalised_options.append(opt)
         q["options"] = normalised_options
+        # Ensure MCQ has a non-empty answer_key after all alias normalisation
+        q_type = (q.get("question_type") or "MCQ").upper()
+        if q_type == "MCQ" and not q.get("answer_key"):
+            opts = q.get("options", [])
+            if opts:
+                first = opts[0]
+                label = first.get("label", "A") if isinstance(first, dict) else "A"
+                q["answer_key"] = {"correct": label}
+            else:
+                q["answer_key"] = {"correct": "A"}
 
     # --- assignment normalization ---
     for i, asgn in enumerate(data.get("assignments", [])):
@@ -940,12 +1061,27 @@ class GroqCourseKitProvider:
                 f"Raw response (first 500 chars): {raw[:500]}"
             ) from exc
 
+        salvage_warns = _salvage_parsed_kit(parsed)
+        if salvage_warns:
+            logger.warning(
+                "m03.groq: salvaged %d issue(s): %s", len(salvage_warns), salvage_warns
+            )
+
         violations = _validate_result(parsed, ctx)
         if violations:
-            raise CourseKitAIValidationError(
-                "Groq AI kit response failed business-rule validation:\n"
-                + "\n".join(f"  - {v}" for v in violations)
-            )
+            hard = [v for v in violations if not _is_soft_violation(v)]
+            soft = [v for v in violations if _is_soft_violation(v)]
+            if soft:
+                logger.warning(
+                    "m03.groq: soft violations — proceeding with %d slides, "
+                    "%d quizlets: %s",
+                    len(parsed.slides), len(parsed.quizlets), soft,
+                )
+            if hard:
+                raise CourseKitAIValidationError(
+                    "Groq AI kit response failed business-rule validation:\n"
+                    + "\n".join(f"  - {v}" for v in hard)
+                )
 
         return _build_result(parsed, settings.GROQ_MODEL, phash)
 

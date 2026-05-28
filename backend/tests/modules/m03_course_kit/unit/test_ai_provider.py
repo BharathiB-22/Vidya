@@ -7,10 +7,11 @@ Covers:
   - _enrich_slide_content: ensures slide_type is always present after enrichment
   - _scan_slide_answer_leak: covers all text fields including new enriched ones
   - _validate_result: end-to-end validation catches leakage + counts
+  - _salvage_parsed_kit: deduplication and MCQ answer_key repair
+  - _is_soft_violation: classifier for recoverable validation violations
 """
 from __future__ import annotations
 
-import dataclasses
 import pytest
 
 from app.modules.m03_course_kit.ai_provider import (
@@ -26,6 +27,8 @@ from app.modules.m03_course_kit.ai_provider import (
     _scan_slide_answer_leak,
     _validate_result,
     _build_result,
+    _salvage_parsed_kit,
+    _is_soft_violation,
     _VALID_SLIDE_TYPES,
 )
 
@@ -291,7 +294,7 @@ class TestScanSlideAnswerLeak:
 
     def test_detects_leak_in_speaker_notes(self):
         slide = _make_slide()
-        slide_with_notes = dataclasses.replace(slide, speaker_notes="answer_key is here")
+        slide_with_notes = slide.model_copy(update={"speaker_notes": "answer_key is here"})
         violations = _scan_slide_answer_leak([slide_with_notes])
         assert len(violations) == 1
 
@@ -424,3 +427,156 @@ class TestBuildResult:
         assert c["examples"] == ["Ex 1"]
         assert c["classroom_activity"] == "Group discussion"
         assert c["student_summary"] == "You learned X"
+
+
+# ---------------------------------------------------------------------------
+# _salvage_parsed_kit
+# ---------------------------------------------------------------------------
+
+class TestSalvageParsedKit:
+
+    def test_no_changes_on_clean_kit(self):
+        kit = _KitAI(
+            slides=[_make_slide(1), _make_slide(2)],
+            quizlets=[_make_mcq(1)],
+            assignments=[],
+        )
+        warns = _salvage_parsed_kit(kit)
+        assert warns == []
+        assert len(kit.slides) == 2
+        assert kit.slides[0].slide_number == 1
+        assert kit.slides[1].slide_number == 2
+
+    def test_deduplicates_slides_keeps_first(self):
+        kit = _KitAI(
+            slides=[_make_slide(1, "First"), _make_slide(1, "Duplicate")],
+            quizlets=[_make_mcq(1)],
+            assignments=[],
+        )
+        warns = _salvage_parsed_kit(kit)
+        assert len(kit.slides) == 1
+        assert kit.slides[0].title == "First"
+        assert any("duplicate" in w.lower() for w in warns)
+
+    def test_renumbers_slides_sequentially_after_dedup(self):
+        kit = _KitAI(
+            slides=[_make_slide(3, "Concept Slide"), _make_slide(7, "Summary Slide")],
+            quizlets=[_make_mcq(1)],
+            assignments=[],
+        )
+        _salvage_parsed_kit(kit)
+        assert kit.slides[0].slide_number == 1
+        assert kit.slides[1].slide_number == 2
+
+    def test_deduplicates_quizlets(self):
+        kit = _KitAI(
+            slides=[_make_slide(1)],
+            quizlets=[_make_mcq(1), _make_mcq(1)],
+            assignments=[],
+        )
+        warns = _salvage_parsed_kit(kit)
+        assert len(kit.quizlets) == 1
+        assert any("duplicate" in w.lower() for w in warns)
+
+    def test_renumbers_quizlets_sequentially(self):
+        kit = _KitAI(
+            slides=[_make_slide(1)],
+            quizlets=[_make_mcq(5), _make_mcq(9)],
+            assignments=[],
+        )
+        _salvage_parsed_kit(kit)
+        assert kit.quizlets[0].question_number == 1
+        assert kit.quizlets[1].question_number == 2
+
+    def test_fixes_mcq_empty_answer_key_uses_first_option(self):
+        mcq = _QuizletAI(
+            question_number=1,
+            question_text="Which is the capital?",
+            question_type="MCQ",
+            options=[{"label": "A", "text": "Berlin"}, {"label": "B", "text": "Paris"}],
+            answer_key={},
+        )
+        kit = _KitAI(slides=[_make_slide(1)], quizlets=[mcq], assignments=[])
+        warns = _salvage_parsed_kit(kit)
+        assert kit.quizlets[0].answer_key == {"correct": "A"}
+        assert any("inferred" in w.lower() or "answer_key" in w.lower() for w in warns)
+
+    def test_fixes_mcq_empty_answer_key_no_options(self):
+        mcq = _QuizletAI(
+            question_number=1,
+            question_text="Which is correct?",
+            question_type="MCQ",
+            options=[],
+            answer_key={},
+        )
+        kit = _KitAI(slides=[_make_slide(1)], quizlets=[mcq], assignments=[])
+        _salvage_parsed_kit(kit)
+        assert kit.quizlets[0].answer_key == {"correct": "A"}
+
+    def test_short_answer_empty_answer_key_not_modified(self):
+        sa = _QuizletAI(
+            question_number=1,
+            question_text="Explain the concept in 2-3 sentences.",
+            question_type="SHORT_ANSWER",
+            options=[],
+            answer_key={},
+        )
+        kit = _KitAI(slides=[_make_slide(1)], quizlets=[sa], assignments=[])
+        warns = _salvage_parsed_kit(kit)
+        assert kit.quizlets[0].answer_key == {}
+        assert warns == []
+
+    def test_mcq_with_valid_answer_key_not_overwritten(self):
+        kit = _KitAI(
+            slides=[_make_slide(1)],
+            quizlets=[_make_mcq(1)],
+            assignments=[],
+        )
+        original_key = kit.quizlets[0].answer_key.copy()
+        _salvage_parsed_kit(kit)
+        assert kit.quizlets[0].answer_key == original_key
+
+
+# ---------------------------------------------------------------------------
+# _is_soft_violation
+# ---------------------------------------------------------------------------
+
+class TestIsSoftViolation:
+
+    def test_min_slide_count_is_soft(self):
+        assert _is_soft_violation(
+            "AI returned 5 slides; minimum required is 8 (M03_MIN_SLIDES_PER_UNIT)."
+        )
+
+    def test_min_quizlet_count_is_soft(self):
+        assert _is_soft_violation(
+            "AI returned 1 quizlets; minimum required is 2 (M03_MIN_QUIZLETS_PER_UNIT)."
+        )
+
+    def test_answer_leak_is_soft(self):
+        assert _is_soft_violation(
+            "Slide 3 'Introduction' appears to contain answer-key content (matched: ['answer_key'])."
+        )
+
+    def test_duplicate_slide_numbers_is_soft(self):
+        assert _is_soft_violation("Duplicate slide_number values in AI response.")
+
+    def test_duplicate_question_numbers_is_soft(self):
+        assert _is_soft_violation("Duplicate question_number values in AI quizlets.")
+
+    def test_mcq_empty_answer_key_is_soft(self):
+        assert _is_soft_violation(
+            "Quizlet 2 has an empty answer_key. "
+            "answer_key must never be empty (DB NOT NULL constraint)."
+        )
+
+    def test_mcq_insufficient_options_is_soft(self):
+        assert _is_soft_violation(
+            "Quizlet 1 is MCQ but has fewer than 2 options."
+        )
+
+    def test_empty_string_is_hard(self):
+        assert not _is_soft_violation("")
+
+    def test_generic_critical_error_is_hard(self):
+        assert not _is_soft_violation("Some unknown critical error occurred.")
