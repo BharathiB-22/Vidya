@@ -18,6 +18,7 @@ On failure: reset syllabus to DRAFT, audit SYLLABUS_GENERATION_FAILED, re-raise.
 """
 import asyncio
 import logging
+import sys
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -65,6 +66,8 @@ def generate_syllabus(
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_generation(
             syllabus_id=UUID(syllabus_id),
