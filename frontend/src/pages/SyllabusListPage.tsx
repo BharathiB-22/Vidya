@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, BookOpen, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
 import { CreateSyllabusDialog } from '@/components/syllabus/CreateSyllabusDialog'
@@ -10,11 +10,12 @@ import type { SyllabusStatus } from '@/types/syllabus'
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 
 const STATUS_OPTIONS: Array<{ value: SyllabusStatus | ''; label: string }> = [
-  { value: '',                 label: 'All' },
-  { value: 'DRAFT',            label: 'Draft' },
-  { value: 'AI_GENERATING',    label: 'Generating' },
-  { value: 'FACULTY_APPROVED', label: 'Faculty Approved' },
-  { value: 'ADMIN_LOCKED',     label: 'Locked' },
+  { value: '',               label: 'All' },
+  { value: 'DRAFT',          label: 'Draft' },
+  { value: 'AI_GENERATING',  label: 'Generating' },
+  { value: 'PENDING_REVIEW', label: 'Pending Review' },
+  { value: 'DEAN_APPROVED',  label: 'Dean Approved' },
+  { value: 'DEAN_LOCKED',    label: 'Locked' },
 ]
 
 function SkeletonRow() {
@@ -145,13 +146,23 @@ export default function SyllabusListPage() {
                       Version {s.version}
                     </span>
                     <SyllabusStatusBadge status={s.status} />
+                    {s.status === 'DRAFT' && s.change_note?.startsWith('Rejected by Dean:') && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+                        <RotateCcw className="h-2.5 w-2.5" />
+                        Sent Back
+                      </span>
+                    )}
                   </div>
                   {!courseId && (
                     <p className="text-[11px] font-mono text-gray-400 truncate">
                       Course: {s.course_id}
                     </p>
                   )}
-                  {s.change_note ? (
+                  {s.change_note?.startsWith('Rejected by Dean:') ? (
+                    <p className="text-xs text-orange-600 truncate">
+                      {s.change_note.replace(/^Rejected by Dean:\s*/, '')}
+                    </p>
+                  ) : s.change_note ? (
                     <p className="text-xs text-gray-500 truncate">{s.change_note}</p>
                   ) : (
                     <p className="text-xs text-gray-400">

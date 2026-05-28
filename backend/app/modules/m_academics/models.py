@@ -128,4 +128,57 @@ class AcadSection(Base):
     is_active    = Column(Boolean, nullable=False, default=True)
     created_at   = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
-    semester = relationship("AcadSemester", back_populates="sections")
+    semester    = relationship("AcadSemester", back_populates="sections")
+    enrollments = relationship("AcadEnrollment", back_populates="section")
+
+
+class AcadEnrollment(Base):
+    __tablename__ = "acad_enrollments"
+    __table_args__ = (
+        UniqueConstraint("student_id", name="uq_acad_enrollments_student_id"),
+        Index("ix_acad_enrollments_section_id", "section_id"),
+    )
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id  = Column(UUID(as_uuid=True), nullable=False)
+    section_id  = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id"), nullable=False)
+    enrolled_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    is_active   = Column(Boolean, nullable=False, default=True)
+
+    section = relationship("AcadSection", back_populates="enrollments")
+
+
+# ---------------------------------------------------------------------------
+# H-31: Faculty Subject Assignment
+# ---------------------------------------------------------------------------
+
+class CourseRoleInCourse(str, enum.Enum):
+    PRIMARY    = "PRIMARY"
+    CO_FACULTY = "CO_FACULTY"
+    GUEST      = "GUEST"
+
+
+class SubjectAssignment(Base):
+    """Records which faculty member owns a course in a given semester.
+
+    Constraint enforced at service layer: at most one active PRIMARY per
+    (course_id, semester_id) pair. History is never deleted — revocation
+    sets is_active=False and stamps revoked_at / revoked_by_user_id.
+    """
+    __tablename__ = "subject_assignments"
+    __table_args__ = (
+        Index("ix_subject_assignments_course_sem",  "course_id",       "semester_id"),
+        Index("ix_subject_assignments_faculty",      "faculty_user_id", "is_active"),
+        Index("ix_subject_assignments_active",       "is_active"),
+    )
+
+    id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    course_id           = Column(UUID(as_uuid=True), ForeignKey("courses.id",        ondelete="CASCADE"), nullable=False)
+    faculty_user_id     = Column(UUID(as_uuid=True), nullable=False)
+    semester_id         = Column(UUID(as_uuid=True), ForeignKey("acad_semesters.id", ondelete="CASCADE"), nullable=False)
+    assigned_by_user_id = Column(UUID(as_uuid=True), nullable=False)
+    assigned_at         = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    is_active           = Column(Boolean, nullable=False, default=True)
+    role_in_course      = Column(Enum(CourseRoleInCourse, name="courseroleincoarse", native_enum=False), nullable=False)
+    revoked_at          = Column(DateTime(timezone=True), nullable=True)
+    revoked_by_user_id  = Column(UUID(as_uuid=True), nullable=True)

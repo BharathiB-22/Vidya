@@ -59,13 +59,13 @@ async def dean_user_a(test_tenant_a):
 
 @pytest_asyncio.fixture
 async def tenant_db_a(test_tenant_a):
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            await session.execute(text(f"SET search_path = {SCHEMA_A}, public"))
-        try:
+    from app.database import _tenant_schema_ctx
+    token = _tenant_schema_ctx.set(SCHEMA_A)
+    try:
+        async with AsyncSessionLocal() as session:
             yield session
-        finally:
-            await session.rollback()
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ async def m02_setup(test_tenant_a, tenant_db_a):
             db=tenant_db_a,
         )
 
-    for i in range(1, 5):
+    for i in range(1, 6):
         await SyllabusService.add_unit(
             syllabus.id,
             SyllabusUnitCreate(
@@ -143,6 +143,10 @@ async def m02_setup(test_tenant_a, tenant_db_a):
             db=tenant_db_a,
         )
 
+    # DRAFT → PENDING_REVIEW → DEAN_APPROVED (governance flow)
+    await SyllabusService.submit_for_review(
+        syllabus.id, submitted_by=uuid.uuid4(), db=tenant_db_a
+    )
     approved = await SyllabusService.approve(
         syllabus.id, approved_by=uuid.uuid4(), db=tenant_db_a
     )

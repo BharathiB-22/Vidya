@@ -63,11 +63,17 @@ from app.modules.m02_syllabus.service import SyllabusService, SyllabusServiceErr
 router = APIRouter(tags=["syllabi"])
 
 # ---------------------------------------------------------------------------
-# RBAC role sets (M02-specific — FACULTY can write; DEAN can only lock/view)
+# RBAC role sets
+#   _WRITE  — create, edit, generate, submit-for-review (FACULTY + ADMIN)
+#   _READ   — view (all content roles)
+#   _DEAN   — approve, reject (DEAN only — academic governance)
+#   _LOCK   — lock, unlock semester (DEAN only)
+#   _EXPORT — export approved syllabi
 # ---------------------------------------------------------------------------
 _WRITE  = (TenantRole.ADMIN, TenantRole.FACULTY)
 _READ   = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
-_LOCK   = (TenantRole.ADMIN, TenantRole.DEAN)
+_DEAN   = (TenantRole.DEAN,)
+_LOCK   = (TenantRole.DEAN,)
 _EXPORT = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
 
 
@@ -97,7 +103,10 @@ async def create_syllabus(
 ) -> SyllabusResponse:
     try:
         syllabus = await SyllabusService.create_syllabus(
-            payload, created_by=current_user.user_id, db=db
+            payload,
+            created_by=current_user.user_id,
+            creator_role=current_user.role,
+            db=db,
         )
     except SyllabusServiceError as e:
         raise _err(e)
@@ -123,13 +132,18 @@ async def list_syllabi(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusListResponse:
-    total, items = await SyllabusService.list_syllabi(
-        course_id=course_id,
-        status_filter=status,
-        page=page,
-        page_size=page_size,
-        db=db,
-    )
+    try:
+        total, items = await SyllabusService.list_syllabi(
+            course_id=course_id,
+            status_filter=status,
+            page=page,
+            page_size=page_size,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except SyllabusServiceError as e:
+        raise _err(e)
     return SyllabusListResponse(
         total=total,
         page=page,
@@ -290,13 +304,40 @@ async def get_generation_job(
 # State transitions
 # ===========================================================================
 
+@router.post("/{syllabus_id}/submit-for-review", response_model=SyllabusStatusResponse)
+async def submit_syllabus_for_review(
+    syllabus_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> SyllabusStatusResponse:
+    """DRAFT → PENDING_REVIEW. Faculty submits syllabus for Dean approval."""
+    try:
+        syllabus = await SyllabusService.submit_for_review(
+            syllabus_id, submitted_by=current_user.user_id, db=db
+        )
+    except SyllabusServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.SYLLABUS_APPROVED,  # reuse closest event type
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Syllabus",
+        target_id=str(syllabus_id),
+        metadata={"action": "SUBMIT_FOR_REVIEW", "version": syllabus.version},
+    )
+    return SyllabusStatusResponse.model_validate(syllabus)
+
+
 @router.post("/{syllabus_id}/approve", response_model=SyllabusStatusResponse)
 async def approve_syllabus(
     syllabus_id: UUID,
     payload: ApproveRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
+    """PENDING_REVIEW → DEAN_APPROVED. Dean approves faculty-submitted syllabus."""
     try:
         syllabus = await SyllabusService.approve(
             syllabus_id, approved_by=current_user.user_id, db=db
@@ -311,7 +352,7 @@ async def approve_syllabus(
         schema_name=current_user.schema_name,
         target_entity="Syllabus",
         target_id=str(syllabus_id),
-        metadata={"version": syllabus.version, "comment": payload.comment},
+        metadata={"action": "DEAN_APPROVED", "version": syllabus.version, "comment": payload.comment},
     )
     return SyllabusStatusResponse.model_validate(syllabus)
 
@@ -320,9 +361,10 @@ async def approve_syllabus(
 async def reject_syllabus(
     syllabus_id: UUID,
     payload: RejectRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
+    """PENDING_REVIEW → new DRAFT. Dean rejects and requests revision."""
     try:
         new_syllabus = await SyllabusService.reject(
             syllabus_id,

@@ -142,8 +142,12 @@ def _run_compliance_check(
 # Internal transition helpers
 # ---------------------------------------------------------------------------
 
-_MUTABLE_STATUSES = {SyllabusStatus.DRAFT, SyllabusStatus.AI_GENERATING}
-_IMMUTABLE_STATUSES = {SyllabusStatus.FACULTY_APPROVED, SyllabusStatus.ADMIN_LOCKED}
+_MUTABLE_STATUSES   = {SyllabusStatus.DRAFT, SyllabusStatus.AI_GENERATING}
+_IMMUTABLE_STATUSES = {
+    SyllabusStatus.PENDING_REVIEW,
+    SyllabusStatus.DEAN_APPROVED,
+    SyllabusStatus.DEAN_LOCKED,
+}
 
 
 async def _require_status(
@@ -170,7 +174,7 @@ async def _require_mutable(
     *,
     db: AsyncSession,
 ):
-    """Raise IMMUTABLE if status is FACULTY_APPROVED or ADMIN_LOCKED."""
+    """Raise IMMUTABLE if status is PENDING_REVIEW, DEAN_APPROVED, or DEAN_LOCKED."""
     syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
     if syllabus is None:
         raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
@@ -315,9 +319,24 @@ class SyllabusService:
     async def create_syllabus(
         payload: SyllabusCreate,
         created_by: UUID,
+        creator_role: str = "",
         *,
         db: AsyncSession,
     ):
+        # Faculty must have an active assignment for this course before creating a syllabus.
+        if creator_role == "FACULTY":
+            from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+            assignment = await SubjectAssignmentRepository.get_active_for_faculty_course(
+                payload.course_id, created_by, db=db
+            )
+            if assignment is None:
+                raise SyllabusServiceError(
+                    "NOT_ASSIGNED",
+                    "You must be assigned to this course before creating a syllabus. "
+                    "Contact your Dean to request an assignment.",
+                    403,
+                )
+
         version = await SyllabusRepository.get_next_version(payload.course_id, db=db)
         syllabus = await SyllabusRepository.create(
             course_id=payload.course_id,
@@ -326,7 +345,6 @@ class SyllabusService:
             db=db,
         )
         if version > 1:
-            # Record version number (repo sets default=1; update only when > 1)
             await SyllabusRepository.update(
                 syllabus.id, {"version": version}, db=db
             )
@@ -348,9 +366,39 @@ class SyllabusService:
         page: int = 1,
         page_size: int = 50,
         *,
+        caller_role: str = "",
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ):
         offset = (page - 1) * page_size
+
+        if caller_role == "FACULTY" and faculty_user_id is not None:
+            from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+            if course_id is not None:
+                # Specific course: verify the faculty is assigned to it
+                assignment = await SubjectAssignmentRepository.get_active_for_faculty_course(
+                    course_id, faculty_user_id, db=db
+                )
+                if assignment is None:
+                    raise SyllabusServiceError(
+                        "NOT_ASSIGNED",
+                        "You are not assigned to this course.",
+                        403,
+                    )
+            else:
+                # No course filter: scope to assigned courses only
+                assignments = await SubjectAssignmentRepository.list_by_faculty(
+                    faculty_user_id, db=db
+                )
+                course_ids = list({a.course_id for a in assignments})
+                total = await SyllabusRepository.count_by_courses(
+                    course_ids, status_filter=status_filter, db=db
+                )
+                items = await SyllabusRepository.list_by_courses(
+                    course_ids, status_filter=status_filter, offset=offset, limit=page_size, db=db
+                )
+                return total, items
+
         if course_id is not None:
             total = await SyllabusRepository.count_by_course(
                 course_id, status_filter=status_filter, db=db
@@ -443,20 +491,20 @@ class SyllabusService:
         return str(job_id)
 
     # =========================================================================
-    # State machine — approval / rejection / lock / unlock
+    # State machine — submit / dean-approve / reject / lock / unlock
     # =========================================================================
 
     @staticmethod
-    async def approve(
+    async def submit_for_review(
         syllabus_id: UUID,
-        approved_by: UUID,
+        submitted_by: UUID,
         *,
         db: AsyncSession,
     ):
         """
-        DRAFT → FACULTY_APPROVED.
-        Runs compliance checks; raises COMPLIANCE_FAILED on ERROR violations.
-        WARNING violations are accepted and do not block approval.
+        DRAFT → PENDING_REVIEW.
+        Faculty submits syllabus for Dean review. Runs compliance checks;
+        raises COMPLIANCE_FAILED on ERROR violations.
         """
         await _require_status(syllabus_id, SyllabusStatus.DRAFT, db=db)
 
@@ -471,7 +519,28 @@ class SyllabusService:
             )
             raise SyllabusServiceError("COMPLIANCE_FAILED", error_msgs, 422)
 
-        syllabus = await SyllabusRepository.set_faculty_approved(
+        syllabus = await SyllabusRepository.set_pending_review(
+            syllabus_id, submitted_by, db=db
+        )
+        if syllabus is None:
+            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
+        await db.commit()
+        return syllabus
+
+    @staticmethod
+    async def approve(
+        syllabus_id: UUID,
+        approved_by: UUID,
+        *,
+        db: AsyncSession,
+    ):
+        """
+        PENDING_REVIEW → DEAN_APPROVED.
+        Dean approves the submitted syllabus. Only DEAN role may call this.
+        """
+        await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
+
+        syllabus = await SyllabusRepository.set_dean_approved(
             syllabus_id, approved_by, db=db
         )
         if syllabus is None:
@@ -488,11 +557,11 @@ class SyllabusService:
         db: AsyncSession,
     ):
         """
-        FACULTY_APPROVED → new DRAFT (fork).
-        Preserves the approved version as-is; creates a new DRAFT child version
-        containing the reason in change_note so the edit history is traceable.
+        PENDING_REVIEW → new DRAFT (fork).
+        Dean rejects; preserves the pending version as-is and creates a new
+        DRAFT child with the rejection reason in change_note.
         """
-        await _require_status(syllabus_id, SyllabusStatus.FACULTY_APPROVED, db=db)
+        await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
         syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
 
         new_version = await SyllabusRepository.get_next_version(syllabus.course_id, db=db)
@@ -500,7 +569,7 @@ class SyllabusService:
             syllabus_id,
             new_version=new_version,
             created_by=forked_by,
-            change_note=f"Rejected: {reason}",
+            change_note=f"Rejected by Dean: {reason}",
             db=db,
         )
         await db.commit()
@@ -513,9 +582,9 @@ class SyllabusService:
         *,
         db: AsyncSession,
     ):
-        """FACULTY_APPROVED → ADMIN_LOCKED."""
-        await _require_status(syllabus_id, SyllabusStatus.FACULTY_APPROVED, db=db)
-        syllabus = await SyllabusRepository.set_admin_locked(syllabus_id, locked_by, db=db)
+        """DEAN_APPROVED → DEAN_LOCKED."""
+        await _require_status(syllabus_id, SyllabusStatus.DEAN_APPROVED, db=db)
+        syllabus = await SyllabusRepository.set_dean_locked(syllabus_id, locked_by, db=db)
         if syllabus is None:
             raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
         await db.commit()
@@ -527,10 +596,10 @@ class SyllabusService:
         *,
         db: AsyncSession,
     ):
-        """ADMIN_LOCKED → FACULTY_APPROVED."""
-        await _require_status(syllabus_id, SyllabusStatus.ADMIN_LOCKED, db=db)
+        """DEAN_LOCKED → DEAN_APPROVED."""
+        await _require_status(syllabus_id, SyllabusStatus.DEAN_LOCKED, db=db)
         syllabus = await SyllabusRepository.update_status(
-            syllabus_id, SyllabusStatus.FACULTY_APPROVED, db=db
+            syllabus_id, SyllabusStatus.DEAN_APPROVED, db=db
         )
         if syllabus is None:
             raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
@@ -591,7 +660,7 @@ class SyllabusService:
         db: AsyncSession,
     ):
         """
-        Return the highest-versioned FACULTY_APPROVED or ADMIN_LOCKED syllabus.
+        Return the highest-versioned DEAN_APPROVED or DEAN_LOCKED syllabus.
         Downstream modules must call this and reject None (no approved version).
         """
         return await SyllabusRepository.get_latest_approved(course_id, db=db)
@@ -612,15 +681,16 @@ class SyllabusService:
     ) -> UUID:
         """
         Queue the export Celery task.  Export is only permitted for
-        FACULTY_APPROVED or ADMIN_LOCKED syllabi.
+        DEAN_APPROVED or DEAN_LOCKED syllabi.
         """
         syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
         if syllabus is None:
             raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        if syllabus.status not in _IMMUTABLE_STATUSES:
+        export_eligible = {SyllabusStatus.DEAN_APPROVED, SyllabusStatus.DEAN_LOCKED}
+        if syllabus.status not in export_eligible:
             raise SyllabusServiceError(
                 "EXPORT_NOT_ELIGIBLE",
-                f"Syllabus must be FACULTY_APPROVED or ADMIN_LOCKED for export; "
+                f"Syllabus must be DEAN_APPROVED or DEAN_LOCKED for export; "
                 f"current status is {syllabus.status.value}.",
                 422,
             )

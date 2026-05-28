@@ -9,6 +9,18 @@ import type {
 } from '@/types/syllabus'
 import { syllabusKeys } from './useSyllabuses'
 
+export function useSubmitSyllabusForReview() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => syllabusesApi.submitSyllabusForReview(id),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: syllabusKeys.status(data.id) })
+      qc.invalidateQueries({ queryKey: syllabusKeys.detail(data.id) })
+      qc.invalidateQueries({ queryKey: syllabusKeys.all })
+    },
+  })
+}
+
 export function useGenerateSyllabus(syllabusId: string) {
   const qc = useQueryClient()
   return useMutation({

@@ -5,8 +5,9 @@
 export type SyllabusStatus =
   | 'DRAFT'
   | 'AI_GENERATING'
-  | 'FACULTY_APPROVED'
-  | 'ADMIN_LOCKED'
+  | 'PENDING_REVIEW'
+  | 'DEAN_APPROVED'
+  | 'DEAN_LOCKED'
 
 export type BloomLevel =
   | 'REMEMBER'

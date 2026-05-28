@@ -144,10 +144,14 @@ _VALID_COMPLEXITY      = {c.value for c in ComplexityLevel}
 # ---------------------------------------------------------------------------
 
 class _SlideContentAI(BaseModel):
-    bullets:      list[str] = Field(default_factory=list)
-    key_concepts: list[str] = Field(default_factory=list)
-    image_hint:   str | None = None
-    code_snippet: str | None = None
+    bullets:        list[str] = Field(default_factory=list)
+    key_concepts:   list[str] = Field(default_factory=list)
+    definitions:    list[str] = Field(default_factory=list)
+    examples:       list[str] = Field(default_factory=list)
+    image_hint:     str | None = None
+    code_snippet:   str | None = None
+    teaching_notes: str | None = None
+    student_summary: str | None = None
 
 
 class _SlideAI(BaseModel):
@@ -373,8 +377,18 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "accreditation standards and Bloom's revised taxonomy.\n\n"
         "WHAT TO GENERATE:\n"
         f"  1. Slides: minimum {ctx.min_slides} slides covering all unit topics progressively.\n"
-        "     Each slide: slide_number (1-based), title, content (bullets + key_concepts), "
-        "speaker_notes, bloom_level, co_reference.\n"
+        "     Each slide: slide_number (1-based), title, content object with:\n"
+        "       - bullets: 4-6 clear teaching points\n"
+        "       - key_concepts: 3-5 critical terms students must understand\n"
+        "       - definitions: 2-4 formal definitions of key terms on this slide\n"
+        "       - examples: 2-3 concrete real-world or applied examples\n"
+        "       - code_snippet: relevant code (if applicable, else null)\n"
+        "       - image_hint: suggestion for a diagram or visual aid\n"
+        "       - teaching_notes: 2-3 sentences of faculty-facing guidance "
+        "(how to present, common misconceptions to address, discussion prompts)\n"
+        "       - student_summary: 1-2 student-friendly sentences summarising "
+        "what students should take away from this slide\n"
+        "     Plus: speaker_notes, bloom_level, co_reference.\n"
         f"  2. Quizlets: minimum {ctx.min_quizlets} questions (recommend 5).\n"
         "     Each quizlet: question_number (1-based), question_text, question_type "
         "(MCQ or SHORT_ANSWER), options (MCQ only), answer_key (dict), "
@@ -393,7 +407,7 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "STRICT PROHIBITIONS:\n"
         "  - answer_key values MUST ONLY appear in quizlet answer_key fields.\n"
         "  - NEVER embed quiz answers, answer keys, or correct-answer notations "
-        "in slide bullets, key_concepts, image_hint, or speaker_notes.\n"
+        "in slide bullets, key_concepts, definitions, examples, or speaker_notes.\n"
         "  - Do not include author names, DOIs, ISBNs, or publisher names in resources.\n"
         "  - For MCQ: answer_key must be {\"correct\": \"A\"} (or B/C/D).\n"
         "  - For SHORT_ANSWER: answer_key must be "
@@ -428,6 +442,13 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         f"Requirements:\n"
         f"- Slides: minimum {ctx.min_slides}. "
         f"First slide: unit overview. Last slide: summary + next steps.\n"
+        f"  Each slide MUST include rich content:\n"
+        f"    * definitions: formal definitions of 2-4 key terms introduced on the slide\n"
+        f"    * examples: 2-3 concrete real-world examples or applications\n"
+        f"    * teaching_notes: guidance for faculty on how to teach this slide "
+        f"(misconceptions, suggested discussion prompts, pacing advice)\n"
+        f"    * student_summary: a brief student-friendly takeaway (1-2 sentences)\n"
+        f"    * code_snippet: include relevant code when the topic involves programming\n"
         f"- Quizlets: minimum {ctx.min_quizlets} (target 5). Mix MCQ and SHORT_ANSWER.\n"
         f"  * MCQ: 4 options labelled A/B/C/D; answer_key: {{\"correct\": \"<label>\"}}.\n"
         f"  * SHORT_ANSWER: answer_key: {{\"answer_points\": [\"key point 1\", ...]}}.\n"

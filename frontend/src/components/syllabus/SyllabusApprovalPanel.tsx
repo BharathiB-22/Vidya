@@ -1,20 +1,22 @@
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink } from 'lucide-react'
+import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink, Send, UserCheck } from 'lucide-react'
 import { useSyllabusVersions } from '@/hooks/syllabuses'
 import { SyllabusStatusBadge } from './SyllabusStatusBadge'
 import type { Syllabus } from '@/types/syllabus'
 
 const STEPS = [
-  { key: 'DRAFT',            label: 'Draft',            desc: 'Content editing open', icon: FileText },
-  { key: 'FACULTY_APPROVED', label: 'Faculty Approved', desc: 'Immutable — awaiting lock', icon: CheckCircle },
-  { key: 'ADMIN_LOCKED',     label: 'Admin Locked',     desc: 'Frozen for semester', icon: Lock },
+  { key: 'DRAFT',          label: 'Draft',          desc: 'Content editing open',   icon: FileText    },
+  { key: 'PENDING_REVIEW', label: 'Pending Review', desc: 'Submitted to Dean',       icon: Send        },
+  { key: 'DEAN_APPROVED',  label: 'Dean Approved',  desc: 'Approved — post-unlock',  icon: UserCheck   },
+  { key: 'DEAN_LOCKED',    label: 'Locked',         desc: 'Frozen for semester',     icon: Lock        },
 ] as const
 
 const STATUS_STEP: Record<string, number> = {
-  DRAFT:            0,
-  AI_GENERATING:    0,
-  FACULTY_APPROVED: 1,
-  ADMIN_LOCKED:     2,
+  DRAFT:          0,
+  AI_GENERATING:  0,
+  PENDING_REVIEW: 1,
+  DEAN_APPROVED:  2,
+  DEAN_LOCKED:    3,
 }
 
 interface Props {
@@ -58,13 +60,13 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
                   <span className="text-[10px] text-gray-400 text-center leading-tight px-1 hidden sm:block">
                     {step.desc}
                   </span>
-                  {/* Timestamp under active step */}
-                  {idx === 1 && syllabus.approved_at && (
+                  {/* Timestamp under completed steps */}
+                  {idx === 2 && syllabus.approved_at && (
                     <span className="text-[10px] text-green-600">
                       {new Date(syllabus.approved_at).toLocaleDateString()}
                     </span>
                   )}
-                  {idx === 2 && syllabus.locked_at && (
+                  {idx === 3 && syllabus.locked_at && (
                     <span className="text-[10px] text-green-600">
                       {new Date(syllabus.locked_at).toLocaleDateString()}
                     </span>
@@ -117,6 +119,20 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
           <MetaCell label="AI Model">
             <span className="text-sm text-gray-700">{syllabus.ai_model ?? '—'}</span>
           </MetaCell>
+        </div>
+        {/* Creator row — visible for Dean governance review */}
+        <div className="px-4 py-2 flex items-center gap-4 text-xs text-gray-500">
+          <span className="text-gray-400 font-medium">Faculty owner:</span>
+          <code className="font-mono text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+            {syllabus.created_by_user_id}
+          </code>
+          {syllabus.approved_at && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="text-gray-400 font-medium">Dean approved:</span>
+              <span>{new Date(syllabus.approved_at).toLocaleString()}</span>
+            </>
+          )}
         </div>
         {syllabus.prompt_hash && (
           <div className="px-4 py-2 flex items-center gap-2">

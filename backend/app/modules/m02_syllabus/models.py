@@ -12,10 +12,11 @@ from app.database import Base
 
 
 class SyllabusStatus(str, enum.Enum):
-    DRAFT            = "DRAFT"
-    AI_GENERATING    = "AI_GENERATING"
-    FACULTY_APPROVED = "FACULTY_APPROVED"
-    ADMIN_LOCKED     = "ADMIN_LOCKED"
+    DRAFT          = "DRAFT"
+    AI_GENERATING  = "AI_GENERATING"
+    PENDING_REVIEW = "PENDING_REVIEW"   # faculty submitted; awaiting Dean
+    DEAN_APPROVED  = "DEAN_APPROVED"    # Dean approved
+    DEAN_LOCKED    = "DEAN_LOCKED"      # frozen for semester
 
 
 class BloomLevel(str, enum.Enum):

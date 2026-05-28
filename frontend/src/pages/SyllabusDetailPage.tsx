@@ -60,7 +60,7 @@ export default function SyllabusDetailPage() {
 
   const isEditable   = syllabus ? EDITABLE_STATUSES.has(syllabus.status) : false
   const isGenerating = syllabus?.status === 'AI_GENERATING'
-  const isLocked     = syllabus?.status === 'ADMIN_LOCKED'
+  const isLocked     = syllabus?.status === 'DEAN_LOCKED'
 
   // Track whether AI generation was running in this session so we can detect failure
   const [wasGenerating, setWasGenerating] = useState(false)
@@ -140,13 +140,38 @@ export default function SyllabusDetailPage() {
           </span>
         </div>
       )}
-      {!isEditable && !isLocked && syllabus.status === 'FACULTY_APPROVED' && (
-        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-sm">
+      {!isEditable && !isLocked && syllabus.status === 'PENDING_REVIEW' && (
+        <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
-            This syllabus has been <strong>faculty-approved</strong> and is immutable.
-            Use <strong>Reject</strong> to return it to draft, or <strong>Fork</strong> for a new version.
+            This syllabus is <strong>pending Dean review</strong> and cannot be edited.
+            The Dean may approve or reject it.
           </span>
+        </div>
+      )}
+      {!isEditable && !isLocked && syllabus.status === 'DEAN_APPROVED' && (
+        <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-green-700 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            This syllabus has been <strong>Dean-approved</strong> and is immutable.
+            Use <strong>Fork Version</strong> to start a new revision.
+          </span>
+        </div>
+      )}
+
+      {/* ── Rejection banner — shown when Dean sent back for revision ── */}
+      {syllabus.status === 'DRAFT' && syllabus.change_note?.startsWith('Rejected by Dean:') && (
+        <div className="flex items-start gap-2 rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 text-orange-800 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-orange-500" />
+          <div>
+            <p className="font-semibold">Sent Back for Revision by Dean</p>
+            <p className="mt-0.5 text-orange-700">
+              {syllabus.change_note.replace(/^Rejected by Dean:\s*/, '')}
+            </p>
+            <p className="mt-1 text-xs text-orange-600">
+              Please address the feedback above, then re-submit for review.
+            </p>
+          </div>
         </div>
       )}
 

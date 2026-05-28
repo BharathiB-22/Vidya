@@ -122,7 +122,7 @@ async def _run_generation(
                 )
 
             # Guard: immutable states must never be regenerated
-            if syllabus.status in (SyllabusStatus.FACULTY_APPROVED, SyllabusStatus.ADMIN_LOCKED):
+            if syllabus.status in (SyllabusStatus.PENDING_REVIEW, SyllabusStatus.DEAN_APPROVED, SyllabusStatus.DEAN_LOCKED):
                 raise ValueError(
                     f"Syllabus {syllabus_id} is {syllabus.status.value}; "
                     "AI generation is not permitted on immutable syllabi."

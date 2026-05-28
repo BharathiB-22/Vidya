@@ -40,6 +40,52 @@ async def _create_syllabus(async_client, headers, course_id: uuid.UUID) -> dict:
     return resp.json()
 
 
+async def _assign_faculty_to_course(
+    course_id: uuid.UUID,
+    faculty_user_id: uuid.UUID,
+    schema_name: str,
+) -> None:
+    """Seed a minimal SubjectAssignment chain (dept→program→batch→semester→assignment)
+    so that faculty passes the H-33 assignment gate when creating/listing syllabi."""
+    dep_id  = uuid.uuid4()
+    prog_id = uuid.uuid4()
+    bat_id  = uuid.uuid4()
+    sem_id  = uuid.uuid4()
+    suffix  = str(dep_id)[:8]  # 8 hex chars from UUID prefix
+
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(text(f"SET LOCAL search_path = {schema_name}, public"))
+            await session.execute(text(
+                "INSERT INTO acad_departments (id, name, code, is_active) "
+                "VALUES (:id, :name, :code, true)"
+            ), {"id": str(dep_id), "name": f"Dept {suffix}", "code": f"D{suffix[:7]}"})
+            await session.execute(text(
+                "INSERT INTO acad_programs "
+                "(id, department_id, name, code, degree_type, duration_years, is_active) "
+                "VALUES (:id, :dep, :name, :code, 'UG', 4, true)"
+            ), {"id": str(prog_id), "dep": str(dep_id), "name": "B.Tech Test", "code": f"P{suffix[:7]}"})
+            await session.execute(text(
+                "INSERT INTO acad_batches (id, program_id, name, start_year, end_year, is_active) "
+                "VALUES (:id, :prog, :name, 2024, 2028, true)"
+            ), {"id": str(bat_id), "prog": str(prog_id), "name": "Batch 2024"})
+            await session.execute(text(
+                "INSERT INTO acad_semesters (id, batch_id, number, is_active) "
+                "VALUES (:id, :bat, 1, true)"
+            ), {"id": str(sem_id), "bat": str(bat_id)})
+            await session.execute(text(
+                "INSERT INTO subject_assignments "
+                "(id, course_id, faculty_user_id, semester_id, assigned_by_user_id, is_active, role_in_course) "
+                "VALUES (:id, :course, :faculty, :sem, :by, true, 'PRIMARY')"
+            ), {
+                "id":      str(uuid.uuid4()),
+                "course":  str(course_id),
+                "faculty": str(faculty_user_id),
+                "sem":     str(sem_id),
+                "by":      str(uuid.uuid4()),
+            })
+
+
 async def _build_compliant_via_db(syllabus_id: uuid.UUID, schema_name: str) -> None:
     """Seed compliant syllabus data directly in DB (bypasses HTTP — used for state-setup)."""
     from app.modules.m02_syllabus.models import BloomLevel as BL, SyllabusUnit, CourseOutcome
@@ -102,6 +148,10 @@ async def test_dean_can_read_syllabus_list(async_client, test_tenant_a, admin_us
 
 
 async def test_faculty_can_create_syllabus(async_client, test_tenant_a, faculty_user_a, m01_setup):
+    # H-33: faculty must be assigned to the course; seed the assignment first.
+    await _assign_faculty_to_course(
+        m01_setup["course_id"], faculty_user_a["id"], test_tenant_a["schema_name"]
+    )
     headers = make_tenant_headers(faculty_user_a)
     resp = await async_client.post(
         BASE, json=make_syllabus_payload(m01_setup["course_id"]), headers=headers
@@ -118,27 +168,37 @@ async def test_student_cannot_read_syllabus(async_client, test_tenant_a, student
     assert resp.status_code == 403
 
 
-async def test_dean_cannot_approve_syllabus(async_client, test_tenant_a, admin_user_a, dean_user_a, m01_setup):
+async def test_dean_can_approve_syllabus(async_client, test_tenant_a, admin_user_a, dean_user_a, m01_setup):
     admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
     data    = await _create_syllabus(async_client, admin_h, m01_setup["course_id"])
+    sid     = uuid.UUID(data["id"])
 
-    dean_h = make_tenant_headers(dean_user_a)
-    resp = await async_client.post(
-        f"{BASE}/{data['id']}/approve", json={}, headers=dean_h
+    await _build_compliant_via_db(sid, test_tenant_a["schema_name"])
+
+    # Submit for review (DRAFT → PENDING_REVIEW)
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=admin_h)
+    assert resp.status_code == 200
+
+    # Dean approves (PENDING_REVIEW → DEAN_APPROVED)
+    resp2 = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=dean_h)
+    assert resp2.status_code == 200
+    assert resp2.json()["status"] == "DEAN_APPROVED"
+
+
+async def test_faculty_can_submit_for_review(async_client, test_tenant_a, faculty_user_a, m01_setup):
+    await _assign_faculty_to_course(
+        m01_setup["course_id"], faculty_user_a["id"], test_tenant_a["schema_name"]
     )
-    assert resp.status_code == 403
-
-
-async def test_faculty_can_approve_syllabus(async_client, test_tenant_a, faculty_user_a, m01_setup):
     headers = make_tenant_headers(faculty_user_a)
     data = await _create_syllabus(async_client, headers, m01_setup["course_id"])
     await _build_compliant_via_db(uuid.UUID(data["id"]), test_tenant_a["schema_name"])
 
     resp = await async_client.post(
-        f"{BASE}/{data['id']}/approve", json={}, headers=headers
+        f"{BASE}/{data['id']}/submit-for-review", json={}, headers=headers
     )
     assert resp.status_code == 200
-    assert resp.json()["status"] == "FACULTY_APPROVED"
+    assert resp.json()["status"] == "PENDING_REVIEW"
 
 
 async def test_faculty_cannot_lock_syllabus(async_client, test_tenant_a, admin_user_a, faculty_user_a, m01_setup):
@@ -152,7 +212,7 @@ async def test_faculty_cannot_lock_syllabus(async_client, test_tenant_a, admin_u
     assert resp.status_code == 403
 
 
-async def test_dean_can_lock_faculty_approved_syllabus(
+async def test_dean_can_lock_dean_approved_syllabus(
     async_client, test_tenant_a, admin_user_a, dean_user_a, m01_setup
 ):
     admin_h = make_tenant_headers(admin_user_a)
@@ -161,14 +221,18 @@ async def test_dean_can_lock_faculty_approved_syllabus(
     data = await _create_syllabus(async_client, admin_h, m01_setup["course_id"])
     sid  = uuid.UUID(data["id"])
 
-    # Manually approve via DB to reach FACULTY_APPROVED
     await _build_compliant_via_db(sid, test_tenant_a["schema_name"])
-    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=admin_h)
+
+    # Admin submits for review, Dean approves
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=admin_h)
     assert resp.status_code == 200
+    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=dean_h)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "DEAN_APPROVED"
 
     resp = await async_client.post(f"{BASE}/{data['id']}/lock", json={}, headers=dean_h)
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ADMIN_LOCKED"
+    assert resp.json()["status"] == "DEAN_LOCKED"
 
 
 # ===========================================================================
@@ -184,46 +248,53 @@ async def test_404_on_unknown_syllabus_id(async_client, test_tenant_a, admin_use
     assert "message" in body
 
 
-async def test_409_when_approving_non_draft(async_client, test_tenant_a, admin_user_a, m01_setup):
-    headers = make_tenant_headers(admin_user_a)
-    data    = await _create_syllabus(async_client, headers, m01_setup["course_id"])
+async def test_409_when_approving_non_draft(async_client, test_tenant_a, admin_user_a, dean_user_a, m01_setup):
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    data    = await _create_syllabus(async_client, admin_h, m01_setup["course_id"])
 
     await _build_compliant_via_db(uuid.UUID(data["id"]), test_tenant_a["schema_name"])
-    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=headers)
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=admin_h)
+    assert resp.status_code == 200
+    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=dean_h)
     assert resp.status_code == 200
 
     # Try to approve again — should be 409
-    resp2 = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=headers)
+    resp2 = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=dean_h)
     assert resp2.status_code == 409
     body = resp2.json()
     assert body.get("error") == "INVALID_STATUS"
 
 
-async def test_422_when_approving_non_compliant_syllabus(
+async def test_422_when_submit_for_review_non_compliant_syllabus(
     async_client, test_tenant_a, admin_user_a, m01_setup
 ):
     headers = make_tenant_headers(admin_user_a)
     data    = await _create_syllabus(async_client, headers, m01_setup["course_id"])
 
-    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=headers)
+    # submit-for-review on an empty (non-compliant) syllabus → 422
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=headers)
     assert resp.status_code == 422
     body = resp.json()
     assert body.get("error") == "COMPLIANCE_FAILED"
 
 
 async def test_409_when_editing_approved_syllabus(
-    async_client, test_tenant_a, admin_user_a, m01_setup
+    async_client, test_tenant_a, admin_user_a, dean_user_a, m01_setup
 ):
-    headers = make_tenant_headers(admin_user_a)
-    data    = await _create_syllabus(async_client, headers, m01_setup["course_id"])
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    data    = await _create_syllabus(async_client, admin_h, m01_setup["course_id"])
     sid     = uuid.UUID(data["id"])
 
     await _build_compliant_via_db(sid, test_tenant_a["schema_name"])
-    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=headers)
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=admin_h)
+    assert resp.status_code == 200
+    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=dean_h)
     assert resp.status_code == 200
 
     resp2 = await async_client.patch(
-        f"{BASE}/{data['id']}", json={"custom_instructions": "Changed"}, headers=headers
+        f"{BASE}/{data['id']}", json={"custom_instructions": "Changed"}, headers=admin_h
     )
     assert resp2.status_code == 409
     assert resp2.json().get("error") == "IMMUTABLE"
@@ -235,8 +306,8 @@ async def test_error_detail_always_has_error_and_message_keys(
     headers = make_tenant_headers(admin_user_a)
     data    = await _create_syllabus(async_client, headers, m01_setup["course_id"])
 
-    # Approve empty syllabus → 422
-    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=headers)
+    # Submit-for-review on empty syllabus → 422 COMPLIANCE_FAILED
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=headers)
     assert resp.status_code == 422
     body = resp.json()
     assert "error"   in body, f"Missing 'error' key in {body}"
@@ -247,11 +318,14 @@ async def test_error_detail_always_has_error_and_message_keys(
 # Endpoint registration spot checks
 # ===========================================================================
 
-async def test_list_syllabi_requires_course_id(async_client, test_tenant_a, admin_user_a):
+async def test_list_syllabi_without_course_id_returns_all(async_client, test_tenant_a, admin_user_a):
     headers = make_tenant_headers(admin_user_a)
     resp = await async_client.get(BASE, headers=headers)
-    # course_id query param is required; FastAPI returns 422 when missing
-    assert resp.status_code == 422
+    # course_id is optional; omitting it lists all syllabuses in the tenant
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "items" in body
+    assert "total" in body
 
 
 async def test_get_compliance_returns_structured_response(
@@ -286,20 +360,21 @@ async def test_fork_returns_201_and_new_version(
 
 
 async def test_reject_returns_201_with_new_draft(
-    async_client, test_tenant_a, admin_user_a, m01_setup
+    async_client, test_tenant_a, admin_user_a, dean_user_a, m01_setup
 ):
-    headers = make_tenant_headers(admin_user_a)
-    data    = await _create_syllabus(async_client, headers, m01_setup["course_id"])
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    data    = await _create_syllabus(async_client, admin_h, m01_setup["course_id"])
     sid     = uuid.UUID(data["id"])
 
     await _build_compliant_via_db(sid, test_tenant_a["schema_name"])
-    resp = await async_client.post(f"{BASE}/{data['id']}/approve", json={}, headers=headers)
+    resp = await async_client.post(f"{BASE}/{data['id']}/submit-for-review", json={}, headers=admin_h)
     assert resp.status_code == 200
 
     resp2 = await async_client.post(
         f"{BASE}/{data['id']}/reject",
         json={"reason": "Needs more detail on unit 3"},
-        headers=headers,
+        headers=dean_h,
     )
     assert resp2.status_code == 201
     body = resp2.json()

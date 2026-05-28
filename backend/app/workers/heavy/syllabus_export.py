@@ -103,7 +103,7 @@ async def _run_export(
     tenant_slug = schema_name.removeprefix("tenant_")
     engine = _get_async_engine()
 
-    _EXPORTABLE = {SyllabusStatus.FACULTY_APPROVED, SyllabusStatus.ADMIN_LOCKED}
+    _EXPORTABLE = {SyllabusStatus.DEAN_APPROVED, SyllabusStatus.DEAN_LOCKED}
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
@@ -115,7 +115,7 @@ async def _run_export(
             if syllabus.status not in _EXPORTABLE:
                 raise ValueError(
                     f"Syllabus {syllabus_id} is {syllabus.status.value}; "
-                    "export requires FACULTY_APPROVED or ADMIN_LOCKED."
+                    "export requires DEAN_APPROVED or DEAN_LOCKED."
                 )
 
             course = await CourseRepository.get_by_id(syllabus.course_id, db=session)

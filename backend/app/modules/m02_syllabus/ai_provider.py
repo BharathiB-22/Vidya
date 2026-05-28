@@ -96,6 +96,9 @@ class _TopicAI(BaseModel):
     title:          str
     description:    str | None = None
     hours_estimate: int | None = Field(default=None, ge=1)
+    subtopics:      list[str]  = Field(default_factory=list)
+    examples:       list[str]  = Field(default_factory=list)
+    lab_reference:  str | None = None
 
 
 class _COAI(BaseModel):
@@ -189,9 +192,9 @@ def _validate_result(
         errors.append(
             f"AI returned {len(parsed.outcomes)} COs; minimum required is 4."
         )
-    if len(parsed.units) < 4:
+    if len(parsed.units) < 5:
         errors.append(
-            f"AI returned {len(parsed.units)} units; minimum required is 4."
+            f"AI returned {len(parsed.units)} units; minimum required is 5."
         )
 
     # 2. Bloom levels (already enforced by _COAI validator, but double-check)
@@ -281,9 +284,19 @@ def _build_prompt(ctx: SyllabusGenerationContext) -> tuple[str, str]:
         f"    * Have a distinct Bloom's level "
         f"(Remember/Understand/Apply/Analyse/Evaluate/Create)\n"
         f"    * List suggested_po_codes using only codes from the PO list above\n"
-        f"- Minimum 4 units covering the full course scope.\n"
-        f"  Each unit: unit_number (1-based), title, topics list, total_hours, "
-        f"pedagogy (lecture/lab/seminar/case_study/mixed).\n"
+        f"- Minimum 5 units covering the full course scope with academic depth.\n"
+        f"  Each unit must have:\n"
+        f"    * unit_number (1-based), a clear title\n"
+        f"    * 6 to 8 detailed topics (no fewer than 6). For each topic provide:\n"
+        f"        - title: concise topic name\n"
+        f"        - description: 2-3 sentence academic explanation of the topic\n"
+        f"        - subtopics: list of 3-5 key sub-concepts covered under this topic\n"
+        f"        - examples: list of 2-3 concrete real-world or applied examples\n"
+        f"        - lab_reference: describe a relevant practical or lab exercise "
+        f"(null if not applicable)\n"
+        f"        - hours_estimate: estimated teaching hours (1-3)\n"
+        f"    * total_hours: sum of all topic hours\n"
+        f"    * pedagogy: lecture/lab/seminar/case_study/mixed\n"
         f"- reference_queries: 5-7 plain search terms for textbooks and journals.\n"
         f"  Example valid query: 'data structures algorithms undergraduate textbook'\n"
         f"  Example INVALID query: 'Cormen 2009 ISBN 978-0262033848' — NEVER do this.\n"

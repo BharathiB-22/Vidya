@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.m_academics.models import (
-    AcadBatch, AcadDepartment, AcadProgram,
+    AcadBatch, AcadDepartment, AcadEnrollment, AcadProgram,
     AcadSection, AcadSemester,
 )
 
@@ -327,3 +327,23 @@ class SectionRepo:
         await db.flush()
         await db.refresh(section)
         return section
+
+
+class EnrollmentRepo:
+
+    @staticmethod
+    async def get_by_student(student_id: UUID, db: AsyncSession) -> AcadEnrollment | None:
+        result = await db.execute(
+            select(AcadEnrollment).where(AcadEnrollment.student_id == student_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_by_section(section_id: UUID, db: AsyncSession) -> list[AcadEnrollment]:
+        result = await db.execute(
+            select(AcadEnrollment).where(
+                AcadEnrollment.section_id == section_id,
+                AcadEnrollment.is_active.is_(True),
+            )
+        )
+        return list(result.scalars().all())

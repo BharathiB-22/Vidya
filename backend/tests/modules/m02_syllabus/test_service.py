@@ -33,13 +33,23 @@ from tests.modules.m02_syllabus.conftest import (
 
 
 # ---------------------------------------------------------------------------
-# Helper — create a DRAFT syllabus
+# Helpers
 # ---------------------------------------------------------------------------
 
 async def _create_draft(tenant_db, course_id, user_id=None):
     payload = SyllabusCreate(**make_syllabus_payload(course_id))
     return await SyllabusService.create_syllabus(
         payload, created_by=user_id or uuid.uuid4(), db=tenant_db
+    )
+
+
+async def _do_approve(syllabus_id, user_id, tenant_db):
+    """Submit for Dean review then Dean-approve (correct H-32 governance flow)."""
+    await SyllabusService.submit_for_review(
+        syllabus_id, submitted_by=user_id, db=tenant_db
+    )
+    return await SyllabusService.approve(
+        syllabus_id, approved_by=user_id, db=tenant_db
     )
 
 
@@ -70,7 +80,7 @@ async def test_update_syllabus_allowed_in_draft(tenant_db_a, m01_setup):
 
 async def test_update_syllabus_blocked_when_approved(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    await force_syllabus_status(s.id, SyllabusStatus.FACULTY_APPROVED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.update_syllabus(
@@ -82,7 +92,7 @@ async def test_update_syllabus_blocked_when_approved(tenant_db_a, m01_setup):
 
 async def test_update_syllabus_blocked_when_locked(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    await force_syllabus_status(s.id, SyllabusStatus.ADMIN_LOCKED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_LOCKED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.update_syllabus(
@@ -99,7 +109,7 @@ async def test_delete_syllabus_allowed_in_draft(tenant_db_a, m01_setup):
 
 async def test_delete_syllabus_blocked_when_approved(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    await force_syllabus_status(s.id, SyllabusStatus.FACULTY_APPROVED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.delete_syllabus(s.id, db=tenant_db_a)
@@ -130,23 +140,23 @@ async def test_compliance_check_passes_with_4_cos_and_units(tenant_db_a, m01_set
 # Approve
 # ===========================================================================
 
-async def test_approve_requires_draft_status(tenant_db_a, m01_setup, admin_user_a):
+async def test_approve_requires_pending_review(tenant_db_a, m01_setup, admin_user_a):
+    # approve() requires PENDING_REVIEW; calling it on a DRAFT must raise INVALID_STATUS
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    # Approve once (get to FACULTY_APPROVED)
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
 
-    # Trying to approve again raises INVALID_STATUS
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
     assert exc.value.code == "INVALID_STATUS"
 
 
-async def test_approve_blocked_by_compliance_error(tenant_db_a, m01_setup, admin_user_a):
-    # Empty syllabus → compliance errors → COMPLIANCE_FAILED
+async def test_submit_for_review_blocked_by_compliance_error(tenant_db_a, m01_setup, admin_user_a):
+    # Empty syllabus → submit_for_review runs compliance → COMPLIANCE_FAILED
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     with pytest.raises(SyllabusServiceError) as exc:
-        await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+        await SyllabusService.submit_for_review(
+            s.id, submitted_by=admin_user_a["id"], db=tenant_db_a
+        )
     assert exc.value.code == "COMPLIANCE_FAILED"
     assert exc.value.status_code == 422
 
@@ -155,10 +165,8 @@ async def test_approve_succeeds_with_compliant_syllabus(tenant_db_a, m01_setup, 
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
 
-    approved = await SyllabusService.approve(
-        s.id, approved_by=admin_user_a["id"], db=tenant_db_a
-    )
-    assert approved.status == SyllabusStatus.FACULTY_APPROVED
+    approved = await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
+    assert approved.status == SyllabusStatus.DEAN_APPROVED
     assert approved.approved_by_user_id == admin_user_a["id"]
     assert approved.approved_at is not None
 
@@ -186,10 +194,8 @@ async def test_approve_passes_with_warnings_only(tenant_db_a, m01_setup, admin_u
             db=tenant_db_a,
         )
 
-    approved = await SyllabusService.approve(
-        s.id, approved_by=admin_user_a["id"], db=tenant_db_a
-    )
-    assert approved.status == SyllabusStatus.FACULTY_APPROVED
+    approved = await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
+    assert approved.status == SyllabusStatus.DEAN_APPROVED
 
 
 # ===========================================================================
@@ -199,7 +205,9 @@ async def test_approve_passes_with_warnings_only(tenant_db_a, m01_setup, admin_u
 async def test_reject_creates_new_draft_fork(tenant_db_a, m01_setup, admin_user_a):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await SyllabusService.submit_for_review(
+        s.id, submitted_by=admin_user_a["id"], db=tenant_db_a
+    )
 
     new_s = await SyllabusService.reject(
         s.id, reason="Needs more detail", forked_by=admin_user_a["id"], db=tenant_db_a
@@ -208,10 +216,11 @@ async def test_reject_creates_new_draft_fork(tenant_db_a, m01_setup, admin_user_
     assert new_s.status == SyllabusStatus.DRAFT
     assert new_s.version == 2
     assert new_s.parent_version_id == s.id
-    assert "Rejected:" in new_s.change_note
+    assert "Rejected by Dean:" in new_s.change_note
 
 
-async def test_reject_requires_faculty_approved(tenant_db_a, m01_setup, admin_user_a):
+async def test_reject_requires_pending_review(tenant_db_a, m01_setup, admin_user_a):
+    # reject() requires PENDING_REVIEW; calling on DRAFT raises INVALID_STATUS
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.reject(
@@ -220,55 +229,58 @@ async def test_reject_requires_faculty_approved(tenant_db_a, m01_setup, admin_us
     assert exc.value.code == "INVALID_STATUS"
 
 
-async def test_reject_preserves_original_as_approved(tenant_db_a, m01_setup, admin_user_a):
+async def test_reject_preserves_original_as_pending_review(tenant_db_a, m01_setup, admin_user_a):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await SyllabusService.submit_for_review(
+        s.id, submitted_by=admin_user_a["id"], db=tenant_db_a
+    )
     await SyllabusService.reject(
         s.id, reason="Needs revision", forked_by=admin_user_a["id"], db=tenant_db_a
     )
 
-    # Original stays FACULTY_APPROVED
+    # Original stays PENDING_REVIEW (reject only forks; it does not revert the source)
     original = await SyllabusService.get_syllabus(s.id, db=tenant_db_a)
-    assert original.status == SyllabusStatus.FACULTY_APPROVED
+    assert original.status == SyllabusStatus.PENDING_REVIEW
 
 
 # ===========================================================================
 # Lock / Unlock
 # ===========================================================================
 
-async def test_lock_requires_faculty_approved(tenant_db_a, m01_setup, admin_user_a):
+async def test_lock_requires_dean_approved(tenant_db_a, m01_setup, admin_user_a):
+    # lock() requires DEAN_APPROVED; calling on DRAFT raises INVALID_STATUS
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.lock(s.id, locked_by=admin_user_a["id"], db=tenant_db_a)
     assert exc.value.code == "INVALID_STATUS"
 
 
-async def test_lock_transitions_to_admin_locked(tenant_db_a, m01_setup, admin_user_a):
+async def test_lock_transitions_to_dean_locked(tenant_db_a, m01_setup, admin_user_a):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
 
     locked = await SyllabusService.lock(s.id, locked_by=admin_user_a["id"], db=tenant_db_a)
-    assert locked.status == SyllabusStatus.ADMIN_LOCKED
+    assert locked.status == SyllabusStatus.DEAN_LOCKED
     assert locked.locked_by_user_id == admin_user_a["id"]
     assert locked.locked_at is not None
 
 
-async def test_unlock_transitions_to_faculty_approved(tenant_db_a, m01_setup, admin_user_a):
+async def test_unlock_transitions_to_dean_approved(tenant_db_a, m01_setup, admin_user_a):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
     await SyllabusService.lock(s.id, locked_by=admin_user_a["id"], db=tenant_db_a)
 
     unlocked = await SyllabusService.unlock(s.id, db=tenant_db_a)
-    assert unlocked.status == SyllabusStatus.FACULTY_APPROVED
+    assert unlocked.status == SyllabusStatus.DEAN_APPROVED
 
 
 async def test_locked_syllabus_blocks_all_edits(tenant_db_a, m01_setup, admin_user_a):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
     await SyllabusService.lock(s.id, locked_by=admin_user_a["id"], db=tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
@@ -345,7 +357,7 @@ async def test_add_co_succeeds_in_draft(tenant_db_a, m01_setup):
 
 async def test_add_co_blocked_when_approved(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    await force_syllabus_status(s.id, SyllabusStatus.FACULTY_APPROVED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.add_co(
@@ -394,7 +406,7 @@ async def test_delete_co_blocked_when_approved(tenant_db_a, m01_setup):
         ),
         db=tenant_db_a,
     )
-    await force_syllabus_status(s.id, SyllabusStatus.FACULTY_APPROVED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.delete_co(co.id, s.id, db=tenant_db_a)
@@ -421,7 +433,7 @@ async def test_add_unit_succeeds_in_draft(tenant_db_a, m01_setup):
 
 async def test_add_unit_blocked_when_approved(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    await force_syllabus_status(s.id, SyllabusStatus.FACULTY_APPROVED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.add_unit(
@@ -470,7 +482,7 @@ async def test_update_copo_mappings_blocked_when_approved(tenant_db_a, m01_setup
         ),
         db=tenant_db_a,
     )
-    await force_syllabus_status(s.id, SyllabusStatus.FACULTY_APPROVED, tenant_db_a)
+    await force_syllabus_status(s.id, SyllabusStatus.DEAN_APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.update_copo_mappings(
@@ -507,7 +519,7 @@ async def test_dispatch_export_allowed_for_approved(
 ):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s.id, tenant_db_a)
-    await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
 
     mock_task = MagicMock()
     mock_task.delay = MagicMock()
@@ -547,7 +559,7 @@ async def test_list_versions_returns_all_course_syllabi(
 ):
     s1 = await _create_draft(tenant_db_a, m01_setup["course_id"])
     await build_compliant_syllabus(s1.id, tenant_db_a)
-    await SyllabusService.approve(s1.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+    await _do_approve(s1.id, admin_user_a["id"], tenant_db_a)
     s2 = await SyllabusService.fork(
         s1.id, created_by=admin_user_a["id"], change_note="Version 2", db=tenant_db_a
     )

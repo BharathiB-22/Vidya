@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, Lock, Unlock, Eye } from 'lucide-react'
+import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, Lock, Unlock, Eye, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import {
   GenerateSyllabusDialog,
   ApproveSyllabusDialog,
@@ -12,6 +15,7 @@ import {
 } from './SyllabusActionDialogs'
 import {
   useGenerateSyllabus,
+  useSubmitSyllabusForReview,
   useApproveSyllabus,
   useRejectSyllabus,
   useLockSyllabus,
@@ -21,12 +25,13 @@ import {
 } from '@/hooks/syllabuses'
 import type { Syllabus } from '@/types/syllabus'
 
-// ADMIN + FACULTY: create, edit, generate, approve, reject, fork
-const WRITE_ROLES = ['ADMIN', 'FACULTY']
-// ADMIN + DEAN: lock, unlock
-const LOCK_ROLES = ['ADMIN', 'DEAN']
-// All authenticated roles can view
-const VIEW_ROLES = ['ADMIN', 'FACULTY', 'DEAN', 'STUDENT']
+// Corrected governance roles:
+//   FACULTY — create, edit, generate, submit-for-review
+//   DEAN    — approve, reject, lock, unlock
+//   ADMIN   — read-only (operational support, not academic governance)
+const FACULTY_ROLES = ['FACULTY']
+const DEAN_ROLES    = ['DEAN']
+const VIEW_ROLES    = ['ADMIN', 'FACULTY', 'DEAN', 'STUDENT']
 
 interface Props {
   syllabus: Syllabus
@@ -35,11 +40,12 @@ interface Props {
 export function SyllabusActionBar({ syllabus }: Props) {
   const navigate = useNavigate()
   const role     = localStorage.getItem('vidya_role') ?? 'FACULTY'
-  const canWrite = WRITE_ROLES.includes(role)
-  const canLock  = LOCK_ROLES.includes(role)
-  const canView  = VIEW_ROLES.includes(role)
+  const isFaculty = FACULTY_ROLES.includes(role)
+  const isDean    = DEAN_ROLES.includes(role)
+  const canView   = VIEW_ROLES.includes(role)
 
   const [generateOpen, setGenerateOpen] = useState(false)
+  const [submitOpen,   setSubmitOpen]   = useState(false)
   const [approveOpen,  setApproveOpen]  = useState(false)
   const [rejectOpen,   setRejectOpen]   = useState(false)
   const [lockOpen,     setLockOpen]     = useState(false)
@@ -47,6 +53,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
   const [exportOpen,   setExportOpen]   = useState(false)
 
   const generate  = useGenerateSyllabus(syllabus.id)
+  const submit    = useSubmitSyllabusForReview()
   const approve   = useApproveSyllabus()
   const reject    = useRejectSyllabus()
   const lock      = useLockSyllabus()
@@ -59,9 +66,8 @@ export function SyllabusActionBar({ syllabus }: Props) {
     navigate(`/syllabuses/${result.id}`)
   }
 
-  const canExport = syllabus.status === 'FACULTY_APPROVED' || syllabus.status === 'ADMIN_LOCKED'
+  const canExport = syllabus.status === 'DEAN_APPROVED' || syllabus.status === 'DEAN_LOCKED'
 
-  // Unknown / read-only role
   if (!canView) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
@@ -72,30 +78,31 @@ export function SyllabusActionBar({ syllabus }: Props) {
   }
 
   const hasAnyAction =
-    (syllabus.status === 'DRAFT' && canWrite) ||
-    (syllabus.status === 'FACULTY_APPROVED' && (canLock || canWrite)) ||
-    (syllabus.status === 'ADMIN_LOCKED' && canLock) ||
+    (syllabus.status === 'DRAFT' && isFaculty) ||
+    (syllabus.status === 'PENDING_REVIEW' && isDean) ||
+    (syllabus.status === 'DEAN_APPROVED' && isDean) ||
+    (syllabus.status === 'DEAN_LOCKED' && isDean) ||
     canExport
 
   return (
     <div className="flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
 
-      {/* ── DRAFT ── */}
-      {syllabus.status === 'DRAFT' && canWrite && (
+      {/* ── DRAFT — faculty actions ── */}
+      {syllabus.status === 'DRAFT' && isFaculty && (
         <Button size="sm" onClick={() => setGenerateOpen(true)} disabled={generate.isPending}>
           <Zap className="h-4 w-4 mr-1" />
           Generate with AI
         </Button>
       )}
-      {syllabus.status === 'DRAFT' && canWrite && (
+      {syllabus.status === 'DRAFT' && isFaculty && (
         <Button
           size="sm"
-          className="bg-green-600 hover:bg-green-700"
-          onClick={() => setApproveOpen(true)}
-          disabled={approve.isPending}
+          className="bg-blue-600 hover:bg-blue-700"
+          onClick={() => setSubmitOpen(true)}
+          disabled={submit.isPending}
         >
-          <CheckCircle className="h-4 w-4 mr-1" />
-          Approve
+          <Send className="h-4 w-4 mr-1" />
+          Submit for Review
         </Button>
       )}
 
@@ -107,8 +114,40 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </div>
       )}
 
-      {/* ── FACULTY_APPROVED ── */}
-      {syllabus.status === 'FACULTY_APPROVED' && canLock && (
+      {/* ── PENDING_REVIEW — Dean actions ── */}
+      {syllabus.status === 'PENDING_REVIEW' && isDean && (
+        <>
+          <Button
+            size="sm"
+            className="bg-green-600 hover:bg-green-700"
+            onClick={() => setApproveOpen(true)}
+            disabled={approve.isPending}
+          >
+            <CheckCircle className="h-4 w-4 mr-1" />
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setRejectOpen(true)}
+            disabled={reject.isPending}
+          >
+            <XCircle className="h-4 w-4 mr-1" />
+            Reject
+          </Button>
+        </>
+      )}
+
+      {/* ── PENDING_REVIEW — faculty read-only notice ── */}
+      {syllabus.status === 'PENDING_REVIEW' && isFaculty && (
+        <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-1.5">
+          <Send className="h-4 w-4 text-blue-500" />
+          Awaiting Dean review — syllabus is locked for editing.
+        </div>
+      )}
+
+      {/* ── DEAN_APPROVED — Dean lock action ── */}
+      {syllabus.status === 'DEAN_APPROVED' && isDean && (
         <Button
           size="sm"
           className="bg-orange-600 hover:bg-orange-700"
@@ -119,20 +158,9 @@ export function SyllabusActionBar({ syllabus }: Props) {
           Lock for Semester
         </Button>
       )}
-      {syllabus.status === 'FACULTY_APPROVED' && canWrite && (
-        <Button
-          size="sm"
-          variant="destructive"
-          onClick={() => setRejectOpen(true)}
-          disabled={reject.isPending}
-        >
-          <XCircle className="h-4 w-4 mr-1" />
-          Reject
-        </Button>
-      )}
 
-      {/* ── ADMIN_LOCKED ── */}
-      {syllabus.status === 'ADMIN_LOCKED' && canLock && (
+      {/* ── DEAN_LOCKED — Dean unlock ── */}
+      {syllabus.status === 'DEAN_LOCKED' && isDean && (
         <Button
           size="sm"
           variant="outline"
@@ -144,8 +172,8 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </Button>
       )}
 
-      {/* ── Fork — available on FACULTY_APPROVED + ADMIN_LOCKED ── */}
-      {canExport && (canWrite || canLock) && (
+      {/* ── Fork — Dean/Faculty on approved+ ── */}
+      {canExport && (isDean || isFaculty) && (
         <Button
           size="sm"
           variant="outline"
@@ -157,7 +185,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </Button>
       )}
 
-      {/* ── Export — available on FACULTY_APPROVED + ADMIN_LOCKED ── */}
+      {/* ── Export — Dean_Approved / Dean_Locked ── */}
       {canExport && (
         <Button
           size="sm"
@@ -187,6 +215,26 @@ export function SyllabusActionBar({ syllabus }: Props) {
         onSubmit={(hint) => generate.mutate({ custom_instructions: hint })}
         isPending={generate.isPending}
       />
+      {/* Submit for review — simple confirm */}
+      <Dialog open={submitOpen} onOpenChange={setSubmitOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Submit for Dean Review</DialogTitle></DialogHeader>
+          <p className="text-sm text-gray-600 py-2">
+            This will lock the syllabus for editing and send it to the Dean for approval.
+            Ensure all content is complete before submitting.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubmitOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => { submit.mutate(syllabus.id); setSubmitOpen(false) }}
+              disabled={submit.isPending}
+            >
+              {submit.isPending ? 'Submitting…' : 'Submit'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <ApproveSyllabusDialog
         open={approveOpen}
         onOpenChange={setApproveOpen}

@@ -99,6 +99,11 @@ export async function getJobStatus(
 // State transitions
 // ---------------------------------------------------------------------------
 
+export async function submitSyllabusForReview(id: string): Promise<SyllabusStatusResponse> {
+  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/submit-for-review`, {})
+  return data
+}
+
 export async function approveSyllabus(
   id: string,
   payload: ApproveRequest,

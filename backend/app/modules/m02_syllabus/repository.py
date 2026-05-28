@@ -85,7 +85,26 @@ class SyllabusRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def set_faculty_approved(
+    async def set_pending_review(
+        syllabus_id: UUID,
+        submitted_by_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> Syllabus | None:
+        stmt = (
+            update(Syllabus)
+            .where(Syllabus.id == syllabus_id)
+            .values(
+                status=SyllabusStatus.PENDING_REVIEW,
+                updated_at=func.now(),
+            )
+            .returning(Syllabus)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def set_dean_approved(
         syllabus_id: UUID,
         approved_by_user_id: UUID,
         *,
@@ -95,7 +114,7 @@ class SyllabusRepository:
             update(Syllabus)
             .where(Syllabus.id == syllabus_id)
             .values(
-                status=SyllabusStatus.FACULTY_APPROVED,
+                status=SyllabusStatus.DEAN_APPROVED,
                 approved_by_user_id=approved_by_user_id,
                 approved_at=func.now(),
                 updated_at=func.now(),
@@ -106,7 +125,7 @@ class SyllabusRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def set_admin_locked(
+    async def set_dean_locked(
         syllabus_id: UUID,
         locked_by_user_id: UUID,
         *,
@@ -116,7 +135,7 @@ class SyllabusRepository:
             update(Syllabus)
             .where(Syllabus.id == syllabus_id)
             .values(
-                status=SyllabusStatus.ADMIN_LOCKED,
+                status=SyllabusStatus.DEAN_LOCKED,
                 locked_by_user_id=locked_by_user_id,
                 locked_at=func.now(),
                 updated_at=func.now(),
@@ -235,6 +254,46 @@ class SyllabusRepository:
         return result.scalar_one()
 
     @staticmethod
+    async def list_by_courses(
+        course_ids: list[UUID],
+        *,
+        status_filter: SyllabusStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[Syllabus]:
+        if not course_ids:
+            return []
+        conditions: list = [Syllabus.course_id.in_(course_ids)]
+        if status_filter is not None:
+            conditions.append(Syllabus.status == status_filter)
+        stmt = (
+            select(Syllabus)
+            .where(and_(*conditions))
+            .order_by(Syllabus.course_id.asc(), Syllabus.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_by_courses(
+        course_ids: list[UUID],
+        *,
+        status_filter: SyllabusStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        if not course_ids:
+            return 0
+        conditions: list = [Syllabus.course_id.in_(course_ids)]
+        if status_filter is not None:
+            conditions.append(Syllabus.status == status_filter)
+        stmt = select(func.count(Syllabus.id)).where(and_(*conditions))
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
     async def list_versions(
         course_id: UUID,
         *,
@@ -255,15 +314,15 @@ class SyllabusRepository:
         *,
         db: AsyncSession,
     ) -> Syllabus | None:
-        """Return the highest-versioned FACULTY_APPROVED or ADMIN_LOCKED syllabus."""
+        """Return the highest-versioned DEAN_APPROVED or DEAN_LOCKED syllabus."""
         stmt = (
             select(Syllabus)
             .where(
                 and_(
                     Syllabus.course_id == course_id,
                     or_(
-                        Syllabus.status == SyllabusStatus.FACULTY_APPROVED,
-                        Syllabus.status == SyllabusStatus.ADMIN_LOCKED,
+                        Syllabus.status == SyllabusStatus.DEAN_APPROVED,
+                        Syllabus.status == SyllabusStatus.DEAN_LOCKED,
                     ),
                 )
             )
