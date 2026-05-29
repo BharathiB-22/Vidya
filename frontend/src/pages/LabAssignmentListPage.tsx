@@ -252,32 +252,32 @@ export default function LabAssignmentListPage() {
                     </Button>
                   )}
                   {canWrite && a.status === 'PUBLISHED' && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-orange-700 hover:bg-orange-50"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          close(a.id, {
-                            onSuccess: () => addToast('Assignment closed.', 'success'),
-                            onError:   () => addToast('Failed to close assignment.', 'error'),
-                          })
-                        }}
-                        disabled={closing}
-                      >
-                        Close
-                      </Button>
-                      <a
-                        href={getModerationReportUrl(a.id)}
-                        download
-                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-                        title="Download moderation report"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Download className="h-4 w-4" />
-                      </a>
-                    </>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-orange-700 hover:bg-orange-50"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        close(a.id, {
+                          onSuccess: () => addToast('Assignment closed.', 'success'),
+                          onError:   () => addToast('Failed to close assignment.', 'error'),
+                        })
+                      }}
+                      disabled={closing}
+                    >
+                      Close
+                    </Button>
+                  )}
+                  {canWrite && (a.status === 'PUBLISHED' || a.status === 'CLOSED') && (
+                    <a
+                      href={getModerationReportUrl(a.id)}
+                      download
+                      className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                      title="Download moderation report"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
                   )}
                   <button
                     type="button"

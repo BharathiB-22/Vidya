@@ -101,6 +101,52 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
   return data
 }
 
+// ── Storage — submission file upload ────────────────────────────────────────
+
+export interface UploadUrlRequest {
+  entity_type: string
+  entity_id: string
+  original_filename: string
+  content_type: string
+  size_bytes: number
+}
+
+export interface UploadUrlResponse {
+  object_key: string
+  presigned_url: string
+  expires_in_seconds: number
+}
+
+export async function requestSubmissionUploadUrl(
+  params: UploadUrlRequest
+): Promise<UploadUrlResponse> {
+  const { data } = await api.post<UploadUrlResponse>('/storage/upload-url', params)
+  return data
+}
+
+export function uploadFileToPresignedUrl(
+  presignedUrl: string,
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', presignedUrl)
+    xhr.setRequestHeader('Content-Type', file.type)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(`Upload failed: HTTP ${xhr.status}`))
+    }
+    xhr.onerror = () => reject(new Error('Network error during file upload'))
+    xhr.send(file)
+  })
+}
+
 // ── Student ──────────────────────────────────────────────────────────────────
 
 export async function studentListAssignments(params?: {

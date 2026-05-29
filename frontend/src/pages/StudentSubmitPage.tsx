@@ -1,9 +1,17 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Clock, AlertTriangle, CheckCircle2, Circle } from 'lucide-react'
+import {
+  ChevronLeft, Clock, AlertTriangle, CheckCircle2, Circle,
+  Upload, FileText, X, Loader2,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useStudentAssignments, useMySubmissions } from '@/hooks/labs'
 import { useStudentSubmit } from '@/hooks/labs'
+import {
+  requestSubmissionUploadUrl,
+  uploadFileToPresignedUrl,
+} from '@/lib/api/labs'
+import { addToast } from '@/hooks/useToast'
 import type { LabAssignment, LabSubmission, SubmissionStatus } from '@/types/labs'
 
 const TIMELINE_STEPS: { status: SubmissionStatus; label: string; desc: string }[] = [
@@ -14,6 +22,31 @@ const TIMELINE_STEPS: { status: SubmissionStatus; label: string; desc: string }[
   { status: 'RATIFIED',   label: 'Graded',        desc: 'Grade finalised by faculty.' },
 ]
 const STATUS_ORDER: SubmissionStatus[] = ['SUBMITTED', 'EVALUATING', 'EVALUATED', 'REVIEWED', 'RATIFIED']
+
+const ACCEPTED_WRITTEN_EXT = '.pdf,.docx,.zip'
+const MAX_SIZE_MB = 50
+
+function resolveContentType(file: File): string {
+  // Browsers sometimes report ZIP as application/octet-stream; normalise by extension.
+  if (file.name.toLowerCase().endsWith('.zip')) return 'application/zip'
+  if (file.name.toLowerCase().endsWith('.docx'))
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (file.name.toLowerCase().endsWith('.pdf')) return 'application/pdf'
+  return file.type
+}
+
+function isAcceptedType(file: File): boolean {
+  const ext = file.name.toLowerCase()
+  return ext.endsWith('.pdf') || ext.endsWith('.docx') || ext.endsWith('.zip')
+}
+
+function mimeLabel(file: File): string {
+  const ct = resolveContentType(file)
+  if (ct === 'application/pdf') return 'PDF'
+  if (ct.includes('wordprocessingml')) return 'DOCX'
+  if (ct.includes('zip')) return 'ZIP'
+  return ct
+}
 
 function EvaluationTimeline({ submission }: { submission: LabSubmission }) {
   const current = STATUS_ORDER.indexOf(submission.status)
@@ -82,19 +115,78 @@ export default function StudentSubmitPage() {
 
   const { data: assignData } = useStudentAssignments()
   const { data: mySubData }  = useMySubmissions()
-  const { mutateAsync: submit, isPending } = useStudentSubmit(assignmentId)
+  const { mutateAsync: submit, isPending: submitting } = useStudentSubmit(assignmentId)
 
+  // Text submission state
   const [content, setContent] = useState('')
   const [submitted, setSubmitted] = useState(false)
+
+  // File submission state (WRITTEN only)
+  const [submitMode, setSubmitMode] = useState<'text' | 'file'>('text')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<number>(0)
+  const [isUploading, setIsUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const assignment: LabAssignment | undefined = assignData?.items.find((a) => a.id === assignmentId)
   const existingSub = mySubData?.items.find((s) => s.assignment_id === assignmentId)
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!isAcceptedType(file)) {
+      addToast('Only PDF, DOCX, or ZIP files are accepted.', 'error')
+      return
+    }
+    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+      addToast(`File must be under ${MAX_SIZE_MB} MB.`, 'error')
+      return
+    }
+    setSelectedFile(file)
+    setUploadProgress(0)
+  }
+
+  function clearFile() {
+    setSelectedFile(null)
+    setUploadProgress(0)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!content.trim()) return
-    await submit({ content_text: content })
-    setSubmitted(true)
+
+    if (submitMode === 'file' && selectedFile) {
+      // ── File upload path ──────────────────────────────────────────────
+      setIsUploading(true)
+      try {
+        const urlResp = await requestSubmissionUploadUrl({
+          entity_type: 'submission',
+          entity_id: assignmentId,
+          original_filename: selectedFile.name,
+          content_type: resolveContentType(selectedFile),
+          size_bytes: selectedFile.size,
+        })
+
+        await uploadFileToPresignedUrl(urlResp.presigned_url, selectedFile, setUploadProgress)
+
+        await submit({ content_url: urlResp.object_key })
+        setSubmitted(true)
+      } catch (err) {
+        addToast(
+          err instanceof Error ? err.message : 'File upload failed. Please try again.',
+          'error'
+        )
+        setIsUploading(false)
+        return
+      }
+      setIsUploading(false)
+    } else {
+      // ── Inline text path ──────────────────────────────────────────────
+      if (!content.trim()) return
+      await submit({ content_text: content })
+      setSubmitted(true)
+    }
   }
 
   if (!assignment) {
@@ -106,7 +198,7 @@ export default function StudentSubmitPage() {
     )
   }
 
-  if (submitted || existingSub) {
+  if ((submitted || existingSub) && !isUploading) {
     const sub = existingSub
     const isRatified = sub?.status === 'RATIFIED'
     const hasScore = isRatified && sub?.final_score != null && sub?.graded_max_marks != null
@@ -118,7 +210,6 @@ export default function StudentSubmitPage() {
           All Assignments
         </Button>
 
-        {/* Confirmation / grade preview card */}
         {isRatified && hasScore ? (
           <div className="rounded-xl border border-green-200 bg-green-50 px-6 py-6 text-center">
             <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-green-600" />
@@ -129,9 +220,7 @@ export default function StudentSubmitPage() {
               <span className="text-lg text-green-600"> / {sub!.graded_max_marks}</span>
             </div>
             <p className="text-base font-semibold text-green-700 mt-1">{pct}%</p>
-            {sub?.is_late && (
-              <p className="text-xs text-orange-600 mt-1">Late submission</p>
-            )}
+            {sub?.is_late && <p className="text-xs text-orange-600 mt-1">Late submission</p>}
             <div className="mt-5 flex gap-3 justify-center">
               <Button variant="outline" onClick={() => navigate('/student/labs')}>All Assignments</Button>
               <Button onClick={() => navigate(`/student/submissions/${sub!.id}/result`)}>
@@ -151,6 +240,7 @@ export default function StudentSubmitPage() {
               <div className="mt-3 text-xs text-green-600">
                 Submitted {new Date(sub.submitted_at).toLocaleString()}
                 {sub.is_late && <span className="ml-2 text-orange-600">· Late</span>}
+                {sub.content_url && <span className="ml-2">· File uploaded</span>}
               </div>
             )}
             <div className="mt-5 flex gap-3 justify-center">
@@ -159,14 +249,19 @@ export default function StudentSubmitPage() {
           </div>
         )}
 
-        {/* Evaluation timeline */}
         {sub && <EvaluationTimeline submission={sub} />}
       </div>
     )
   }
 
   const isCode = assignment.submission_type === 'CODE'
-  const canSubmit = content.trim().length > 0 && !isPending
+  const isPending = submitting || isUploading
+
+  const canSubmit = isPending
+    ? false
+    : submitMode === 'file'
+    ? selectedFile != null
+    : content.trim().length > 0
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -218,7 +313,7 @@ export default function StudentSubmitPage() {
         </div>
       )}
 
-      {/* Visible test cases */}
+      {/* Visible test cases (CODE only) */}
       {isCode && (assignment.test_cases?.filter((tc) => !tc.is_hidden) ?? []).length > 0 && (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
@@ -244,25 +339,135 @@ export default function StudentSubmitPage() {
 
       {/* Submission form */}
       <form onSubmit={handleSubmit} className="space-y-3">
-        <label className="text-sm font-medium text-gray-700">
-          {isCode ? `Your ${assignment.language ?? 'code'} solution` : 'Your response'}
-        </label>
-        <textarea
-          className={`w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y ${
-            isCode ? 'font-mono bg-gray-950 text-green-300 leading-relaxed' : 'leading-relaxed'
-          }`}
-          rows={isCode ? 20 : 14}
-          placeholder={isCode ? `# Write your ${assignment.language ?? 'code'} solution here` : 'Write your response here…'}
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          required
-        />
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-gray-400">{content.length} characters</p>
-          <Button type="submit" disabled={!canSubmit}>
-            {isPending ? 'Submitting…' : 'Submit'}
-          </Button>
-        </div>
+
+        {/* Mode switcher — WRITTEN only */}
+        {!isCode && (
+          <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+            <button
+              type="button"
+              onClick={() => setSubmitMode('text')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                submitMode === 'text'
+                  ? 'bg-white text-gray-800 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Write response
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubmitMode('file')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                submitMode === 'file'
+                  ? 'bg-white text-gray-800 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Upload file
+            </button>
+          </div>
+        )}
+
+        {/* Text input */}
+        {(isCode || submitMode === 'text') && (
+          <>
+            <label className="text-sm font-medium text-gray-700">
+              {isCode ? `Your ${assignment.language ?? 'code'} solution` : 'Your response'}
+            </label>
+            <textarea
+              className={`w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y ${
+                isCode ? 'font-mono bg-gray-950 text-green-300 leading-relaxed' : 'leading-relaxed'
+              }`}
+              rows={isCode ? 20 : 14}
+              placeholder={isCode
+                ? `# Write your ${assignment.language ?? 'code'} solution here`
+                : 'Write your response here…'}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              required={!isCode}
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-400">{content.length} characters</p>
+              <Button type="submit" disabled={!canSubmit}>
+                {submitting ? 'Submitting…' : 'Submit'}
+              </Button>
+            </div>
+          </>
+        )}
+
+        {/* File upload input */}
+        {!isCode && submitMode === 'file' && (
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-gray-700">
+              Upload your submission (PDF, DOCX, or ZIP — max {MAX_SIZE_MB} MB)
+            </label>
+
+            {!selectedFile ? (
+              <label
+                htmlFor="submission-file"
+                className="flex flex-col items-center justify-center w-full h-36 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
+              >
+                <Upload className="h-8 w-8 text-gray-300 mb-2" />
+                <p className="text-sm text-gray-400">Click to select file</p>
+                <p className="text-xs text-gray-300 mt-0.5">PDF · DOCX · ZIP</p>
+                <input
+                  id="submission-file"
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept={ACCEPTED_WRITTEN_EXT}
+                  onChange={handleFileChange}
+                />
+              </label>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-start gap-3">
+                <FileText className="h-8 w-8 text-purple-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{selectedFile.name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {mimeLabel(selectedFile)} · {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+
+                  {/* Upload progress bar */}
+                  {isUploading && (
+                    <div className="mt-2">
+                      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 rounded-full transition-all duration-200"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-blue-600 mt-1">Uploading… {uploadProgress}%</p>
+                    </div>
+                  )}
+                </div>
+                {!isUploading && (
+                  <button
+                    type="button"
+                    onClick={clearFile}
+                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                    title="Remove file"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={!canSubmit}>
+                {isUploading ? (
+                  <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Uploading…</>
+                ) : submitting ? (
+                  'Submitting…'
+                ) : (
+                  'Submit'
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
       </form>
     </div>
   )

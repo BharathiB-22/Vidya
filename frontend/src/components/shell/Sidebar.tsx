@@ -44,7 +44,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Assess & Research',
     items: [
-      { label: 'Lab Assignments', to: '/labs',                icon: FlaskConical,   roles: ['FACULTY', 'ADMIN'] },
+      { label: 'Lab Assignments', to: '/labs',                icon: FlaskConical,   roles: ['FACULTY', 'DEAN', 'ADMIN'] },
       { label: 'Research',        to: '/research/problems',   icon: Microscope,     roles: ['FACULTY', 'ADMIN', 'GUIDE'] },
       { label: 'Exam Papers',     to: '/exams',               icon: FileText,       roles: ['FACULTY', 'ADMIN', 'BOARD'] },
       { label: 'Pending Review',  to: '/exams/board/pending', icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
