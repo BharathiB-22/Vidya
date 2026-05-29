@@ -853,7 +853,11 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             data["assignments"] = data.pop(alias)
             break
 
-    for alias in ("weekly_plan", "course_schedule"):
+    for alias in (
+        "weekly_plan", "course_schedule", "teaching_schedule",
+        "weekly_teaching_plan", "course_plan", "schedule",
+        "unit_schedule", "weekly_schedule",
+    ):
         if alias in data and "teaching_plan" not in data:
             data["teaching_plan"] = data.pop(alias)
             break
@@ -894,6 +898,30 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
         elif not isinstance(content, dict):
             slide["content"] = {}
         content_dict = slide["content"]
+
+        # bullets: str → list[str], coerce items to str
+        bv = content_dict.get("bullets")
+        if isinstance(bv, str):
+            content_dict["bullets"] = [bv] if bv else []
+        elif not isinstance(bv, list):
+            content_dict["bullets"] = []
+        content_dict["bullets"] = [str(b) for b in content_dict["bullets"] if b]
+
+        # Hoist bullets from slide-level — Groq often places them outside the content object.
+        # Also handle common aliases (points, body_points, slide_points, learning_points).
+        if not content_dict.get("bullets"):
+            for _bkey in ("bullets", "points", "body_points", "slide_points",
+                          "learning_points", "content_points", "teaching_points",
+                          "slide_body", "body"):
+                _bval = slide.get(_bkey)
+                if _bval is None:
+                    continue
+                if isinstance(_bval, str) and _bval.strip():
+                    content_dict["bullets"] = [_bval.strip()]
+                elif isinstance(_bval, list):
+                    content_dict["bullets"] = [str(x) for x in _bval if x]
+                if content_dict.get("bullets"):
+                    break
 
         # key_concepts: str → list[str]
         kc = content_dict.get("key_concepts")
@@ -1068,6 +1096,32 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             week["co_references"] = []
         valid_tp.append(week)
     data["teaching_plan"] = valid_tp
+
+    # --- teaching_plan fallback: synthesise from slides if AI omitted it ---
+    if not data["teaching_plan"] and data["slides"]:
+        slides = data["slides"]
+        chunk = max(1, len(slides) // 4)  # ~4 weeks; at least 1 slide/week
+        for week_num, start in enumerate(range(0, len(slides), chunk), 1):
+            group = slides[start: start + chunk]
+            topic = group[0].get("title", f"Week {week_num} Topics") if group else f"Week {week_num}"
+            objectives = []
+            for sl in group:
+                content = sl.get("content") or {}
+                bullets = content.get("bullets") or []
+                if isinstance(bullets, list):
+                    objectives.extend(b for b in bullets[:2] if isinstance(b, str))
+            data["teaching_plan"].append({
+                "week": week_num,
+                "topic": topic,
+                "objectives": objectives[:3],
+                "activities": [],
+                "hours": 3,
+                "co_references": [],
+            })
+        logger.info(
+            "m03.normalizer: teaching_plan was empty — synthesised %d week(s) from slides",
+            len(data["teaching_plan"]),
+        )
 
     # --- lesson_plans list-field normalization ---
     valid_lp: list[dict] = []

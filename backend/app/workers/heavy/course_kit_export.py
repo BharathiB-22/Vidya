@@ -478,24 +478,65 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             _txt(sl, stype, Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
                  sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
 
-        bullets      = content.get('bullets') or []
-        key_concepts = content.get('key_concepts') or []
-        definitions  = content.get('definitions') or []
-        examples     = content.get('examples') or []
-        code_snippet = (content.get('code_snippet') or '').strip()
-        activity     = (content.get('classroom_activity') or '').strip()
-        summary_txt  = (content.get('student_summary') or '').strip()
+        # Extract and normalise all content fields.
+        # Defensive: coerce every item to str; handle empty/missing JSONB.
+        bullets        = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts   = [str(k) for k in (content.get('key_concepts') or []) if k]
+        definitions    = [str(d) for d in (content.get('definitions') or []) if d]
+        examples       = [str(e) for e in (content.get('examples') or []) if e]
+        code_snippet   = (content.get('code_snippet') or '').strip()
+        activity       = (content.get('classroom_activity') or '').strip()
+        summary_txt    = (content.get('student_summary') or '').strip()
+        teaching_notes = (content.get('teaching_notes') or '').strip()
 
-        # Main bullets (left 2/3 of slide)
+        # Fallback 1: try alternate field names Groq sometimes uses
+        if not bullets:
+            for _fk in ('points', 'body_points', 'slide_points', 'learning_points',
+                        'content_points', 'teaching_points', 'body', 'slide_body'):
+                _fv = content.get(_fk)
+                if isinstance(_fv, list) and _fv:
+                    bullets = [str(x) for x in _fv[:7] if x]
+                    break
+                elif isinstance(_fv, str) and _fv.strip():
+                    bullets = [_fv.strip()]
+                    break
+
+        # Fallback 2: split speaker_notes into bullet lines
+        if not bullets and ks.speaker_notes:
+            _note_lines = [ln.strip() for ln in ks.speaker_notes.split('\n') if ln.strip()]
+            if _note_lines:
+                bullets = _note_lines[:5]
+
+        # Fallback 3: synthesise from rich fields so body is never blank
+        if not bullets:
+            if key_concepts:
+                bullets = ['Key concept: ' + kc for kc in key_concepts[:4]]
+            elif definitions:
+                bullets = [d[:140] for d in definitions[:3]]
+            elif examples:
+                bullets = ['Example: ' + ex for ex in examples[:3]]
+            elif activity:
+                bullets = [activity[:140]]
+            elif summary_txt:
+                bullets = [summary_txt[:140]]
+            elif teaching_notes:
+                bullets = [teaching_notes[:140]]
+            else:
+                bullets = [
+                    'Unit ' + str(kit.unit_number) + ' - Slide ' + str(ks.slide_number)
+                    + ': open Course Kit to add content before presenting'
+                ]
+
+        # Main bullets rendered as editable text boxes (left 2/3 of slide)
         by = Inches(1.15)
         for bullet in bullets[:7]:
-            _txt(sl, f'â–¸  {bullet}', Inches(0.45), by,
-                 Inches(8.25), Inches(0.55), sz=15, color=_TXT)
-            by += Inches(0.58)
+            _txt(sl, '  ' + str(bullet), Inches(0.45), by,
+                 Inches(8.25), Inches(0.65), sz=14, color=_TXT)
+            by += Inches(0.68)
 
         if activity and len(bullets) < 5:
             _rect(sl, Inches(0.45), by + Inches(0.1), Inches(8.25), Inches(0.26), _TEAL)
-            _txt(sl, f'ACTIVITY: {activity}', Inches(0.55), by + Inches(0.1),
+            _txt(sl, 'Activity: ' + activity, Inches(0.55), by + Inches(0.1),
                  Inches(8.1), Inches(0.26), sz=9, bold=True, color=_WHT)
 
         # Right panel â€” key concepts + definitions
