@@ -29,6 +29,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,6 +61,7 @@ from app.modules.m05_learning_materials.service import (
 )
 
 router = APIRouter(tags=["learning-packages"])
+logger = logging.getLogger("vidya.m05.router")
 
 # ---------------------------------------------------------------------------
 # RBAC role sets
@@ -401,6 +404,10 @@ async def ask_question(
             db=db,
         )
     except PackageServiceError as e:
+        logger.warning(
+            "m05.router: ask failed (package=%s session=%s code=%s question=%r): %s",
+            package_id, session_id, e.code, payload.question[:60], e.message,
+        )
         raise _err(e)
     return RAGAnswerResponse(**result)
 

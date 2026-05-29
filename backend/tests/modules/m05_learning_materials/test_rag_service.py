@@ -609,3 +609,217 @@ async def test_multiple_chunks_same_item_deduplicated_to_one_source():
 
     assert len(result["sources"]) == 1
     assert result["sources"][0]["relevance_score"] == 0.95
+
+
+# ===========================================================================
+# BUG-FIX: db.commit() must be called — stability regression tests
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_ask_commits_db_session():
+    """ask_package_question must call db.commit() so the session survives the request.
+
+    Root cause of the QA instability bug: without commit(), the AsyncSession
+    context manager rolls back on close, making the session_id invisible to the
+    next request → SESSION_NOT_FOUND on the 2nd question.
+    """
+    session = _make_mock_session_obj()
+    mock_db = AsyncMock()
+
+    with (
+        patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=_make_mock_qdrant([_make_hit()])),
+        patch("app.modules.m05_learning_materials.embedder.embed_texts", new=AsyncMock(return_value=[[0.1] * 768])),
+        patch("app.modules.m05_learning_materials.rag_service._gemini_generate", new=AsyncMock(return_value="Answer.")),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.create_session", new=AsyncMock(return_value=session)),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.get_session", new=AsyncMock(return_value=None)),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.append_message", new=AsyncMock(return_value=_make_mock_message())),
+    ):
+        from app.modules.m05_learning_materials.rag_service import ask_package_question
+        await ask_package_question(
+            package_id=PACKAGE_ID,
+            student_user_id=STUDENT_ID,
+            question="What is ML?",
+            tenant_schema=TENANT_SCHEMA,
+            session_id=None,
+            db=mock_db,
+        )
+
+    mock_db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ask_no_commit_when_ai_fails():
+    """If AI generation fails, no commit should be called (DB rolls back cleanly)."""
+    mock_db = AsyncMock()
+
+    with (
+        patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=_make_mock_qdrant([_make_hit()])),
+        patch("app.modules.m05_learning_materials.embedder.embed_texts", new=AsyncMock(return_value=[[0.1] * 768])),
+        patch(
+            "app.modules.m05_learning_materials.rag_service._gemini_generate",
+            new=AsyncMock(side_effect=Exception("Internal error")),
+        ),
+    ):
+        from app.modules.m05_learning_materials.rag_service import ask_package_question
+        with pytest.raises(RagAIError):
+            await ask_package_question(
+                package_id=PACKAGE_ID,
+                student_user_id=STUDENT_ID,
+                question="What is ML?",
+                tenant_schema=TENANT_SCHEMA,
+                session_id=None,
+                db=mock_db,
+            )
+
+    mock_db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ask_session_reuse_across_two_questions():
+    """Second question reuses the committed session from the first question.
+
+    Simulates the exact scenario that was failing: Q1 creates a session and
+    commits; Q2 finds the session by ID and appends to it.
+    """
+    session = _make_mock_session_obj(SESSION_ID)
+
+    # Q1: session_id=None → create_session called
+    mock_create = AsyncMock(return_value=session)
+    mock_get    = AsyncMock(return_value=session)  # session "exists" after Q1's commit
+
+    with (
+        patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=_make_mock_qdrant([_make_hit()])),
+        patch("app.modules.m05_learning_materials.embedder.embed_texts", new=AsyncMock(return_value=[[0.1] * 768])),
+        patch("app.modules.m05_learning_materials.rag_service._gemini_generate", new=AsyncMock(return_value="A.")),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.create_session", new=mock_create),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.get_session", new=mock_get),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.append_message", new=AsyncMock(return_value=_make_mock_message())),
+    ):
+        from app.modules.m05_learning_materials.rag_service import ask_package_question
+
+        # Q1: no session_id → new session
+        r1 = await ask_package_question(
+            package_id=PACKAGE_ID,
+            student_user_id=STUDENT_ID,
+            question="What is Python?",
+            tenant_schema=TENANT_SCHEMA,
+            session_id=None,
+            db=AsyncMock(),
+        )
+        assert r1["session_id"] == SESSION_ID
+        mock_create.assert_called_once()
+        mock_get.assert_not_called()
+
+        # Q2: pass the session_id back → get_session called, NOT create
+        r2 = await ask_package_question(
+            package_id=PACKAGE_ID,
+            student_user_id=STUDENT_ID,
+            question="Explain Python data types.",
+            tenant_schema=TENANT_SCHEMA,
+            session_id=SESSION_ID,  # from Q1 result
+            db=AsyncMock(),
+        )
+        assert r2["session_id"] == SESSION_ID
+        mock_get.assert_called_once()
+        mock_create.assert_called_once()  # NOT called a second time
+
+
+# ===========================================================================
+# Retry logic — transient Gemini errors retried once
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_gemini_transient_error_retried_once_succeeds():
+    """A transient (non-quota, non-safety) Gemini error triggers 1 retry."""
+    session = _make_mock_session_obj()
+
+    call_count = {"n": 0}
+
+    async def _flaky_gemini(system, user):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise Exception("Connection reset by peer")
+        return "Retry succeeded."
+
+    with (
+        patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=_make_mock_qdrant([_make_hit()])),
+        patch("app.modules.m05_learning_materials.embedder.embed_texts", new=AsyncMock(return_value=[[0.1] * 768])),
+        patch("app.modules.m05_learning_materials.rag_service._gemini_generate", side_effect=_flaky_gemini),
+        patch("app.modules.m05_learning_materials.rag_service.asyncio.sleep", new=AsyncMock()),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.create_session", new=AsyncMock(return_value=session)),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.get_session", new=AsyncMock(return_value=None)),
+        patch("app.modules.m05_learning_materials.repository.PackageQARepository.append_message", new=AsyncMock(return_value=_make_mock_message())),
+    ):
+        from app.modules.m05_learning_materials.rag_service import ask_package_question
+        result = await ask_package_question(
+            package_id=PACKAGE_ID,
+            student_user_id=STUDENT_ID,
+            question="What is AI?",
+            tenant_schema=TENANT_SCHEMA,
+            session_id=None,
+            db=AsyncMock(),
+        )
+
+    assert result["answer"] == "Retry succeeded."
+    assert call_count["n"] == 2  # called twice (1 fail + 1 success)
+
+
+@pytest.mark.asyncio
+async def test_gemini_two_transient_errors_raises_rag_ai_error():
+    """Two consecutive transient Gemini errors (no quota) raises RagAIError."""
+    with (
+        patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=_make_mock_qdrant([_make_hit()])),
+        patch("app.modules.m05_learning_materials.embedder.embed_texts", new=AsyncMock(return_value=[[0.1] * 768])),
+        patch(
+            "app.modules.m05_learning_materials.rag_service._gemini_generate",
+            new=AsyncMock(side_effect=Exception("Gateway timeout")),
+        ),
+        patch("app.modules.m05_learning_materials.rag_service.asyncio.sleep", new=AsyncMock()),
+    ):
+        from app.modules.m05_learning_materials.rag_service import ask_package_question
+        with pytest.raises(RagAIError, match="Gemini answer generation failed"):
+            await ask_package_question(
+                package_id=PACKAGE_ID,
+                student_user_id=STUDENT_ID,
+                question="Explain gradient descent.",
+                tenant_schema=TENANT_SCHEMA,
+                session_id=None,
+                db=AsyncMock(),
+            )
+
+
+# ===========================================================================
+# Qdrant singleton reset on failure
+# ===========================================================================
+
+def test_qdrant_singleton_reset_on_failure():
+    """After a Qdrant search failure the singleton is cleared to force reconnect."""
+    import app.modules.m05_learning_materials.rag_service as rag_mod
+
+    broken_qdrant = AsyncMock()
+    broken_qdrant.query_points = AsyncMock(side_effect=Exception("Connection refused"))
+
+    original = rag_mod._qdrant_client
+    rag_mod._qdrant_client = broken_qdrant
+
+    import asyncio as _asyncio
+
+    async def _run():
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        with patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=broken_qdrant):
+            from app.modules.m05_learning_materials.rag_service import _search_qdrant, RagServiceError
+            with pytest.raises(RagServiceError):
+                await _search_qdrant(
+                    question_vector=[0.1] * 768,
+                    package_id=PACKAGE_ID,
+                    tenant_schema=TENANT_SCHEMA,
+                    top_k=5,
+                )
+
+    _asyncio.run(_run())
+
+    # The module-level singleton must have been cleared
+    assert rag_mod._qdrant_client is None
+
+    # Restore original state
+    rag_mod._qdrant_client = original

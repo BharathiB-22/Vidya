@@ -29,6 +29,7 @@ Deferred imports:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -98,6 +99,12 @@ async def ask_package_question(
         "package_id": str(package_id),
     }
 
+    logger.info(
+        "m05.rag: ask start (package=%s session=%s question=%r)",
+        package_id, session_id, question[:80],
+        extra=_log_extra,
+    )
+
     # ------------------------------------------------------------------
     # 1. Embed question
     # ------------------------------------------------------------------
@@ -108,6 +115,10 @@ async def ask_package_question(
             package_id=str(package_id),
         )
     except EmbedderError as exc:
+        logger.error(
+            "m05.rag: embed failed (package=%s): %s", package_id, exc,
+            extra=_log_extra,
+        )
         raise RagServiceError(f"Failed to embed question: {exc}") from exc
 
     # ------------------------------------------------------------------
@@ -121,7 +132,7 @@ async def ask_package_question(
     )
 
     logger.info(
-        "m05.rag: retrieved %d chunk(s) for package %s",
+        "m05.rag: retrieved %d chunk(s) (package=%s)",
         len(search_hits), package_id,
         extra=_log_extra,
     )
@@ -135,11 +146,11 @@ async def ask_package_question(
     # ------------------------------------------------------------------
     # 4. Generate answer
     # ------------------------------------------------------------------
-    answer, model_used = await _generate_answer(question, context_text)
+    answer, model_used = await _generate_answer(question, context_text, _log_extra)
 
     logger.info(
-        "m05.rag: answer generated (model=%s sources=%d)",
-        model_used, len(sources),
+        "m05.rag: answer generated (model=%s sources=%d package=%s)",
+        model_used, len(sources), package_id,
         extra=_log_extra,
     )
 
@@ -154,7 +165,7 @@ async def ask_package_question(
     )
 
     # ------------------------------------------------------------------
-    # 6. Persist messages
+    # 6. Persist USER + ASSISTANT messages
     # ------------------------------------------------------------------
     await PackageQARepository.append_message(
         session_id=qa_session.id,
@@ -170,6 +181,20 @@ async def ask_package_question(
         content=answer,
         sources=sources_dicts,
         db=db,
+    )
+
+    # ------------------------------------------------------------------
+    # 7. Commit — all DB writes (session + messages) are committed here.
+    # Without this the session rolls back when the FastAPI dependency
+    # closes the AsyncSession, making session_id invisible to subsequent
+    # requests and causing SESSION_NOT_FOUND on the 2nd question.
+    # ------------------------------------------------------------------
+    await db.commit()
+
+    logger.info(
+        "m05.rag: committed (session=%s package=%s)",
+        qa_session.id, package_id,
+        extra=_log_extra,
     )
 
     return {
@@ -215,6 +240,13 @@ async def _search_qdrant(
             with_payload=True,
         )
     except Exception as exc:
+        # Reset the singleton so the next request gets a fresh connection
+        # rather than re-using a broken one.
+        global _qdrant_client
+        _qdrant_client = None
+        logger.warning(
+            "m05.rag: Qdrant search failed (client reset): %s", exc
+        )
         raise RagServiceError(f"Qdrant search failed: {exc}") from exc
 
     return [{**r.payload, "_score": r.score} for r in response.points]
@@ -313,26 +345,63 @@ def _build_prompt(question: str, context: str) -> tuple[str, str]:
 async def _generate_answer(
     question: str,
     context: str,
+    log_extra: dict | None = None,
 ) -> tuple[str, str]:
-    """Generate plain-text answer. Returns (answer_text, model_name)."""
+    """Generate plain-text answer. Returns (answer_text, model_name).
+
+    Retry strategy:
+    - Quota/rate-limit error on Gemini → fall through to Groq immediately.
+    - Transient error (5xx, timeout) on Gemini → retry once after 1 s.
+    - Safety/empty response (RagAIError) → propagate immediately, no retry.
+    - Both providers fail → raise RagAIError.
+    """
     from app.config import settings
 
+    _extra = log_extra or {}
     system, user = _build_prompt(question, context)
 
-    try:
-        answer = await _gemini_generate(system, user)
-        return answer, settings.GEMINI_MODEL
-    except RagAIError:
-        raise
-    except Exception as exc:
-        if not _is_quota_error(exc):
-            raise RagAIError(f"Gemini answer generation failed: {exc}") from exc
-        logger.warning(
-            "m05.rag: Gemini quota error (%s) — falling back to Groq", exc
-        )
+    use_groq_fallback = False
 
-    answer = await _groq_generate(system, user)
-    return answer, settings.GROQ_MODEL
+    for attempt in range(2):
+        try:
+            answer = await _gemini_generate(system, user)
+            return answer, settings.GEMINI_MODEL
+        except RagAIError:
+            # Safety filter or empty response — do not retry, surface immediately.
+            raise
+        except Exception as exc:
+            if _is_quota_error(exc):
+                logger.warning(
+                    "m05.rag: Gemini quota error — falling back to Groq: %s", exc,
+                    extra=_extra,
+                )
+                use_groq_fallback = True
+                break
+            if attempt == 0:
+                logger.warning(
+                    "m05.rag: Gemini transient error (attempt 1), retrying in 1 s: %s", exc,
+                    extra=_extra,
+                )
+                await asyncio.sleep(1.0)
+            else:
+                logger.error(
+                    "m05.rag: Gemini failed after 2 attempts: %s", exc,
+                    extra=_extra,
+                )
+                raise RagAIError(f"Gemini answer generation failed: {exc}") from exc
+
+    # Groq fallback — only reached on quota signal
+    if use_groq_fallback:
+        try:
+            answer = await _groq_generate(system, user)
+            return answer, settings.GROQ_MODEL
+        except RagAIError:
+            raise
+        except Exception as exc:
+            logger.error("m05.rag: Groq fallback also failed: %s", exc, extra=_extra)
+            raise RagAIError(f"Groq fallback failed: {exc}") from exc
+
+    raise RagAIError("AI generation did not produce an answer.")
 
 
 async def _gemini_generate(system: str, user: str) -> str:
