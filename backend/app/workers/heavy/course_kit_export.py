@@ -458,135 +458,19 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                 str(wk.get('hours', 'â€”')),
             ], _LGRY)
 
-    # â”€â”€ 3. CONTENT SLIDES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    for ks in slides_sorted:
-        sl = prs.slides.add_slide(BLANK)
-        _clear_placeholders(sl)
-        _bg(sl, _WHT)
-
-        content  = ks.content or {}
-        stype    = (content.get('slide_type') or '').upper()
-        hcol     = {'SUMMARY': _GRN, 'QUIZ': _ORG, 'ACTIVITY': _TEAL}.get(stype, _NAV)
-
-        _header(sl,
-                ks.title or f"Slide {ks.slide_number}",
-                subtitle=f'{course.code}  Â·  Unit {kit.unit_number}  Â·  Slide {ks.slide_number}',
-                color=hcol)
-
-        if stype:
-            _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _ACC)
-            _txt(sl, stype, Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
-                 sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
-
-        # Extract and normalise all content fields.
-        # Defensive: coerce every item to str; handle empty/missing JSONB.
-        bullets        = [str(b) for b in (content.get('bullets') or []) if b]
-        key_concepts   = [str(k) for k in (content.get('key_concepts') or []) if k]
-        definitions    = [str(d) for d in (content.get('definitions') or []) if d]
-        examples       = [str(e) for e in (content.get('examples') or []) if e]
-        code_snippet   = (content.get('code_snippet') or '').strip()
-        activity       = (content.get('classroom_activity') or '').strip()
-        summary_txt    = (content.get('student_summary') or '').strip()
-        teaching_notes = (content.get('teaching_notes') or '').strip()
-
-        # Fallback 1: try alternate field names Groq sometimes uses
-        if not bullets:
-            for _fk in ('points', 'body_points', 'slide_points', 'learning_points',
-                        'content_points', 'teaching_points', 'body', 'slide_body'):
-                _fv = content.get(_fk)
-                if isinstance(_fv, list) and _fv:
-                    bullets = [str(x) for x in _fv[:7] if x]
-                    break
-                elif isinstance(_fv, str) and _fv.strip():
-                    bullets = [_fv.strip()]
-                    break
-
-        # Fallback 2: split speaker_notes into bullet lines
-        if not bullets and ks.speaker_notes:
-            _note_lines = [ln.strip() for ln in ks.speaker_notes.split('\n') if ln.strip()]
-            if _note_lines:
-                bullets = _note_lines[:5]
-
-        # Fallback 3: synthesise from rich fields so body is never blank
-        if not bullets:
-            if key_concepts:
-                bullets = ['Key concept: ' + kc for kc in key_concepts[:4]]
-            elif definitions:
-                bullets = [d[:140] for d in definitions[:3]]
-            elif examples:
-                bullets = ['Example: ' + ex for ex in examples[:3]]
-            elif activity:
-                bullets = [activity[:140]]
-            elif summary_txt:
-                bullets = [summary_txt[:140]]
-            elif teaching_notes:
-                bullets = [teaching_notes[:140]]
-            else:
-                bullets = [
-                    'Unit ' + str(kit.unit_number) + ' - Slide ' + str(ks.slide_number)
-                    + ': open Course Kit to add content before presenting'
-                ]
-
-        # Main bullets rendered as editable text boxes (left 2/3 of slide)
-        by = Inches(1.15)
-        for bullet in bullets[:7]:
-            _txt(sl, '  ' + str(bullet), Inches(0.45), by,
-                 Inches(8.25), Inches(0.65), sz=14, color=_TXT)
-            by += Inches(0.68)
-
-        if activity and len(bullets) < 5:
-            _rect(sl, Inches(0.45), by + Inches(0.1), Inches(8.25), Inches(0.26), _TEAL)
-            _txt(sl, 'Activity: ' + activity, Inches(0.55), by + Inches(0.1),
-                 Inches(8.1), Inches(0.26), sz=9, bold=True, color=_WHT)
-
-        # Right panel â€” key concepts + definitions
-        ry = Inches(1.15)
-        if key_concepts:
-            _rect(sl, Inches(8.9), ry, Inches(4.1), Inches(0.25), _ACC)
-            _txt(sl, 'KEY CONCEPTS', Inches(8.9), ry,
-                 Inches(4.1), Inches(0.25), sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
-            ry += Inches(0.3)
-            for kc in key_concepts[:5]:
-                _txt(sl, f'â€¢ {kc}', Inches(8.95), ry,
-                     Inches(4.0), Inches(0.4), sz=11, bold=True, color=_ACC)
-                ry += Inches(0.43)
-            ry += Inches(0.1)
-
-        if definitions:
-            _rect(sl, Inches(8.9), ry, Inches(4.1), Inches(0.25), _GRN)
-            _txt(sl, 'DEFINITIONS', Inches(8.9), ry,
-                 Inches(4.1), Inches(0.25), sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
-            ry += Inches(0.3)
-            for d in definitions[:3]:
-                _txt(sl, f'âž¤  {d}', Inches(8.95), ry,
-                     Inches(4.0), Inches(0.52), sz=10, color=_TXT)
-                ry += Inches(0.55)
-
-        # Examples banner
-        if examples:
-            ey = Inches(6.15)
-            _rect(sl, 0, ey, W, Inches(0.27), _TEAL)
-            _txt(sl, 'EXAMPLES', Inches(0.4), ey,
-                 Inches(1.5), Inches(0.27), sz=8, bold=True, color=_WHT)
-            _txt(sl, '    Â·    '.join(str(e) for e in examples[:3]),
-                 Inches(2.1), ey, Inches(11), Inches(0.27),
-                 sz=9, italic=True, color=_WHT)
-        if summary_txt:
-            _txt(sl, f'â†³ {summary_txt}',
-                 Inches(0.4), Inches(6.5 if examples else 6.3),
-                 Inches(12.5), Inches(0.65), sz=11, italic=True, color=_GRY)
-
-        # CO + Bloom footer
+    # -- Shared footer helper -------------------------------------------------------
+    def _add_slide_footer(slide, ks, content, *, is_dean: bool) -> None:
+        code_snippet = (content.get('code_snippet') or '').strip()
+        summary_txt  = (content.get('student_summary') or '').strip()
         footer = []
         if ks.bloom_level:
-            footer.append(f"Bloom: {ks.bloom_level.value if hasattr(ks.bloom_level, 'value') else ks.bloom_level}")
+            bl = ks.bloom_level.value if hasattr(ks.bloom_level, 'value') else ks.bloom_level
+            footer.append(f'Bloom: {bl}')
         if ks.co_reference:
-            footer.append(f"CO: {ks.co_reference}")
+            footer.append(f'CO: {ks.co_reference}')
         if footer:
-            _txt(sl, '   |   '.join(footer),
+            _txt(slide, '   |   '.join(footer),
                  Inches(8.9), Inches(6.88), Inches(4.2), Inches(0.38), sz=9, color=_GRY)
-
-        # Speaker notes
         notes = []
         if not is_dean:
             tn = (content.get('teaching_notes') or '').strip()
@@ -601,7 +485,420 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         if summary_txt:
             notes.append(f'STUDENT SUMMARY: {summary_txt}')
         if notes:
-            sl.notes_slide.notes_text_frame.text = '\n\n'.join(notes)
+            slide.notes_slide.notes_text_frame.text = '\n\n'.join(notes)
+
+    # -- Renderer: OBJECTIVES ---------------------------------------------------------
+    def _render_objectives(sl, ks, content, *, is_dean: bool) -> None:
+        bullets      = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts = [str(k) for k in (content.get('key_concepts') or []) if k]
+        summary_txt  = (content.get('student_summary') or '').strip()
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_GRN)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _GRN)
+        _txt(sl, 'OBJECTIVES', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        _txt(sl, 'By the end of this section, students will be able to:',
+             Inches(0.45), Inches(1.12), Inches(12.5), Inches(0.3),
+             sz=11, italic=True, color=_GRY)
+        items = bullets or key_concepts
+        oy = Inches(1.52)
+        for i, obj in enumerate(items[:8], 1):
+            _rect(sl, Inches(0.45), oy, Inches(0.46), Inches(0.48), _GRN)
+            _txt(sl, str(i), Inches(0.45), oy, Inches(0.46), Inches(0.48),
+                 sz=15, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            _txt(sl, str(obj), Inches(1.02), oy + Inches(0.06),
+                 Inches(11.7), Inches(0.4), sz=14, color=_TXT)
+            oy += Inches(0.62)
+        if not items:
+            _txt(sl, 'Objectives will be listed here.',
+                 Inches(0.45), Inches(1.52), Inches(12.5), Inches(0.4), sz=14, color=_GRY)
+        if summary_txt:
+            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
+                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: WORKED_EXAMPLE -----------------------------------------------------
+    def _render_worked_example(sl, ks, content, *, is_dean: bool) -> None:
+        bullets      = [str(b) for b in (content.get('bullets') or []) if b]
+        examples     = [str(e) for e in (content.get('examples') or []) if e]
+        code_snippet = (content.get('code_snippet') or '').strip()
+        summary_txt  = (content.get('student_summary') or '').strip()
+        _CODE_BG  = RGBColor(0x1E, 0x29, 0x3B)
+        _CODE_TXT = RGBColor(0xE2, 0xE8, 0xF0)
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_TEAL)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _TEAL)
+        _txt(sl, 'WORKED EXAMPLE', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=7, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        problem = bullets[0] if bullets else (examples[0] if examples else '')
+        if problem:
+            _rect(sl, Inches(0.4), Inches(1.08), Inches(12.5), Inches(0.27), _TEAL)
+            _txt(sl, 'PROBLEM', Inches(0.5), Inches(1.08), Inches(2), Inches(0.27),
+                 sz=9, bold=True, color=_WHT)
+            _rect(sl, Inches(0.4), Inches(1.37), Inches(12.5), Inches(0.72), _LGRY)
+            _txt(sl, problem, Inches(0.55), Inches(1.4),
+                 Inches(12.2), Inches(0.64), sz=13, color=_TXT)
+        steps = (bullets[1:] if len(bullets) > 1 else []) or examples
+        if steps:
+            _rect(sl, Inches(0.4), Inches(2.18), Inches(12.5), Inches(0.27), _NAV)
+            _txt(sl, 'SOLUTION STEPS', Inches(0.5), Inches(2.18), Inches(3), Inches(0.27),
+                 sz=9, bold=True, color=_WHT)
+            sy = Inches(2.52)
+            for i, step in enumerate(steps[:5], 1):
+                _rect(sl, Inches(0.4), sy, Inches(0.4), Inches(0.4), _ACC)
+                _txt(sl, str(i), Inches(0.4), sy, Inches(0.4), Inches(0.4),
+                     sz=13, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+                _txt(sl, step, Inches(0.92), sy + Inches(0.04),
+                     Inches(11.9), Inches(0.36), sz=13, color=_TXT)
+                sy += Inches(0.5)
+        if code_snippet:
+            _rect(sl, Inches(0.4), Inches(5.1), Inches(12.5), Inches(0.27), _CODE_BG)
+            _txt(sl, 'CODE', Inches(0.5), Inches(5.1), Inches(1), Inches(0.27),
+                 sz=8, bold=True, color=_WHT)
+            _rect(sl, Inches(0.4), Inches(5.39), Inches(12.5), Inches(0.95), _CODE_BG)
+            for li, line in enumerate(code_snippet.split('\n')[:3]):
+                _txt(sl, line, Inches(0.55), Inches(5.43 + li * 0.28),
+                     Inches(12.2), Inches(0.26), sz=10, italic=True, color=_CODE_TXT)
+        if summary_txt:
+            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
+                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: CODE ---------------------------------------------------------------
+    def _render_code(sl, ks, content, *, is_dean: bool) -> None:
+        code_snippet = (content.get('code_snippet') or '').strip()
+        bullets      = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts = [str(k) for k in (content.get('key_concepts') or []) if k]
+        summary_txt  = (content.get('student_summary') or '').strip()
+        _CODE_BG  = RGBColor(0x1E, 0x29, 0x3B)
+        _GUTTER   = RGBColor(0x0F, 0x17, 0x2A)
+        _CODE_TXT = RGBColor(0xE2, 0xE8, 0xF0)
+        _LINENO   = RGBColor(0x64, 0x74, 0x8B)
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_NAV)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _ACC)
+        _txt(sl, 'CODE', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        _rect(sl, Inches(0.4), Inches(1.08), Inches(8.1), Inches(5.8), _CODE_BG)
+        _rect(sl, Inches(0.4), Inches(1.08), Inches(0.52), Inches(5.8), _GUTTER)
+        if code_snippet:
+            for li, line in enumerate(code_snippet.split('\n')[:19]):
+                ly = Inches(1.14 + li * 0.28)
+                _txt(sl, str(li + 1), Inches(0.4), ly, Inches(0.52), Inches(0.27),
+                     sz=8, color=_LINENO, align=PP_ALIGN.RIGHT)
+                _txt(sl, line or ' ', Inches(0.97), ly, Inches(7.38), Inches(0.27),
+                     sz=10, italic=True, color=_CODE_TXT)
+        else:
+            _txt(sl, '# No code snippet provided', Inches(0.97), Inches(1.2),
+                 Inches(7.38), Inches(0.3), sz=10, italic=True, color=_LINENO)
+        rx, ry = Inches(8.75), Inches(1.08)
+        if bullets:
+            _rect(sl, rx, ry, Inches(4.1), Inches(0.27), _ACC)
+            _txt(sl, 'EXPLANATION', rx, ry, Inches(4.1), Inches(0.27),
+                 sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            ry += Inches(0.34)
+            for b in bullets[:6]:
+                _txt(sl, f'\u2022 {b}', rx, ry, Inches(4.0), Inches(0.48),
+                     sz=11, color=_TXT)
+                ry += Inches(0.52)
+            ry += Inches(0.1)
+        if key_concepts:
+            _rect(sl, rx, ry, Inches(4.1), Inches(0.27), _GRN)
+            _txt(sl, 'CONCEPTS', rx, ry, Inches(4.1), Inches(0.27),
+                 sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            ry += Inches(0.34)
+            for kc in key_concepts[:4]:
+                _txt(sl, f'\u2022 {kc}', rx, ry, Inches(4.0), Inches(0.38),
+                     sz=11, bold=True, color=_ACC)
+                ry += Inches(0.42)
+        if summary_txt:
+            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
+                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: COMMON_MISTAKES ----------------------------------------------------
+    def _render_common_mistakes(sl, ks, content, *, is_dean: bool) -> None:
+        bullets      = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts = [str(k) for k in (content.get('key_concepts') or []) if k]
+        definitions  = [str(d) for d in (content.get('definitions') or []) if d]
+        summary_txt  = (content.get('student_summary') or '').strip()
+        _WRONG    = RGBColor(0x99, 0x1B, 0x1B)
+        _RIGHT    = RGBColor(0x06, 0x55, 0x35)
+        _WRONG_BG = RGBColor(0xFE, 0xF2, 0xF2)
+        _RIGHT_BG = RGBColor(0xF0, 0xFD, 0xF4)
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_ORG)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _ORG)
+        _txt(sl, 'COMMON MISTAKES', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=7, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        _rect(sl, Inches(0.4), Inches(1.08), Inches(6.05), Inches(0.3), _WRONG)
+        _txt(sl, 'COMMON MISTAKE', Inches(0.5), Inches(1.08),
+             Inches(5.9), Inches(0.3), sz=10, bold=True, color=_WHT)
+        _rect(sl, Inches(6.75), Inches(1.08), Inches(6.05), Inches(0.3), _RIGHT)
+        _txt(sl, 'CORRECT APPROACH', Inches(6.85), Inches(1.08),
+             Inches(5.9), Inches(0.3), sz=10, bold=True, color=_WHT)
+        if key_concepts:
+            mistakes    = bullets
+            corrections = key_concepts
+        elif definitions:
+            mistakes    = bullets
+            corrections = definitions
+        elif len(bullets) >= 2:
+            mistakes    = bullets[::2]
+            corrections = bullets[1::2]
+        else:
+            mistakes    = bullets
+            corrections = []
+        n_rows = min(max(len(mistakes), len(corrections), 1), 5)
+        for i in range(n_rows):
+            ry      = Inches(1.48 + i * 1.05)
+            mistake = mistakes[i]    if i < len(mistakes)    else ''
+            correct = corrections[i] if i < len(corrections) else ''
+            if mistake:
+                _rect(sl, Inches(0.4), ry, Inches(6.05), Inches(0.9), _WRONG_BG)
+                _txt(sl, mistake, Inches(0.55), ry + Inches(0.1),
+                     Inches(5.75), Inches(0.75), sz=12, color=_WRONG)
+            if correct:
+                _rect(sl, Inches(6.75), ry, Inches(6.05), Inches(0.9), _RIGHT_BG)
+                _txt(sl, correct, Inches(6.9), ry + Inches(0.1),
+                     Inches(5.75), Inches(0.75), sz=12, color=_RIGHT)
+        if summary_txt:
+            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
+                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: ACTIVITY -----------------------------------------------------------
+    def _render_activity(sl, ks, content, *, is_dean: bool) -> None:
+        activity    = (content.get('classroom_activity') or '').strip()
+        bullets     = [str(b) for b in (content.get('bullets') or []) if b]
+        definitions = [str(d) for d in (content.get('definitions') or []) if d]
+        summary_txt = (content.get('student_summary') or '').strip()
+        _ACT_BG = RGBColor(0xEC, 0xFD, 0xFF)
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_TEAL)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _TEAL)
+        _txt(sl, 'ACTIVITY', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        top_y = Inches(1.08)
+        if activity:
+            _rect(sl, Inches(0.4), top_y, Inches(12.5), Inches(0.27), _TEAL)
+            _txt(sl, 'ACTIVITY', Inches(0.5), top_y, Inches(2), Inches(0.27),
+                 sz=9, bold=True, color=_WHT)
+            _rect(sl, Inches(0.4), top_y + Inches(0.29), Inches(12.5), Inches(0.78), _ACT_BG)
+            _txt(sl, activity, Inches(0.55), top_y + Inches(0.32),
+                 Inches(12.2), Inches(0.7), sz=13, color=_TXT)
+            top_y += Inches(1.17)
+        steps = bullets
+        if steps:
+            _rect(sl, Inches(0.4), top_y, Inches(12.5), Inches(0.27), _NAV)
+            _txt(sl, 'INSTRUCTIONS', Inches(0.5), top_y, Inches(3), Inches(0.27),
+                 sz=9, bold=True, color=_WHT)
+            sy = top_y + Inches(0.38)
+            for i, step in enumerate(steps[:6], 1):
+                _rect(sl, Inches(0.4), sy, Inches(0.38), Inches(0.38), _TEAL)
+                _txt(sl, str(i), Inches(0.4), sy, Inches(0.38), Inches(0.38),
+                     sz=12, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+                _txt(sl, step, Inches(0.88), sy + Inches(0.03),
+                     Inches(11.95), Inches(0.36), sz=13, color=_TXT)
+                sy += Inches(0.52)
+        elif not activity:
+            _txt(sl, '\u2022 Complete the assigned activity',
+                 Inches(0.5), Inches(1.5), Inches(12), Inches(0.4), sz=14, color=_TXT)
+        if definitions:
+            _rect(sl, Inches(0.4), Inches(5.7), Inches(12.5), Inches(0.27), _ACC)
+            _txt(sl, 'DISCUSSION PROMPT', Inches(0.5), Inches(5.7),
+                 Inches(4), Inches(0.27), sz=9, bold=True, color=_WHT)
+            dy = Inches(6.02)
+            for d in definitions[:2]:
+                _txt(sl, f'\u2192 {d}', Inches(0.55), dy,
+                     Inches(12.2), Inches(0.38), sz=12, italic=True, color=_TXT)
+                dy += Inches(0.42)
+        if summary_txt:
+            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
+                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: QUIZ ---------------------------------------------------------------
+    def _render_quiz(sl, ks, content, *, is_dean: bool) -> None:
+        bullets     = [str(b) for b in (content.get('bullets') or []) if b]
+        examples    = [str(e) for e in (content.get('examples') or []) if e]
+        definitions = [str(d) for d in (content.get('definitions') or []) if d]
+        summary_txt = (content.get('student_summary') or '').strip()
+        _OPT_COLORS = [
+            RGBColor(0xEF, 0xF6, 0xFF),
+            RGBColor(0xF5, 0xF3, 0xFF),
+            RGBColor(0xF0, 0xFD, 0xF4),
+            RGBColor(0xFF, 0xF7, 0xED),
+        ]
+        _LBL_COLORS = [_ACC, RGBColor(0x74, 0x4E, 0xB8), _GRN, _ORG]
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_ORG)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _ORG)
+        _txt(sl, 'QUIZ', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        question = bullets[0] if bullets else (examples[0] if examples else '')
+        if question:
+            _rect(sl, Inches(0.4), Inches(1.08), Inches(12.5), Inches(0.27), _ORG)
+            _txt(sl, 'QUESTION', Inches(0.5), Inches(1.08),
+                 Inches(2), Inches(0.27), sz=9, bold=True, color=_WHT)
+            _rect(sl, Inches(0.4), Inches(1.37), Inches(12.5), Inches(0.88),
+                  RGBColor(0xFF, 0xF7, 0xED))
+            _txt(sl, question, Inches(0.55), Inches(1.42),
+                 Inches(12.2), Inches(0.78), sz=15, bold=True, color=_TXT)
+        options = (bullets[1:] if len(bullets) > 1 else []) or \
+                  (examples[1:] if len(examples) > 1 else examples)
+        for i, opt in enumerate(options[:4]):
+            col = i % 2
+            row = i // 2
+            ox  = Inches(0.4)  if col == 0 else Inches(6.8)
+            oy  = Inches(2.38) + Inches(row * 1.35)
+            _rect(sl, ox, oy, Inches(6.1), Inches(1.1), _OPT_COLORS[i])
+            _rect(sl, ox, oy, Inches(0.5), Inches(1.1), _LBL_COLORS[i])
+            _txt(sl, ('A', 'B', 'C', 'D')[i], ox, oy, Inches(0.5), Inches(1.1),
+                 sz=20, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            _txt(sl, opt, ox + Inches(0.58), oy + Inches(0.28),
+                 Inches(5.38), Inches(0.6), sz=13, color=_TXT)
+        answer_text = definitions[0] if definitions else (summary_txt or '')
+        if not is_dean and answer_text:
+            _rect(sl, Inches(0.4), Inches(6.38), Inches(12.5), Inches(0.3), _GRN)
+            _txt(sl, f'ANSWER: {answer_text}', Inches(0.5), Inches(6.38),
+                 Inches(12.2), Inches(0.3), sz=10, bold=True, color=_WHT)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: SUMMARY content slide ----------------------------------------------
+    def _render_summary_slide(sl, ks, content, *, is_dean: bool) -> None:
+        bullets      = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts = [str(k) for k in (content.get('key_concepts') or []) if k]
+        summary_txt  = (content.get('student_summary') or '').strip()
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_GRN)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _GRN)
+        _txt(sl, 'SUMMARY', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        _txt(sl, 'Key takeaways from this section:',
+             Inches(0.45), Inches(1.12), Inches(12.5), Inches(0.3),
+             sz=11, italic=True, color=_GRY)
+        items = bullets or key_concepts or ([summary_txt] if summary_txt else [])
+        oy = Inches(1.52)
+        for item in items[:8]:
+            _rect(sl, Inches(0.45), oy + Inches(0.08), Inches(0.34), Inches(0.34), _GRN)
+            _txt(sl, 'v', Inches(0.45), oy + Inches(0.06), Inches(0.34), Inches(0.34),
+                 sz=12, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            _txt(sl, str(item), Inches(0.9), oy + Inches(0.08),
+                 Inches(11.7), Inches(0.38), sz=14, color=_TXT)
+            oy += Inches(0.62)
+        if summary_txt and items and summary_txt not in items:
+            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
+                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: generic fallback ---------------------------------------------------
+    def _render_generic(sl, ks, content, *, is_dean: bool) -> None:
+        stype = (content.get('slide_type') or '').upper()
+        hcol  = {'SUMMARY': _GRN, 'QUIZ': _ORG, 'ACTIVITY': _TEAL}.get(stype, _NAV)
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=hcol)
+        if stype:
+            _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _ACC)
+            _txt(sl, stype, Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+                 sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+        bullets        = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts   = [str(k) for k in (content.get('key_concepts') or []) if k]
+        definitions    = [str(d) for d in (content.get('definitions') or []) if d]
+        examples       = [str(e) for e in (content.get('examples') or []) if e]
+        code_snippet   = (content.get('code_snippet') or '').strip()
+        activity       = (content.get('classroom_activity') or '').strip()
+        summary_txt    = (content.get('student_summary') or '').strip()
+        teaching_notes = (content.get('teaching_notes') or '').strip()
+        if not bullets:
+            for _fk in ('points', 'body_points', 'slide_points', 'learning_points',
+                        'content_points', 'teaching_points', 'body', 'slide_body'):
+                _fv = content.get(_fk)
+                if isinstance(_fv, list) and _fv:
+                    bullets = [str(x) for x in _fv[:7] if x]; break
+                elif isinstance(_fv, str) and _fv.strip():
+                    bullets = [_fv.strip()]; break
+        if not bullets and ks.speaker_notes:
+            bullets = [ln.strip() for ln in ks.speaker_notes.split('\n') if ln.strip()][:5]
+        if not bullets:
+            if key_concepts:   bullets = ['Key concept: ' + kc for kc in key_concepts[:4]]
+            elif definitions:  bullets = [d[:140] for d in definitions[:3]]
+            elif examples:     bullets = ['Example: ' + ex for ex in examples[:3]]
+            elif activity:     bullets = [activity[:140]]
+            elif summary_txt:  bullets = [summary_txt[:140]]
+            else:
+                bullets = [f'Unit {kit.unit_number} - Slide {ks.slide_number}: '
+                           'open Course Kit to add content before presenting']
+        by = Inches(1.15)
+        for bullet in bullets[:7]:
+            _txt(sl, '  ' + str(bullet), Inches(0.45), by,
+                 Inches(8.25), Inches(0.65), sz=14, color=_TXT)
+            by += Inches(0.68)
+        if activity and len(bullets) < 5:
+            _rect(sl, Inches(0.45), by + Inches(0.1), Inches(8.25), Inches(0.26), _TEAL)
+            _txt(sl, 'Activity: ' + activity, Inches(0.55), by + Inches(0.1),
+                 Inches(8.1), Inches(0.26), sz=9, bold=True, color=_WHT)
+        ry = Inches(1.15)
+        if key_concepts:
+            _rect(sl, Inches(8.9), ry, Inches(4.1), Inches(0.25), _ACC)
+            _txt(sl, 'KEY CONCEPTS', Inches(8.9), ry,
+                 Inches(4.1), Inches(0.25), sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            ry += Inches(0.3)
+            for kc in key_concepts[:5]:
+                _txt(sl, f'\u2022 {kc}', Inches(8.95), ry,
+                     Inches(4.0), Inches(0.4), sz=11, bold=True, color=_ACC)
+                ry += Inches(0.43)
+            ry += Inches(0.1)
+        if definitions:
+            _rect(sl, Inches(8.9), ry, Inches(4.1), Inches(0.25), _GRN)
+            _txt(sl, 'DEFINITIONS', Inches(8.9), ry,
+                 Inches(4.1), Inches(0.25), sz=8, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            ry += Inches(0.3)
+            for d in definitions[:3]:
+                _txt(sl, f'\u27a4  {d}', Inches(8.95), ry,
+                     Inches(4.0), Inches(0.52), sz=10, color=_TXT)
+                ry += Inches(0.55)
+        if examples:
+            ey = Inches(6.15)
+            _rect(sl, 0, ey, W, Inches(0.27), _TEAL)
+            _txt(sl, 'EXAMPLES', Inches(0.4), ey, Inches(1.5), Inches(0.27),
+                 sz=8, bold=True, color=_WHT)
+            _txt(sl, '    \xb7    '.join(str(e) for e in examples[:3]),
+                 Inches(2.1), ey, Inches(11), Inches(0.27), sz=9, italic=True, color=_WHT)
+        if summary_txt:
+            _txt(sl, f'\u21b3 {summary_txt}',
+                 Inches(0.4), Inches(6.5 if examples else 6.3),
+                 Inches(12.5), Inches(0.65), sz=11, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Slide type registry ----------------------------------------------------------
+    _SLIDE_REGISTRY = {
+        'OBJECTIVES':      _render_objectives,
+        'WORKED_EXAMPLE':  _render_worked_example,
+        'CODE':            _render_code,
+        'COMMON_MISTAKES': _render_common_mistakes,
+        'ACTIVITY':        _render_activity,
+        'QUIZ':            _render_quiz,
+        'SUMMARY':         _render_summary_slide,
+    }
+
+    # -- 3. CONTENT SLIDES ---------------------------------------------------------------
+    for ks in slides_sorted:
+        sl = prs.slides.add_slide(BLANK)
+        _clear_placeholders(sl)
+        _bg(sl, _WHT)
+        content  = ks.content or {}
+        stype    = (content.get('slide_type') or '').upper()
+        renderer = _SLIDE_REGISTRY.get(stype, _render_generic)
+        renderer(sl, ks, content, is_dean=is_dean)
 
     # â”€â”€ 4. TEACHING PLAN TABLE SLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if tp:
