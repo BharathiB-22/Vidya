@@ -69,6 +69,7 @@ class UpdateUserRequest(BaseModel):
     role: Optional[TenantRole] = None
     is_active: Optional[bool] = None
     identifier: Optional[str] = None
+    email: Optional[EmailStr] = None
 
 
 class ChangePasswordRequest(BaseModel):

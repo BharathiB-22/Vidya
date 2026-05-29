@@ -5,42 +5,6 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
-# Academic master data
-# ---------------------------------------------------------------------------
-
-class DepartmentCreate(BaseModel):
-    name: str = Field(..., min_length=2, max_length=200)
-    code: str = Field(..., min_length=1, max_length=20)
-
-
-class DepartmentResponse(BaseModel):
-    id: UUID
-    name: str
-    code: str
-    is_active: bool
-
-    model_config = {"from_attributes": True}
-
-
-class ProgramCreate(BaseModel):
-    name: str = Field(..., min_length=2, max_length=200)
-    code: str = Field(..., min_length=1, max_length=20)
-    dept_id: Optional[UUID] = None
-    duration_years: int = Field(default=2, ge=1, le=10)
-
-
-class ProgramResponse(BaseModel):
-    id: UUID
-    name: str
-    code: str
-    dept_id: Optional[UUID]
-    duration_years: int
-    is_active: bool
-
-    model_config = {"from_attributes": True}
-
-
-# ---------------------------------------------------------------------------
 # Bulk student generation
 # ---------------------------------------------------------------------------
 
@@ -58,6 +22,10 @@ class GenerateStudentsRequest(BaseModel):
         description="2-digit batch year suffix, e.g. 26 for 2026",
     )
     section: Optional[str] = Field(None, max_length=5, description="Section label, e.g. A")
+    section_id: Optional[UUID] = Field(
+        None,
+        description="acad_section UUID — if provided, enrolls every created student here",
+    )
     count: int = Field(..., ge=1, le=500, description="Number of students to generate")
     start_seq: int = Field(default=1, ge=1, description="Starting sequence number")
     seq_width: int = Field(default=3, ge=2, le=4, description="Zero-pad width for sequence digits")
@@ -74,6 +42,7 @@ class GenerateStudentsResult(BaseModel):
     duplicate_usns: list[str]
     duplicate_emails: list[str]
     default_password: str
+    enrollments_created: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +56,8 @@ class CSVRowResult(BaseModel):
     identifier: Optional[str]
     is_valid: bool
     errors: list[str]
+    section_id: Optional[UUID] = None
+    section_resolved: bool = False
 
 
 class CSVPreviewResponse(BaseModel):
@@ -101,3 +72,4 @@ class CSVCommitResult(BaseModel):
     created: int
     skipped: int
     errors: list[str]
+    enrollments_created: int = 0

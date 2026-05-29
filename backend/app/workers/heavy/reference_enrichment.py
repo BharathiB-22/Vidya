@@ -19,6 +19,7 @@ References are enrichment metadata — their absence never blocks the syllabus w
 """
 import asyncio
 import logging
+import sys
 from uuid import UUID
 
 from app.workers.base_task import VidyaTask
@@ -65,6 +66,8 @@ def enrich_references(
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_enrichment(
             syllabus_id=UUID(syllabus_id),

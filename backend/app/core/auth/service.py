@@ -748,6 +748,12 @@ class TenantAuthService:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise AuthError("NO_FIELDS", "No fields to update", 422)
+
+        if "email" in updates:
+            existing = await TenantRepository.get_user_by_email(updates["email"], db)
+            if existing and existing.id != user_id:
+                raise AuthError("EMAIL_EXISTS", "Email is already in use by another account", 409)
+
         user = await TenantRepository.update_user(user_id, updates, db)
         if not user:
             raise AuthError("USER_NOT_FOUND", "User not found", 404)

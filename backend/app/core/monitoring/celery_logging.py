@@ -45,7 +45,7 @@ def on_task_start(sender=None, task_id=None, args=None, kwargs=None, **extra_kwa
             "queue": sender.queue if hasattr(sender, "queue") else "unknown",
             "request_id": request_id,
             "job_id": str(job_id) if job_id else None,
-            "args": args_summary,
+            "task_args": args_summary,
             "kwargs": kwargs_summary,
         },
     )

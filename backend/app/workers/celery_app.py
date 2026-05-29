@@ -4,6 +4,7 @@ from celery import Celery
 
 from app.config import settings
 from app.core.monitoring.celery_logging import setup_celery_logging
+import app.models  # noqa: F401 — register all ORM models in Base.metadata before tasks run
 
 celery_app = Celery(
     "vidya",

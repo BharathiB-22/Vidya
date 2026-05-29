@@ -2,7 +2,9 @@ import csv
 import io
 import re
 import uuid as _uuid
+from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.security import hash_password
@@ -18,6 +20,14 @@ from app.core.onboarding.schemas import (
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$")
 
 
+class OnboardingError(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 422):
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+
 def _generate_usn(prefix: str, year: int, program_code: str, seq: int, width: int) -> str:
     return f"{prefix.upper()}{year:02d}{program_code.upper()}{seq:0{width}d}"
 
@@ -29,6 +39,79 @@ def _generate_email(usn: str, domain: str) -> str:
 class OnboardingService:
 
     # ------------------------------------------------------------------ #
+    # Section resolution helpers                                           #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    async def _validate_section_active(section_id: UUID, db: AsyncSession) -> bool:
+        """Return True if section exists and is active. Used for fail-fast in generate."""
+        result = await db.execute(
+            text("SELECT id FROM acad_sections WHERE id = :sid AND is_active = true"),
+            {"sid": str(section_id)},
+        )
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def _resolve_section(
+        program_code: str,
+        batch_year_str: str,
+        section_name: str,
+        db: AsyncSession,
+    ) -> UUID | None:
+        """Resolve (program_code, batch_year, section_name) → acad_section.id.
+
+        Uses the lowest-numbered active semester for the resolved batch (D3).
+        Returns None if any step in the chain fails.
+        """
+        try:
+            batch_year = int(batch_year_str)
+        except (ValueError, TypeError):
+            return None
+
+        prog_row = await db.execute(
+            text(
+                "SELECT id FROM acad_programs "
+                "WHERE UPPER(code) = :code AND is_active = true"
+            ),
+            {"code": program_code.upper()},
+        )
+        prog_id = prog_row.scalar_one_or_none()
+        if not prog_id:
+            return None
+
+        batch_row = await db.execute(
+            text(
+                "SELECT id FROM acad_batches "
+                "WHERE program_id = :pid AND start_year = :yr AND is_active = true"
+            ),
+            {"pid": str(prog_id), "yr": batch_year},
+        )
+        batch_id = batch_row.scalar_one_or_none()
+        if not batch_id:
+            return None
+
+        sem_row = await db.execute(
+            text(
+                "SELECT id FROM acad_semesters "
+                "WHERE batch_id = :bid AND is_active = true "
+                "ORDER BY number ASC LIMIT 1"
+            ),
+            {"bid": str(batch_id)},
+        )
+        sem_id = sem_row.scalar_one_or_none()
+        if not sem_id:
+            return None
+
+        sec_row = await db.execute(
+            text(
+                "SELECT id FROM acad_sections "
+                "WHERE semester_id = :sid AND UPPER(name) = :name AND is_active = true"
+            ),
+            {"sid": str(sem_id), "name": section_name.upper()},
+        )
+        return sec_row.scalar_one_or_none()
+
+    # ------------------------------------------------------------------ #
     # Bulk student generation                                              #
     # ------------------------------------------------------------------ #
 
@@ -37,16 +120,24 @@ class OnboardingService:
         req: GenerateStudentsRequest,
         db: AsyncSession,
     ) -> GenerateStudentsResult:
+        # D4: fail-fast if section_id is invalid — before creating any users
+        if req.section_id is not None:
+            if not await OnboardingService._validate_section_active(req.section_id, db):
+                raise OnboardingError(
+                    "SECTION_NOT_FOUND",
+                    f"Section {req.section_id} does not exist or is not active",
+                )
+
         usns = [
             _generate_usn(req.usn_prefix, req.batch_year, req.program_code, req.start_seq + i, req.seq_width)
             for i in range(req.count)
         ]
         emails = [_generate_email(u, req.email_domain) for u in usns]
 
-        existing_ids = await OnboardingRepository.get_existing_identifiers(usns, db)
+        existing_ids    = await OnboardingRepository.get_existing_identifiers(usns, db)
         existing_emails = await OnboardingRepository.get_existing_emails(emails, db)
 
-        duplicate_usns = [u for u in usns if u in existing_ids]
+        duplicate_usns   = [u for u in usns   if u in existing_ids]
         duplicate_emails = [e for e in emails if e in existing_emails]
 
         pw_hash = hash_password(req.default_password)
@@ -56,15 +147,20 @@ class OnboardingService:
             if usn in existing_ids or email in existing_emails:
                 continue
             rows_to_insert.append({
-                "id": str(_uuid.uuid4()),
-                "email": email,
-                "pw_hash": pw_hash,
-                "role": "STUDENT",
-                "full_name": usn,
+                "id":         str(_uuid.uuid4()),
+                "email":      email,
+                "pw_hash":    pw_hash,
+                "role":       "STUDENT",
+                "full_name":  usn,
                 "identifier": usn,
             })
 
         created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
+
+        enrollments_created = 0
+        if req.section_id is not None and rows_to_insert:
+            pairs = [(row["id"], str(req.section_id)) for row in rows_to_insert]
+            enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(pairs, db)
 
         return GenerateStudentsResult(
             created=created,
@@ -72,6 +168,7 @@ class OnboardingService:
             duplicate_usns=duplicate_usns,
             duplicate_emails=duplicate_emails,
             default_password=req.default_password,
+            enrollments_created=enrollments_created,
         )
 
     # ------------------------------------------------------------------ #
@@ -121,8 +218,8 @@ class OnboardingService:
         seen_ids: set[str],
     ) -> CSVRowResult:
         errors: list[str] = []
-        full_name = raw.get("full_name", "")
-        email = raw.get("email", "")
+        full_name  = raw.get("full_name", "")
+        email      = raw.get("email", "")
         identifier = raw.get(identifier_col, "") or None
 
         if not full_name:
@@ -159,11 +256,11 @@ class OnboardingService:
         rows: list[CSVRowResult],
         db: AsyncSession,
     ) -> list[CSVRowResult]:
-        valid_emails = [r.email for r in rows if r.is_valid and r.email]
-        valid_ids = [r.identifier for r in rows if r.is_valid and r.identifier]
+        valid_emails = [r.email      for r in rows if r.is_valid and r.email]
+        valid_ids    = [r.identifier for r in rows if r.is_valid and r.identifier]
 
         existing_emails = await OnboardingRepository.get_existing_emails(valid_emails, db)
-        existing_ids = await OnboardingRepository.get_existing_identifiers(valid_ids, db)
+        existing_ids    = await OnboardingRepository.get_existing_identifiers(valid_ids, db)
 
         for row in rows:
             if not row.is_valid:
@@ -188,19 +285,51 @@ class OnboardingService:
         if err:
             return CSVPreviewResponse(
                 total_rows=0, valid_rows=0, invalid_rows=0,
-                rows=[CSVRowResult(row_number=0, full_name="", email="", identifier=None, is_valid=False, errors=[err])],
+                rows=[CSVRowResult(
+                    row_number=0, full_name="", email="", identifier=None,
+                    is_valid=False, errors=[err],
+                )],
             )
 
         seen_emails: set[str] = set()
-        seen_ids: set[str] = set()
-        rows = [
-            OnboardingService._validate_common(i + 1, raw, "identifier", seen_emails, seen_ids)
-            for i, raw in enumerate(raw_rows)
-        ]
+        seen_ids:    set[str] = set()
+
+        # Cache (program_code, batch_year, section_name) → section_id to avoid
+        # repeated DB round-trips for identical section combos across rows.
+        _section_cache: dict[tuple, UUID | None] = {}
+
+        rows: list[CSVRowResult] = []
+        for i, raw in enumerate(raw_rows):
+            row = OnboardingService._validate_common(i + 1, raw, "identifier", seen_emails, seen_ids)
+
+            # Optional section placement (D4: fail-fast per row if columns given but not resolvable)
+            prog_code    = raw.get("program_code", "").strip()
+            batch_yr_str = raw.get("batch_year",   "").strip()
+            sec_name     = raw.get("section_name", "").strip()
+
+            if prog_code and batch_yr_str and sec_name:
+                cache_key = (prog_code.upper(), batch_yr_str, sec_name.upper())
+                if cache_key not in _section_cache:
+                    _section_cache[cache_key] = await OnboardingService._resolve_section(
+                        prog_code, batch_yr_str, sec_name, db
+                    )
+                resolved = _section_cache[cache_key]
+                if resolved is not None:
+                    row.section_id       = resolved
+                    row.section_resolved = True
+                else:
+                    row.errors.append(
+                        f"Section not found: program='{prog_code}' "
+                        f"year={batch_yr_str} section='{sec_name}'"
+                    )
+                    row.is_valid = False
+
+            rows.append(row)
+
         rows = await OnboardingService._check_db_duplicates(rows, db)
         valid = sum(1 for r in rows if r.is_valid)
         return CSVPreviewResponse(
-            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid, rows=rows
+            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid, rows=rows,
         )
 
     @staticmethod
@@ -209,24 +338,38 @@ class OnboardingService:
     ) -> CSVCommitResult:
         preview = await OnboardingService.preview_students_csv(content, db)
         pw_hash = hash_password(default_password)
-        rows_to_insert = [
-            {
-                "id": str(_uuid.uuid4()),
-                "email": r.email,
-                "pw_hash": pw_hash,
-                "role": "STUDENT",
-                "full_name": r.full_name,
+
+        rows_to_insert: list[dict] = []
+        enroll_pairs:   list[tuple[str, str]] = []
+
+        for r in preview.rows:
+            if not r.is_valid:
+                continue
+            uid = str(_uuid.uuid4())
+            rows_to_insert.append({
+                "id":         uid,
+                "email":      r.email,
+                "pw_hash":    pw_hash,
+                "role":       "STUDENT",
+                "full_name":  r.full_name,
                 "identifier": r.identifier,
-            }
-            for r in preview.rows
-            if r.is_valid
-        ]
+            })
+            if r.section_resolved and r.section_id is not None:
+                enroll_pairs.append((uid, str(r.section_id)))
+
         created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
+        enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(enroll_pairs, db)
+
         return CSVCommitResult(
             total=preview.total_rows,
             created=created,
             skipped=preview.invalid_rows,
-            errors=[f"Row {r.row_number}: {', '.join(r.errors)}" for r in preview.rows if not r.is_valid],
+            errors=[
+                f"Row {r.row_number}: {', '.join(r.errors)}"
+                for r in preview.rows
+                if not r.is_valid
+            ],
+            enrollments_created=enrollments_created,
         )
 
     # ------------------------------------------------------------------ #
@@ -241,11 +384,14 @@ class OnboardingService:
         if err:
             return CSVPreviewResponse(
                 total_rows=0, valid_rows=0, invalid_rows=0,
-                rows=[CSVRowResult(row_number=0, full_name="", email="", identifier=None, is_valid=False, errors=[err])],
+                rows=[CSVRowResult(
+                    row_number=0, full_name="", email="", identifier=None,
+                    is_valid=False, errors=[err],
+                )],
             )
 
         seen_emails: set[str] = set()
-        seen_ids: set[str] = set()
+        seen_ids:    set[str] = set()
         rows = [
             OnboardingService._validate_common(i + 1, raw, "employee_id", seen_emails, seen_ids)
             for i, raw in enumerate(raw_rows)
@@ -253,7 +399,7 @@ class OnboardingService:
         rows = await OnboardingService._check_db_duplicates(rows, db)
         valid = sum(1 for r in rows if r.is_valid)
         return CSVPreviewResponse(
-            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid, rows=rows
+            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid, rows=rows,
         )
 
     @staticmethod
@@ -264,11 +410,11 @@ class OnboardingService:
         pw_hash = hash_password(default_password)
         rows_to_insert = [
             {
-                "id": str(_uuid.uuid4()),
-                "email": r.email,
-                "pw_hash": pw_hash,
-                "role": "FACULTY",
-                "full_name": r.full_name,
+                "id":         str(_uuid.uuid4()),
+                "email":      r.email,
+                "pw_hash":    pw_hash,
+                "role":       "FACULTY",
+                "full_name":  r.full_name,
                 "identifier": r.identifier,
             }
             for r in preview.rows
@@ -279,5 +425,9 @@ class OnboardingService:
             total=preview.total_rows,
             created=created,
             skipped=preview.invalid_rows,
-            errors=[f"Row {r.row_number}: {', '.join(r.errors)}" for r in preview.rows if not r.is_valid],
+            errors=[
+                f"Row {r.row_number}: {', '.join(r.errors)}"
+                for r in preview.rows
+                if not r.is_valid
+            ],
         )

@@ -211,14 +211,14 @@ def make_kit_payload(syllabus_id: uuid.UUID, **overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Compliant kit seeder (8 slides + 2 quizlets + teaching_plan)
+# Compliant kit seeder (10 slides + 5 quizlets + teaching_plan)
 # ---------------------------------------------------------------------------
 
 async def build_compliant_kit_via_db(
     kit_id: uuid.UUID,
     schema_name: str,
 ) -> None:
-    """Seed 8 slides, 2 quizlets, and a teaching_plan into a kit.
+    """Seed 10 slides, 5 quizlets, and a teaching_plan into a kit.
 
     Uses a standalone committed session so the data is visible to the HTTP
     layer (separate connection) in router tests.  SET search_path (no LOCAL)
@@ -237,7 +237,7 @@ async def build_compliant_kit_via_db(
         async with session.begin():
             await session.execute(text(f"SET search_path = {schema_name}, public"))
 
-        for i in range(1, 9):
+        for i in range(1, 11):
             await CourseKitService.add_slide(
                 kit_id,
                 KitSlideCreate(
@@ -251,7 +251,7 @@ async def build_compliant_kit_via_db(
                 db=session,
             )
 
-        for i in range(1, 3):
+        for i in range(1, 6):
             await CourseKitService.add_quizlet(
                 kit_id,
                 KitQuizletCreate(

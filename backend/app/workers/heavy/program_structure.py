@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -20,8 +21,11 @@ def _get_async_engine():
     global _async_engine
     if _async_engine is None:
         from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
         from app.config import settings
-        _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        # NullPool: no connection caching between asyncio.run() calls.
+        # Prevents "Future attached to a different loop" on Windows --pool=solo.
+        _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
     return _async_engine
 
 
@@ -48,6 +52,8 @@ def generate_program_structure(
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_generation(
             program_id=UUID(program_id),

@@ -224,8 +224,18 @@ export function NotebookQA({
           sources: result.sources,
         },
       ])
-    } catch {
+    } catch (err) {
       setMessages((prev) => prev.slice(0, -1))
+
+      // If the backend reports the session is gone (e.g. server restarted,
+      // or a prior request's commit failed), reset activeSessionId so the
+      // next question creates a fresh session rather than failing again.
+      const errCode = (err as { response?: { data?: { detail?: { error?: string } } } })
+        ?.response?.data?.detail?.error
+      if (errCode === 'SESSION_NOT_FOUND' || errCode === 'RAG_ERROR') {
+        setActiveSessionId(null)
+      }
+
       setAskError('Failed to get an answer. Please try again.')
     }
   }

@@ -8,18 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
-from app.core.onboarding.repository import OnboardingRepository
 from app.core.onboarding.schemas import (
     CSVCommitResult,
     CSVPreviewResponse,
-    DepartmentCreate,
-    DepartmentResponse,
     GenerateStudentsRequest,
     GenerateStudentsResult,
-    ProgramCreate,
-    ProgramResponse,
 )
-from app.core.onboarding.service import OnboardingService
+from app.core.onboarding.service import OnboardingError, OnboardingService
 from app.database import AsyncSessionLocal
 
 router = APIRouter(tags=["onboarding"])
@@ -46,66 +41,11 @@ async def _admin_db(
             yield session
 
 
-# ---------------------------------------------------------------------------
-# Departments
-# ---------------------------------------------------------------------------
-
-@router.get("/departments", response_model=list[DepartmentResponse])
-async def list_departments(
-    db: AsyncSession = Depends(_admin_db),
-) -> list[DepartmentResponse]:
-    depts = await OnboardingRepository.list_departments(db)
-    return [DepartmentResponse.model_validate(d) for d in depts]
-
-
-@router.post("/departments", response_model=DepartmentResponse, status_code=201)
-async def create_department(
-    body: DepartmentCreate,
-    db: AsyncSession = Depends(_admin_db),
-) -> DepartmentResponse:
-    existing = await OnboardingRepository.get_department_by_code(body.code, db)
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "CONFLICT",
-                "message": f"Department code '{body.code.upper()}' already exists",
-            },
-        )
-    dept = await OnboardingRepository.create_department(body.name, body.code, db)
-    return DepartmentResponse.model_validate(dept)
-
-
-# ---------------------------------------------------------------------------
-# Programs
-# ---------------------------------------------------------------------------
-
-@router.get("/programs", response_model=list[ProgramResponse])
-async def list_programs(
-    db: AsyncSession = Depends(_admin_db),
-) -> list[ProgramResponse]:
-    progs = await OnboardingRepository.list_programs(db)
-    return [ProgramResponse.model_validate(p) for p in progs]
-
-
-@router.post("/programs", response_model=ProgramResponse, status_code=201)
-async def create_program(
-    body: ProgramCreate,
-    db: AsyncSession = Depends(_admin_db),
-) -> ProgramResponse:
-    existing = await OnboardingRepository.get_program_by_code(body.code, db)
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "CONFLICT",
-                "message": f"Program code '{body.code.upper()}' already exists",
-            },
-        )
-    prog = await OnboardingRepository.create_program(
-        body.name, body.code, body.dept_id, body.duration_years, db
+def _onboarding_err(e: OnboardingError) -> HTTPException:
+    return HTTPException(
+        status_code=e.status_code,
+        detail={"error": e.code, "message": e.message},
     )
-    return ProgramResponse.model_validate(prog)
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +57,10 @@ async def generate_students(
     body: GenerateStudentsRequest,
     db: AsyncSession = Depends(_admin_db),
 ) -> GenerateStudentsResult:
-    return await OnboardingService.generate_students(body, db)
+    try:
+        return await OnboardingService.generate_students(body, db)
+    except OnboardingError as e:
+        raise _onboarding_err(e)
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +77,13 @@ def _read_csv_upload(file: UploadFile) -> None:
 
 @router.post("/import/students/preview", response_model=CSVPreviewResponse)
 async def preview_students_csv(
-    file: UploadFile = File(..., description="CSV file with columns: full_name, email, identifier (optional), section (optional)"),
+    file: UploadFile = File(
+        ...,
+        description=(
+            "CSV with columns: full_name, email, identifier (opt), "
+            "program_code (opt), batch_year (opt), section_name (opt)"
+        ),
+    ),
     db: AsyncSession = Depends(_admin_db),
 ) -> CSVPreviewResponse:
     _read_csv_upload(file)
@@ -174,7 +123,10 @@ async def commit_students_csv(
 
 @router.post("/import/faculty/preview", response_model=CSVPreviewResponse)
 async def preview_faculty_csv(
-    file: UploadFile = File(..., description="CSV file with columns: full_name, email, employee_id (optional)"),
+    file: UploadFile = File(
+        ...,
+        description="CSV with columns: full_name, email, employee_id (opt)",
+    ),
     db: AsyncSession = Depends(_admin_db),
 ) -> CSVPreviewResponse:
     _read_csv_upload(file)
@@ -213,10 +165,10 @@ async def commit_faculty_csv(
 # ---------------------------------------------------------------------------
 
 _STUDENTS_CSV_SAMPLE = (
-    "full_name,email,identifier,section\n"
-    "John Doe,john.doe@university.edu,ABC26MCA001,A\n"
-    "Jane Smith,jane.smith@university.edu,ABC26MCA002,B\n"
-    "Alex Johnson,alex.j@university.edu,,A\n"
+    "full_name,email,identifier,program_code,batch_year,section_name\n"
+    "John Doe,john.doe@university.edu,ABC26MCA001,MCA,26,A\n"
+    "Jane Smith,jane.smith@university.edu,ABC26MCA002,MCA,26,B\n"
+    "Alex Johnson,alex.j@university.edu,,,, \n"
 )
 
 _FACULTY_CSV_SAMPLE = (

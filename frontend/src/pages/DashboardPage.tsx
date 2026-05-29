@@ -8,6 +8,7 @@ import { PageShell } from '@/components/shell/PageShell'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
+import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
 
 type IconComponent = React.FC<{ className?: string }>
 
@@ -411,6 +412,9 @@ export default function DashboardPage() {
       {role === 'ADMIN' && authUser && (
         <AdminOnboarding passwordChanged={!authUser.firstLogin} />
       )}
+
+      {/* ── My Courses — FACULTY only (H-31) ──────────────────── */}
+      {role === 'FACULTY' && <MyCoursesBanner />}
 
       {/* ── Module sections ────────────────────────────────────── */}
       {visibleCards.length > 0 && (
