@@ -194,3 +194,35 @@ export interface JobStatus {
   status: string
   result: Record<string, unknown> | null
 }
+
+// ---- H-35: Internal marks types ----
+
+export type InternalMarksStatus = 'PENDING' | 'FACULTY_SUBMITTED' | 'DEAN_LOCKED'
+
+export interface InternalMarks {
+  id:               string
+  student_id:       string
+  course_id:        string
+  semester:         number
+  academic_year:    string
+  internal1_marks:  number | null
+  internal2_marks:  number | null
+  assignment_marks: number | null
+  attendance_marks: number | null
+  total_internal:   number | null
+  max_internal:     number
+  status:           InternalMarksStatus
+  submitted_by:     string | null
+  submitted_at:     string | null
+  locked_by:        string | null
+  locked_at:        string | null
+  created_at:       string
+  updated_at:       string | null
+}
+
+export interface InternalMarksListResponse {
+  items:  InternalMarks[]
+  total:  number
+  offset: number
+  limit:  number
+}

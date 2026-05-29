@@ -36,6 +36,7 @@ import ExamPaperListPage from '@/pages/ExamPaperListPage'
 import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
 import ExamPaperEditorPage from '@/pages/ExamPaperEditorPage'
 import BoardReviewPage from '@/pages/BoardReviewPage'
+import InternalExamReleasePage from '@/pages/InternalExamReleasePage'
 import ScriptListPage from '@/pages/ScriptListPage'
 import ScriptUploadPage from '@/pages/ScriptUploadPage'
 import ScriptEvaluationPanel from '@/pages/ScriptEvaluationPanel'
@@ -182,6 +183,12 @@ export default function App() {
             <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
             <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
             <Route path="/exams/:id/review" element={<BoardReviewPage />} />
+          </Route>
+
+          {/* Internal Marks — FACULTY, DEAN, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
+            <Route path="/exams/internal-marks" element={<InternalExamReleasePage />} />
+            <Route path="/exams/internal-marks/course/:courseId" element={<InternalExamReleasePage />} />
           </Route>
 
           {/* Scanned Scripts — ADMIN, BOARD */}

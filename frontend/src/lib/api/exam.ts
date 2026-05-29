@@ -8,6 +8,8 @@ import type {
   ExamPaperListResponse,
   ExamQuestion,
   ExamQuestionUpdatePayload,
+  InternalMarks,
+  InternalMarksListResponse,
   JobStatus,
   SealPayload,
 } from '@/types/exam'
@@ -164,5 +166,30 @@ export async function regenerateQuestion(
 
 export async function getJobStatus(jobId: string): Promise<JobStatus> {
   const { data } = await api.get(`${BASE}/jobs/${jobId}`)
+  return data
+}
+
+// ---- H-35: Internal marks management ----
+
+export async function listInternalMarksByCourse(
+  courseId: string,
+  params?: {
+    semester?:      number
+    academic_year?: string
+    offset?:        number
+    limit?:         number
+  },
+): Promise<InternalMarksListResponse> {
+  const { data } = await api.get(`${BASE}/internal-marks/course/${courseId}`, { params })
+  return data
+}
+
+export async function submitInternalMarks(imsId: string): Promise<InternalMarks> {
+  const { data } = await api.post(`${BASE}/internal-marks/${imsId}/submit`)
+  return data
+}
+
+export async function lockInternalMarks(imsId: string): Promise<InternalMarks> {
+  const { data } = await api.post(`${BASE}/internal-marks/${imsId}/lock`)
   return data
 }

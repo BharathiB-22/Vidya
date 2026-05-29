@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus } from 'lucide-react'
+import { FileText, Plus, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
@@ -11,7 +11,7 @@ import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { listExamPapers, listAllExamPapers, listBoardPending } from '@/lib/api/exam'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import type { ExamPaper, ExamPaperStatus } from '@/types/exam'
+import type { ExamPaper, ExamPaperStatus, ExamWorkflow } from '@/types/exam'
 
 const STATUS_OPTS: Array<{ value: ExamPaperStatus | ''; label: string }> = [
   { value: '',               label: 'All' },
@@ -24,6 +24,12 @@ const STATUS_OPTS: Array<{ value: ExamPaperStatus | ''; label: string }> = [
   { value: 'BOARD_RETURNED', label: 'Board Returned' },
   { value: 'SEALED',         label: 'Sealed' },
   { value: 'RELEASED',       label: 'Released' },
+]
+
+const WORKFLOW_OPTS: Array<{ value: ExamWorkflow | ''; label: string }> = [
+  { value: '',          label: 'All Workflows' },
+  { value: 'INTERNAL',  label: 'Internal' },
+  { value: 'BOARD_EXAM', label: 'Board Exam' },
 ]
 
 const STATUS_COLOR: Record<string, string> = {
@@ -46,8 +52,10 @@ export default function ExamPaperListPage() {
 
   const isBoardPendingRoute = location.pathname === '/exams/board/pending'
   const isBoard = role === 'BOARD'
+  const canManageMarks = ['FACULTY', 'DEAN', 'ADMIN'].includes(role)
 
   const [statusFilter, setStatusFilter] = useState<ExamPaperStatus | ''>('')
+  const [workflowFilter, setWorkflowFilter] = useState<ExamWorkflow | ''>('')
   const [offset, setOffset] = useState(0)
   const limit = 20
 
@@ -60,6 +68,11 @@ export default function ExamPaperListPage() {
       return listExamPapers({ status: statusFilter || undefined, offset, limit })
     },
   })
+
+  // Client-side workflow filter applied to current page
+  const visibleItems = workflowFilter
+    ? (data?.items ?? []).filter(p => p.exam_workflow === workflowFilter)
+    : (data?.items ?? [])
 
   // Board clicks open the review page; faculty/admin open the editor
   function handlePaperClick(paperId: string) {
@@ -83,21 +96,41 @@ export default function ExamPaperListPage() {
       />
 
       {/* Status filter — hidden on board/pending (already filtered to SUBMITTED) */}
-      {!isBoardPendingRoute && <div className="flex flex-wrap gap-2">
-        {STATUS_OPTS.map(opt => (
-          <button
-            key={opt.value}
-            onClick={() => { setStatusFilter(opt.value); setOffset(0) }}
-            className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-              statusFilter === opt.value
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>}
+      {!isBoardPendingRoute && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {STATUS_OPTS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => { setStatusFilter(opt.value); setOffset(0) }}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  statusFilter === opt.value
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {/* Workflow filter */}
+          <div className="flex flex-wrap gap-2">
+            {WORKFLOW_OPTS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setWorkflowFilter(opt.value)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                  workflowFilter === opt.value
+                    ? 'bg-amber-600 text-white border-amber-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading && <PageLoading message="Loading exam papers…" />}
 
@@ -105,7 +138,7 @@ export default function ExamPaperListPage() {
         <PageError message="Failed to load exam papers." onRetry={() => refetch()} />
       )}
 
-      {data && data.items.length === 0 && (
+      {data && visibleItems.length === 0 && (
         <PageEmpty
           icon={FileText}
           message="No exam papers found."
@@ -117,69 +150,114 @@ export default function ExamPaperListPage() {
         />
       )}
 
-      {data && data.items.length > 0 && (
+      {data && visibleItems.length > 0 && (
         <>
           <div className="space-y-3">
-            {data.items.map(paper => (
+            {visibleItems.map(paper => (
               <PaperCard
                 key={paper.id}
                 paper={paper}
                 onClick={() => handlePaperClick(paper.id)}
+                onMarksClick={
+                  canManageMarks && paper.exam_workflow === 'INTERNAL'
+                    ? () => navigate(`/exams/internal-marks/course/${paper.course_id}`)
+                    : undefined
+                }
               />
             ))}
           </div>
 
-          {/* Pagination */}
-          <div className="flex justify-between items-center pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - limit))}
-            >
-              Previous
-            </Button>
-            <span className="text-sm text-gray-500">
-              Showing {offset + 1}–{Math.min(offset + limit, data.total)} of {data.total}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={offset + limit >= data.total}
-              onClick={() => setOffset(offset + limit)}
-            >
-              Next
-            </Button>
-          </div>
+          {/* Pagination — only shown when no workflow filter (otherwise count may be off) */}
+          {!workflowFilter && (
+            <div className="flex justify-between items-center pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - limit))}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-gray-500">
+                Showing {offset + 1}–{Math.min(offset + limit, data.total)} of {data.total}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={offset + limit >= data.total}
+                onClick={() => setOffset(offset + limit)}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+          {workflowFilter && (
+            <p className="text-xs text-gray-400 pt-1">
+              {visibleItems.length} item{visibleItems.length !== 1 ? 's' : ''} on this page matching workflow filter.
+            </p>
+          )}
         </>
       )}
     </PageShell>
   )
 }
 
-function PaperCard({ paper, onClick }: { paper: ExamPaper; onClick: () => void }) {
+function PaperCard({
+  paper,
+  onClick,
+  onMarksClick,
+}: {
+  paper: ExamPaper
+  onClick: () => void
+  onMarksClick?: () => void
+}) {
   const colorClass = STATUS_COLOR[paper.status] ?? 'bg-gray-100 text-gray-600'
+  const workflowBadge =
+    paper.exam_workflow === 'INTERNAL'
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-indigo-100 text-indigo-700'
+  const workflowLabel = paper.exam_workflow === 'INTERNAL' ? 'Internal' : 'Board Exam'
+
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left rounded-xl border border-gray-200 bg-white p-4 hover:border-indigo-300 hover:shadow-sm transition-all"
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900 truncate">{paper.title}</p>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {paper.exam_type.replace('_', ' ')} · {paper.total_marks} marks · {paper.duration_mins} min
-          </p>
-          {paper.release_at && (
-            <p className="text-xs text-gray-400 mt-1">
-              Release: {new Date(paper.release_at).toLocaleString()}
+    <div className="rounded-xl border border-gray-200 bg-white hover:border-indigo-300 hover:shadow-sm transition-all">
+      <button
+        onClick={onClick}
+        className="w-full text-left p-4"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900 truncate">{paper.title}</p>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {paper.exam_type.replace('_', ' ')} · {paper.total_marks} marks · {paper.duration_mins} min
             </p>
-          )}
+            {paper.release_at && (
+              <p className="text-xs text-gray-400 mt-1">
+                Release: {new Date(paper.release_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${colorClass}`}>
+              {paper.status.replace(/_/g, ' ')}
+            </span>
+            <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${workflowBadge}`}>
+              {workflowLabel}
+            </span>
+          </div>
         </div>
-        <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${colorClass}`}>
-          {paper.status.replace('_', ' ')}
-        </span>
-      </div>
-    </button>
+      </button>
+
+      {onMarksClick && (
+        <div className="px-4 pb-3 pt-0 border-t border-gray-100">
+          <button
+            onClick={e => { e.stopPropagation(); onMarksClick() }}
+            className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 transition-colors"
+          >
+            Internal Marks
+            <ChevronRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

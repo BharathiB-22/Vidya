@@ -3,7 +3,7 @@ import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
-  Building2, Calendar, CalendarRange, LayoutList, UserCheck,
+  Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -46,9 +46,10 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Lab Assignments', to: '/labs',                icon: FlaskConical,   roles: ['FACULTY', 'DEAN', 'ADMIN'] },
       { label: 'Research',        to: '/research/problems',   icon: Microscope,     roles: ['FACULTY', 'ADMIN', 'GUIDE'] },
-      { label: 'Exam Papers',     to: '/exams',               icon: FileText,       roles: ['FACULTY', 'ADMIN', 'BOARD'] },
-      { label: 'Pending Review',  to: '/exams/board/pending', icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
-      { label: 'Scripts',         to: '/scripts',             icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
+      { label: 'Exam Papers',     to: '/exams',                  icon: FileText,       roles: ['FACULTY', 'ADMIN', 'BOARD'] },
+      { label: 'Internal Marks',  to: '/exams/internal-marks',   icon: BookMarked,     roles: ['FACULTY', 'DEAN', 'ADMIN'] },
+      { label: 'Pending Review',  to: '/exams/board/pending',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
+      { label: 'Scripts',         to: '/scripts',                icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
     ],
   },
   {
