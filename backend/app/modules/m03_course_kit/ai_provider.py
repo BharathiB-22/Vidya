@@ -144,29 +144,79 @@ _VALID_COMPLEXITY      = {c.value for c in ComplexityLevel}
 # ---------------------------------------------------------------------------
 
 _VALID_SLIDE_TYPES = frozenset({
+    # Original types
     "TITLE", "CONCEPT", "DEFINITION", "EXAMPLE",
     "CODE", "DIAGRAM", "ACTIVITY", "SUMMARY", "QUIZ",
+    # Enhanced instructional types (stored in JSONB content.slide_type — no DB change)
+    "OBJECTIVES", "WORKED_EXAMPLE", "COMMON_MISTAKES", "TOPIC_SUMMARY",
 })
 
 # Map slide title keywords → inferred slide_type used when AI omits the field.
+# ORDER MATTERS: more specific patterns must precede generic catch-alls.
 _SLIDE_TYPE_KEYWORDS: list[tuple[str, str]] = [
-    ("overview",  "TITLE"),
-    ("introducti","TITLE"),
-    ("summary",   "SUMMARY"),
-    ("recap",     "SUMMARY"),
-    ("quiz",      "QUIZ"),
-    ("assessment","QUIZ"),
-    ("activity",  "ACTIVITY"),
-    ("exercise",  "ACTIVITY"),
-    ("diagram",   "DIAGRAM"),
-    ("chart",     "DIAGRAM"),
-    ("code",      "CODE"),
-    ("implement", "CODE"),
-    ("example",   "EXAMPLE"),
-    ("case study","EXAMPLE"),
-    ("definition","DEFINITION"),
-    ("terminolog","DEFINITION"),
+    # TITLE
+    ("overview",       "TITLE"),
+    ("introducti",     "TITLE"),
+    # TOPIC_SUMMARY (specific — must precede generic "summary"/"recap")
+    ("topic summar",   "TOPIC_SUMMARY"),
+    ("topic recap",    "TOPIC_SUMMARY"),
+    # SUMMARY (unit-level; generic catch-alls follow specifics)
+    ("unit recap",     "SUMMARY"),
+    ("unit summary",   "SUMMARY"),
+    ("summary",        "SUMMARY"),
+    ("recap",          "SUMMARY"),      # generic: "Recap and Review" → SUMMARY
+    # QUIZ
+    ("quiz",           "QUIZ"),
+    ("assessment",     "QUIZ"),
+    # ACTIVITY
+    ("activity",       "ACTIVITY"),
+    ("exercise",       "ACTIVITY"),
+    # DIAGRAM
+    ("diagram",        "DIAGRAM"),
+    ("chart",          "DIAGRAM"),
+    # CODE
+    ("code",           "CODE"),
+    ("implement",      "CODE"),
+    # WORKED_EXAMPLE (specific — must precede generic "example")
+    ("worked example", "WORKED_EXAMPLE"),
+    ("step-by-step",   "WORKED_EXAMPLE"),
+    # EXAMPLE (generic)
+    ("example",        "EXAMPLE"),
+    ("case study",     "EXAMPLE"),
+    # DEFINITION
+    ("definition",     "DEFINITION"),
+    ("terminolog",     "DEFINITION"),
+    # OBJECTIVES
+    ("objective",      "OBJECTIVES"),
+    ("learning goal",  "OBJECTIVES"),
+    # COMMON_MISTAKES
+    ("mistake",        "COMMON_MISTAKES"),
+    ("pitfall",        "COMMON_MISTAKES"),
+    ("common error",   "COMMON_MISTAKES"),
+    ("anti-pattern",   "COMMON_MISTAKES"),
 ]
+
+# Aliases Groq uses for the enhanced slide types — normalized in _normalize_groq_kit_response.
+_GROQ_SLIDE_TYPE_ALIASES: dict[str, str] = {
+    "LEARNING_OBJECTIVES": "OBJECTIVES",
+    "LEARNING OBJECTIVES":  "OBJECTIVES",
+    "OBJECTIVE":            "OBJECTIVES",
+    "LEARNING_OBJECTIVE":   "OBJECTIVES",
+    "WORKED EXAMPLE":       "WORKED_EXAMPLE",
+    "WORKED-EXAMPLE":       "WORKED_EXAMPLE",
+    "STEP_BY_STEP":         "WORKED_EXAMPLE",
+    "STEP BY STEP":         "WORKED_EXAMPLE",
+    "MISTAKES":             "COMMON_MISTAKES",
+    "ERRORS":               "COMMON_MISTAKES",
+    "PITFALLS":             "COMMON_MISTAKES",
+    "ANTI_PATTERNS":        "COMMON_MISTAKES",
+    "ANTI-PATTERNS":        "COMMON_MISTAKES",
+    "COMMON_ERRORS":        "COMMON_MISTAKES",
+    "TOPIC_RECAP":          "TOPIC_SUMMARY",
+    "TOPIC SUMMARY":        "TOPIC_SUMMARY",
+    "TOPIC RECAP":          "TOPIC_SUMMARY",
+    "MINI_SUMMARY":         "TOPIC_SUMMARY",
+}
 
 
 def _infer_slide_type(slide_number: int, title: str, has_code: bool) -> str:
@@ -522,60 +572,134 @@ def _is_soft_violation(violation: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
+    """
+    Build a quality-focused prompt for a 10-slide lecture deck.
+
+    Design principle: depth over breadth.  Each slide covers one instructional
+    purpose well.  Speaker notes carry the detailed faculty script so visible
+    slide content stays clean and editable.
+
+    Token budget target: ≤8 000 output tokens (safe for Groq free tier).
+    """
+    topic_list = ", ".join(ctx.unit_topics) if ctx.unit_topics else "all unit topics"
+
     system = (
         "You are an expert academic curriculum designer for Indian universities. "
         "You create complete, unit-level teaching kits aligned with NBA/NAAC "
         "accreditation standards and Bloom's revised taxonomy.\n\n"
-        "WHAT TO GENERATE:\n"
-        f"  1. Slides: minimum {ctx.min_slides} slides covering all unit topics progressively.\n"
-        "     Each slide: slide_number (1-based), title, content object with:\n"
-        "       - slide_type: one of TITLE|CONCEPT|DEFINITION|EXAMPLE|CODE|DIAGRAM|ACTIVITY|SUMMARY|QUIZ\n"
-        "       - bullets: 4-6 clear teaching points\n"
-        "       - key_concepts: 3-5 critical terms students must understand\n"
-        "       - definitions: 2-4 formal definitions of key terms on this slide\n"
-        "       - examples: 2-3 concrete real-world or applied examples\n"
-        "       - code_snippet: relevant code in the appropriate language (null if not applicable)\n"
-        "       - diagram_prompt: one-sentence description for a diagram or Mermaid chart (null if not applicable)\n"
-        "       - classroom_activity: a short interactive activity (5-10 min) for students during this slide\n"
-        "       - teaching_notes: 2-3 sentences of faculty-facing guidance "
-        "(how to present, common misconceptions to address, discussion prompts)\n"
-        "       - student_summary: 1-2 student-friendly sentences summarising "
-        "what students should take away from this slide\n"
-        "     Plus: speaker_notes, bloom_level, co_reference.\n"
-        f"  2. Quizlets: minimum {ctx.min_quizlets} questions (recommend 5).\n"
-        "     Each quizlet: question_number (1-based), question_text, question_type "
-        "(MCQ or SHORT_ANSWER), options (MCQ only), answer_key (dict), "
-        "answer_explanation, bloom_level, co_reference.\n"
-        "  3. Assignments: 2-4 tasks (CLASSWORK, HOMEWORK, or CASE_STUDY).\n"
-        "     Each: assignment_number, title, assignment_type, question_text, "
-        "complexity_level, current_events_toggle, model_answer, rubric (3+ criteria), "
-        "bloom_level, co_reference.\n"
-        "  4. Teaching plan: weekly breakdown — week, topic, objectives, activities, "
+
+        "GENERATE EXACTLY 10 SLIDES in this fixed order:\n"
+        "  Slide 1  : TITLE          — unit overview and scope\n"
+        "  Slide 2  : OBJECTIVES     — measurable learning outcomes (Bloom-tagged)\n"
+        "  Slide 3  : CONCEPT        — primary concept: how it works and why it matters\n"
+        "  Slide 4  : DEFINITION     — key terms with formal definitions\n"
+        "  Slide 5  : WORKED_EXAMPLE — named, step-by-step real-world scenario\n"
+        "  Slide 6  : CODE           — annotated code (use DIAGRAM if no programming)\n"
+        "  Slide 7  : COMMON_MISTAKES — anti-patterns with corrections\n"
+        "  Slide 8  : ACTIVITY       — timed classroom task\n"
+        "  Slide 9  : QUIZ           — 2-3 visible checkpoint questions on the slide\n"
+        "  Slide 10 : SUMMARY        — unit recap and next steps\n\n"
+
+        "CONTENT RULES — apply to every slide:\n"
+        "  bullets       : 4-6 complete sentences — each a teaching point, not a fragment\n"
+        "  key_concepts  : 3-5 critical terms (slides 3-6 especially)\n"
+        "  definitions   : formal 'Term: definition' entries (required on slides 4 and 3)\n"
+        "  teaching_notes: 2-3 sentences — a misconception to address + a discussion prompt\n"
+        "  student_summary: 1-2 sentences the student should walk away understanding\n"
+        "  bloom_level   : one of REMEMBER / UNDERSTAND / APPLY / ANALYSE / EVALUATE / CREATE\n"
+        "  co_reference  : one or more CO codes, e.g. 'CO1' or 'CO1, CO2'\n"
+        "  speaker_notes : 120-200 word faculty delivery script per slide —\n"
+        "    what to say verbatim, timing guidance, likely student questions with brief answers,\n"
+        "    connection to previous/next slide, and one pacing cue\n\n"
+
+        "PER SLIDE TYPE — additional requirements:\n\n"
+
+        "TITLE slide:\n"
+        "  bullets: 3-4 sentences describing what this unit covers and its industry relevance\n"
+        "  key_concepts: 4-5 major themes of the unit\n"
+        "  student_summary: 'By the end of this unit you will be able to [unit outcome].'\n\n"
+
+        "OBJECTIVES slide:\n"
+        "  bullets: 4-5 items, each starting with a Bloom verb\n"
+        "    (Identify / Explain / Apply / Analyse / Evaluate / Create)\n"
+        "  bloom_level: highest level targeted in this unit\n"
+        "  co_reference: all COs addressed in the unit\n\n"
+
+        "CONCEPT slide:\n"
+        "  bullets: 5-6 sentences explaining the primary concept clearly\n"
+        "  key_concepts: the 4-5 terms that define this concept\n"
+        "  definitions: 2-3 formal definitions of terms introduced here\n"
+        "  diagram_prompt: one-sentence description for a diagram if it aids understanding\n\n"
+
+        "DEFINITION slide:\n"
+        "  definitions: 5-6 entries in 'Term: formal definition' format\n"
+        "  key_concepts: the terms being defined\n"
+        "  bullets: 1-2 sentences linking these terms as a coherent vocabulary set\n\n"
+
+        "WORKED_EXAMPLE slide:\n"
+        "  title: MUST start with 'Worked Example: ' then a named real scenario\n"
+        "  examples: 4-5 steps, each 'Step N: [action]'\n"
+        "  bullets: expected output or result of the example\n"
+        "  student_summary: state the outcome plainly\n\n"
+
+        "CODE slide:\n"
+        "  code_snippet: minimum 10 well-commented lines in the subject language\n"
+        "  bullets: 4-5 annotation lines, e.g. 'Line 3: opens a file handle using with'\n"
+        "  teaching_notes: 2 specific syntax errors students commonly make here\n\n"
+
+        "COMMON_MISTAKES slide:\n"
+        "  bullets: 6-8 items — alternate wrong then correct for each mistake:\n"
+        "    'Wrong: [what students do]'\n"
+        "    'Correct: [right approach]'\n"
+        "  teaching_notes: cognitive root cause of the most critical mistake\n\n"
+
+        "ACTIVITY slide:\n"
+        "  classroom_activity: '[N min] Method: step-by-step instructions. Expected output.'\n"
+        "  bullets: 4-5 facilitator instructions (what the TEACHER does)\n"
+        "  teaching_notes: what to do if students finish early or get stuck\n\n"
+
+        "QUIZ slide:\n"
+        "  bullets: 2-3 checkpoint questions written out in full as visible questions on the slide\n"
+        "    Do NOT include answers on the slide face\n"
+        "  teaching_notes: brief answer guide for faculty (2-3 sentences per question)\n"
+        "  student_summary: 'Attempt these before checking the answer key.'\n\n"
+
+        "SUMMARY slide:\n"
+        "  bullets: 5-6 unit-wide takeaways starting with 'Key point:'\n"
+        "  key_concepts: all major terms from the unit\n"
+        "  co_reference: all COs covered in this unit\n"
+        "  examples: 2-3 real-world applications of what was learned\n"
+        "  student_summary: one assessment preparation tip\n\n"
+
+        "QUIZLETS (separate from the QUIZ slide — for the assessment bank):\n"
+        f"  Generate minimum {ctx.min_quizlets} questions. Mix MCQ and SHORT_ANSWER.\n"
+        "  MCQ: 4 options A/B/C/D; answer_key: {\"correct\": \"<label>\"}.\n"
+        "  SHORT_ANSWER: answer_key: {\"answer_points\": [\"key point 1\", \"key point 2\"]}.\n"
+        "  CRITICAL: answer_key MUST NOT appear anywhere in slide content.\n\n"
+
+        "ASSIGNMENTS: 2-4 tasks (at least 1 CLASSWORK and 1 HOMEWORK).\n"
+        "  Each needs model_answer and rubric with 3+ criteria.\n\n"
+
+        "TEACHING PLAN: 1 row per major topic — week, topic, objectives, activities, "
         "hours, co_references.\n"
-        "  5. Lesson plans: one session per topic — session, week, duration_minutes, "
-        "topic, objectives, opening_activity, main_content, closing_activity, "
-        "materials_needed, bloom_levels, co_references.\n"
-        "  6. Resources: 4-6 supplemental references — title, resource_type "
-        "(video/article/book_chapter/website/tool), url (optional), description.\n\n"
-        "STRICT PROHIBITIONS:\n"
-        "  - answer_key values MUST ONLY appear in quizlet answer_key fields.\n"
-        "  - NEVER embed quiz answers, answer keys, or correct-answer notations "
-        "in slide bullets, key_concepts, definitions, examples, or speaker_notes.\n"
-        "  - Do not include author names, DOIs, ISBNs, or publisher names in resources.\n"
-        "  - For MCQ: answer_key must be {\"correct\": \"A\"} (or B/C/D).\n"
-        "  - For SHORT_ANSWER: answer_key must be "
-        "{\"answer_points\": [\"point1\", \"point2\"]}.\n\n"
-        "Return only valid JSON matching the provided schema — no prose, no markdown fences."
+        "LESSON PLANS: 1 session per major topic.\n"
+        "RESOURCES: 4-6 references. No author names, DOIs, or ISBNs.\n\n"
+
+        "JSON STRUCTURE — strictly flat, no nesting by topic:\n"
+        "  {\"slides\": [...10 slides...], \"quizlets\": [...], \"assignments\": [...],\n"
+        "   \"teaching_plan\": [...], \"lesson_plans\": [...], \"resources\": [...]}\n"
+        "Return only valid JSON. No prose. No markdown fences."
     )
 
-    topic_lines = "\n".join(f"    - {t}" for t in ctx.unit_topics) or "    (no topics listed)"
+    # ── User prompt ──────────────────────────────────────────────────────────
+
     co_lines = "\n".join(
-        f"    {co.code} [{co.bloom_level}]: {co.description}"
+        f"  {co.code} [{co.bloom_level}]: {co.description}"
         for co in ctx.cos
-    ) or "    (no COs provided)"
+    ) or "  (no COs provided)"
 
     custom_clause = (
-        f"\nAdditional faculty instructions:\n  {ctx.custom_instructions}"
+        f"\nAdditional faculty instructions: {ctx.custom_instructions}"
         if ctx.custom_instructions else ""
     )
     tone_str = ctx.tone or "academic"
@@ -584,38 +708,32 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         f"Generate a complete teaching kit for Unit {ctx.unit_number} of:\n"
         f"  Course Code  : {ctx.course_code}\n"
         f"  Course Title : {ctx.course_title}\n"
+        f"  Unit Title   : {ctx.unit_title}\n"
         f"  Complexity   : {ctx.complexity_level}\n"
         f"  Tone         : {tone_str}\n\n"
-        f"Unit Details:\n"
-        f"  Unit Number : {ctx.unit_number}\n"
-        f"  Unit Title  : {ctx.unit_title}\n"
-        f"  Topics      :\n{topic_lines}\n\n"
-        f"Course Outcomes (use co_reference field to map slides/quizlets/assignments to COs):\n"
+        f"Topics covered in this unit:\n"
+        f"  {topic_list}\n\n"
+        f"Course Outcomes (use co_reference to map each slide/quizlet/assignment):\n"
         f"{co_lines}\n\n"
-        f"Requirements:\n"
-        f"- Slides: minimum {ctx.min_slides}. "
-        f"First slide type=TITLE (unit overview). Last slide type=SUMMARY (recap + next steps).\n"
-        f"  Assign appropriate slide_type from: TITLE, CONCEPT, DEFINITION, EXAMPLE, CODE, DIAGRAM, ACTIVITY, SUMMARY, QUIZ.\n"
-        f"  Each slide MUST include rich content:\n"
-        f"    * slide_type: from the allowed list above\n"
-        f"    * definitions: formal definitions of 2-4 key terms introduced on the slide\n"
-        f"    * examples: 2-3 concrete real-world examples or applications\n"
-        f"    * classroom_activity: a brief (5-10 min) in-class activity for students\n"
-        f"    * diagram_prompt: a one-sentence description for a diagram or Mermaid chart (null if not relevant)\n"
-        f"    * teaching_notes: guidance for faculty on how to teach this slide "
-        f"(misconceptions, suggested discussion prompts, pacing advice)\n"
-        f"    * student_summary: a brief student-friendly takeaway (1-2 sentences)\n"
-        f"    * code_snippet: include relevant code when the topic involves programming\n"
-        f"- Quizlets: minimum {ctx.min_quizlets} (target 5). Mix MCQ and SHORT_ANSWER.\n"
-        f"  * MCQ: 4 options labelled A/B/C/D; answer_key: {{\"correct\": \"<label>\"}}.\n"
-        f"  * SHORT_ANSWER: answer_key: {{\"answer_points\": [\"key point 1\", ...]}}.\n"
-        f"  * CRITICAL: Do NOT put any answer content in slides — answers in answer_key only.\n"
-        f"- Assignments: 2-4 tasks. Include at least 1 CLASSWORK and 1 HOMEWORK.\n"
-        f"  * Each assignment needs model_answer and a rubric with at least 3 criteria.\n"
-        f"  * Set current_events_toggle to true only if question benefits from current affairs.\n"
-        f"- Teaching plan: weekly schedule covering all topics (1+ weeks per major topic).\n"
-        f"- Lesson plans: one session entry per unique topic.\n"
-        f"- Resources: 4-6 items. No author names, DOIs, ISBNs, or publisher names.\n"
+        f"SLIDE REQUIREMENTS:\n"
+        f"- Generate exactly 10 slides following the numbered order in the system prompt.\n"
+        f"- Every slide must have non-empty bullets, bloom_level, co_reference,\n"
+        f"  teaching_notes, student_summary, and speaker_notes.\n"
+        f"- Slide 5 title MUST start with 'Worked Example: '.\n"
+        f"- Slide 6 MUST include code_snippet with 10+ lines if the subject involves\n"
+        f"  programming; otherwise use DIAGRAM with diagram_prompt.\n"
+        f"- Slide 7 bullets MUST alternate Wrong/Correct pairs.\n"
+        f"- Slide 9 bullets MUST be full written-out questions (no answers on slide face).\n\n"
+        f"QUIZLETS & ASSIGNMENTS:\n"
+        f"- Quizlets: minimum {ctx.min_quizlets}. Mix MCQ and SHORT_ANSWER.\n"
+        f"  MCQ: 4 options A/B/C/D; answer_key: {{\"correct\": \"<label>\"}}.\n"
+        f"  SHORT_ANSWER: answer_key: {{\"answer_points\": [\"point 1\", ...]}}.\n"
+        f"  NEVER embed answers in slide content.\n"
+        f"- Assignments: 2-4 tasks. At least 1 CLASSWORK and 1 HOMEWORK.\n"
+        f"  Each needs model_answer and rubric with 3+ criteria.\n"
+        f"- Teaching plan: 1+ row per major topic.\n"
+        f"- Lesson plans: 1 session per major topic.\n"
+        f"- Resources: 4-6 items. No author names, DOIs, or ISBNs.\n"
         f"{custom_clause}\n"
         f"Return JSON matching the schema exactly."
     )
@@ -625,6 +743,26 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
 
 def _prompt_hash(system: str, user: str) -> str:
     return hashlib.sha256((system + "\n\n" + user).encode()).hexdigest()
+
+
+def _gemini_safe_schema(schema: dict) -> dict:
+    """Recursively remove 'additionalProperties' from a JSON Schema dict.
+
+    The Gemini API rejects schemas that contain additionalProperties (even
+    when set to false).  Pydantic v2 includes it by default.  Stripping it
+    is safe because Gemini enforces its own structural constraints.
+    """
+    schema.pop("additionalProperties", None)
+    for key in ("properties", "$defs", "definitions"):
+        val = schema.get(key)
+        if isinstance(val, dict):
+            for sub in val.values():
+                if isinstance(sub, dict):
+                    _gemini_safe_schema(sub)
+    items = schema.get("items")
+    if isinstance(items, dict):
+        _gemini_safe_schema(items)
+    return schema
 
 
 # ---------------------------------------------------------------------------
@@ -725,7 +863,7 @@ class GeminiCourseKitProvider:
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=_KitAI.model_json_schema(),
+            response_schema=_gemini_safe_schema(_KitAI.model_json_schema()),
             temperature=0.35,
             system_instruction=system,
         )
@@ -836,6 +974,25 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
         raise CourseKitAIParseError(
             f"Groq kit response is not a JSON object (got {type(data).__name__})."
         )
+
+    # --- flatten nested topic-slides structure ---
+    # Groq sometimes returns {"topics": [{"topic_name": "...", "slides": [...]}]}
+    # when the prompt has a per-topic checklist.  Flatten to a top-level slides list.
+    if "topics" in data and not isinstance(data.get("slides"), list):
+        all_topic_slides: list[dict] = []
+        for topic_block in (data.get("topics") or []):
+            if isinstance(topic_block, dict):
+                topic_slide_list = topic_block.get("slides") or []
+                if isinstance(topic_slide_list, list):
+                    all_topic_slides.extend(
+                        s for s in topic_slide_list if isinstance(s, dict)
+                    )
+        if all_topic_slides:
+            data["slides"] = all_topic_slides
+            logger.debug(
+                "m03.normalizer: flattened %d slides from nested topic structure",
+                len(all_topic_slides),
+            )
 
     # --- top-level key aliases ---
     for alias in ("slide_deck", "slides_list", "presentation_slides"):
@@ -958,6 +1115,35 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                 if val and isinstance(val, str):
                     content_dict["slide_type"] = val.upper()
                     break
+
+        # Normalize Groq aliases for enhanced slide types to canonical values.
+        raw_st = content_dict.get("slide_type")
+        if isinstance(raw_st, str):
+            content_dict["slide_type"] = _GROQ_SLIDE_TYPE_ALIASES.get(
+                raw_st.upper(), raw_st.upper()
+            )
+
+        # Title-based slide_type correction.
+        # Groq sometimes assigns the wrong type (e.g., CODE for a WORKED_EXAMPLE
+        # slide).  Override only when the title strongly signals a specific type.
+        _title_lower = slide.get("title", "").lower()
+        if _title_lower.startswith("worked example") or "worked example:" in _title_lower:
+            content_dict["slide_type"] = "WORKED_EXAMPLE"
+        elif "common mistake" in _title_lower or "mistakes:" in _title_lower:
+            content_dict["slide_type"] = "COMMON_MISTAKES"
+        elif "checkpoint" in _title_lower or _title_lower.startswith("quiz"):
+            content_dict["slide_type"] = "QUIZ"
+
+        # Hoist content-level fields that Groq places at the slide level instead
+        # of inside the nested content dict.
+        for _cf in (
+            "teaching_notes", "student_summary", "classroom_activity",
+            "code_snippet", "diagram_prompt", "image_hint",
+        ):
+            if not content_dict.get(_cf):
+                _sv = slide.get(_cf)
+                if isinstance(_sv, str) and _sv.strip():
+                    content_dict[_cf] = _sv.strip()
 
         valid_slides.append(slide)
     data["slides"] = valid_slides
@@ -1125,9 +1311,14 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
 
     # --- lesson_plans list-field normalization ---
     valid_lp: list[dict] = []
-    for session in data["lesson_plans"]:
+    for lp_i, session in enumerate(data["lesson_plans"]):
         if not isinstance(session, dict):
             continue
+        # 'week' is required by _LessonSessionAI; Groq sometimes omits it.
+        if not session.get("week"):
+            session["week"] = lp_i + 1
+        if not session.get("session"):
+            session["session"] = lp_i + 1
         for fld in ("objectives", "materials_needed"):
             val = session.get(fld)
             if isinstance(val, str):
@@ -1143,6 +1334,17 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                 session[fld] = []
         valid_lp.append(session)
     data["lesson_plans"] = valid_lp
+
+    # --- resources normalization ---
+    # Groq sometimes returns resources as a flat list of strings instead of dicts.
+    raw_resources = data.get("resources") or []
+    valid_resources: list[dict] = []
+    for res in raw_resources:
+        if isinstance(res, dict):
+            valid_resources.append(res)
+        elif isinstance(res, str) and res.strip():
+            valid_resources.append({"title": res.strip(), "resource_type": "article"})
+    data["resources"] = valid_resources
 
     return data
 

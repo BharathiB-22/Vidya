@@ -20,8 +20,11 @@ from app.modules.m03_course_kit.models import (
 # ---------------------------------------------------------------------------
 
 _VALID_SLIDE_TYPES = {
+    # Original types
     "TITLE", "CONCEPT", "DEFINITION", "EXAMPLE",
     "CODE", "DIAGRAM", "ACTIVITY", "SUMMARY", "QUIZ",
+    # Enhanced instructional types (no schema change — stored in JSONB content field)
+    "OBJECTIVES", "WORKED_EXAMPLE", "COMMON_MISTAKES", "TOPIC_SUMMARY",
 }
 
 

@@ -546,7 +546,7 @@ class TestIsSoftViolation:
 
     def test_min_slide_count_is_soft(self):
         assert _is_soft_violation(
-            "AI returned 5 slides; minimum required is 8 (M03_MIN_SLIDES_PER_UNIT)."
+            "AI returned 5 slides; minimum required is 10 (M03_MIN_SLIDES_PER_UNIT)."
         )
 
     def test_min_quizlet_count_is_soft(self):

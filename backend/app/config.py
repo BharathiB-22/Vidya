@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     REFERENCE_ENRICHMENT_TIMEOUT_SECONDS: float = 10.0
 
     # Course Kit Builder (M03)
-    M03_MIN_SLIDES_PER_UNIT: int = 8
-    M03_MIN_QUIZLETS_PER_UNIT: int = 2
+    M03_MIN_SLIDES_PER_UNIT: int = 10
+    M03_MIN_QUIZLETS_PER_UNIT: int = 5
     M03_DEFAULT_COMPLEXITY: str = "UG"   # UG or PG; overridable per kit
 
     # Labs & Assignment Evaluator (M06)
