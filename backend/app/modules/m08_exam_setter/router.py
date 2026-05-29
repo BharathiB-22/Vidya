@@ -4,39 +4,62 @@ M08 Exam Setter — Router.
 RBAC
 ----
   _CREATE   = ADMIN + FACULTY + BOARD  (create paper)
-  _FACULTY  = ADMIN + FACULTY          (edit questions, submit for review)
-  _BOARD    = BOARD + ADMIN            (review, approve/return, seal, release)
+  _FACULTY  = ADMIN + FACULTY          (edit questions, submit, approve)
+  _BOARD    = BOARD + ADMIN            (review, approve/return, seal, release, assign scrutinizer)
+  _DEAN     = DEAN + ADMIN             (lock internal marks)
   _READ     = ADMIN + DEAN + FACULTY + BOARD
 
-Workflow: Faculty creates → Faculty submits (Gate 1) → Board reviews →
-Board approves (Gate 2) → Board seals (Gate 3) → Board/auto releases.
+Workflow (BOARD_EXAM): Faculty creates → submits (Gate 1) → [scrutinizer review (1.5)] →
+  Board approves/returns (Gate 2) → Board seals (Gate 3) → auto-release.
+
+Workflow (INTERNAL):   Faculty creates → faculty_approve (Gate 1) → Faculty seals → auto-release.
 
 Endpoint summary (faculty)
 --------------------------
-  POST   /exams                         create paper config + queue generation
-  GET    /exams                         list papers for authenticated faculty
-  GET    /exams/all                     admin/dean: all papers for tenant
-  GET    /exams/{id}                    paper detail (questions blocked if SEALED)
-  GET    /exams/{id}/questions          list questions (no model answers)
-  PATCH  /exams/{id}/questions/{q_id}   edit one question
-  DELETE /exams/{id}/questions/{q_id}   remove one question
-  GET    /exams/{id}/blooms             Bloom's compliance report
-  POST   /exams/{id}/submit             Gate 1: submit for Board review
-  POST   /exams/{id}/seal               Gate 3: seal paper
+  POST   /exams                              create paper + queue generation
+  GET    /exams                              list papers for authenticated faculty
+  GET    /exams/all                          admin/dean: all papers for tenant
+  GET    /exams/{id}                         paper detail
+  GET    /exams/{id}/questions               list questions (no model answers)
+  PATCH  /exams/{id}/questions/{q_id}        edit one question
+  DELETE /exams/{id}/questions/{q_id}        remove one question
+  POST   /exams/{id}/questions/{q_id}/regenerate  re-generate single question (STEP-8)
+  GET    /exams/{id}/blooms                  Bloom's compliance report
+  GET    /exams/{id}/coverage                CO + unit coverage report
+  POST   /exams/{id}/submit                  Gate 1 (BOARD_EXAM): submit for Board review
+  POST   /exams/{id}/faculty-approve         Gate 1 (INTERNAL): faculty self-approve
+  PUT    /exams/{id}/sections                update section configuration
 
-Endpoint summary (board)
-------------------------
-  GET    /exams/board/pending           papers awaiting Board review
-  POST   /exams/{id}/board-decision     Gate 2: approve or return
+Endpoint summary (board / scrutinizer)
+---------------------------------------
+  GET    /exams/board/pending                papers awaiting Board review
+  POST   /exams/{id}/assign-scrutinizer      assign scrutinizer (BOARD_EXAM, Gate 1.5)
+  POST   /exams/{id}/scrutinize             scrutinizer approve/return (Gate 1.5)
+  POST   /exams/{id}/board-decision         Gate 2: approve or return
+  POST   /exams/{id}/seal                   Gate 3: seal paper
+  POST   /exams/{id}/release                immediate release (BOARD/ADMIN)
+
+Question bank
+-------------
+  GET    /exams/question-bank/{course_id}    browse approved question bank entries
+
+Internal marks
+--------------
+  POST   /exams/internal-marks               create / update marks entry (FACULTY)
+  GET    /exams/internal-marks/{id}          get single record (_READ)
+  PATCH  /exams/internal-marks/{id}          update marks components (FACULTY)
+  GET    /exams/internal-marks/course/{cid}  list by course (_READ)
+  POST   /exams/internal-marks/{id}/submit   Gate 1: faculty submits
+  POST   /exams/internal-marks/{id}/lock     Gate 2: Dean locks
 
 Export (role-gated, post-release)
 ----------------------------------
-  GET    /exams/{id}/export/questions   question paper PDF (FACULTY/BOARD/ADMIN/STUDENT)
-  GET    /exams/{id}/export/answers     model answers PDF (FACULTY/BOARD/ADMIN only)
+  GET    /exams/{id}/export/questions        question paper (FACULTY/BOARD/ADMIN/STUDENT)
+  GET    /exams/{id}/export/answers          model answers (FACULTY/BOARD/ADMIN only)
 
 Common
 ------
-  GET    /jobs/{job_id}                 poll job status
+  GET    /jobs/{job_id}                      poll job status
 """
 from __future__ import annotations
 
@@ -62,10 +85,26 @@ from app.modules.m08_exam_setter.schemas import (
     ExamQuestionResponse,
     ExamQuestionUpdate,
     ExamQuestionWithAnswerResponse,
+    FacultyApproveRequest,
+    InternalMarksCreate,
+    InternalMarksListResponse,
+    InternalMarksResponse,
+    InternalMarksUpdate,
     JobStatusResponse,
+    QuestionBankListResponse,
+    QuestionBankEntryResponse,
+    RegenerateQuestionRequest,
+    ScrutinizerAssignRequest,
+    ScrutinizerDecisionRequest,
     SealRequest,
+    SectionConfig,
 )
-from app.modules.m08_exam_setter.service import ExamService, ExamServiceError
+from app.modules.m08_exam_setter.service import (
+    ExamService,
+    ExamServiceError,
+    InternalMarksService,
+    InternalMarksServiceError,
+)
 
 router = APIRouter(tags=["M08 Exam Setter"])
 logger = logging.getLogger("vidya.router.m08")
@@ -77,6 +116,7 @@ logger = logging.getLogger("vidya.router.m08")
 _CREATE  = [TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.BOARD]
 _FACULTY = [TenantRole.ADMIN, TenantRole.FACULTY]
 _BOARD   = [TenantRole.BOARD, TenantRole.ADMIN]
+_DEAN    = [TenantRole.DEAN, TenantRole.ADMIN]
 _READ    = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
 
 
@@ -92,6 +132,10 @@ def _board_dep():
     return require_roles(*_BOARD)
 
 
+def _dean_dep():
+    return require_roles(*_DEAN)
+
+
 def _read_dep():
     return require_roles(*_READ)
 
@@ -101,6 +145,13 @@ def _read_dep():
 # ---------------------------------------------------------------------------
 
 def _raise(exc: ExamServiceError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={"error": exc.code, "message": exc.message},
+    )
+
+
+def _raise_ims(exc: InternalMarksServiceError) -> None:
     raise HTTPException(
         status_code=exc.status_code,
         detail={"error": exc.code, "message": exc.message},
@@ -298,6 +349,52 @@ async def list_questions(
         )
         detail = str(exc) if settings.ENVIRONMENT == "development" else "Question serialization error"
         raise HTTPException(status_code=500, detail={"error": "SERIALIZATION_ERROR", "message": detail})
+
+
+# ---------------------------------------------------------------------------
+# Board review — questions with model answers (H-35 STEP-11)
+# ---------------------------------------------------------------------------
+
+@router.get("/{paper_id}/questions/with-answers", response_model=list[ExamQuestionWithAnswerResponse])
+async def list_questions_with_answers(
+    paper_id:  UUID,
+    set_label: str | None = Query(default=None, description="Filter by set: A or B"),
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Questions with model answers, marking schemes, and correct options.
+    BOARD/ADMIN only. Paper must be SUBMITTED or later.
+    """
+    db: AsyncSession = db_info["db"]
+
+    try:
+        paper = await ExamService.get(paper_id, db=db)
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    from app.modules.m08_exam_setter.models import ExamPaperStatus
+    allowed = {
+        ExamPaperStatus.SUBMITTED.value,
+        ExamPaperStatus.BOARD_APPROVED.value,
+        ExamPaperStatus.BOARD_RETURNED.value,
+        ExamPaperStatus.SEALED.value,
+        ExamPaperStatus.RELEASED.value,
+    }
+    if paper.status not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "NOT_SUBMITTED", "message": "Model answers are only available for submitted or later papers."},
+        )
+
+    try:
+        questions = await ExamService.get_questions(
+            paper_id, set_label=set_label, include_answers=True, db=db
+        )
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    return [ExamQuestionWithAnswerResponse.model_validate(q) for q in questions]
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +636,497 @@ async def release_paper(
         metadata={"title": paper.title, "released_by": str(current_user.user_id)},
     )
     return ExamPaperResponse.model_validate(paper)
+
+
+# ---------------------------------------------------------------------------
+# H-35: INTERNAL workflow — faculty self-approval (Gate 1)
+# ---------------------------------------------------------------------------
+
+@router.post("/{paper_id}/faculty-approve", response_model=ExamPaperResponse)
+async def faculty_approve(
+    paper_id: UUID,
+    payload:  FacultyApproveRequest,
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    GATE 1 (INTERNAL workflow only): Faculty self-approves the paper.
+    Transitions GENERATED → BOARD_APPROVED, skipping Board review.
+    Use submit + board-decision for BOARD_EXAM papers.
+    """
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.faculty_approve(
+            paper_id, payload, faculty_user_id=current_user.user_id, db=db
+        )
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_FACULTY_APPROVED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_paper",
+        target_id=str(paper_id),
+        metadata={"title": paper.title, "faculty_comment": payload.faculty_comment},
+    )
+    return ExamPaperResponse.model_validate(paper)
+
+
+# ---------------------------------------------------------------------------
+# H-35: Section configuration (faculty)
+# ---------------------------------------------------------------------------
+
+@router.put("/{paper_id}/sections", response_model=ExamPaperResponse)
+async def configure_sections(
+    paper_id: UUID,
+    sections: list[SectionConfig],
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Update Part A/B/C section configuration. Only valid before submission."""
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.configure_sections(
+            paper_id,
+            [s.model_dump() for s in sections],
+            faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_SECTION_CONFIGURED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_paper",
+        target_id=str(paper_id),
+        metadata={"section_count": len(sections)},
+    )
+    return ExamPaperResponse.model_validate(paper)
+
+
+# ---------------------------------------------------------------------------
+# H-35: CO + unit coverage report
+# ---------------------------------------------------------------------------
+
+@router.get("/{paper_id}/coverage")
+async def get_coverage_report(
+    paper_id: UUID,
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Return the CO and unit coverage report generated during paper creation."""
+    db: AsyncSession = db_info["db"]
+
+    try:
+        paper = await ExamService.get(paper_id, db=db)
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    return {
+        "paper_id":            str(paper_id),
+        "exam_workflow":       paper.exam_workflow,
+        "co_coverage_report":  paper.co_coverage_report,
+        "unit_coverage_report": paper.unit_coverage_report,
+    }
+
+
+# ---------------------------------------------------------------------------
+# H-35: Scrutinizer — assign (BOARD only) and decide (FACULTY/ADMIN)
+# ---------------------------------------------------------------------------
+
+@router.post("/{paper_id}/assign-scrutinizer", response_model=ExamPaperResponse)
+async def assign_scrutinizer(
+    paper_id: UUID,
+    payload:  ScrutinizerAssignRequest,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """BOARD_EXAM only: assign a second-faculty scrutinizer to a SUBMITTED paper."""
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.assign_scrutinizer(
+            paper_id, payload, assigning_user_id=current_user.user_id, db=db
+        )
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_SCRUTINIZER_ASSIGNED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_paper",
+        target_id=str(paper_id),
+        metadata={"scrutinizer_id": str(payload.scrutinizer_id)},
+    )
+    return ExamPaperResponse.model_validate(paper)
+
+
+@router.post("/{paper_id}/scrutinize", response_model=ExamPaperResponse)
+async def scrutinize(
+    paper_id: UUID,
+    payload:  ScrutinizerDecisionRequest,
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Gate 1.5 (BOARD_EXAM): Assigned scrutinizer approves or returns the paper.
+    Approved: paper stays SUBMITTED for Board. Returned: paper reverts to BOARD_RETURNED.
+    """
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.scrutinize(
+            paper_id, payload, scrutinizer_user_id=current_user.user_id, db=db
+        )
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_SCRUTINIZED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_paper",
+        target_id=str(paper_id),
+        metadata={"approved": payload.approved, "comment": payload.scrutinizer_comment},
+    )
+    return ExamPaperResponse.model_validate(paper)
+
+
+# ---------------------------------------------------------------------------
+# H-35: Single-question regeneration
+# ---------------------------------------------------------------------------
+
+@router.post("/{paper_id}/questions/{question_id}/regenerate", status_code=202)
+async def regenerate_question(
+    paper_id:    UUID,
+    question_id: UUID,
+    payload:     RegenerateQuestionRequest,
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Faculty re-generates a single question asynchronously.
+    The paper must be GENERATED or BOARD_RETURNED.
+    Returns 202 immediately; poll /jobs/{job_id} for completion.
+    """
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.get(paper_id, db=db)
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    from app.modules.m08_exam_setter.models import ExamPaperStatus
+    editable = (ExamPaperStatus.GENERATED.value, ExamPaperStatus.BOARD_RETURNED.value)
+    if paper.status not in editable:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "INVALID_STATUS",
+                "message": (
+                    f"Regeneration only allowed when paper is GENERATED or BOARD_RETURNED "
+                    f"(current: {paper.status!r})."
+                ),
+            },
+        )
+
+    # Validate the question belongs to this paper before queuing
+    from app.modules.m08_exam_setter.repository import ExamQuestionRepository
+    question = await ExamQuestionRepository.get_by_id(question_id, db=db)
+    if question is None or question.exam_paper_id != paper_id:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "message": "Question not found on this paper."},
+        )
+
+    # Create task_job record and dispatch worker
+    from app.database import AsyncSessionLocal
+    from app.modules.m08_exam_setter.repository import TaskJobPublicRepository
+
+    async with AsyncSessionLocal() as pub_db:
+        job_id = await TaskJobPublicRepository.create(
+            task_type="regenerate_exam_question",
+            queue_name="heavy",
+            tenant_id=tenant_id,
+            payload={
+                "paper_id":    str(paper_id),
+                "question_id": str(question_id),
+                "schema_name": schema,
+                "instruction": payload.instruction,
+            },
+            db=pub_db,
+        )
+        await pub_db.commit()
+
+    try:
+        from app.workers.heavy.regenerate_exam_question import regenerate_exam_question
+        regenerate_exam_question.apply_async(
+            kwargs={
+                "job_id":      str(job_id),
+                "paper_id":    str(paper_id),
+                "question_id": str(question_id),
+                "schema_name": schema,
+                "instruction": payload.instruction,
+            }
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to dispatch regenerate task for question %s paper %s: %s",
+            question_id, paper_id, exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "QUEUE_UNAVAILABLE",
+                "message": (
+                    "Regeneration could not be queued — the task worker appears to be offline. "
+                    "Start the Celery worker and try again."
+                ),
+            },
+        )
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_QUESTION_REGENERATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_question",
+        target_id=str(question_id),
+        metadata={
+            "exam_paper_id": str(paper_id),
+            "job_id":        str(job_id),
+            "instruction":   payload.instruction,
+        },
+    )
+
+    return {
+        "paper_id":    str(paper_id),
+        "question_id": str(question_id),
+        "job_id":      str(job_id),
+        "status":      "QUEUED",
+    }
+
+
+# ---------------------------------------------------------------------------
+# H-35: Question bank browse
+# ---------------------------------------------------------------------------
+
+@router.get("/question-bank/{course_id}", response_model=QuestionBankListResponse)
+async def list_question_bank(
+    course_id:     UUID,
+    bloom_level:   str | None = Query(default=None),
+    question_type: str | None = Query(default=None),
+    unit_number:   int | None = Query(default=None),
+    offset:        int        = Query(default=0, ge=0),
+    limit:         int        = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Browse approved question bank entries for a course."""
+    db: AsyncSession = db_info["db"]
+
+    items, total = await ExamService.list_question_bank(
+        course_id,
+        bloom_level=bloom_level,
+        question_type=question_type,
+        unit_number=unit_number,
+        offset=offset,
+        limit=limit,
+        db=db,
+    )
+    return QuestionBankListResponse(
+        items=[QuestionBankEntryResponse.model_validate(e) for e in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H-35: Internal marks — create / update (FACULTY)
+# ---------------------------------------------------------------------------
+
+@router.post("/internal-marks", response_model=InternalMarksResponse, status_code=201)
+async def create_internal_marks(
+    payload: InternalMarksCreate,
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Create or update an internal marks record for a student/course/semester.
+    If a PENDING record already exists it is updated; DEAN_LOCKED records are rejected.
+    """
+    db: AsyncSession = db_info["db"]
+
+    try:
+        ims = await InternalMarksService.create_or_update(
+            payload, faculty_user_id=current_user.user_id, db=db
+        )
+    except InternalMarksServiceError as exc:
+        _raise_ims(exc)
+
+    return InternalMarksResponse.model_validate(ims)
+
+
+@router.get("/internal-marks/course/{course_id}", response_model=InternalMarksListResponse)
+async def list_internal_marks_by_course(
+    course_id:     UUID,
+    semester:      int | None = Query(default=None),
+    academic_year: str | None = Query(default=None),
+    offset:        int        = Query(default=0, ge=0),
+    limit:         int        = Query(default=100, ge=1, le=500),
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """List internal marks records for a course, optionally filtered by semester/year."""
+    db: AsyncSession = db_info["db"]
+
+    items, total = await InternalMarksService.list_by_course(
+        course_id,
+        semester=semester,
+        academic_year=academic_year,
+        offset=offset,
+        limit=limit,
+        db=db,
+    )
+    return InternalMarksListResponse(
+        items=[InternalMarksResponse.model_validate(i) for i in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.get("/internal-marks/{ims_id}", response_model=InternalMarksResponse)
+async def get_internal_marks(
+    ims_id: UUID,
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Get a single internal marks record by ID."""
+    db: AsyncSession = db_info["db"]
+
+    try:
+        ims = await InternalMarksService.get(ims_id, db=db)
+    except InternalMarksServiceError as exc:
+        _raise_ims(exc)
+
+    return InternalMarksResponse.model_validate(ims)
+
+
+@router.patch("/internal-marks/{ims_id}", response_model=InternalMarksResponse)
+async def update_internal_marks(
+    ims_id:  UUID,
+    payload: InternalMarksUpdate,
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Update mark components on a PENDING internal marks record."""
+    db: AsyncSession = db_info["db"]
+
+    try:
+        ims = await InternalMarksService.update(ims_id, payload, db=db)
+    except InternalMarksServiceError as exc:
+        _raise_ims(exc)
+
+    return InternalMarksResponse.model_validate(ims)
+
+
+@router.post("/internal-marks/{ims_id}/submit", response_model=InternalMarksResponse)
+async def submit_internal_marks(
+    ims_id: UUID,
+    current_user: CurrentUser = Depends(_faculty_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    GATE 1: Faculty submits internal marks for Dean review.
+    Transitions PENDING → FACULTY_SUBMITTED. Computes and stores total_internal.
+    """
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        ims = await InternalMarksService.submit(
+            ims_id, faculty_user_id=current_user.user_id, db=db
+        )
+    except InternalMarksServiceError as exc:
+        _raise_ims(exc)
+
+    await AuditService.log(
+        AuditEventType.INTERNAL_MARKS_SUBMITTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="internal_marks_summary",
+        target_id=str(ims_id),
+        metadata={
+            "course_id": str(ims.course_id),
+            "student_id": str(ims.student_id),
+            "total_internal": float(ims.total_internal) if ims.total_internal else None,
+        },
+    )
+    return InternalMarksResponse.model_validate(ims)
+
+
+@router.post("/internal-marks/{ims_id}/lock", response_model=InternalMarksResponse)
+async def lock_internal_marks(
+    ims_id: UUID,
+    current_user: CurrentUser = Depends(_dean_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    GATE 2: Dean locks internal marks. FACULTY_SUBMITTED → DEAN_LOCKED.
+    After locking no further updates are permitted.
+    """
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        ims = await InternalMarksService.lock(
+            ims_id, dean_user_id=current_user.user_id, db=db
+        )
+    except InternalMarksServiceError as exc:
+        _raise_ims(exc)
+
+    await AuditService.log(
+        AuditEventType.INTERNAL_MARKS_LOCKED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="internal_marks_summary",
+        target_id=str(ims_id),
+        metadata={"course_id": str(ims.course_id), "student_id": str(ims.student_id)},
+    )
+    return InternalMarksResponse.model_validate(ims)
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,10 @@ from app.modules.m08_exam_setter.models import (
     ExamPaper,
     ExamPaperStatus,
     ExamQuestion,
+    ExamWorkflow,
+    InternalMarkStatus,
+    InternalMarksSummary,
+    QuestionBankEntry,
 )
 
 
@@ -41,11 +45,13 @@ class ExamPaperRepository:
         created_by: UUID,
         title: str,
         exam_type: str,
+        exam_workflow: str = ExamWorkflow.BOARD_EXAM.value,
         total_marks: int,
         duration_mins: int,
         units_included: list,
         question_format: dict,
         requested_dist: dict,
+        section_config: list | None = None,
         special_instructions: str | None,
         db: AsyncSession,
     ) -> ExamPaper:
@@ -54,11 +60,13 @@ class ExamPaperRepository:
             created_by=created_by,
             title=title,
             exam_type=exam_type,
+            exam_workflow=exam_workflow,
             total_marks=total_marks,
             duration_mins=duration_mins,
             units_included=units_included,
             question_format=question_format,
             requested_dist=requested_dist,
+            section_config=section_config,
             special_instructions=special_instructions,
             status=ExamPaperStatus.DRAFT.value,
         )
@@ -160,6 +168,8 @@ class ExamPaperRepository:
         ai_model: str,
         prompt_hash: str,
         actual_dist: dict,
+        co_coverage_report: list | None = None,
+        unit_coverage_report: list | None = None,
         db: AsyncSession,
     ) -> None:
         await db.execute(
@@ -169,6 +179,8 @@ class ExamPaperRepository:
                 ai_model=ai_model,
                 prompt_hash=prompt_hash,
                 actual_dist=actual_dist,
+                co_coverage_report=co_coverage_report,
+                unit_coverage_report=unit_coverage_report,
                 status=ExamPaperStatus.GENERATED.value,
                 updated_at=datetime.now(timezone.utc),
             )
@@ -263,6 +275,92 @@ class ExamPaperRepository:
             )
         )
 
+    @staticmethod
+    async def set_faculty_approved(
+        paper_id: UUID,
+        *,
+        approved_by: UUID,
+        board_comment: str | None,
+        db: AsyncSession,
+    ) -> None:
+        """INTERNAL workflow: faculty self-approval sets BOARD_APPROVED, skipping Board review."""
+        await db.execute(
+            sa_update(ExamPaper)
+            .where(ExamPaper.id == paper_id)
+            .values(
+                status=ExamPaperStatus.BOARD_APPROVED.value,
+                approved_by=approved_by,
+                approved_at=datetime.now(timezone.utc),
+                board_comment=board_comment,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_scrutinizer(
+        paper_id: UUID,
+        *,
+        scrutinizer_id: UUID,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            sa_update(ExamPaper)
+            .where(ExamPaper.id == paper_id)
+            .values(
+                scrutinizer_id=scrutinizer_id,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_scrutinized(
+        paper_id: UUID,
+        *,
+        comment: str | None,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            sa_update(ExamPaper)
+            .where(ExamPaper.id == paper_id)
+            .values(
+                scrutinized_at=datetime.now(timezone.utc),
+                scrutinizer_comment=comment,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_section_config(
+        paper_id: UUID,
+        *,
+        section_config: list,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            sa_update(ExamPaper)
+            .where(ExamPaper.id == paper_id)
+            .values(
+                section_config=section_config,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def list_by_workflow(
+        workflow: str,
+        *,
+        status: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[ExamPaper]:
+        q = select(ExamPaper).where(ExamPaper.exam_workflow == workflow)
+        if status:
+            q = q.where(ExamPaper.status == status)
+        q = q.order_by(ExamPaper.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
 
 # ---------------------------------------------------------------------------
 # ExamQuestionRepository
@@ -292,6 +390,9 @@ class ExamQuestionRepository:
                 model_answer=q.get("model_answer"),
                 marking_scheme=q.get("marking_scheme"),
                 set_membership=q.get("set_membership", ["A", "B"]),
+                section_label=q.get("section_label"),
+                choice_group=q.get("choice_group"),
+                co_ids=q.get("co_ids") or [],
                 ai_generated=True,
                 is_edited=False,
             )
@@ -381,6 +482,8 @@ class BloomsRepository:
         actual_dist: dict,
         compliance_ok: bool,
         violations: list,
+        co_coverage_ok: bool = False,
+        unit_coverage_ok: bool = False,
         db: AsyncSession,
     ) -> BloomsComplianceReport:
         existing = await db.execute(
@@ -396,14 +499,18 @@ class BloomsRepository:
                 actual_dist=actual_dist,
                 compliance_ok=compliance_ok,
                 violations=violations,
+                co_coverage_ok=co_coverage_ok,
+                unit_coverage_ok=unit_coverage_ok,
             )
             db.add(report)
         else:
-            report.requested_dist = requested_dist
-            report.actual_dist    = actual_dist
-            report.compliance_ok  = compliance_ok
-            report.violations     = violations
-            report.generated_at   = datetime.now(timezone.utc)
+            report.requested_dist  = requested_dist
+            report.actual_dist     = actual_dist
+            report.compliance_ok   = compliance_ok
+            report.violations      = violations
+            report.co_coverage_ok  = co_coverage_ok
+            report.unit_coverage_ok = unit_coverage_ok
+            report.generated_at    = datetime.now(timezone.utc)
         await db.flush()
         return report
 
@@ -460,3 +567,242 @@ class TaskJobPublicRepository:
             },
         )
         return job_id
+
+
+# ---------------------------------------------------------------------------
+# InternalMarksRepository  (H-35 Addition 2)
+# ---------------------------------------------------------------------------
+
+class InternalMarksRepository:
+
+    @staticmethod
+    async def create(
+        *,
+        student_id: UUID,
+        course_id: UUID,
+        semester: int,
+        academic_year: str,
+        internal1_marks=None,
+        internal2_marks=None,
+        assignment_marks=None,
+        attendance_marks=None,
+        max_internal: int = 40,
+        db: AsyncSession,
+    ) -> InternalMarksSummary:
+        ims = InternalMarksSummary(
+            student_id=student_id,
+            course_id=course_id,
+            semester=semester,
+            academic_year=academic_year,
+            internal1_marks=internal1_marks,
+            internal2_marks=internal2_marks,
+            assignment_marks=assignment_marks,
+            attendance_marks=attendance_marks,
+            max_internal=max_internal,
+            status=InternalMarkStatus.PENDING.value,
+        )
+        db.add(ims)
+        await db.flush()
+        return ims
+
+    @staticmethod
+    async def get_by_id(
+        ims_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> InternalMarksSummary | None:
+        result = await db.execute(
+            select(InternalMarksSummary).where(InternalMarksSummary.id == ims_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_by_student_course(
+        student_id: UUID,
+        course_id: UUID,
+        semester: int,
+        academic_year: str,
+        *,
+        db: AsyncSession,
+    ) -> InternalMarksSummary | None:
+        result = await db.execute(
+            select(InternalMarksSummary).where(
+                InternalMarksSummary.student_id == student_id,
+                InternalMarksSummary.course_id == course_id,
+                InternalMarksSummary.semester == semester,
+                InternalMarksSummary.academic_year == academic_year,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def update_marks(
+        ims_id: UUID,
+        *,
+        updates: dict,
+        db: AsyncSession,
+    ) -> None:
+        updates = {**updates, "updated_at": datetime.now(timezone.utc)}
+        await db.execute(
+            sa_update(InternalMarksSummary)
+            .where(InternalMarksSummary.id == ims_id)
+            .values(**updates)
+        )
+
+    @staticmethod
+    async def set_submitted(
+        ims_id: UUID,
+        *,
+        submitted_by: UUID,
+        total_internal: float,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            sa_update(InternalMarksSummary)
+            .where(InternalMarksSummary.id == ims_id)
+            .values(
+                status=InternalMarkStatus.FACULTY_SUBMITTED.value,
+                submitted_by=submitted_by,
+                submitted_at=datetime.now(timezone.utc),
+                total_internal=total_internal,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_locked(
+        ims_id: UUID,
+        *,
+        locked_by: UUID,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            sa_update(InternalMarksSummary)
+            .where(InternalMarksSummary.id == ims_id)
+            .values(
+                status=InternalMarkStatus.DEAN_LOCKED.value,
+                locked_by=locked_by,
+                locked_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def list_by_course(
+        course_id: UUID,
+        *,
+        semester: int | None = None,
+        academic_year: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+        db: AsyncSession,
+    ) -> list[InternalMarksSummary]:
+        q = select(InternalMarksSummary).where(
+            InternalMarksSummary.course_id == course_id
+        )
+        if semester is not None:
+            q = q.where(InternalMarksSummary.semester == semester)
+        if academic_year:
+            q = q.where(InternalMarksSummary.academic_year == academic_year)
+        q = q.order_by(InternalMarksSummary.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_by_course(
+        course_id: UUID,
+        *,
+        semester: int | None = None,
+        academic_year: str | None = None,
+        db: AsyncSession,
+    ) -> int:
+        q = select(func.count(InternalMarksSummary.id)).where(
+            InternalMarksSummary.course_id == course_id
+        )
+        if semester is not None:
+            q = q.where(InternalMarksSummary.semester == semester)
+        if academic_year:
+            q = q.where(InternalMarksSummary.academic_year == academic_year)
+        result = await db.execute(q)
+        return result.scalar_one()
+
+
+# ---------------------------------------------------------------------------
+# QuestionBankRepository  (H-35 Addition 1)
+# ---------------------------------------------------------------------------
+
+class QuestionBankRepository:
+
+    @staticmethod
+    async def promote_from_paper(
+        *,
+        paper_id: UUID,
+        course_id: UUID,
+        questions: list[ExamQuestion],
+        is_approved: bool,
+        db: AsyncSession,
+    ) -> list[QuestionBankEntry]:
+        entries = []
+        for q in questions:
+            entry = QuestionBankEntry(
+                course_id=course_id,
+                source_paper_id=paper_id,
+                unit_number=q.unit_number,
+                co_ids=getattr(q, "co_ids", None) or [],
+                bloom_level=q.bloom_level,
+                question_type=q.question_type,
+                question_text=q.question_text,
+                options=q.options,
+                correct_option=q.correct_option,
+                marks=q.marks,
+                model_answer=q.model_answer,
+                marking_scheme=q.marking_scheme,
+                section_label=getattr(q, "section_label", None),
+                is_approved=is_approved,
+                ai_generated=q.ai_generated,
+            )
+            db.add(entry)
+            entries.append(entry)
+        if entries:
+            await db.flush()
+        return entries
+
+    @staticmethod
+    async def list_by_course(
+        course_id: UUID,
+        *,
+        bloom_level: str | None = None,
+        question_type: str | None = None,
+        unit_number: int | None = None,
+        approved_only: bool = True,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[QuestionBankEntry]:
+        q = select(QuestionBankEntry).where(QuestionBankEntry.course_id == course_id)
+        if approved_only:
+            q = q.where(QuestionBankEntry.is_approved.is_(True))
+        if bloom_level:
+            q = q.where(QuestionBankEntry.bloom_level == bloom_level.upper())
+        if question_type:
+            q = q.where(QuestionBankEntry.question_type == question_type.upper())
+        if unit_number is not None:
+            q = q.where(QuestionBankEntry.unit_number == unit_number)
+        q = q.order_by(QuestionBankEntry.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_by_course(
+        course_id: UUID,
+        *,
+        approved_only: bool = True,
+        db: AsyncSession,
+    ) -> int:
+        q = select(func.count(QuestionBankEntry.id)).where(
+            QuestionBankEntry.course_id == course_id
+        )
+        if approved_only:
+            q = q.where(QuestionBankEntry.is_approved.is_(True))
+        result = await db.execute(q)
+        return result.scalar_one()

@@ -58,6 +58,16 @@ export async function listQuestions(
   return data
 }
 
+export async function listQuestionsWithAnswers(
+  paperId:  string,
+  setLabel?: string,
+): Promise<ExamQuestion[]> {
+  const { data } = await api.get(`${BASE}/${paperId}/questions/with-answers`, {
+    params: setLabel ? { set_label: setLabel } : undefined,
+  })
+  return data
+}
+
 export async function editQuestion(
   paperId:    string,
   questionId: string,
@@ -126,6 +136,27 @@ export async function exportAnswers(paperId: string, setLabel = 'A') {
   const { data } = await api.get(`${BASE}/${paperId}/export/answers`, {
     params: { set_label: setLabel },
   })
+  return data
+}
+
+// ---- H-35: Faculty approve (INTERNAL workflow) ----
+
+export async function facultyApprovePaper(paperId: string): Promise<{ paper_id: string; status: string }> {
+  const { data } = await api.post(`${BASE}/${paperId}/faculty-approve`)
+  return data
+}
+
+// ---- H-35: Regenerate single question ----
+
+export async function regenerateQuestion(
+  paperId:     string,
+  questionId:  string,
+  instruction?: string,
+): Promise<{ paper_id: string; question_id: string; job_id: string; status: string }> {
+  const { data } = await api.post(
+    `${BASE}/${paperId}/questions/${questionId}/regenerate`,
+    instruction ? { instruction } : {},
+  )
   return data
 }
 

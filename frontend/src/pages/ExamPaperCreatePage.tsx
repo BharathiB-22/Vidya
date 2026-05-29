@@ -2,12 +2,19 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { FileText, Loader2, ChevronLeft } from 'lucide-react'
+import { FileText, Info, Loader2, ChevronLeft, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createExamPaper } from '@/lib/api/exam'
 import { listPrograms, listCourses } from '@/lib/api/programs'
 import { getErrorMessage } from '@/lib/api'
-import type { BloomsDistribution, ExamPaperCreatePayload, ExamType, QuestionFormatConfig } from '@/types/exam'
+import type {
+  BloomsDistribution,
+  ExamPaperCreatePayload,
+  ExamType,
+  ExamWorkflow,
+  QuestionFormatConfig,
+  SectionConfig,
+} from '@/types/exam'
 
 const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color: string }> = [
   { key: 'remember',   label: 'Remember',   color: 'bg-red-400' },
@@ -20,6 +27,8 @@ const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color:
 
 const EXAM_TYPES: ExamType[] = ['END_SEM', 'MID_SEM', 'QUIZ', 'INTERNAL', 'CUSTOM']
 
+const SECTION_MARKS_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20]
+
 const DEFAULT_DIST: BloomsDistribution = {
   remember: 20, understand: 20, apply: 20, analyse: 20, evaluate: 10, create: 10,
 }
@@ -27,6 +36,14 @@ const DEFAULT_DIST: BloomsDistribution = {
 const DEFAULT_FORMAT: QuestionFormatConfig = {
   mcq_count: 5, short_count: 3, long_count: 2, problem_count: 0,
 }
+
+type SectionRow = Omit<SectionConfig, 'order' | 'instruction'>
+
+const DEFAULT_SECTIONS: SectionRow[] = [
+  { label: 'A', total_q: 10, answer_q: 10, marks_each: 2,  mcq_only: false },
+  { label: 'B', total_q:  5, answer_q:  3, marks_each: 5,  mcq_only: false },
+  { label: 'C', total_q:  3, answer_q:  2, marks_each: 10, mcq_only: false },
+]
 
 export default function ExamPaperCreatePage() {
   const navigate = useNavigate()
@@ -36,15 +53,25 @@ export default function ExamPaperCreatePage() {
   const [courseId,          setCourseId]          = useState('')
   const [title,             setTitle]             = useState('')
   const [examType,          setExamType]          = useState<ExamType>('END_SEM')
+  const [examWorkflow,      setExamWorkflow]      = useState<ExamWorkflow>('BOARD_EXAM')
   const [totalMarks,        setTotalMarks]        = useState(100)
   const [durationMins,      setDurationMins]      = useState(180)
   const [unitsRaw,          setUnitsRaw]          = useState('1,2,3')
   const [format,            setFormat]            = useState<QuestionFormatConfig>(DEFAULT_FORMAT)
   const [dist,              setDist]              = useState<BloomsDistribution>(DEFAULT_DIST)
   const [specialInstructions, setSpecialInstructions] = useState('')
+  const [useSectionLayout,  setUseSectionLayout]  = useState(false)
+  const [sections,          setSections]          = useState<SectionRow[]>(DEFAULT_SECTIONS)
   const [error,             setError]             = useState<string | null>(null)
 
   const bloomSum = Object.values(dist).reduce((a, b) => a + b, 0)
+
+  const isBoardMcqOnly =
+    examWorkflow === 'BOARD_EXAM' &&
+    format.mcq_count > 0 &&
+    format.short_count === 0 &&
+    format.long_count === 0 &&
+    format.problem_count === 0
 
   const { data: programsData, isLoading: programsLoading } = useQuery({
     queryKey: ['programs', 'approved'],
@@ -74,6 +101,10 @@ export default function ExamPaperCreatePage() {
   function handleSemesterChange(val: string) {
     setSemesterFilter(val === '' ? '' : Number(val))
     setCourseId('')
+  }
+
+  function updateSection(index: number, field: keyof SectionRow, value: number | boolean) {
+    setSections(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s))
   }
 
   const { mutate, isPending } = useMutation({
@@ -116,15 +147,40 @@ export default function ExamPaperCreatePage() {
       return
     }
 
+    if (isBoardMcqOnly) {
+      setError(
+        'Board Exam papers cannot be MCQ-only. ' +
+        'Add at least one Short Answer, Long Answer, or Problem Solving question.'
+      )
+      return
+    }
+
+    if (useSectionLayout) {
+      for (const sec of sections) {
+        if (sec.answer_q > sec.total_q) {
+          setError(
+            `Part ${sec.label}: "Answer Q" (${sec.answer_q}) cannot exceed "Total Q" (${sec.total_q}).`
+          )
+          return
+        }
+      }
+    }
+
+    const sectionConfig: SectionConfig[] | undefined = useSectionLayout
+      ? sections.map((s, i) => ({ ...s, order: i }))
+      : undefined
+
     mutate({
       course_id:             courseId.trim(),
       title:                 title.trim(),
       exam_type:             examType,
+      exam_workflow:         examWorkflow,
       total_marks:           totalMarks,
       duration_mins:         durationMins,
       units_included:        units,
       question_format:       format,
       requested_dist:        dist,
+      section_config:        sectionConfig,
       special_instructions:  specialInstructions || undefined,
     })
   }
@@ -279,6 +335,164 @@ export default function ExamPaperCreatePage() {
           </div>
         </section>
 
+        {/* Exam Workflow */}
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Exam Workflow</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {(
+              [
+                {
+                  value: 'BOARD_EXAM' as ExamWorkflow,
+                  title: 'Board Exam',
+                  desc:  '3-gate: Faculty → Scrutinizer → Board decision → Seal & Release',
+                },
+                {
+                  value: 'INTERNAL' as ExamWorkflow,
+                  title: 'Internal Assessment',
+                  desc:  'Faculty approves directly — no Board committee review required',
+                },
+              ]
+            ).map(opt => (
+              <label
+                key={opt.value}
+                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                  examWorkflow === opt.value
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="exam_workflow"
+                  value={opt.value}
+                  checked={examWorkflow === opt.value}
+                  onChange={() => setExamWorkflow(opt.value)}
+                  className="mt-0.5 accent-indigo-600"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{opt.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          {examWorkflow === 'INTERNAL' && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-sm text-amber-800">
+              <Info className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                Internal Assessment: after generation, Faculty approves the paper directly.
+                It advances to <strong>Board Approved</strong> state without Board committee review.
+              </span>
+            </div>
+          )}
+        </section>
+
+        {/* Section Layout */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Section Layout</h2>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useSectionLayout}
+                onChange={e => setUseSectionLayout(e.target.checked)}
+                className="rounded accent-indigo-600"
+              />
+              Use Part A / B / C structure
+            </label>
+          </div>
+
+          {useSectionLayout && (
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Part</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Q</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Answer Q</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marks Each</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">MCQ Only</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {sections.map((sec, i) => (
+                    <tr key={sec.label} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-2.5">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold">
+                          {sec.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="number" min={1} max={30}
+                          value={sec.total_q}
+                          onChange={e => updateSection(i, 'total_q', Number(e.target.value))}
+                          className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div>
+                          <input
+                            type="number" min={1} max={sec.total_q}
+                            value={sec.answer_q}
+                            onChange={e => updateSection(i, 'answer_q', Number(e.target.value))}
+                            className={`w-16 border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
+                              sec.answer_q > sec.total_q
+                                ? 'border-red-400 bg-red-50'
+                                : 'border-gray-200'
+                            }`}
+                          />
+                          {sec.answer_q > sec.total_q && (
+                            <p className="text-xs text-red-600 mt-0.5">max {sec.total_q}</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <select
+                          value={sec.marks_each}
+                          onChange={e => updateSection(i, 'marks_each', Number(e.target.value))}
+                          className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                        >
+                          {SECTION_MARKS_OPTIONS.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={sec.mcq_only}
+                          onChange={e => updateSection(i, 'mcq_only', e.target.checked)}
+                          className="accent-indigo-600 w-4 h-4"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500 flex gap-4">
+                <span>
+                  Section marks total:{' '}
+                  <strong className="text-gray-700">
+                    {sections.reduce((sum, s) => sum + s.answer_q * s.marks_each, 0)}
+                  </strong>
+                </span>
+                <span>
+                  Questions set / answer:{' '}
+                  <strong className="text-gray-700">
+                    {sections.reduce((sum, s) => sum + s.total_q, 0)}
+                  </strong>
+                  {' / '}
+                  <strong className="text-gray-700">
+                    {sections.reduce((sum, s) => sum + s.answer_q, 0)}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          )}
+        </section>
+
         {/* Question format */}
         <section className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Question Format</h2>
@@ -302,6 +516,16 @@ export default function ExamPaperCreatePage() {
               </div>
             ))}
           </div>
+
+          {isBoardMcqOnly && (
+            <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 text-sm text-orange-800">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                <strong>Board Exam — MCQ-only not allowed.</strong>{' '}
+                Board papers must include at least one Short Answer, Long Answer, or Problem Solving question.
+              </span>
+            </div>
+          )}
         </section>
 
         {/* Bloom's distribution */}
@@ -369,7 +593,7 @@ export default function ExamPaperCreatePage() {
           </Button>
           <Button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || isBoardMcqOnly}
             className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
           >
             {isPending ? (

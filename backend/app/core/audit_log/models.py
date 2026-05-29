@@ -244,7 +244,24 @@ class AuditEventType(str, enum.Enum):
 
     # Exam Setter — M08 release and export
     EXAM_PAPER_RELEASED               = "EXAM_PAPER_RELEASED"
+    EXAM_PAPER_AUTO_RELEASED          = "EXAM_PAPER_AUTO_RELEASED"   # Celery ETA task release
     EXAM_PAPER_EXPORTED               = "EXAM_PAPER_EXPORTED"
+    EXAM_PAPER_EXPORT_PDF             = "EXAM_PAPER_EXPORT_PDF"
+
+    # Exam Setter — M08 H-35 productization (workflow split + sections + coverage)
+    EXAM_PAPER_FACULTY_APPROVED       = "EXAM_PAPER_FACULTY_APPROVED"    # Internal workflow gate
+    EXAM_PAPER_SCRUTINIZER_ASSIGNED   = "EXAM_PAPER_SCRUTINIZER_ASSIGNED"
+    EXAM_PAPER_SCRUTINIZED            = "EXAM_PAPER_SCRUTINIZED"         # Optional Gate 1.5
+    EXAM_PAPER_SECTION_CONFIGURED     = "EXAM_PAPER_SECTION_CONFIGURED"
+    EXAM_PAPER_QUESTION_REGENERATED   = "EXAM_PAPER_QUESTION_REGENERATED"
+    EXAM_PAPER_CO_COVERAGE_COMPUTED   = "EXAM_PAPER_CO_COVERAGE_COMPUTED"
+
+    # Question Bank — H-35 Addition 1
+    QUESTION_BANK_PROMOTED            = "QUESTION_BANK_PROMOTED"    # Question promoted after Board approval
+
+    # Internal Marks — H-35 Addition 2
+    INTERNAL_MARKS_SUBMITTED          = "INTERNAL_MARKS_SUBMITTED"  # Faculty submits marks (Gate 1)
+    INTERNAL_MARKS_LOCKED             = "INTERNAL_MARKS_LOCKED"     # Dean locks marks (Gate 2)
 
     # Paper Admin — M09 script scoring lifecycle
     SCRIPT_SCORING_QUEUED     = "SCRIPT_SCORING_QUEUED"

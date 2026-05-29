@@ -29,7 +29,7 @@ import re
 logger = logging.getLogger("vidya.m08.question_generator")
 
 # ---------------------------------------------------------------------------
-# Marks per question type (defaults)
+# Marks per question type (defaults when no section_config is supplied)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MARKS: dict[str, float] = {
@@ -38,6 +38,17 @@ _DEFAULT_MARKS: dict[str, float] = {
     "LONG_ANSWER":    10.0,
     "PROBLEM_SOLVING": 8.0,
 }
+
+# Valid mark values used in section-based and custom generation (2, 5, 8, 10, 15)
+_VALID_MARKS: frozenset[float] = frozenset({1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0})
+
+# Question types allowed in mixed (non-MCQ-only) sections
+_NON_MCQ_TYPES = ["SHORT_ANSWER", "LONG_ANSWER", "PROBLEM_SOLVING"]
+
+# Board/final exam types that must never be MCQ-only
+_BOARD_EXAM_TYPES: frozenset[str] = frozenset({
+    "END_SEM", "BOARD_EXAM", "SUPPLEMENTARY", "REVALUATION",
+})
 
 # ---------------------------------------------------------------------------
 # Question templates for realistic mock generation
@@ -159,13 +170,17 @@ def _build_prompt(
     course_title: str = "",
     course_code: str = "",
     exam_type: str = "END_SEM",
+    section_config: list | None = None,
+    course_outcomes: list | None = None,
+    exam_workflow: str = "BOARD_EXAM",
 ) -> str:
-    """Build the LLM generation prompt."""
+    """Build the LLM generation prompt with optional section and CO context."""
     course_header = ""
     if course_title:
         course_header = (
             f"Course: {course_code} — {course_title}\n"
-            f"Exam type: {exam_type.replace('_', ' ')}\n\n"
+            f"Exam type: {exam_type.replace('_', ' ')}\n"
+            f"Workflow: {'Board Examination' if exam_workflow == 'BOARD_EXAM' else 'Internal Examination'}\n\n"
         )
 
     unit_text = "\n".join(
@@ -180,16 +195,71 @@ def _build_prompt(
         if pct > 0
     )
 
-    format_text = ", ".join(
-        f"{qtype.replace('_',' ').title()}: {cnt}"
-        for qtype, cnt in {
-            "MCQ":             question_format.get("mcq_count", 0),
-            "SHORT_ANSWER":    question_format.get("short_count", 0),
-            "LONG_ANSWER":     question_format.get("long_count", 0),
-            "PROBLEM_SOLVING": question_format.get("problem_count", 0),
-        }.items()
-        if cnt > 0
-    )
+    # Section structure overrides flat question_format when provided
+    if section_config:
+        section_lines = []
+        for s in sorted(section_config, key=lambda x: x.get("order", 0)):
+            label      = s.get("label", "?")
+            total_q    = s.get("total_q", 0)
+            answer_q   = s.get("answer_q", total_q)
+            marks_each = s.get("marks_each", 5.0)
+            mcq_only   = s.get("mcq_only", False)
+            instr      = s.get("instruction") or ""
+            type_note  = "MCQ TYPE ONLY" if mcq_only else "mixed question types"
+            answer_note = (
+                f"Students answer all {total_q}"
+                if answer_q == total_q
+                else f"Students answer any {answer_q} of {total_q}"
+            )
+            section_lines.append(
+                f"  Part {label} ({type_note}): {total_q} questions × {marks_each} marks each. "
+                f"{answer_note}. {instr}"
+                f"\n    → Set section_label=\"{label}\" on every question in this part."
+            )
+        format_block = (
+            "SECTION STRUCTURE (generate exactly total_q questions per section):\n"
+            + "\n".join(section_lines)
+            + f"\n\nTotal marks for Set A: {total_marks}"
+        )
+    else:
+        format_text = ", ".join(
+            f"{qtype.replace('_',' ').title()}: {cnt}"
+            for qtype, cnt in {
+                "MCQ":             question_format.get("mcq_count", 0),
+                "SHORT_ANSWER":    question_format.get("short_count", 0),
+                "LONG_ANSWER":     question_format.get("long_count", 0),
+                "PROBLEM_SOLVING": question_format.get("problem_count", 0),
+            }.items()
+            if cnt > 0
+        )
+        format_block = (
+            f"Question format: {format_text}\n"
+            f"Total marks: {total_marks}\n"
+            "Generate TWO sets (Set A and Set B) by varying question order and some variants.\n"
+            "Most questions appear in both sets; vary at least 20% between sets."
+        )
+
+    # CO context block
+    co_block = ""
+    if course_outcomes:
+        co_lines = "\n".join(
+            f"  {co.get('co_code','CO?')} [id={co.get('id') or co.get('co_id','')}]: "
+            f"{co.get('description') or co.get('co_description','')}"
+            for co in course_outcomes
+        )
+        co_block = (
+            f"\nCOURSE OUTCOMES (assign relevant CO UUIDs to each question via co_ids):\n"
+            f"{co_lines}\n"
+            "For each question, set co_ids to an array of relevant CO UUID strings.\n"
+        )
+
+    # Board exam guard
+    board_note = ""
+    if exam_workflow == "BOARD_EXAM" and exam_type.upper() in _BOARD_EXAM_TYPES:
+        board_note = (
+            "\nIMPORTANT: This is a Board Examination. The paper must NOT be MCQ-only. "
+            "Include short-answer and/or long-answer questions as required by the section structure.\n"
+        )
 
     extra = f"\nSpecial instructions: {special_instructions}" if special_instructions else ""
 
@@ -198,22 +268,21 @@ def _build_prompt(
 {course_header}SYLLABUS UNITS:
 {unit_text}
 
-REQUIREMENTS:
-- Total marks: {total_marks}
-- Question format: {format_text}
+{format_block}
 - Bloom's taxonomy distribution: {bloom_text}
-- Generate TWO sets (Set A and Set B) by varying question order and some question variants.
-  Most questions can appear in both sets; vary at least 20% of questions between sets.{extra}
+{co_block}{board_note}{extra}
 
 For EACH question output a JSON object with these fields:
   unit_number     (integer — which unit this question covers)
   bloom_level     (one of: REMEMBER, UNDERSTAND, APPLY, ANALYSE, EVALUATE, CREATE)
   question_type   (one of: MCQ, SHORT_ANSWER, LONG_ANSWER, PROBLEM_SOLVING)
   question_text   (the full question text — specific, subject-relevant, no placeholders)
-  marks           (number — marks allocated to this question)
+  marks           (number — marks allocated; use the section marks_each for section-based papers)
   model_answer    (clear, complete model answer)
   marking_scheme  (array of {{criterion: str, marks: number, description: str}})
   set_membership  (array — ["A","B"] if in both sets, ["A"] or ["B"] if set-specific)
+  section_label   (string — section label "A"/"B"/"C" if this is a section-based paper, else null)
+  co_ids          (array of CO UUID strings this question addresses — empty array if not applicable)
   options         (array of {{label: str, text: str}} — only for MCQ questions)
   correct_option  (string "A"/"B"/... — only for MCQ questions)
 
@@ -242,10 +311,21 @@ def _parse_questions(raw: str) -> list[dict]:
 
 def _normalise_question(q: dict, unit_number_fallback: int = 1) -> dict:
     """Normalise and validate a raw question dict from the LLM."""
-    bloom   = (q.get("bloom_level") or "REMEMBER").upper()
-    qtype   = (q.get("question_type") or "SHORT_ANSWER").upper().replace(" ", "_")
-    marks   = float(q.get("marks") or _DEFAULT_MARKS.get(qtype, 5.0))
+    bloom      = (q.get("bloom_level") or "REMEMBER").upper()
+    qtype      = (q.get("question_type") or "SHORT_ANSWER").upper().replace(" ", "_")
+    marks      = float(q.get("marks") or _DEFAULT_MARKS.get(qtype, 5.0))
     membership = q.get("set_membership") or ["A", "B"]
+
+    # section_label — accept string or null
+    section_label = q.get("section_label")
+    if section_label is not None:
+        section_label = str(section_label).strip().upper() or None
+
+    # co_ids — must be a list of strings (UUIDs or CO codes)
+    raw_co_ids = q.get("co_ids")
+    co_ids: list[str] = []
+    if isinstance(raw_co_ids, list):
+        co_ids = [str(x) for x in raw_co_ids if x]
 
     result: dict = {
         "unit_number":    int(q.get("unit_number") or unit_number_fallback),
@@ -257,6 +337,9 @@ def _normalise_question(q: dict, unit_number_fallback: int = 1) -> dict:
         "model_answer":   str(q.get("model_answer") or "").strip(),
         "marking_scheme": q.get("marking_scheme") or [],
         "set_membership": list(membership),
+        "section_label":  section_label,
+        "choice_group":   q.get("choice_group"),
+        "co_ids":         co_ids,
         "options":        None,
         "correct_option": None,
     }
@@ -319,10 +402,15 @@ def _mock_questions(
     question_format: dict[str, int],
     bloom_targets: dict[str, float],
     total_marks: int,
+    section_config: list | None = None,
+    exam_workflow: str = "BOARD_EXAM",
+    course_outcomes: list | None = None,
 ) -> list[dict]:
     """
     Fallback question generation when no LLM key is configured.
     Produces structurally valid questions using actual unit/topic names.
+    When section_config is provided, generates per-section respecting mcq_only
+    and marks_each. Supports 2, 5, 8, 10, 15 mark questions via marks_each.
     """
     import itertools
 
@@ -330,21 +418,25 @@ def _mock_questions(
         lvl.upper() for lvl, pct in bloom_targets.items() if pct > 0
     ] or ["REMEMBER", "UNDERSTAND", "APPLY"])
 
-    # Build flat (unit_dict, topic_str) pairs from all units
+    # Build flat (unit_dict, topic_str) pairs
     topic_pairs: list[tuple[dict, str]] = []
     for unit in (units or []):
         unit_title = unit.get("title", "General Concepts")
-        topics = unit.get("topics") or [unit_title]
-        for topic in topics:
+        for topic in (unit.get("topics") or [unit_title]):
             topic_pairs.append((unit, str(topic)))
-
     if not topic_pairs:
         topic_pairs = [({"unit_no": 1, "title": "General Concepts"}, "Core Concepts")]
 
     topic_cycle = itertools.cycle(topic_pairs)
     sets_cycle  = itertools.cycle([["A", "B"], ["A", "B"], ["A"], ["B"]])
 
-    def _make(qtype: str, marks: float) -> dict:
+    # CO assignment cycle
+    co_cycle = itertools.cycle(course_outcomes) if course_outcomes else None
+
+    # Non-MCQ type rotation for mixed sections
+    non_mcq_cycle = itertools.cycle(_NON_MCQ_TYPES)
+
+    def _make(qtype: str, marks: float, section_label: str | None = None) -> dict:
         unit, topic = next(topic_cycle)
         bloom       = next(bloom_cycle)
         sets        = next(sets_cycle)
@@ -352,9 +444,9 @@ def _mock_questions(
         unit_title  = unit.get("title", "General Concepts")
 
         key    = (qtype, bloom)
-        q_text = _Q_TEMPLATES.get(key, "Answer the following on {topic} in {unit_title}.").format(
-            topic=topic, unit_title=unit_title,
-        )
+        q_text = _Q_TEMPLATES.get(
+            key, "Answer the following on {topic} in {unit_title}."
+        ).format(topic=topic, unit_title=unit_title)
 
         options, correct = None, None
         if qtype == "MCQ":
@@ -362,9 +454,19 @@ def _mock_questions(
 
         answer = _make_model_answer(qtype, bloom, topic, unit_title, marks)
 
+        # Assign CO if available
+        co_code: str | None = None
+        co_ids: list[str]   = []
+        if co_cycle:
+            co = next(co_cycle)
+            co_code = co.get("co_code")
+            co_id   = str(co.get("id") or co.get("co_id", ""))
+            if co_id:
+                co_ids = [co_id]
+
         return {
             "unit_number":    unit_no,
-            "co_code":        None,
+            "co_code":        co_code,
             "bloom_level":    bloom,
             "question_type":  qtype,
             "question_text":  q_text,
@@ -388,19 +490,53 @@ def _mock_questions(
                 },
             ],
             "set_membership": sets,
+            "section_label":  section_label,
+            "choice_group":   None,
+            "co_ids":         co_ids,
             "options":        options,
             "correct_option": correct,
         }
 
     questions: list[dict] = []
+
+    # ── Section-aware generation ────────────────────────────────────────────
+    if section_config:
+        for section in sorted(section_config, key=lambda s: s.get("order", 0)):
+            label      = section.get("label", "A")
+            total_q    = int(section.get("total_q", 5))
+            marks_each = float(section.get("marks_each", 5.0))
+            mcq_only   = bool(section.get("mcq_only", False))
+
+            for _ in range(total_q):
+                if mcq_only:
+                    qtype = "MCQ"
+                else:
+                    qtype = next(non_mcq_cycle)
+                questions.append(_make(qtype, marks_each, section_label=label))
+        return questions
+
+    # ── Board-exam guard — warn if only MCQs specified for a board exam ─────
+    only_mcq = (
+        question_format.get("mcq_count", 0) > 0
+        and question_format.get("short_count", 0) == 0
+        and question_format.get("long_count", 0) == 0
+        and question_format.get("problem_count", 0) == 0
+    )
+    if only_mcq and exam_workflow == "BOARD_EXAM":
+        logger.warning(
+            "MCQ-only question_format requested for BOARD_EXAM workflow — "
+            "this is unusual for a board/semester paper. Generating as requested."
+        )
+
+    # ── Flat format generation ───────────────────────────────────────────────
     for _ in range(question_format.get("mcq_count", 0)):
-        questions.append(_make("MCQ", 2.0))
+        questions.append(_make("MCQ", _DEFAULT_MARKS["MCQ"]))
     for _ in range(question_format.get("short_count", 0)):
-        questions.append(_make("SHORT_ANSWER", 5.0))
+        questions.append(_make("SHORT_ANSWER", _DEFAULT_MARKS["SHORT_ANSWER"]))
     for _ in range(question_format.get("long_count", 0)):
-        questions.append(_make("LONG_ANSWER", 10.0))
+        questions.append(_make("LONG_ANSWER", _DEFAULT_MARKS["LONG_ANSWER"]))
     for _ in range(question_format.get("problem_count", 0)):
-        questions.append(_make("PROBLEM_SOLVING", 8.0))
+        questions.append(_make("PROBLEM_SOLVING", _DEFAULT_MARKS["PROBLEM_SOLVING"]))
 
     return questions
 
@@ -414,6 +550,9 @@ async def generate_questions(
     course_title: str = "",
     course_code: str = "",
     exam_type: str = "END_SEM",
+    section_config: list | None = None,
+    course_outcomes: list | None = None,
+    exam_workflow: str = "BOARD_EXAM",
 ) -> tuple[list[dict], str, str]:
     """
     Generate exam questions from syllabus units.
@@ -427,10 +566,14 @@ async def generate_questions(
         course_title:         course name for richer prompt context
         course_code:          course code (e.g. "CS301")
         exam_type:            exam type string (e.g. "END_SEM")
+        section_config:       list of section dicts (label, total_q, answer_q, marks_each, mcq_only)
+        course_outcomes:      list of CO dicts (co_code, description/co_description, id/co_id)
+        exam_workflow:        "BOARD_EXAM" or "INTERNAL"
 
     Returns:
         (questions, ai_model, prompt_hash)
         questions is a list of normalised question dicts ready for bulk_create.
+        Each dict includes: section_label, co_ids, choice_group (new H-35 fields).
     """
     from app.config import settings
 
@@ -438,7 +581,12 @@ async def generate_questions(
 
     if no_keys:
         logger.warning("No LLM API keys configured — using syllabus-aware fallback generation.")
-        questions = _mock_questions(units, question_format, bloom_targets, total_marks)
+        questions = _mock_questions(
+            units, question_format, bloom_targets, total_marks,
+            section_config=section_config,
+            exam_workflow=exam_workflow,
+            course_outcomes=course_outcomes,
+        )
         return questions, "mock", "mock"
 
     prompt = _build_prompt(
@@ -450,6 +598,9 @@ async def generate_questions(
         course_title=course_title,
         course_code=course_code,
         exam_type=exam_type,
+        section_config=section_config,
+        course_outcomes=course_outcomes,
+        exam_workflow=exam_workflow,
     )
 
     try:
@@ -457,8 +608,15 @@ async def generate_questions(
         raw_questions = _parse_questions(raw)
         questions = [_normalise_question(q) for q in raw_questions]
     except Exception as exc:
-        logger.error("Question generation failed: %s — falling back to syllabus-aware generation.", exc)
-        questions  = _mock_questions(units, question_format, bloom_targets, total_marks)
+        logger.error(
+            "Question generation failed: %s — falling back to syllabus-aware generation.", exc
+        )
+        questions = _mock_questions(
+            units, question_format, bloom_targets, total_marks,
+            section_config=section_config,
+            exam_workflow=exam_workflow,
+            course_outcomes=course_outcomes,
+        )
         model_name  = "mock-fallback"
         prompt_hash = "error"
 

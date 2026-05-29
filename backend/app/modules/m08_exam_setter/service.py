@@ -21,17 +21,29 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.m08_exam_setter.models import ExamPaperStatus
+from app.modules.m08_exam_setter.models import (
+    ExamPaperStatus,
+    ExamWorkflow,
+    InternalMarkStatus,
+    InternalMarksSummary,
+)
 from app.modules.m08_exam_setter.repository import (
     BloomsRepository,
     ExamPaperRepository,
     ExamQuestionRepository,
+    InternalMarksRepository,
+    QuestionBankRepository,
     TaskJobPublicRepository,
 )
 from app.modules.m08_exam_setter.schemas import (
     BoardDecisionRequest,
     ExamPaperCreate,
     ExamQuestionUpdate,
+    FacultyApproveRequest,
+    InternalMarksCreate,
+    InternalMarksUpdate,
+    ScrutinizerAssignRequest,
+    ScrutinizerDecisionRequest,
     SealRequest,
 )
 
@@ -86,16 +98,22 @@ class ExamService:
                 404,
             )
 
+        section_config_data = (
+            [s.model_dump() for s in payload.section_config]
+            if payload.section_config else None
+        )
         paper = await ExamPaperRepository.create(
             course_id=payload.course_id,
             created_by=created_by,
             title=payload.title,
             exam_type=payload.exam_type,
+            exam_workflow=payload.exam_workflow.value,
             total_marks=payload.total_marks,
             duration_mins=payload.duration_mins,
             units_included=payload.units_included,
             question_format=payload.question_format.model_dump(),
             requested_dist=payload.requested_dist.model_dump(),
+            section_config=section_config_data,
             special_instructions=payload.special_instructions,
             db=db,
         )
@@ -326,6 +344,13 @@ class ExamService:
                 "FORBIDDEN", "Only the paper creator can submit it for review.", 403
             )
 
+        if paper.exam_workflow == ExamWorkflow.INTERNAL.value:
+            raise ExamServiceError(
+                "INVALID_WORKFLOW",
+                "INTERNAL workflow papers use faculty_approve() instead of submit_for_review().",
+                400,
+            )
+
         submittable = (
             ExamPaperStatus.GENERATED.value,
             ExamPaperStatus.BOARD_RETURNED.value,
@@ -382,6 +407,17 @@ class ExamService:
             board_comment=payload.board_comment,
             db=db,
         )
+
+        if payload.approved:
+            questions = await ExamQuestionRepository.list_by_paper(paper_id, db=db)
+            await QuestionBankRepository.promote_from_paper(
+                paper_id=paper_id,
+                course_id=paper.course_id,
+                questions=questions,
+                is_approved=True,
+                db=db,
+            )
+
         await db.commit()
         return await ExamPaperRepository.get_by_id(paper_id, db=db)
 
@@ -567,3 +603,386 @@ class ExamService:
         await ExamPaperRepository.set_released(paper_id, db=db)
         await db.commit()
         return await ExamPaperRepository.get_by_id(paper_id, db=db)
+
+    # -----------------------------------------------------------------------
+    # H-35: INTERNAL workflow — faculty self-approval (Gate 1)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def faculty_approve(
+        paper_id: UUID,
+        payload: FacultyApproveRequest,
+        *,
+        faculty_user_id: UUID,
+        db: AsyncSession,
+    ):
+        """
+        HUMAN GATE 1 (INTERNAL workflow only): Faculty self-approves the paper.
+        Transitions GENERATED → BOARD_APPROVED, skipping Board review.
+        Faculty can then call seal() directly.
+        """
+        paper = await ExamPaperRepository.get_by_id(paper_id, db=db)
+        if paper is None:
+            raise ExamServiceError("NOT_FOUND", "Exam paper not found.", 404)
+
+        if paper.created_by != faculty_user_id:
+            raise ExamServiceError(
+                "FORBIDDEN", "Only the paper creator can approve it.", 403
+            )
+
+        if paper.exam_workflow != ExamWorkflow.INTERNAL.value:
+            raise ExamServiceError(
+                "INVALID_WORKFLOW",
+                "faculty_approve() is only valid for INTERNAL workflow papers. "
+                "BOARD_EXAM papers use submit_for_review().",
+                400,
+            )
+
+        approvable = (
+            ExamPaperStatus.GENERATED.value,
+            ExamPaperStatus.BOARD_RETURNED.value,
+        )
+        if paper.status not in approvable:
+            raise ExamServiceError(
+                "INVALID_STATUS",
+                f"Paper must be GENERATED or BOARD_RETURNED to self-approve "
+                f"(current: {paper.status!r}).",
+            )
+
+        questions = await ExamQuestionRepository.list_by_paper(paper_id, db=db)
+        if not questions:
+            raise ExamServiceError(
+                "NO_QUESTIONS", "Cannot approve a paper with no questions."
+            )
+
+        await ExamPaperRepository.set_faculty_approved(
+            paper_id,
+            approved_by=faculty_user_id,
+            board_comment=payload.faculty_comment,
+            db=db,
+        )
+        await db.commit()
+        return await ExamPaperRepository.get_by_id(paper_id, db=db)
+
+    # -----------------------------------------------------------------------
+    # H-35: Scrutinizer — optional Gate 1.5 (BOARD_EXAM only)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def assign_scrutinizer(
+        paper_id: UUID,
+        payload: ScrutinizerAssignRequest,
+        *,
+        assigning_user_id: UUID,
+        db: AsyncSession,
+    ):
+        """Assign a second-faculty scrutinizer to a BOARD_EXAM paper in SUBMITTED status."""
+        paper = await ExamPaperRepository.get_by_id(paper_id, db=db)
+        if paper is None:
+            raise ExamServiceError("NOT_FOUND", "Exam paper not found.", 404)
+
+        if paper.exam_workflow != ExamWorkflow.BOARD_EXAM.value:
+            raise ExamServiceError(
+                "INVALID_WORKFLOW",
+                "Scrutinizers can only be assigned to BOARD_EXAM papers.",
+                400,
+            )
+
+        if paper.status != ExamPaperStatus.SUBMITTED.value:
+            raise ExamServiceError(
+                "INVALID_STATUS",
+                f"Paper must be SUBMITTED to assign a scrutinizer "
+                f"(current: {paper.status!r}).",
+            )
+
+        await ExamPaperRepository.set_scrutinizer(
+            paper_id, scrutinizer_id=payload.scrutinizer_id, db=db
+        )
+        await db.commit()
+        return await ExamPaperRepository.get_by_id(paper_id, db=db)
+
+    @staticmethod
+    async def scrutinize(
+        paper_id: UUID,
+        payload: ScrutinizerDecisionRequest,
+        *,
+        scrutinizer_user_id: UUID,
+        db: AsyncSession,
+    ):
+        """
+        Scrutinizer approves or returns a paper (Gate 1.5, BOARD_EXAM only).
+        Approved: stays SUBMITTED for Board to act.
+        Returned: transitions to BOARD_RETURNED for faculty revision.
+        """
+        paper = await ExamPaperRepository.get_by_id(paper_id, db=db)
+        if paper is None:
+            raise ExamServiceError("NOT_FOUND", "Exam paper not found.", 404)
+
+        if paper.scrutinizer_id != scrutinizer_user_id:
+            raise ExamServiceError(
+                "FORBIDDEN", "Only the assigned scrutinizer can submit a decision.", 403
+            )
+
+        if paper.status != ExamPaperStatus.SUBMITTED.value:
+            raise ExamServiceError(
+                "INVALID_STATUS",
+                f"Paper must be SUBMITTED for scrutinizer review "
+                f"(current: {paper.status!r}).",
+            )
+
+        await ExamPaperRepository.set_scrutinized(
+            paper_id, comment=payload.scrutinizer_comment, db=db
+        )
+
+        if not payload.approved:
+            await ExamPaperRepository.set_status(
+                paper_id, ExamPaperStatus.BOARD_RETURNED.value, db=db
+            )
+
+        await db.commit()
+        return await ExamPaperRepository.get_by_id(paper_id, db=db)
+
+    # -----------------------------------------------------------------------
+    # H-35: Section configuration
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def configure_sections(
+        paper_id: UUID,
+        sections: list[dict],
+        *,
+        faculty_user_id: UUID,
+        db: AsyncSession,
+    ):
+        """Update section_config. Only valid before submission."""
+        paper = await ExamPaperRepository.get_by_id(paper_id, db=db)
+        if paper is None:
+            raise ExamServiceError("NOT_FOUND", "Exam paper not found.", 404)
+
+        if paper.created_by != faculty_user_id:
+            raise ExamServiceError(
+                "FORBIDDEN", "Only the paper creator can configure sections.", 403
+            )
+
+        configurable = (
+            ExamPaperStatus.DRAFT.value,
+            ExamPaperStatus.GENERATED.value,
+            ExamPaperStatus.BOARD_RETURNED.value,
+        )
+        if paper.status not in configurable:
+            raise ExamServiceError(
+                "INVALID_STATUS",
+                f"Section config can only be changed before submission "
+                f"(current: {paper.status!r}).",
+            )
+
+        await ExamPaperRepository.set_section_config(paper_id, section_config=sections, db=db)
+        await db.commit()
+        return await ExamPaperRepository.get_by_id(paper_id, db=db)
+
+    # -----------------------------------------------------------------------
+    # H-35: Question bank browse
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def list_question_bank(
+        course_id: UUID,
+        *,
+        bloom_level: str | None = None,
+        question_type: str | None = None,
+        unit_number: int | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ):
+        items = await QuestionBankRepository.list_by_course(
+            course_id,
+            bloom_level=bloom_level,
+            question_type=question_type,
+            unit_number=unit_number,
+            approved_only=True,
+            offset=offset,
+            limit=limit,
+            db=db,
+        )
+        total = await QuestionBankRepository.count_by_course(
+            course_id, approved_only=True, db=db
+        )
+        return items, total
+
+
+# ---------------------------------------------------------------------------
+# InternalMarksServiceError
+# ---------------------------------------------------------------------------
+
+class InternalMarksServiceError(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 400):
+        self.code        = code
+        self.message     = message
+        self.status_code = status_code
+        super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# InternalMarksService  (H-35 Addition 2)
+# ---------------------------------------------------------------------------
+
+class InternalMarksService:
+
+    @staticmethod
+    async def create_or_update(
+        payload: InternalMarksCreate,
+        *,
+        faculty_user_id: UUID,
+        db: AsyncSession,
+    ) -> InternalMarksSummary:
+        """Create a new IMS record or update marks on an existing PENDING record."""
+        existing = await InternalMarksRepository.get_by_student_course(
+            payload.student_id, payload.course_id,
+            payload.semester, payload.academic_year,
+            db=db,
+        )
+        if existing is not None:
+            if existing.status == InternalMarkStatus.DEAN_LOCKED.value:
+                raise InternalMarksServiceError(
+                    "LOCKED",
+                    "Internal marks are Dean-locked and cannot be modified.",
+                    403,
+                )
+            skip_keys = {"student_id", "course_id", "semester", "academic_year"}
+            updates = {
+                k: v for k, v in payload.model_dump().items()
+                if k not in skip_keys and v is not None
+            }
+            if updates:
+                await InternalMarksRepository.update_marks(existing.id, updates=updates, db=db)
+            await db.commit()
+            return await InternalMarksRepository.get_by_id(existing.id, db=db)
+
+        ims = await InternalMarksRepository.create(
+            student_id=payload.student_id,
+            course_id=payload.course_id,
+            semester=payload.semester,
+            academic_year=payload.academic_year,
+            internal1_marks=payload.internal1_marks,
+            internal2_marks=payload.internal2_marks,
+            assignment_marks=payload.assignment_marks,
+            attendance_marks=payload.attendance_marks,
+            max_internal=payload.max_internal,
+            db=db,
+        )
+        await db.commit()
+        return await InternalMarksRepository.get_by_id(ims.id, db=db)
+
+    @staticmethod
+    async def update(
+        ims_id: UUID,
+        payload: InternalMarksUpdate,
+        *,
+        db: AsyncSession,
+    ) -> InternalMarksSummary:
+        ims = await InternalMarksRepository.get_by_id(ims_id, db=db)
+        if ims is None:
+            raise InternalMarksServiceError("NOT_FOUND", "Internal marks record not found.", 404)
+        if ims.status == InternalMarkStatus.DEAN_LOCKED.value:
+            raise InternalMarksServiceError(
+                "LOCKED", "Dean-locked records cannot be modified.", 403
+            )
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if updates:
+            await InternalMarksRepository.update_marks(ims_id, updates=updates, db=db)
+            await db.commit()
+        return await InternalMarksRepository.get_by_id(ims_id, db=db)
+
+    @staticmethod
+    async def submit(
+        ims_id: UUID,
+        *,
+        faculty_user_id: UUID,
+        db: AsyncSession,
+    ) -> InternalMarksSummary:
+        """
+        HUMAN GATE 1: Faculty submits internal marks.
+        Transitions PENDING → FACULTY_SUBMITTED.
+        Computes and stores total_internal from components.
+        """
+        ims = await InternalMarksRepository.get_by_id(ims_id, db=db)
+        if ims is None:
+            raise InternalMarksServiceError("NOT_FOUND", "Internal marks record not found.", 404)
+
+        if ims.status != InternalMarkStatus.PENDING.value:
+            raise InternalMarksServiceError(
+                "INVALID_STATUS",
+                f"Marks must be PENDING to submit (current: {ims.status!r}).",
+            )
+
+        components = [
+            ims.internal1_marks, ims.internal2_marks,
+            ims.assignment_marks, ims.attendance_marks,
+        ]
+        total = sum(float(c) for c in components if c is not None)
+        if total > ims.max_internal:
+            raise InternalMarksServiceError(
+                "TOTAL_EXCEEDS_MAX",
+                f"Total internal marks {total} exceeds max_internal {ims.max_internal}.",
+            )
+
+        await InternalMarksRepository.set_submitted(
+            ims_id,
+            submitted_by=faculty_user_id,
+            total_internal=total,
+            db=db,
+        )
+        await db.commit()
+        return await InternalMarksRepository.get_by_id(ims_id, db=db)
+
+    @staticmethod
+    async def lock(
+        ims_id: UUID,
+        *,
+        dean_user_id: UUID,
+        db: AsyncSession,
+    ) -> InternalMarksSummary:
+        """
+        HUMAN GATE 2: Dean locks internal marks. FACULTY_SUBMITTED → DEAN_LOCKED.
+        After locking, no further updates are permitted (enforced at service layer).
+        """
+        ims = await InternalMarksRepository.get_by_id(ims_id, db=db)
+        if ims is None:
+            raise InternalMarksServiceError("NOT_FOUND", "Internal marks record not found.", 404)
+
+        if ims.status != InternalMarkStatus.FACULTY_SUBMITTED.value:
+            raise InternalMarksServiceError(
+                "INVALID_STATUS",
+                f"Marks must be FACULTY_SUBMITTED to lock (current: {ims.status!r}).",
+            )
+
+        await InternalMarksRepository.set_locked(ims_id, locked_by=dean_user_id, db=db)
+        await db.commit()
+        return await InternalMarksRepository.get_by_id(ims_id, db=db)
+
+    @staticmethod
+    async def get(ims_id: UUID, *, db: AsyncSession) -> InternalMarksSummary:
+        ims = await InternalMarksRepository.get_by_id(ims_id, db=db)
+        if ims is None:
+            raise InternalMarksServiceError("NOT_FOUND", "Internal marks record not found.", 404)
+        return ims
+
+    @staticmethod
+    async def list_by_course(
+        course_id: UUID,
+        *,
+        semester: int | None = None,
+        academic_year: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
+        db: AsyncSession,
+    ) -> tuple[list[InternalMarksSummary], int]:
+        items = await InternalMarksRepository.list_by_course(
+            course_id, semester=semester, academic_year=academic_year,
+            offset=offset, limit=limit, db=db,
+        )
+        total = await InternalMarksRepository.count_by_course(
+            course_id, semester=semester, academic_year=academic_year, db=db,
+        )
+        return items, total

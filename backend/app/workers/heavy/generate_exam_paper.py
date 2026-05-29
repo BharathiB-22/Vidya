@@ -3,14 +3,17 @@ Celery heavy-queue task: generate exam paper questions (M08).
 
 Flow:
   1. Load ExamPaper from DB.
-  2. Set status → GENERATING.
-  3. Fetch linked Syllabus units from M02 tables (SET search_path).
+  2. Set status → GENERATING (explicit at task start; handles retries).
+  3. Fetch syllabus units, course info, and course outcomes from M01/M02.
   4. Call question_generator.generate_questions() — Gemini/Groq/mock.
-  5. Bulk-write ExamQuestion rows.
-  6. Compute Bloom's compliance report.
-  7. Write BloomsComplianceReport row.
-  8. Update ExamPaper: actual_dist, ai_model, prompt_hash, status → GENERATED.
-  9. Commit. Audit EXAM_PAPER_GENERATION_COMPLETED.
+     Passes: section_config, course_outcomes, exam_workflow.
+  5. Bulk-write ExamQuestion rows (now stores section_label, co_ids, choice_group).
+  6. Compute CO coverage report and unit coverage report.
+  7. Compute Bloom's compliance report (with co_coverage_ok + unit_coverage_ok flags).
+  8. Write BloomsComplianceReport row.
+  9. Update ExamPaper: actual_dist, ai_model, prompt_hash,
+     co_coverage_report, unit_coverage_report, status → GENERATED.
+ 10. Commit. Audit EXAM_PAPER_GENERATION_COMPLETED.
 
 On failure:
   - Set status back to DRAFT (so faculty can retry).
@@ -104,7 +107,13 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
             if paper is None:
                 raise ValueError(f"ExamPaper {paper_id} not found in schema {schema_name!r}.")
 
-            # 2. Fetch syllabus units and course info from M01/M02
+            # 2. Set GENERATING at task start (explicit; handles retry scenarios)
+            await ExamPaperRepository.set_status(
+                paper_uuid, ExamPaperStatus.GENERATING.value, db=session
+            )
+            await session.commit()
+
+            # 3. Fetch syllabus units, course info, and course outcomes from M01/M02
             units = await _fetch_syllabus_units(
                 course_id=paper.course_id,
                 units_included=list(paper.units_included or []),
@@ -114,10 +123,16 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 course_id=paper.course_id,
                 session=session,
             )
+            course_outcomes = await _fetch_course_outcomes(
+                course_id=paper.course_id,
+                session=session,
+            )
 
-            # 3. Generate questions
-            bloom_targets = dict(paper.requested_dist or {})
+            # 4. Generate questions — passes section_config, COs, workflow
+            bloom_targets   = dict(paper.requested_dist or {})
             question_format = dict(paper.question_format or {})
+            section_config  = list(paper.section_config) if paper.section_config else None
+            exam_workflow   = paper.exam_workflow or "BOARD_EXAM"
 
             questions_raw, ai_model, prompt_hash = await generate_questions(
                 units=units,
@@ -128,12 +143,15 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 course_title=course_info.get("title", ""),
                 course_code=course_info.get("code", ""),
                 exam_type=paper.exam_type or "END_SEM",
+                section_config=section_config,
+                course_outcomes=course_outcomes,
+                exam_workflow=exam_workflow,
             )
 
             if not questions_raw:
                 raise ValueError("Question generator returned no questions.")
 
-            # 4. Bulk-write ExamQuestion rows
+            # 5. Bulk-write ExamQuestion rows (section_label, co_ids, choice_group now stored)
             saved = await ExamQuestionRepository.bulk_create(
                 questions_raw, exam_paper_id=paper_uuid, db=session
             )
@@ -145,7 +163,20 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 [q.get("set_membership") for q in questions_raw[:3]],
             )
 
-            # 5. Compute Bloom's compliance
+            # 6. Compute CO and unit coverage reports
+            co_coverage_report, co_coverage_ok = _compute_co_coverage(
+                questions_raw, course_outcomes
+            )
+            unit_coverage_report, unit_coverage_ok = _compute_unit_coverage(
+                questions_raw, list(paper.units_included or [])
+            )
+            logger.info(
+                "Coverage: co_ok=%s unit_ok=%s co_items=%d unit_items=%d",
+                co_coverage_ok, unit_coverage_ok,
+                len(co_coverage_report), len(unit_coverage_report),
+            )
+
+            # 7. Compute Bloom's compliance
             actual_dist = compute_actual_distribution(questions_raw)
             report = check_compliance(
                 requested=bloom_targets,
@@ -153,27 +184,31 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 tolerance=float(settings.M08_BLOOM_COMPLIANCE_TOLERANCE),
             )
 
-            # 6. Write BloomsComplianceReport
+            # 8. Write BloomsComplianceReport (with coverage advisory flags)
             await BloomsRepository.upsert(
                 paper_uuid,
                 requested_dist=bloom_targets,
                 actual_dist=actual_dist,
                 compliance_ok=report.compliance_ok,
                 violations=report.to_violations_list(),
+                co_coverage_ok=co_coverage_ok,
+                unit_coverage_ok=unit_coverage_ok,
                 db=session,
             )
 
-            # 7. Update ExamPaper → GENERATED
+            # 9. Update ExamPaper → GENERATED with coverage reports
             await ExamPaperRepository.set_generation_result(
                 paper_uuid,
                 ai_model=ai_model,
                 prompt_hash=prompt_hash,
                 actual_dist=actual_dist,
+                co_coverage_report=co_coverage_report,
+                unit_coverage_report=unit_coverage_report,
                 db=session,
             )
             await session.commit()
 
-            # 8. Audit
+            # 10. Audit
             await AuditService.log(
                 AuditEventType.EXAM_PAPER_GENERATION_COMPLETED,
                 actor_user_id=None,
@@ -183,23 +218,29 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 target_entity="exam_paper",
                 target_id=paper_id,
                 metadata={
-                    "question_count":  len(questions_raw),
-                    "compliance_ok":   report.compliance_ok,
-                    "violation_count": len(report.violations),
-                    "ai_model":        ai_model,
+                    "question_count":   len(questions_raw),
+                    "compliance_ok":    report.compliance_ok,
+                    "violation_count":  len(report.violations),
+                    "ai_model":         ai_model,
+                    "co_coverage_ok":   co_coverage_ok,
+                    "unit_coverage_ok": unit_coverage_ok,
+                    "section_count":    len(section_config) if section_config else 0,
                 },
             )
 
             logger.info(
-                "Generation complete: paper=%s questions=%d compliance=%s",
+                "Generation complete: paper=%s questions=%d compliance=%s co_ok=%s unit_ok=%s",
                 paper_id, len(questions_raw), report.compliance_ok,
+                co_coverage_ok, unit_coverage_ok,
             )
 
             return {
-                "paper_id":       paper_id,
-                "question_count": len(questions_raw),
-                "compliance_ok":  report.compliance_ok,
-                "ai_model":       ai_model,
+                "paper_id":         paper_id,
+                "question_count":   len(questions_raw),
+                "compliance_ok":    report.compliance_ok,
+                "co_coverage_ok":   co_coverage_ok,
+                "unit_coverage_ok": unit_coverage_ok,
+                "ai_model":         ai_model,
             }
 
         except Exception as exc:
@@ -209,11 +250,8 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 paper_id, failure_reason, exc_info=True,
             )
 
-            # Roll back partial writes (e.g. partially inserted questions)
-            # then mark the paper FAILED so the UI shows a clear error state.
             try:
                 await session.rollback()
-                # SET search_path is session-level in Postgres, survives rollback.
                 await ExamPaperRepository.set_failed(
                     paper_uuid,
                     reason=failure_reason,
@@ -317,3 +355,112 @@ async def _fetch_course_info(*, course_id, session) -> dict:
     except Exception as exc:
         logger.warning("Failed to fetch course info for %s: %s", course_id, exc)
     return {"title": "", "code": ""}
+
+
+async def _fetch_course_outcomes(*, course_id, session) -> list[dict]:
+    """
+    Fetch COs from the latest approved syllabus for this course.
+    Returns list of {id, co_code, description} dicts for use in generation prompt.
+    Falls back to empty list gracefully (CO context becomes optional).
+    """
+    try:
+        from sqlalchemy import select
+        from app.modules.m02_syllabus.models import CourseOutcome, Syllabus
+
+        syl_result = await session.execute(
+            select(Syllabus)
+            .where(Syllabus.course_id == course_id)
+            .where(Syllabus.status.in_(["DEAN_LOCKED", "DEAN_APPROVED"]))
+            .order_by(Syllabus.version.desc())
+            .limit(1)
+        )
+        syllabus = syl_result.scalar_one_or_none()
+        if syllabus is None:
+            logger.debug("No approved syllabus for course %s — skipping CO context.", course_id)
+            return []
+
+        co_result = await session.execute(
+            select(CourseOutcome)
+            .where(CourseOutcome.syllabus_id == syllabus.id)
+            .order_by(CourseOutcome.display_order)
+        )
+        return [
+            {
+                "id":          str(co.id),
+                "co_code":     co.code or "",
+                "description": co.description or "",
+            }
+            for co in co_result.scalars().all()
+        ]
+    except Exception as exc:
+        logger.warning("Failed to fetch COs for course %s: %s", course_id, exc)
+        return []
+
+
+def _compute_co_coverage(
+    questions: list[dict],
+    course_outcomes: list[dict],
+) -> tuple[list[dict], bool]:
+    """
+    Compute per-CO coverage from generated questions.
+
+    Returns:
+        (co_coverage_report, co_coverage_ok)
+        co_coverage_report: [{co_id, co_code, covered: bool, question_count: int}]
+        co_coverage_ok: True when every CO has at least one question (advisory flag).
+    """
+    if not course_outcomes:
+        return [], True  # No COs defined — trivially satisfied
+
+    report: list[dict] = []
+    all_covered = True
+    for co in course_outcomes:
+        co_id   = str(co.get("id") or "")
+        co_code = co.get("co_code") or ""
+        count   = sum(
+            1 for q in questions
+            if co_id and co_id in (q.get("co_ids") or [])
+        )
+        covered = count > 0
+        if not covered:
+            all_covered = False
+        report.append({
+            "co_id":          co_id,
+            "co_code":        co_code,
+            "covered":        covered,
+            "question_count": count,
+        })
+    return report, all_covered
+
+
+def _compute_unit_coverage(
+    questions: list[dict],
+    units_included: list[int],
+) -> tuple[list[dict], bool]:
+    """
+    Compute per-unit coverage from generated questions.
+
+    Returns:
+        (unit_coverage_report, unit_coverage_ok)
+        unit_coverage_report: [{unit_no: int, covered: bool, question_count: int}]
+        unit_coverage_ok: True when every requested unit has at least one question.
+    """
+    if not units_included:
+        return [], True
+
+    report: list[dict] = []
+    all_covered = True
+    for unit_no in sorted(set(int(u) for u in units_included)):
+        count   = sum(
+            1 for q in questions
+            if int(q.get("unit_number") or 0) == unit_no
+        )
+        covered = count > 0
+        if not covered:
+            all_covered = False
+        report.append({
+            "unit_no":        unit_no,
+            "covered":        covered,
+            "question_count": count,
+        })
+    return report, all_covered

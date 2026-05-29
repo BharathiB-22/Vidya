@@ -5,6 +5,8 @@ Tables (all tenant-schema, no schema= kwarg):
   exam_papers              — faculty-configured exam papers
   exam_questions           — AI-generated questions per paper
   blooms_compliance_reports — Bloom's level distribution analysis per paper
+  question_bank            — approved questions promoted for reuse (H-35 Addition 1)
+  internal_marks_summary   — per-student internal assessment marks (H-35 Addition 2)
 
 Human-gate invariants:
   exam_papers.status → SUBMITTED only via faculty submit endpoint (Gate 1).
@@ -72,6 +74,23 @@ class BloomLevel(str, enum.Enum):
     CREATE     = "CREATE"
 
 
+class ExamWorkflow(str, enum.Enum):
+    """
+    Drives which approval gates are enforced.
+      INTERNAL   — Faculty-only gate (Quiz, Internal Test, Mid-Term).
+                   No Board review; faculty self-approves then releases.
+      BOARD_EXAM — Full 3-gate Board workflow (Semester, End-Semester, Supplementary).
+    """
+    INTERNAL   = "INTERNAL"
+    BOARD_EXAM = "BOARD_EXAM"
+
+
+class InternalMarkStatus(str, enum.Enum):
+    PENDING           = "PENDING"
+    FACULTY_SUBMITTED = "FACULTY_SUBMITTED"   # Gate 1: faculty submits
+    DEAN_LOCKED       = "DEAN_LOCKED"         # Gate 2: Dean locks (immutable after)
+
+
 # ---------------------------------------------------------------------------
 # ExamPaper
 # ---------------------------------------------------------------------------
@@ -103,6 +122,7 @@ class ExamPaper(Base):
         Index("ix_exam_papers_status",    "status"),
         Index("ix_exam_papers_created",   "created_at"),
         Index("ix_exam_papers_release",   "release_at"),
+        Index("ix_exam_papers_workflow",  "exam_workflow"),
     )
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -177,6 +197,33 @@ class ExamPaper(Base):
     # Written by release Celery task only
     released_at         = Column(DateTime(timezone=True), nullable=True)
 
+    # --- H-35 productization additions ---
+
+    # Workflow routing: INTERNAL (faculty-only gate) vs BOARD_EXAM (full 3-gate Board flow)
+    exam_workflow       = Column(
+        Enum(ExamWorkflow, native_enum=False),
+        nullable=False,
+        default=ExamWorkflow.BOARD_EXAM,
+        server_default=ExamWorkflow.BOARD_EXAM.value,
+    )
+
+    # Optional Part A / Part B / Part C section structure
+    # [{label, instruction, total_q, answer_q, marks_each, order}]
+    section_config      = Column(JSONB, nullable=True)
+
+    # Per-CO advisory coverage — written by generation worker
+    # [{co_id, co_code, covered: bool, question_count: int}]
+    co_coverage_report  = Column(JSONB, nullable=True)
+
+    # Per-unit advisory coverage — written by generation worker
+    # [{unit_no: int, covered: bool, question_count: int}]
+    unit_coverage_report = Column(JSONB, nullable=True)
+
+    # Optional scrutinizer (second faculty reviewer) — BOARD_EXAM workflow only
+    scrutinizer_id      = Column(UUID(as_uuid=True), nullable=True)
+    scrutinized_at      = Column(DateTime(timezone=True), nullable=True)
+    scrutinizer_comment = Column(Text, nullable=True)
+
     created_at          = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -220,10 +267,11 @@ class ExamQuestion(Base):
     """
     __tablename__ = "exam_questions"
     __table_args__ = (
-        Index("ix_exam_questions_paper",  "exam_paper_id"),
-        Index("ix_exam_questions_bloom",  "bloom_level"),
-        Index("ix_exam_questions_type",   "question_type"),
-        Index("ix_exam_questions_unit",   "unit_number"),
+        Index("ix_exam_questions_paper",   "exam_paper_id"),
+        Index("ix_exam_questions_bloom",   "bloom_level"),
+        Index("ix_exam_questions_type",    "question_type"),
+        Index("ix_exam_questions_unit",    "unit_number"),
+        Index("ix_exam_questions_section", "section_label"),
     )
 
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -269,6 +317,17 @@ class ExamQuestion(Base):
     # Provenance
     ai_generated    = Column(Boolean, nullable=False, default=True)
     is_edited       = Column(Boolean, nullable=False, default=False)
+
+    # --- H-35 productization additions ---
+
+    # Section within the paper: "A", "B", "C"
+    section_label   = Column(String(4), nullable=True)
+
+    # Groups either/or pairs within a section (integer key, same value = paired)
+    choice_group    = Column(Integer, nullable=True)
+
+    # CO UUIDs from M02 CourseOutcome linked to this question (advisory)
+    co_ids          = Column(JSONB, nullable=True, server_default="[]")
 
     created_at      = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
@@ -319,8 +378,166 @@ class BloomsComplianceReport(Base):
     # [{level, requested_pct, actual_pct, delta_pct}]
     violations      = Column(JSONB, nullable=False, server_default="[]")
 
+    # --- H-35 productization additions ---
+
+    # Advisory flags — true when all COs / all requested units are represented
+    co_coverage_ok   = Column(Boolean, nullable=True, server_default="false")
+    unit_coverage_ok = Column(Boolean, nullable=True, server_default="false")
+
     generated_at    = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
     paper = relationship("ExamPaper", back_populates="blooms_report")
+
+
+# ---------------------------------------------------------------------------
+# QuestionBankEntry  (H-35 Addition 1)
+# ---------------------------------------------------------------------------
+
+class QuestionBankEntry(Base):
+    """
+    A single approved question stored in the reusable question bank.
+
+    Promotion invariants:
+      - is_approved=True set ONLY when the source paper reaches BOARD_APPROVED (Gate 2).
+      - Never promoted from FAILED, DRAFT, or GENERATING papers.
+      - usage_count incremented each time the question is reused in a new paper.
+      - source_paper_id SET NULL on paper deletion; bank entry is preserved.
+
+    co_ids JSONB schema:  [uuid-string, ...]   — CO UUIDs from M02 CourseOutcome
+    options JSONB schema: [{label, text}, ...]  — MCQ only
+    marking_scheme JSONB: [{criterion, marks, description}, ...]
+    """
+    __tablename__ = "question_bank"
+    __table_args__ = (
+        Index("ix_qbank_course",   "course_id"),
+        Index("ix_qbank_bloom",    "bloom_level"),
+        Index("ix_qbank_type",     "question_type"),
+        Index("ix_qbank_source",   "source_paper_id"),
+        Index("ix_qbank_approved", "is_approved"),
+        Index("ix_qbank_unit",     "unit_number"),
+    )
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Denormalised course reference (no schema-crossing FK)
+    course_id       = Column(UUID(as_uuid=True), nullable=False)
+
+    # Source paper — nullable; SET NULL on delete so bank survives paper deletion
+    source_paper_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("exam_papers.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    unit_number     = Column(Integer, nullable=False)
+    co_ids          = Column(JSONB, nullable=True, server_default="[]")
+
+    bloom_level     = Column(
+        Enum(BloomLevel, native_enum=False),
+        nullable=False,
+    )
+    question_type   = Column(
+        Enum(QuestionType, native_enum=False),
+        nullable=False,
+    )
+
+    question_text   = Column(Text, nullable=False)
+    options         = Column(JSONB, nullable=True)
+    correct_option  = Column(String, nullable=True)
+    marks           = Column(Numeric(5, 1), nullable=False)
+    model_answer    = Column(Text, nullable=True)
+    marking_scheme  = Column(JSONB, nullable=True)
+    section_label   = Column(String(4), nullable=True)
+
+    # Human gate: True only after Board approves the source paper
+    is_approved     = Column(Boolean, nullable=False, server_default="false", default=False)
+
+    # Incremented each time this question is reused in a new paper
+    usage_count     = Column(Integer, nullable=False, server_default="0", default=0)
+
+    ai_generated    = Column(Boolean, nullable=False, server_default="true", default=True)
+
+    created_at      = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at      = Column(DateTime(timezone=True), nullable=True)
+
+    source_paper = relationship("ExamPaper", foreign_keys=[source_paper_id])
+
+
+# ---------------------------------------------------------------------------
+# InternalMarksSummary  (H-35 Addition 2)
+# ---------------------------------------------------------------------------
+
+class InternalMarksSummary(Base):
+    """
+    Per-student, per-course, per-semester internal assessment marks.
+
+    Workflow:
+      PENDING → FACULTY_SUBMITTED (Gate 1: faculty submits)
+              → DEAN_LOCKED       (Gate 2: Dean locks; marks become immutable)
+
+    Human-gate invariants:
+      submitted_by + submitted_at set ONLY by faculty submit endpoint.
+      locked_by + locked_at set ONLY by Dean lock endpoint.
+      No system or Celery task ever advances status beyond PENDING.
+      After DEAN_LOCKED: no further updates permitted (enforced at service layer).
+
+    total_internal is computed by the service layer when faculty submits,
+    as sum of component marks. Never set autonomously before faculty action.
+
+    Unique constraint: one row per (student_id, course_id, academic_year, semester).
+    """
+    __tablename__ = "internal_marks_summary"
+    __table_args__ = (
+        Index("ix_ims_student",  "student_id"),
+        Index("ix_ims_course",   "course_id"),
+        Index("ix_ims_status",   "status"),
+        Index("ix_ims_year_sem", "academic_year", "semester"),
+        UniqueConstraint(
+            "student_id", "course_id", "academic_year", "semester",
+            name="uq_ims_student_course_year_sem",
+        ),
+    )
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Denormalised — no schema-crossing FK constraints
+    student_id       = Column(UUID(as_uuid=True), nullable=False)
+    course_id        = Column(UUID(as_uuid=True), nullable=False)
+    semester         = Column(Integer, nullable=False)
+    academic_year    = Column(String(10), nullable=False)   # e.g. "2025-26"
+
+    # Component marks — filled incrementally, all nullable until submitted
+    internal1_marks  = Column(Numeric(5, 1), nullable=True)
+    internal2_marks  = Column(Numeric(5, 1), nullable=True)
+    assignment_marks = Column(Numeric(5, 1), nullable=True)
+    attendance_marks = Column(Numeric(5, 1), nullable=True)
+
+    # Service layer computes this on submission (sum of components)
+    total_internal   = Column(Numeric(5, 1), nullable=True)
+
+    # Institution-configurable maximum (default 40)
+    max_internal     = Column(Integer, nullable=False, server_default="40", default=40)
+
+    status           = Column(
+        Enum(InternalMarkStatus, native_enum=False),
+        nullable=False,
+        default=InternalMarkStatus.PENDING,
+        server_default=InternalMarkStatus.PENDING.value,
+    )
+
+    # Gate 1: faculty submits
+    submitted_by     = Column(UUID(as_uuid=True), nullable=True)
+    submitted_at     = Column(DateTime(timezone=True), nullable=True)
+
+    # Gate 2: Dean locks
+    locked_by        = Column(UUID(as_uuid=True), nullable=True)
+    locked_at        = Column(DateTime(timezone=True), nullable=True)
+
+    created_at       = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at       = Column(DateTime(timezone=True), nullable=True)

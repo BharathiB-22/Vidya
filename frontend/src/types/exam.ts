@@ -7,6 +7,31 @@ export type ExamType =
   | 'INTERNAL'
   | 'CUSTOM'
 
+export type ExamWorkflow = 'INTERNAL' | 'BOARD_EXAM'
+
+export interface SectionConfig {
+  label:        string        // 'A', 'B', 'C'
+  instruction?: string | null
+  total_q:      number
+  answer_q:     number
+  marks_each:   number
+  order:        number
+  mcq_only:     boolean
+}
+
+export interface CoCoverageEntry {
+  co_id:          string
+  co_code:        string
+  covered:        boolean
+  question_count: number
+}
+
+export interface UnitCoverageEntry {
+  unit_no:        number
+  covered:        boolean
+  question_count: number
+}
+
 export type ExamPaperStatus =
   | 'DRAFT'
   | 'GENERATING'
@@ -54,12 +79,16 @@ export interface ExamPaper {
   created_by:           string
   title:                string
   exam_type:            ExamType
+  exam_workflow:        ExamWorkflow
   total_marks:          number
   duration_mins:        number
   units_included:       number[]
   question_format:      QuestionFormatConfig
   requested_dist:       BloomsDistribution
   actual_dist:          BloomsDistribution | null
+  section_config:       SectionConfig[] | null
+  co_coverage_report:   CoCoverageEntry[] | null
+  unit_coverage_report: UnitCoverageEntry[] | null
   special_instructions: string | null
   ai_model:             string | null
   generation_job_id:    string | null
@@ -98,6 +127,9 @@ export interface ExamQuestion {
   question_text:  string
   options:        MCQOption[] | null
   marks:          number
+  section_label:  string | null
+  co_ids:         string[] | null
+  choice_group:   number | null
   set_membership: string[]
   ai_generated:   boolean
   is_edited:      boolean
@@ -130,11 +162,13 @@ export interface ExamPaperCreatePayload {
   course_id:            string
   title:                string
   exam_type:            ExamType
+  exam_workflow?:       ExamWorkflow
   total_marks:          number
   duration_mins:        number
   units_included:       number[]
   question_format:      QuestionFormatConfig
   requested_dist:       BloomsDistribution
+  section_config?:      SectionConfig[]
   special_instructions?: string
 }
 
