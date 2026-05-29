@@ -45,6 +45,7 @@ class YouTubeAdapter:
             return resp.json().get("items", [])
 
     async def search(self, query: str, limit: int) -> list[RawItem]:
+        self._log.info("YouTube search query: %r (limit=%d)", query, limit)
         try:
             items = await self._fetch_raw(query, limit)
         except SourceAdapterError:

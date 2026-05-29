@@ -118,6 +118,7 @@ class Settings(BaseSettings):
     M05_RAG_TOP_K: int = 5
     M05_RAG_CHUNK_TOKENS: int = 512
     M05_RAG_CHUNK_OVERLAP: int = 128
+    M05_MIN_RELEVANCE_SCORE: float = 0.5  # items below this cosine similarity are rejected
 
     # Storage MIME whitelist per entity type
     STORAGE_MIME_WHITELIST: dict = {

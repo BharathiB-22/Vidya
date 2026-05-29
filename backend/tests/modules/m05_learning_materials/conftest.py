@@ -11,6 +11,18 @@ import sys
 from types import ModuleType
 from unittest.mock import MagicMock
 
+import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_public_schema():
+    """No-op override of root conftest fixture.
+
+    M05 tests are pure mock tests that patch all I/O; they never require a
+    live database or Alembic migrations.  This override prevents the root
+    conftest from attempting a DB connection when only M05 tests are run.
+    """
+
 
 def _install_qdrant_stub() -> None:
     if "qdrant_client" in sys.modules:

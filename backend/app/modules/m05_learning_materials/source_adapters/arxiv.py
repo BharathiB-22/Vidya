@@ -26,8 +26,10 @@ class ArxivAdapter:
 
     @adapter_retry
     async def _fetch_raw(self, query: str, limit: int) -> str:
+        # Query is passed as-is; callers now supply proper arXiv Boolean syntax
+        # (e.g. ti:"..." AND cat:cs.AI) rather than the old all:... fallback.
         params = {
-            "search_query": f"all:{query}",
+            "search_query": query,
             "start":        0,
             "max_results":  limit,
             "sortBy":       "relevance",
@@ -76,6 +78,7 @@ class ArxivAdapter:
         return results
 
     async def search(self, query: str, limit: int) -> list[RawItem]:
+        self._log.info("arXiv search query: %r (limit=%d)", query, limit)
         try:
             xml_text = await self._fetch_raw(query, limit)
         except SourceAdapterError:

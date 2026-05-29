@@ -184,10 +184,19 @@ async def score_items(
     # Descending relevance; ascending title breaks ties deterministically.
     scored.sort(key=lambda t: (-t[1], t[0].title))
 
+    scores = [s for _, s in scored]
+    mean_score = sum(scores) / len(scores) if scores else 0.0
     log.info(
-        "Scored %d items: top=%.4f bottom=%.4f",
+        "Scored %d items: top=%.4f mean=%.4f bottom=%.4f",
         len(scored),
-        scored[0][1],
-        scored[-1][1],
+        scores[0] if scores else 0.0,
+        mean_score,
+        scores[-1] if scores else 0.0,
     )
+    # Log top-5 items for QA visibility
+    for rank, (item, score) in enumerate(scored[:5], 1):
+        log.info(
+            "  rank=%d score=%.4f source=%s title=%r",
+            rank, score, item.source_type, item.title[:80],
+        )
     return scored

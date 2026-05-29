@@ -107,6 +107,7 @@ class MitOcwAdapter:
         )
 
     async def search(self, query: str, limit: int) -> list[RawItem]:
+        self._log.info("MIT OCW search query: %r (limit=%d)", query, limit)
         try:
             html = await self._fetch_html(query)
         except SourceAdapterError:

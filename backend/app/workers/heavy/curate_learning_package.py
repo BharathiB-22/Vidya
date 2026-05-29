@@ -166,7 +166,11 @@ async def _run_curation(
                 t["title"] if isinstance(t, dict) else str(t)
                 for t in (unit.topics or [])
             ]
+            # unit_context is the rich string used for embedding/ranking only.
             unit_context = f"{unit.title}. Topics: {', '.join(topic_titles)}" if topic_titles else unit.title
+            # Per-provider search queries are purpose-built to match each API's
+            # query syntax and avoid returning off-topic results.
+            search_queries = _build_search_queries(unit.title, topic_titles)
 
             # ------------------------------------------------------------------
             # 3. Transition -> CURATING
@@ -218,8 +222,14 @@ async def _run_curation(
             failed_providers: list[str] = []
 
             async def _fetch(name: str, adapter) -> None:
+                query = search_queries.get(name, unit_context)
+                logger.info(
+                    "m05.curate: adapter %s sending query %r",
+                    name, query,
+                    extra={**_log_extra, "source_provider": name},
+                )
                 try:
-                    items = await adapter.search(unit_context, limit=effective_top_n * 2)
+                    items = await adapter.search(query, limit=effective_top_n * 2)
                     logger.info(
                         "m05.curate: adapter %s returned %d items",
                         name, len(items),
@@ -332,11 +342,45 @@ async def _run_curation(
                         f"Embedding/ranking failed for package {package_id}: {exc}"
                     ) from exc
 
-                top_items = ranked[:effective_top_n]
+                # Log score distribution for observability.
+                if ranked:
+                    scores = [s for _, s in ranked]
+                    logger.info(
+                        "m05.curate: score distribution — top=%.4f mean=%.4f bottom=%.4f",
+                        scores[0],
+                        sum(scores) / len(scores),
+                        scores[-1],
+                        extra=_log_extra,
+                    )
+
+                # Reject items below the relevance threshold.  Fall back to
+                # the full ranked list only if nothing passes — this prevents
+                # showing zero results when all providers are slightly off-topic.
+                threshold = settings.M05_MIN_RELEVANCE_SCORE
+                above = [(raw, sc) for raw, sc in ranked if sc >= threshold]
+                rejected = len(ranked) - len(above)
+                if rejected:
+                    logger.info(
+                        "m05.curate: relevance filter rejected %d item(s) below %.2f threshold",
+                        rejected, threshold,
+                        extra=_log_extra,
+                    )
+                if above:
+                    pool = above
+                else:
+                    pool = ranked
+                    logger.warning(
+                        "m05.curate: no items above threshold %.2f; "
+                        "using all %d ranked items as fallback",
+                        threshold, len(ranked),
+                        extra=_log_extra,
+                    )
+
+                top_items = pool[:effective_top_n]
 
                 logger.info(
-                    "m05.curate: ranked %d items, keeping top %d",
-                    len(ranked), len(top_items),
+                    "m05.curate: ranked %d items, %d above threshold, keeping top %d",
+                    len(ranked), len(above), len(top_items),
                     extra=_log_extra,
                 )
 
@@ -532,3 +576,48 @@ def _content_hash(raw) -> str | None:
     if not url_part and not title_part:
         return None
     return hashlib.sha256(f"{url_part}|{title_part}".encode()).hexdigest()
+
+
+def _build_search_queries(
+    unit_title: str,
+    topic_titles: list[str],
+) -> dict[str, str]:
+    """Build provider-specific search queries from syllabus unit data.
+
+    Each provider has different query syntax and content expectations:
+
+    - youtube:  Natural-language phrase; append "tutorial" or "lecture" to bias
+                toward educational videos rather than news/opinion content.
+    - arxiv:    Boolean query restricted to CS categories so physics/bio papers
+                about unrelated domains are excluded.  Only the unit title is
+                used; topic titles are noisy at the arXiv title level.
+    - nptel:    Simple text query; NPTEL's own search handles it well.
+    - mit_ocw:  Same as NPTEL — short natural-language phrase works best.
+
+    The rich unit_context string (used for embedding) is kept separate from
+    these provider queries; mixing them caused off-topic arXiv results.
+    """
+    clean_title = unit_title.strip()
+
+    # Short keyword string: unit title + first 3 topic titles (avoid verbosity)
+    keyword_supplement = ", ".join(topic_titles[:3]) if topic_titles else ""
+
+    youtube_query = f"{clean_title} lecture tutorial"
+
+    # arXiv Boolean syntax: title search + CS category filter prevents physics
+    # papers about unrelated domains from dominating results.
+    arxiv_title_query = clean_title.replace('"', "")
+    arxiv_query = (
+        f'ti:"{arxiv_title_query}" AND '
+        f"(cat:cs.AI OR cat:cs.LG OR cat:cs.CL OR cat:cs.NE OR cat:cs.CV OR cat:cs.RO)"
+    )
+
+    nptel_query  = clean_title if not keyword_supplement else f"{clean_title} {keyword_supplement}"
+    mit_ocw_query = clean_title
+
+    return {
+        "youtube":  youtube_query,
+        "arxiv":    arxiv_query,
+        "nptel":    nptel_query,
+        "mit_ocw":  mit_ocw_query,
+    }
