@@ -53,6 +53,9 @@ import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
+import CourseAssignmentsPage from '@/pages/CourseAssignmentsPage'
+import DeanReviewPage from '@/pages/DeanReviewPage'
+import MyCoursesPage from '@/pages/MyCoursesPage'
 import DepartmentsPage from '@/pages/academics/DepartmentsPage'
 import ProgramsPage from '@/pages/academics/ProgramsPage'
 import BatchesPage from '@/pages/academics/BatchesPage'
@@ -99,6 +102,17 @@ export default function App() {
 
           {/* Dashboard — all authenticated roles */}
           <Route path="/dashboard" element={<DashboardPage />} />
+
+          {/* DEAN pages */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
+            <Route path="/course-assignments" element={<CourseAssignmentsPage />} />
+            <Route path="/dean-review"        element={<DeanReviewPage />} />
+          </Route>
+
+          {/* My Courses — FACULTY only */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
+            <Route path="/my-courses" element={<MyCoursesPage />} />
+          </Route>
 
           {/* Academic structure — ADMIN only */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -304,6 +304,91 @@ async def update_branding(
         body.logo_url,
         body.primary_color,
         body.secondary_color,
+        db,
+    )
+    await db.commit()
+    return BrandingResponse.model_validate(updated)
+
+
+@router.post("/branding/logo", response_model=BrandingResponse)
+async def upload_branding_logo(
+    logo: UploadFile = File(..., description="PNG, JPG, or SVG logo file (max 2 MB)"),
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BrandingResponse:
+    """Upload institution logo to MinIO and update tenant branding.
+
+    Accepts PNG / JPG / SVG. Stored at {tenant_slug}/branding/logo.{ext}.
+    The returned logo_url is a fresh 24-hour presigned GET URL.
+    """
+    if current_user.role != "ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Only ADMIN can upload logo"},
+        )
+
+    # Validate file type
+    _ALLOWED_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/svg+xml"}
+    _EXT_MAP       = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+                      "image/svg+xml": "svg"}
+    ct = (logo.content_type or "").lower()
+    if ct not in _ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "INVALID_TYPE", "message": "Logo must be PNG, JPG, or SVG"},
+        )
+
+    content = await logo.read()
+    if len(content) > 2 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "FILE_TOO_LARGE", "message": "Logo must be under 2 MB"},
+        )
+
+    tenant_row = await PublicRepository.get_tenant_by_schema_name(
+        current_user.schema_name, db
+    )
+    if tenant_row is None:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND"})
+
+    # Upload to MinIO
+    from app.config import settings
+    import boto3, asyncio, io as _io
+
+    tenant_slug = tenant_row.slug
+    ext         = _EXT_MAP[ct]
+    object_key  = f"{tenant_slug}/branding/logo.{ext}"
+
+    def _upload():
+        client = boto3.client(
+            "s3",
+            endpoint_url=settings.S3_ENDPOINT,
+            aws_access_key_id=settings.S3_ACCESS_KEY,
+            aws_secret_access_key=settings.S3_SECRET_KEY,
+            region_name=settings.S3_REGION,
+            use_ssl=settings.S3_USE_SSL,
+        )
+        client.put_object(
+            Bucket=settings.S3_BUCKET,
+            Key=object_key,
+            Body=_io.BytesIO(content),
+            ContentType=ct,
+        )
+        presigned = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": settings.S3_BUCKET, "Key": object_key},
+            ExpiresIn=86_400,  # 24 h
+        )
+        return presigned
+
+    loop = asyncio.get_event_loop()
+    logo_url = await loop.run_in_executor(None, _upload)
+
+    updated = await PublicRepository.update_tenant_branding(
+        tenant_row.id,
+        logo_url,
+        tenant_row.primary_color,
+        tenant_row.secondary_color,
         db,
     )
     await db.commit()

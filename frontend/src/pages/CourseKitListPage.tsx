@@ -1,10 +1,15 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Package, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Package, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
 import { CourseKitStatusBadge } from '@/components/courseKit/CourseKitStatusBadge'
 import { CreateCourseKitDialog } from '@/components/courseKit/CreateCourseKitDialog'
-import { useCourseKits } from '@/hooks/courseKit'
+import { useCourseKits, useDeleteKit } from '@/hooks/courseKit'
+import { addToast } from '@/hooks/useToast'
+import { getErrorMessage } from '@/lib/api'
 import type { CourseKitStatus } from '@/types/courseKit'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
@@ -35,15 +40,33 @@ export default function CourseKitListPage() {
   const syllabusId = params.get('syllabus_id') ?? ''
   const role       = localStorage.getItem('vidya_role') ?? 'FACULTY'
   const canCreate  = WRITE_ROLES.includes(role)
+  const canDelete  = WRITE_ROLES.includes(role)
 
   const [statusFilter, setStatusFilter] = useState<CourseKitStatus | ''>('')
   const [createOpen,   setCreateOpen]   = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   const { data, isLoading, isError } = useCourseKits({
     syllabus_id: syllabusId || undefined,
     status:      statusFilter || undefined,
   })
   const kits = data?.items ?? []
+
+  const deleteKit = useDeleteKit()
+
+  function handleDeleteConfirm() {
+    if (!deleteTarget) return
+    deleteKit.mutate(deleteTarget, {
+      onSuccess: () => {
+        addToast('Draft kit deleted.', 'success')
+        setDeleteTarget(null)
+      },
+      onError: (err) => {
+        addToast(getErrorMessage(err), 'error')
+        setDeleteTarget(null)
+      },
+    })
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -138,36 +161,52 @@ export default function CourseKitListPage() {
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
           {kits.map((kit) => (
-            <button
-              key={kit.id}
-              type="button"
-              className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors group"
-              onClick={() => navigate(`/course-kits/${kit.id}`)}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm font-semibold text-gray-800">
-                      Unit {kit.unit_number} — v{kit.version}
-                    </span>
-                    <CourseKitStatusBadge status={kit.status} />
-                    <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                      {kit.complexity_level}
-                    </span>
-                  </div>
-                  {!syllabusId && (
-                    <p className="text-[11px] font-mono text-gray-400 truncate">
-                      Syllabus: {kit.syllabus_id}
+            <div key={kit.id} className="flex items-center group">
+              <button
+                type="button"
+                className="flex-1 text-left px-5 py-4 hover:bg-gray-50 transition-colors"
+                onClick={() => navigate(`/course-kits/${kit.id}`)}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-semibold text-gray-800">
+                        Unit {kit.unit_number} — v{kit.version}
+                      </span>
+                      <CourseKitStatusBadge status={kit.status} />
+                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                        {kit.complexity_level}
+                      </span>
+                    </div>
+                    {!syllabusId && (
+                      <p className="text-[11px] font-mono text-gray-400 truncate">
+                        Syllabus: {kit.syllabus_id}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-400">
+                      Created {new Date(kit.created_at).toLocaleDateString()}
+                      {kit.published_at && ` · Published ${new Date(kit.published_at).toLocaleDateString()}`}
                     </p>
-                  )}
-                  <p className="text-xs text-gray-400">
-                    Created {new Date(kit.created_at).toLocaleDateString()}
-                    {kit.published_at && ` · Published ${new Date(kit.published_at).toLocaleDateString()}`}
-                  </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
                 </div>
-                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
-              </div>
-            </button>
+              </button>
+
+              {/* Delete button — DRAFT only, FACULTY/ADMIN only */}
+              {canDelete && kit.status === 'DRAFT' && (
+                <button
+                  type="button"
+                  title="Delete draft"
+                  className="px-3 py-4 text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleteTarget(kit.id)
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -186,6 +225,35 @@ export default function CourseKitListPage() {
           syllabusId={syllabusId}
         />
       )}
+
+      {/* ── Delete confirmation dialog ── */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Draft Kit?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 pt-1">
+            This draft course kit will be permanently deleted. This cannot be undone.
+            Only DRAFT kits can be deleted.
+          </p>
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleteKit.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleteKit.isPending}
+            >
+              {deleteKit.isPending ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

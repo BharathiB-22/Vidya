@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Palette, Save, CheckCircle2, Info, AlertCircle } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Palette, Save, CheckCircle2, Info, AlertCircle, Upload, Image } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/lib/auth'
@@ -97,7 +97,9 @@ export default function SettingsBrandingPage() {
   const [secondaryColor, setSecondaryColor] = useState(branding.accentColor)
   const [saved,          setSaved]          = useState(false)
   const [saving,         setSaving]         = useState(false)
+  const [uploading,      setUploading]      = useState(false)
   const [error,          setError]          = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Sync form fields when the branding context updates (e.g. after fetchBranding on login)
   useEffect(() => {
@@ -123,6 +125,28 @@ export default function SettingsBrandingPage() {
       setError(getErrorMessage(err))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError('')
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('logo', file)
+      const res = await api.post<{ logo_url?: string }>('/auth/branding/logo', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      const newUrl = res.data.logo_url ?? ''
+      setLogoUrl(newUrl)
+      await fetchBranding()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
@@ -190,22 +214,54 @@ export default function SettingsBrandingPage() {
             </div>
 
             {/* Logo */}
-            <div className="space-y-1">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Institution Logo</h2>
-              <label className="block text-sm font-medium text-gray-700" htmlFor="logo-url">
-                Logo URL
-              </label>
-              <Input
-                id="logo-url"
-                type="url"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://your-university.edu/logo.png"
-              />
-              <p className="text-xs text-gray-400">
-                PNG or SVG recommended · Appears in the sidebar header for all users of your institution.
-                Direct upload coming soon — for now, host your logo and paste the URL.
-              </p>
+            <div className="space-y-2">
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Institution Logo</h2>
+
+              <div className="flex items-center gap-3">
+                {/* Preview */}
+                <div className="w-14 h-14 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1"
+                         onError={() => setLogoUrl('')} />
+                  ) : (
+                    <Image className="h-6 w-6 text-gray-300" />
+                  )}
+                </div>
+
+                {/* Upload button */}
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+                    className="hidden"
+                    onChange={handleLogoUpload}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="gap-1.5"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {uploading ? 'Uploading…' : logoUrl ? 'Replace logo' : 'Upload logo'}
+                  </Button>
+                  <p className="text-xs text-gray-400 mt-1">
+                    PNG, JPG, or SVG · Max 2 MB · Stored securely in your institution's workspace.
+                  </p>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setLogoUrl('')}
+                      className="text-xs text-red-500 hover:underline mt-0.5"
+                    >
+                      Remove logo
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Colors */}

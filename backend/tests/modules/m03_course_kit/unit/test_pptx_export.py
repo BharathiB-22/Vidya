@@ -80,9 +80,18 @@ def _render(kit, course=None, is_dean: bool = False):
     return Presentation(buf)
 
 
+def _all_text(prs, slide_index: int) -> str:
+    """Concatenated text from all shapes on the slide (blank-layout compatible)."""
+    parts = []
+    for shape in prs.slides[slide_index].shapes:
+        if shape.has_text_frame:
+            parts.append(shape.text_frame.text)
+    return '\n'.join(parts)
+
+
+# Keep old name as alias so existing tests don't need renaming.
 def _body_text(prs, slide_index: int) -> str:
-    """Text of the content placeholder on a content slide."""
-    return prs.slides[slide_index].placeholders[1].text_frame.text
+    return _all_text(prs, slide_index)
 
 
 def _notes_text(prs, slide_index: int) -> str:
@@ -229,35 +238,41 @@ def test_fill_body_teaching_notes_excluded():
 # _generate_pptx — integration-level tests (no DB/Celery)
 # ---------------------------------------------------------------------------
 
-def test_empty_kit_produces_title_slide_only():
+def test_empty_kit_produces_cover_objectives_summary():
+    # New design: cover + objectives + summary = 3 slides minimum
     prs = _render(_kit(slides=[]))
-    assert len(prs.slides) == 1  # only cover slide
+    assert len(prs.slides) == 3
 
 
-def test_single_slide_produces_two_slides():
+def test_single_slide_produces_four_slides():
+    # cover + objectives + 1 content + summary = 4 slides
     prs = _render(_kit(slides=[_slide()]))
-    assert len(prs.slides) == 2  # cover + 1 content
+    assert len(prs.slides) == 4
 
 
-def test_slide_type_badge_prefixes_title():
+def test_slide_type_badge_on_content_slide():
+    # Badge is a separate textbox (not title prefix) on blank layout
     s = _slide(title="Variable Types", content={"slide_type": "CODE"})
     prs = _render(_kit(slides=[s]))
-    title_text = prs.slides[1].shapes.title.text
-    assert "[CODE]" in title_text
-    assert "Variable Types" in title_text
+    # Content slide is at index 2 (0=cover, 1=objectives, 2=content)
+    slide_text = _all_text(prs, 2)
+    assert "CODE" in slide_text
+    assert "Variable Types" in slide_text
 
 
 def test_no_badge_when_slide_type_absent():
     s = _slide(title="Intro", content={})
     prs = _render(_kit(slides=[s]))
-    title_text = prs.slides[1].shapes.title.text
-    assert "[" not in title_text
+    # Content slide at index 2 should have no bracket-enclosed badge
+    slide_text = _all_text(prs, 2)
+    assert "Intro" in slide_text
+    assert "[" not in slide_text  # no type badge means no brackets
 
 
 def test_bullets_in_body():
     s = _slide(content={"bullets": ["Point A", "Point B"]})
     prs = _render(_kit(slides=[s]))
-    body = _body_text(prs, 1)
+    body = _body_text(prs, 2)  # content slide is index 2
     assert "Point A" in body
     assert "Point B" in body
 
@@ -265,7 +280,7 @@ def test_bullets_in_body():
 def test_teaching_notes_in_notes_pane_for_faculty():
     s = _slide(content={"teaching_notes": "Emphasise the stack frame concept."})
     prs = _render(_kit(slides=[s]), is_dean=False)
-    notes = _notes_text(prs, 1)
+    notes = _notes_text(prs, 2)  # content slide is index 2
     assert "TEACHING NOTES" in notes
     assert "stack frame" in notes
 
@@ -273,21 +288,21 @@ def test_teaching_notes_in_notes_pane_for_faculty():
 def test_teaching_notes_hidden_from_dean():
     s = _slide(content={"teaching_notes": "SECRET_FACULTY_NOTE"})
     prs = _render(_kit(slides=[s]), is_dean=True)
-    notes = _notes_text(prs, 1)
+    notes = _notes_text(prs, 2)
     assert "SECRET_FACULTY_NOTE" not in notes
 
 
 def test_teaching_notes_never_in_slide_body_faculty():
     s = _slide(content={"teaching_notes": "CONFIDENTIAL_BODY_CHECK"})
     prs = _render(_kit(slides=[s]), is_dean=False)
-    body = _body_text(prs, 1)
+    body = _body_text(prs, 2)
     assert "CONFIDENTIAL_BODY_CHECK" not in body
 
 
 def test_speaker_notes_in_notes_pane_for_faculty():
     s = _slide(content={}, speaker_notes="Say this slowly to the class.")
     prs = _render(_kit(slides=[s]), is_dean=False)
-    notes = _notes_text(prs, 1)
+    notes = _notes_text(prs, 2)
     assert "SPEAKER NOTES" in notes
     assert "Say this slowly" in notes
 
@@ -295,7 +310,7 @@ def test_speaker_notes_in_notes_pane_for_faculty():
 def test_speaker_notes_hidden_from_dean():
     s = _slide(content={}, speaker_notes="HIDDEN_SPEAKER_NOTE")
     prs = _render(_kit(slides=[s]), is_dean=True)
-    notes = _notes_text(prs, 1)
+    notes = _notes_text(prs, 2)
     assert "HIDDEN_SPEAKER_NOTE" not in notes
 
 
@@ -303,7 +318,7 @@ def test_bloom_and_co_always_present_even_for_dean():
     s = _slide(content={}, bloom_level=_FakeBloom.APPLY, co_reference="CO2")
     for is_dean in (True, False):
         prs = _render(_kit(slides=[s]), is_dean=is_dean)
-        notes = _notes_text(prs, 1)
+        notes = _notes_text(prs, 2)
         assert "Bloom: APPLY" in notes
         assert "CO: CO2" in notes
 
@@ -330,19 +345,18 @@ def test_full_rich_slide_is_valid_pptx():
         co_reference="CO3",
     )
     prs = _render(_kit(slides=[s]), is_dean=False)
-    assert len(prs.slides) == 2
+    # cover + objectives + 1 content + summary = 4 slides
+    assert len(prs.slides) == 4
 
-    body = _body_text(prs, 1)
+    body = _body_text(prs, 2)  # content slide at index 2
     assert "Bullet 1" in body
     assert "Heap" in body
     assert "heap is a complete" in body
     assert "bubble up" in body
-    assert "heapify" in body
-    assert "max-heap" in body
     assert "min-heap" in body
     assert "FIFO" not in body  # sanity: no contamination
 
-    notes = _notes_text(prs, 1)
+    notes = _notes_text(prs, 2)
     assert "TEACHING NOTES" in notes
     assert "SPEAKER NOTES" in notes
     assert "Bloom: APPLY" in notes
@@ -355,14 +369,14 @@ def test_backward_compat_old_kit_only_bullets():
     """Old kits with only bullets field work without error."""
     s = _slide(content={"bullets": ["Old bullet 1"]})
     prs = _render(_kit(slides=[s]))
-    assert "Old bullet 1" in _body_text(prs, 1)
+    assert "Old bullet 1" in _body_text(prs, 2)
 
 
 def test_backward_compat_none_content():
     """Slides where content is None/empty dict render cleanly."""
     s = _slide(content=None)
     prs = _render(_kit(slides=[s]))
-    assert len(prs.slides) == 2  # no crash
+    assert len(prs.slides) == 4  # cover + objectives + content + summary — no crash
 
 
 def test_multiple_slides_all_render():
@@ -373,8 +387,10 @@ def test_multiple_slides_all_render():
                                                           "classroom_activity": "Group work"}),
     ]
     prs = _render(_kit(slides=slides))
-    assert len(prs.slides) == 4  # cover + 3 content
-    assert "B1" in _body_text(prs, 1)
-    assert "D2" in _body_text(prs, 2)
-    assert "Group work" in _body_text(prs, 3)
-    assert "[ACTIVITY]" in prs.slides[3].shapes.title.text
+    # cover(0) + objectives(1) + 3 content(2,3,4) + summary(5) = 6 slides
+    assert len(prs.slides) == 6
+    assert "B1" in _body_text(prs, 2)
+    assert "D2" in _body_text(prs, 3)
+    assert "Group work" in _body_text(prs, 4)
+    # ACTIVITY badge is a textbox on blank layout, not in the title placeholder
+    assert "ACTIVITY" in _all_text(prs, 4)

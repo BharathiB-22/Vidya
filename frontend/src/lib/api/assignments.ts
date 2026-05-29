@@ -1,0 +1,88 @@
+import api from '@/lib/api'
+
+export type CourseRoleInCourse = 'PRIMARY' | 'CO_FACULTY' | 'GUEST'
+
+export interface CourseInfo {
+  id: string
+  code: string
+  title: string
+}
+
+export interface SemesterInfo {
+  id: string
+  number: number
+  label: string | null
+}
+
+export interface FacultyInfo {
+  id: string
+  full_name: string
+  email: string
+}
+
+export interface Assignment {
+  id: string
+  course_id: string
+  faculty_user_id: string
+  semester_id: string
+  assigned_by_user_id: string
+  assigned_at: string
+  is_active: boolean
+  role_in_course: CourseRoleInCourse
+  revoked_at: string | null
+  revoked_by_user_id: string | null
+  course: CourseInfo | null
+  semester: SemesterInfo | null
+  faculty: FacultyInfo | null
+}
+
+export interface AssignmentListResponse {
+  total: number
+  items: Assignment[]
+}
+
+export interface CreateAssignmentPayload {
+  course_id: string
+  faculty_user_id: string
+  semester_id: string
+  role_in_course: CourseRoleInCourse
+}
+
+const B = '/course-assignments'
+
+export const assignmentsApi = {
+  create: (payload: CreateAssignmentPayload) =>
+    api.post<Assignment>(B, payload).then(r => r.data),
+
+  revoke: (assignmentId: string) =>
+    api.post<Assignment>(`${B}/${assignmentId}/revoke`, {}).then(r => r.data),
+
+  listByCourse: (courseId: string, semesterId?: string, includeInactive = false) =>
+    api
+      .get<AssignmentListResponse>(B, {
+        params: {
+          course_id: courseId,
+          semester_id: semesterId || undefined,
+          include_inactive: includeInactive,
+        },
+      })
+      .then(r => r.data),
+
+  listMine: (includeInactive = false) =>
+    api
+      .get<AssignmentListResponse>(`${B}/mine`, {
+        params: { include_inactive: includeInactive },
+      })
+      .then(r => r.data),
+
+  listAll: (semesterId?: string, includeInactive = false) =>
+    api
+      .get<AssignmentListResponse>(B, {
+        params: {
+          semester_id:      semesterId || undefined,
+          include_inactive: includeInactive,
+          page_size:        500,
+        },
+      })
+      .then(r => r.data),
+}

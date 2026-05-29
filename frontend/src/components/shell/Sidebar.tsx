@@ -3,7 +3,7 @@ import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
-  Building2, Calendar, CalendarRange, LayoutList,
+  Building2, Calendar, CalendarRange, LayoutList, UserCheck,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -73,11 +73,19 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Academic Structure',
     items: [
-      { label: 'Departments', to: '/academics/departments', icon: Building2,     roles: ['ADMIN'] },
-      { label: 'Programs',    to: '/academics/programs',    icon: GraduationCap, roles: ['ADMIN'] },
-      { label: 'Batches',     to: '/academics/batches',     icon: CalendarRange, roles: ['ADMIN'] },
-      { label: 'Semesters',   to: '/academics/semesters',   icon: Calendar,      roles: ['ADMIN'] },
-      { label: 'Sections',    to: '/academics/sections',    icon: LayoutList,    roles: ['ADMIN'] },
+      { label: 'Departments',        to: '/academics/departments', icon: Building2,     roles: ['ADMIN'] },
+      { label: 'Programs',           to: '/academics/programs',    icon: GraduationCap, roles: ['ADMIN'] },
+      { label: 'Batches',            to: '/academics/batches',     icon: CalendarRange, roles: ['ADMIN'] },
+      { label: 'Semesters',          to: '/academics/semesters',   icon: Calendar,      roles: ['ADMIN'] },
+      { label: 'Sections',           to: '/academics/sections',    icon: LayoutList,    roles: ['ADMIN'] },
+      { label: 'Course Assignments', to: '/course-assignments', icon: UserCheck,     roles: ['DEAN', 'ADMIN'] },
+      { label: 'Review Dashboard',   to: '/dean-review',        icon: ClipboardCheck, roles: ['DEAN', 'ADMIN'] },
+    ],
+  },
+  {
+    heading: 'My Teaching',
+    items: [
+      { label: 'My Courses', to: '/my-courses', icon: BookOpen, roles: ['FACULTY'] },
     ],
   },
   {

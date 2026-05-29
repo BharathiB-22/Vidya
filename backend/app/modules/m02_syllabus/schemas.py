@@ -276,6 +276,27 @@ class SyllabusListResponse(BaseModel):
     items:     list[SyllabusResponse]
 
 
+class SyllabusDeanItem(BaseModel):
+    """Enriched row for the Dean review dashboard — joins course + faculty info."""
+    id:               UUID
+    status:           SyllabusStatus
+    version:          int
+    course_id:        UUID
+    course_code:      str
+    course_title:     str
+    faculty_name:     Optional[str]
+    faculty_email:    Optional[str]
+    unit_count:       int
+    co_count:         int
+    created_at:       datetime
+    updated_at:       Optional[datetime]
+
+
+class SyllabusDeanOverviewResponse(BaseModel):
+    total: int
+    items: list[SyllabusDeanItem]
+
+
 class SyllabusVersionResponse(BaseModel):
     """Lightweight row for version history list."""
     model_config = {"from_attributes": True}

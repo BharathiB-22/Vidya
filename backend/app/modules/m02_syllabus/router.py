@@ -43,6 +43,8 @@ from app.modules.m02_syllabus.schemas import (
     SyllabusCreate,
     SyllabusDetail,
     SyllabusExportJobResponse,
+    SyllabusDeanItem,
+    SyllabusDeanOverviewResponse,
     SyllabusListResponse,
     SyllabusReferenceCreate,
     SyllabusReferenceResponse,
@@ -150,6 +152,96 @@ async def list_syllabi(
         page_size=page_size,
         items=[SyllabusResponse.model_validate(s) for s in items],
     )
+
+
+@router.get("/dean-overview", response_model=SyllabusDeanOverviewResponse)
+async def dean_overview(
+    status: list[str] = Query(
+        default=["PENDING_REVIEW", "DEAN_APPROVED", "DEAN_LOCKED"],
+        description="Status filter (multi-value). Default: pending + approved + locked.",
+    ),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN, TenantRole.ADMIN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> SyllabusDeanOverviewResponse:
+    """Return enriched syllabus rows for the Dean review dashboard.
+
+    Joins course code/title + faculty name from the tenant users table.
+    """
+    from sqlalchemy import text, func, select
+    from app.modules.m02_syllabus.models import Syllabus, CourseOutcome, SyllabusUnit
+    from app.modules.m01_program_advisor.models import Course
+
+    offset = (page - 1) * page_size
+
+    # Base query: syllabuses filtered by status
+    stmt = (
+        select(Syllabus)
+        .where(Syllabus.status.in_(status))
+        .order_by(Syllabus.updated_at.desc().nullslast(), Syllabus.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    result = await db.execute(stmt)
+    syllabuses = result.scalars().all()
+
+    count_stmt = select(func.count(Syllabus.id)).where(Syllabus.status.in_(status))
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    if not syllabuses:
+        return SyllabusDeanOverviewResponse(total=total, items=[])
+
+    # Bulk-fetch courses
+    course_ids = list({s.course_id for s in syllabuses})
+    courses_result = await db.execute(select(Course).where(Course.id.in_(course_ids)))
+    course_map = {c.id: c for c in courses_result.scalars().all()}
+
+    # Bulk-fetch faculty names from tenant users table
+    user_ids = list({str(s.created_by_user_id) for s in syllabuses})
+    user_rows = (await db.execute(
+        text("SELECT id::text, full_name, email FROM users WHERE id = ANY(:ids)"),
+        {"ids": user_ids},
+    )).mappings().all()
+    user_map = {r["id"]: r for r in user_rows}
+
+    # Bulk-fetch unit counts
+    unit_counts_result = await db.execute(
+        select(SyllabusUnit.syllabus_id, func.count(SyllabusUnit.id).label("cnt"))
+        .where(SyllabusUnit.syllabus_id.in_([s.id for s in syllabuses]))
+        .group_by(SyllabusUnit.syllabus_id)
+    )
+    unit_count_map = {row.syllabus_id: row.cnt for row in unit_counts_result}
+
+    # Bulk-fetch CO counts
+    co_counts_result = await db.execute(
+        select(CourseOutcome.syllabus_id, func.count(CourseOutcome.id).label("cnt"))
+        .where(CourseOutcome.syllabus_id.in_([s.id for s in syllabuses]))
+        .group_by(CourseOutcome.syllabus_id)
+    )
+    co_count_map = {row.syllabus_id: row.cnt for row in co_counts_result}
+
+    items = []
+    for s in syllabuses:
+        course = course_map.get(s.course_id)
+        u_id = str(s.created_by_user_id)
+        user = user_map.get(u_id, {})
+        items.append(SyllabusDeanItem(
+            id=s.id,
+            status=s.status,
+            version=s.version,
+            course_id=s.course_id,
+            course_code=course.code if course else "—",
+            course_title=course.title if course else "Unknown Course",
+            faculty_name=user.get("full_name"),
+            faculty_email=user.get("email"),
+            unit_count=unit_count_map.get(s.id, 0),
+            co_count=co_count_map.get(s.id, 0),
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+        ))
+
+    return SyllabusDeanOverviewResponse(total=total, items=items)
 
 
 @router.get("/{syllabus_id}", response_model=SyllabusDetail)
