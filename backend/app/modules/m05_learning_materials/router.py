@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -282,6 +282,64 @@ async def remove_item(
         metadata={"package_id": str(package_id)},
     )
     return {"status": "removed"}
+
+
+# ===========================================================================
+# Faculty note upload (PDF / TXT / DOCX)
+# ===========================================================================
+
+@router.post("/{package_id}/notes", response_model=PackageItemResponse, status_code=201)
+@limiter.limit("10/minute")
+async def upload_faculty_note(
+    request: Request,
+    package_id: UUID,
+    file: UploadFile = File(..., description="PDF, plain-text, or DOCX file (max 20 MB)"),
+    title: str | None = Form(default=None, description="Override display title (defaults to filename)"),
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> PackageItemResponse:
+    """Upload a faculty note file and add it as a FACULTY_NOTE item.
+
+    The server extracts text from PDF / TXT / DOCX and stores the result in the
+    package item's metadata so it can be indexed by the RAG pipeline.
+    The raw file is also stored in S3/MinIO (best-effort; not required for Q&A).
+
+    RBAC: ADMIN, FACULTY only.
+    """
+    file_bytes = await file.read()
+    content_type = file.content_type or "application/octet-stream"
+    filename = file.filename or "note"
+
+    try:
+        item = await LearningPackageService.ingest_faculty_note(
+            package_id=package_id,
+            file_bytes=file_bytes,
+            filename=filename,
+            content_type=content_type,
+            title=title,
+            added_by=current_user.user_id,
+            tenant_slug=current_user.schema_name.replace("tenant_", "", 1),
+            db=db,
+        )
+    except PackageServiceError as e:
+        raise _err(e)
+
+    await AuditService.log(
+        AuditEventType.LEARNING_PACKAGE_FACULTY_NOTE_UPLOADED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="PackageItem",
+        target_id=str(item.id),
+        metadata={
+            "package_id":  str(package_id),
+            "filename":    filename,
+            "word_count":  (item.metadata_ or {}).get("word_count", 0),
+            "has_storage": bool((item.metadata_ or {}).get("storage_key")),
+        },
+    )
+    return PackageItemResponse.model_validate(item)
 
 
 @router.patch(

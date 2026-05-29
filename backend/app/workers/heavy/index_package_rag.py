@@ -320,13 +320,22 @@ async def _ensure_collection(qdrant) -> None:
 def _build_index_text(item) -> str:
     """Build searchable text from stored PackageItem fields.
 
-    raw_text is not persisted in the DB; reconstruct from title + abstract_snippet.
+    Priority order for body text:
+      1. extracted_text — set for FACULTY_NOTE uploads (PDF/TXT/DOCX).
+      2. abstract_snippet — set for arXiv and YouTube items.
+    Falls back to title-only when neither is present.
     """
     meta = item.metadata_ or {}
     parts = [item.title]
-    snippet = meta.get("abstract_snippet") or ""
-    if snippet:
-        parts.append(str(snippet))
+
+    extracted_text = meta.get("extracted_text") or ""
+    if extracted_text:
+        parts.append(str(extracted_text))
+    else:
+        snippet = meta.get("abstract_snippet") or ""
+        if snippet:
+            parts.append(str(snippet))
+
     return " ".join(parts)
 
 

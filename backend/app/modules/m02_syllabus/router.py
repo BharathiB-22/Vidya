@@ -13,11 +13,14 @@ Router is pure HTTP glue: deserialise → call service → audit → serialise.
 """
 from __future__ import annotations
 
+import logging
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger("vidya.router.m02")
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
@@ -506,6 +509,36 @@ async def lock_syllabus(
         target_id=str(syllabus_id),
         metadata={"version": syllabus.version, "comment": payload.comment},
     )
+
+    # M05 hook — mark related learning packages OUTDATED when syllabus is locked.
+    # Deferred import avoids circular dependency (M02 ↔ M05).
+    # Non-blocking: a bump failure must not prevent the lock from succeeding.
+    try:
+        from app.modules.m05_learning_materials.service import LearningPackageService
+        outdated_count = await LearningPackageService.on_syllabus_version_bump(
+            syllabus_id, db=db
+        )
+        if outdated_count > 0:
+            logger.info(
+                "m02.lock: %d M05 package(s) marked OUTDATED (syllabus=%s)",
+                outdated_count, syllabus_id,
+            )
+            await AuditService.log(
+                AuditEventType.LEARNING_PACKAGE_OUTDATED_BY_SYLLABUS_BUMP,
+                actor_user_id=current_user.user_id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
+                schema_name=current_user.schema_name,
+                target_entity="Syllabus",
+                target_id=str(syllabus_id),
+                metadata={"outdated_packages": outdated_count, "syllabus_version": syllabus.version},
+            )
+    except Exception as exc:
+        logger.warning(
+            "m02.lock: M05 syllabus bump failed (non-blocking) syllabus=%s: %s",
+            syllabus_id, exc,
+        )
+
     return SyllabusStatusResponse.model_validate(syllabus)
 
 

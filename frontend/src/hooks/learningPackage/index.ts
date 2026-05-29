@@ -12,4 +12,5 @@ export {
   useAddFacultyItem,
   useRemoveItem,
   useToggleRecommendation,
+  useUploadFacultyNote,
 } from './useLearningPackage'

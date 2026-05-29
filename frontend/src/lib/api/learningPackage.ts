@@ -2,6 +2,7 @@ import api from '@/lib/api'
 import type {
   CurationJobResponse,
   FacultyAddItemPayload,
+  FacultyNoteUploadPayload,
   IndexJobResponse,
   JobStatus,
   LearningPackage,
@@ -93,6 +94,19 @@ export async function addFacultyItem(
 
 export async function removeItem(packageId: string, itemId: string): Promise<void> {
   await api.delete(`${BASE}/${packageId}/items/${itemId}`)
+}
+
+export async function uploadFacultyNote(
+  packageId: string,
+  payload: FacultyNoteUploadPayload,
+): Promise<PackageItem> {
+  const form = new FormData()
+  form.append('file', payload.file, payload.file.name)
+  if (payload.title) form.append('title', payload.title)
+  const { data } = await api.post<PackageItem>(`${BASE}/${packageId}/notes`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
 }
 
 export async function toggleRecommendation(

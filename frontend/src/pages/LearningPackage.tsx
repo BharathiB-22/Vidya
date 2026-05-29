@@ -50,6 +50,7 @@ import type {
   MaterialSourceType,
   PackageItem,
 } from '@/types/learningPackage'
+import { SOURCE_ORDER } from '@/types/learningPackage'
 
 // ---------------------------------------------------------------------------
 // Source configuration
@@ -570,10 +571,17 @@ export default function LearningPackagePage() {
   // Always call hooks — show UI conditionally
   const itemActions = useItemActions(packageId)
 
+  // Items sorted: Faculty Notes first, then by source order, then by display_order
+  const sortedItems = [...allItems].sort((a, b) => {
+    const orderDiff =
+      (SOURCE_ORDER[a.source_type] ?? 99) - (SOURCE_ORDER[b.source_type] ?? 99)
+    return orderDiff !== 0 ? orderDiff : a.display_order - b.display_order
+  })
+
   const filteredItems: PackageItem[] =
     sourceFilter === 'ALL'
-      ? allItems
-      : allItems.filter((it) => it.source_type === sourceFilter)
+      ? sortedItems
+      : sortedItems.filter((it) => it.source_type === sourceFilter)
 
   const countBySource = (key: SourceFilter) =>
     key === 'ALL'
@@ -794,17 +802,44 @@ export default function LearningPackagePage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredItems.map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                canModifyItem={canCurate && pkg.status === 'READY'}
-                onStar={() => itemActions.toggle(item)}
-                onRemove={() => itemActions.remove(item.id)}
-                isStar={itemActions.togglingId === item.id}
-                isRemove={itemActions.removingId === item.id}
-              />
-            ))}
+            {filteredItems.map((item, idx) => {
+              const prevItem = filteredItems[idx - 1]
+              const showFacultyHeader =
+                sourceFilter === 'ALL' &&
+                item.source_type === 'FACULTY_NOTE' &&
+                (idx === 0 || prevItem?.source_type !== 'FACULTY_NOTE')
+              const showDivider =
+                sourceFilter === 'ALL' &&
+                item.source_type !== 'FACULTY_NOTE' &&
+                prevItem?.source_type === 'FACULTY_NOTE'
+              return (
+                <div key={item.id}>
+                  {showFacultyHeader && (
+                    <div className="flex items-center gap-2 mb-2 mt-1">
+                      <BookOpen className="h-4 w-4 text-blue-600 shrink-0" />
+                      <span className="text-sm font-semibold text-blue-800">Faculty Notes</span>
+                      <div className="flex-1 h-px bg-blue-100" />
+                    </div>
+                  )}
+                  {showDivider && (
+                    <div className="flex items-center gap-2 my-3">
+                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                        Additional Resources
+                      </span>
+                      <div className="flex-1 h-px bg-gray-100" />
+                    </div>
+                  )}
+                  <ItemCard
+                    item={item}
+                    canModifyItem={canCurate && pkg.status === 'READY'}
+                    onStar={() => itemActions.toggle(item)}
+                    onRemove={() => itemActions.remove(item.id)}
+                    isStar={itemActions.togglingId === item.id}
+                    isRemove={itemActions.removingId === item.id}
+                  />
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

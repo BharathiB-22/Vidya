@@ -151,6 +151,11 @@ class Settings(BaseSettings):
             "image/jpeg",
             "image/png",
         ],
+        "faculty_note": [
+            "application/pdf",
+            "text/plain",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ],
     }
 
     @property

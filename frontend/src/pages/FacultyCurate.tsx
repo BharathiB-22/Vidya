@@ -41,6 +41,7 @@ import {
   useToggleRecommendation,
   useTriggerCuration,
   useTriggerIndexing,
+  useUploadFacultyNote,
 } from '@/hooks/learningPackage'
 import type {
   FacultyAddItemPayload,
@@ -366,6 +367,109 @@ function AddItemForm({
 }
 
 // ---------------------------------------------------------------------------
+// Faculty note upload form (PDF / TXT / DOCX)
+// ---------------------------------------------------------------------------
+
+const ACCEPTED_NOTE_TYPES = '.pdf,.txt,.docx,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+function NoteUploadForm({
+  packageId,
+  onClose,
+}: {
+  packageId: string
+  onClose:   () => void
+}) {
+  const uploadMutation = useUploadFacultyNote(packageId)
+  const [file, setFile]       = useState<File | null>(null)
+  const [title, setTitle]     = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null
+    setFile(f)
+    if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, ''))
+    setFormError(null)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!file) { setFormError('Please select a file.'); return }
+    if (file.size > 20 * 1024 * 1024) { setFormError('File must be under 20 MB.'); return }
+    setFormError(null)
+    try {
+      await uploadMutation.mutateAsync({ file, title: title.trim() || undefined })
+      onClose()
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
+        ?.response?.data?.detail
+      const msg =
+        typeof detail === 'object' && detail !== null
+          ? (detail as { message?: string }).message
+          : typeof detail === 'string'
+          ? detail
+          : null
+      setFormError(msg ?? 'Upload failed — please try again.')
+    }
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-xl border border-green-200 bg-green-50/40 px-4 py-4 space-y-3"
+    >
+      <p className="text-sm font-semibold text-gray-800">Upload Faculty Note</p>
+      <p className="text-xs text-gray-500">
+        Accepted: PDF, plain text (.txt), DOCX · Max 20 MB.
+        Text is extracted automatically and indexed for Notebook Q&A.
+      </p>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">
+          File <span className="text-red-400">*</span>
+        </label>
+        <input
+          type="file"
+          accept={ACCEPTED_NOTE_TYPES}
+          onChange={handleFileChange}
+          className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border file:border-gray-200 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-gray-700 hover:file:bg-gray-50"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Display Title</label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title shown to students (defaults to filename)"
+          maxLength={500}
+          className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-sm placeholder-gray-300 outline-none focus:border-green-400 focus:ring-1 focus:ring-green-100"
+        />
+      </div>
+
+      {formError && <p className="text-xs text-red-500">{formError}</p>}
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!file || uploadMutation.isPending}
+          className="gap-1.5"
+        >
+          {uploadMutation.isPending
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : 'Upload Note'
+          }
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Pending item action state: track which itemId is being toggled/removed
 // ---------------------------------------------------------------------------
 
@@ -415,9 +519,10 @@ export default function FacultyCuratePage() {
   const { data: items = [], isLoading: itemsLoading } =
     usePackageItems(packageId)
 
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
-  const [addItemOpen, setAddItemOpen] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [activeJobId, setActiveJobId]     = useState<string | null>(null)
+  const [addItemOpen, setAddItemOpen]     = useState(false)
+  const [uploadNoteOpen, setUploadNoteOpen] = useState(false)
+  const [actionError, setActionError]     = useState<string | null>(null)
 
   const jobQuery   = usePackageJob(activeJobId ?? '')
   const jobData    = jobQuery.data as JobStatus | undefined
@@ -638,19 +743,38 @@ export default function FacultyCuratePage() {
             </span>
           </h2>
           {!isDean && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setAddItemOpen((v) => !v)}
-            >
-              <Plus className="h-4 w-4" />
-              Add Faculty Resource
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => { setUploadNoteOpen((v) => !v); setAddItemOpen(false) }}
+              >
+                <Plus className="h-4 w-4" />
+                Upload Note
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => { setAddItemOpen((v) => !v); setUploadNoteOpen(false) }}
+              >
+                <Plus className="h-4 w-4" />
+                Add URL
+              </Button>
+            </div>
           )}
         </div>
 
-        {/* Add item inline form */}
+        {/* Upload note form */}
+        {uploadNoteOpen && !isDean && (
+          <NoteUploadForm
+            packageId={packageId}
+            onClose={() => setUploadNoteOpen(false)}
+          />
+        )}
+
+        {/* Add URL inline form */}
         {addItemOpen && !isDean && (
           <AddItemForm
             packageId={packageId}

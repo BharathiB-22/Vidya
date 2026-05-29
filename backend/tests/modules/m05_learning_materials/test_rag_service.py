@@ -89,7 +89,10 @@ def _make_mock_message(msg_id: uuid.UUID | None = None) -> MagicMock:
 def _make_mock_qdrant(hits: list[dict] | None = None) -> AsyncMock:
     qdrant = AsyncMock()
     results = [_make_qdrant_result(h) for h in (hits or [])]
-    qdrant.search = AsyncMock(return_value=results)
+    # rag_service uses query_points() (qdrant-client >= 1.7 API)
+    query_response = MagicMock()
+    query_response.points = results
+    qdrant.query_points = AsyncMock(return_value=query_response)
     return qdrant
 
 
@@ -380,7 +383,7 @@ async def test_search_qdrant_applies_tenant_and_package_filters():
             db=AsyncMock(),
         )
 
-    search_call = mock_qdrant.search.call_args
+    search_call = mock_qdrant.query_points.call_args
     assert search_call is not None
 
     filter_obj = search_call.kwargs["query_filter"]
@@ -418,7 +421,7 @@ async def test_search_qdrant_uses_m05_rag_collection():
             db=AsyncMock(),
         )
 
-    assert mock_qdrant.search.call_args.kwargs["collection_name"] == "m05_rag"
+    assert mock_qdrant.query_points.call_args.kwargs["collection_name"] == "m05_rag"
 
 
 @pytest.mark.asyncio

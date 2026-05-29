@@ -184,6 +184,10 @@ async def _run_curation(
                 )
                 await session.flush()
 
+            # Capture user ID before the session closes so the notification
+            # step can use it after the session context exits.
+            created_by_user_id = pkg.created_by_user_id
+
             # Load faculty-added items now so we can preserve them regardless of
             # whether external adapters succeed.
             faculty_items = await PackageItemRepository.list_faculty_added(
@@ -426,6 +430,46 @@ async def _run_curation(
                 "warning":            _result.get("warning"),
             },
         )
+
+        # ------------------------------------------------------------------
+        # 10. Notify the faculty member who triggered curation
+        # ------------------------------------------------------------------
+        try:
+            from app.core.notifications.models import NotificationType
+            from app.core.notifications.service import NotificationService
+            from sqlalchemy.ext.asyncio import AsyncSession as _NotifSession
+
+            items_created = _result["items_created"]
+            faculty_kept  = _result.get("faculty_items_kept", 0)
+            body_parts = [f"Unit {unit_number} learning package is ready."]
+            if items_created:
+                body_parts.append(f"{items_created} AI-curated resource(s) added.")
+            if faculty_kept:
+                body_parts.append(f"{faculty_kept} faculty note(s) preserved.")
+            warning = _result.get("warning")
+            if warning:
+                body_parts.append(f"Note: {warning}")
+
+            async with _NotifSession(engine, expire_on_commit=False) as notif_session:
+                await notif_session.execute(
+                    text(f"SET search_path TO {tenant_schema}, public")
+                )
+                await NotificationService.send(
+                    NotificationType.TASK_COMPLETE,
+                    recipient_user_id=created_by_user_id,
+                    recipient_email=None,
+                    title="Learning Package Ready",
+                    body=" ".join(body_parts),
+                    entity_type="LearningPackage",
+                    entity_id=str(package_id),
+                    db=notif_session,
+                )
+        except Exception as exc:
+            logger.warning(
+                "m05.curate: post-READY notification failed (package=%s): %s",
+                package_id, exc,
+                extra=_log_extra,
+            )
 
         logger.info(
             "m05.curate: complete (items=%d faculty_kept=%d failed_providers=%s)",

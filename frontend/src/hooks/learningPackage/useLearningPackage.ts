@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as lpApi from '@/lib/api/learningPackage'
-import type { FacultyAddItemPayload, LearningPackageListFilters } from '@/types/learningPackage'
+import type { FacultyAddItemPayload, FacultyNoteUploadPayload, LearningPackageListFilters } from '@/types/learningPackage'
 
 // ---------------------------------------------------------------------------
 // Query key factory
@@ -134,6 +134,18 @@ export function useToggleRecommendation(packageId: string) {
       lpApi.toggleRecommendation(packageId, itemId, value),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: learningPackageKeys.items(packageId, false) })
+    },
+  })
+}
+
+export function useUploadFacultyNote(packageId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: FacultyNoteUploadPayload) =>
+      lpApi.uploadFacultyNote(packageId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: learningPackageKeys.items(packageId, false) })
+      qc.invalidateQueries({ queryKey: learningPackageKeys.detail(packageId) })
     },
   })
 }

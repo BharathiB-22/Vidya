@@ -26,7 +26,9 @@ Methods
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import io
 import logging
 from uuid import UUID
 
@@ -129,6 +131,91 @@ def _content_hash(title: str, url: str | None) -> str | None:
     if not url_part and not title_part:
         return None
     return hashlib.sha256(f"{url_part}|{title_part}".encode()).hexdigest()
+
+
+def _extract_text(file_bytes: bytes, content_type: str) -> str:
+    """Extract plain text from PDF, TXT, or DOCX bytes.
+
+    Returns an empty string on any extraction failure (caller raises EMPTY_CONTENT).
+    """
+    if content_type == "text/plain":
+        for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+            try:
+                return file_bytes.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        return file_bytes.decode("utf-8", errors="replace")
+
+    if content_type == "application/pdf":
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(file_bytes))
+            parts: list[str] = []
+            for page in reader.pages:
+                text = page.extract_text() or ""
+                text = text.strip()
+                if text:
+                    parts.append(text)
+            return "\n\n".join(parts)
+        except Exception as exc:
+            logger.warning("m05.service: PDF text extraction failed: %s", exc)
+            return ""
+
+    if content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        try:
+            import docx
+            doc = docx.Document(io.BytesIO(file_bytes))
+            paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+            return "\n".join(paras)
+        except Exception as exc:
+            logger.warning("m05.service: DOCX text extraction failed: %s", exc)
+            return ""
+
+    return ""
+
+
+async def _upload_note_to_s3(
+    *,
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+    tenant_slug: str,
+    package_id: UUID,
+) -> str:
+    """Upload faculty note file to S3/MinIO. Returns the object key.
+
+    Uses asyncio.to_thread so the blocking boto3 call does not stall the event loop.
+    Raises on S3 error — caller decides whether to propagate or swallow.
+    """
+    import uuid as _uuid
+    import boto3
+    from app.config import settings
+
+    safe_name = filename.replace("/", "_").replace("\\", "_")
+    file_uuid = _uuid.uuid4()
+    object_key = (
+        f"vidya-assets/{tenant_slug}/faculty_notes/{package_id}"
+        f"/{file_uuid}-{safe_name}"
+    )
+
+    def _put() -> str:
+        client = boto3.client(
+            "s3",
+            endpoint_url=settings.S3_ENDPOINT,
+            aws_access_key_id=settings.S3_ACCESS_KEY,
+            aws_secret_access_key=settings.S3_SECRET_KEY,
+            region_name=settings.S3_REGION,
+            use_ssl=settings.S3_USE_SSL,
+        )
+        client.put_object(
+            Bucket=settings.S3_BUCKET,
+            Key=object_key,
+            Body=file_bytes,
+            ContentType=content_type,
+        )
+        return object_key
+
+    return await asyncio.to_thread(_put)
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +631,125 @@ class LearningPackageService:
             count, syllabus_id,
         )
         return count
+
+    # =========================================================================
+    # Faculty note upload (PDF / TXT / DOCX)
+    # =========================================================================
+
+    @staticmethod
+    async def ingest_faculty_note(
+        package_id: UUID,
+        file_bytes: bytes,
+        filename: str,
+        content_type: str,
+        title: str | None,
+        added_by: UUID,
+        tenant_slug: str,
+        *,
+        db: AsyncSession,
+    ) -> PackageItem:
+        """Extract text from an uploaded PDF/TXT/DOCX and add as a FACULTY_NOTE item.
+
+        Flow:
+          1. Validate content_type and file size.
+          2. Extract text (pypdf / python-docx / UTF-8 decode).
+          3. Upload raw file to S3 (non-blocking; failure is logged, not raised).
+          4. Dedup by content_hash (title-based for notes).
+          5. Bulk-create one PackageItem with extracted_text in metadata_.
+          6. Increment item_count on the parent package.
+        """
+        _ALLOWED = {
+            "application/pdf",
+            "text/plain",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+        if content_type not in _ALLOWED:
+            raise PackageServiceError(
+                "UNSUPPORTED_FILE_TYPE",
+                f"Content type {content_type!r} is not supported. "
+                "Please upload a PDF, plain-text, or DOCX file.",
+                415,
+            )
+
+        _MAX_BYTES = 20 * 1024 * 1024  # 20 MB
+        if len(file_bytes) > _MAX_BYTES:
+            raise PackageServiceError("FILE_TOO_LARGE", "File exceeds the 20 MB limit.", 413)
+
+        pkg = await _require_mutable(package_id, db=db)
+
+        display_title = (title or "").strip() or filename.rsplit(".", 1)[0]
+
+        extracted_text = _extract_text(file_bytes, content_type)
+        if not extracted_text.strip():
+            raise PackageServiceError(
+                "EMPTY_CONTENT",
+                "No readable text could be extracted from the uploaded file. "
+                "Verify the file is not empty or password-protected.",
+                422,
+            )
+
+        # S3 upload — best-effort; a failure does not block item creation
+        storage_key: str | None = None
+        try:
+            storage_key = await _upload_note_to_s3(
+                file_bytes=file_bytes,
+                filename=filename,
+                content_type=content_type,
+                tenant_slug=tenant_slug,
+                package_id=package_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "m05.service: S3 upload failed for faculty note (package=%s file=%r): %s",
+                package_id, filename, exc,
+            )
+
+        content_hash = _content_hash(display_title, None)
+        if content_hash is not None:
+            if await PackageItemRepository.dedup_hash_exists(package_id, content_hash, db=db):
+                raise PackageServiceError(
+                    "DUPLICATE_ITEM",
+                    "A faculty note with the same title already exists in this package.",
+                    409,
+                )
+
+        word_count = len(extracted_text.split())
+        meta: dict = {
+            "original_filename": filename,
+            "content_type": content_type,
+            "extracted_text": extracted_text,
+            "word_count": word_count,
+        }
+        if storage_key:
+            meta["storage_key"] = storage_key
+
+        display_order = pkg.item_count
+        items = await PackageItemRepository.bulk_create(
+            package_id,
+            [{
+                "source_type":         MaterialSourceType.FACULTY_NOTE,
+                "title":               display_title,
+                "url":                 None,
+                "content_hash":        content_hash,
+                "metadata":            meta,
+                "relevance_score":     None,
+                "display_order":       display_order,
+                "faculty_recommended": True,
+                "added_by_user_id":    added_by,
+            }],
+            db=db,
+        )
+
+        await LearningPackageRepository.update_item_count(
+            package_id, pkg.item_count + 1, db=db
+        )
+        await db.commit()
+
+        logger.info(
+            "m05.service: faculty note ingested (package=%s item=%s words=%d file=%r)",
+            package_id, items[0].id, word_count, filename,
+        )
+        return items[0]
 
     # =========================================================================
     # Job status

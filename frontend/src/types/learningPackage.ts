@@ -154,3 +154,16 @@ export interface FacultyAddItemPayload {
   title:       string
   url?:        string | null
 }
+
+export interface FacultyNoteUploadPayload {
+  file:   File
+  title?: string
+}
+
+export const SOURCE_ORDER: Record<MaterialSourceType, number> = {
+  FACULTY_NOTE: 0,
+  YOUTUBE:      1,
+  NPTEL:        2,
+  MIT_OCW:      3,
+  ARXIV:        4,
+}
