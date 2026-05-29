@@ -1242,6 +1242,89 @@ async def export_answers(
 
 
 # ---------------------------------------------------------------------------
+# Export — PDF question paper (STEP-14)
+# ---------------------------------------------------------------------------
+
+# Statuses where questions are readable (SEALED is excluded — service blocks it)
+_PDF_ALLOWED_STATUSES = {
+    "GENERATED", "SUBMITTED", "BOARD_APPROVED", "BOARD_RETURNED", "RELEASED",
+}
+
+
+@router.get("/{paper_id}/export/pdf")
+async def export_pdf(
+    paper_id:  UUID,
+    set_label: str = Query(default="A", description="Set A or B"),
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Export a print-ready exam paper as a PDF.
+    Role gate: ADMIN / DEAN / FACULTY / BOARD.
+    Status gate: GENERATED or later, except SEALED (questions are inaccessible while sealed).
+    No model answers are included.
+    """
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    db: AsyncSession = db_info["db"]
+    schema: str      = db_info["schema_name"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        paper = await ExamService.get(paper_id, db=db)
+    except ExamServiceError as exc:
+        _raise(exc)
+
+    if paper.status not in _PDF_ALLOWED_STATUSES:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "EXPORT_NOT_ALLOWED",
+                "message": (
+                    f"PDF export is not available for papers with status {paper.status!r}. "
+                    "Paper must be GENERATED or later (SEALED papers are excluded)."
+                ),
+            },
+        )
+
+    questions = await ExamService.get_questions(
+        paper_id, set_label=set_label, include_answers=False, db=db
+    )
+
+    # Optional: look up course for header display
+    course = None
+    try:
+        from sqlalchemy import select
+        from app.modules.m01_program_advisor.models import Course
+        result = await db.execute(select(Course).where(Course.id == paper.course_id))
+        course = result.scalar_one_or_none()
+    except Exception:
+        pass
+
+    from app.modules.m08_exam_setter.pdf_exporter import generate_exam_pdf
+    pdf_bytes = generate_exam_pdf(paper, questions, course=course, set_label=set_label)
+
+    await AuditService.log(
+        AuditEventType.EXAM_PAPER_EXPORT_PDF,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=tenant_id,
+        schema_name=schema,
+        target_entity="exam_paper",
+        target_id=str(paper_id),
+        metadata={"set_label": set_label, "page_count_approx": len(questions)},
+    )
+
+    filename = f"exam_{paper_id}_set{set_label}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Job status polling
 # ---------------------------------------------------------------------------
 

@@ -4,12 +4,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft, CheckCircle2, XCircle, Loader2, AlertTriangle,
-  Lock, Unlock, BookOpen, BarChart2, ChevronDown, ChevronUp,
+  Lock, Unlock, BookOpen, BarChart2, ChevronDown, ChevronUp, FileDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   getExamPaper, listQuestionsWithAnswers, getBloomsReport,
-  boardDecision, sealPaper, releasePaper,
+  boardDecision, sealPaper, releasePaper, exportPdf,
 } from '@/lib/api/exam'
 import { getErrorMessage } from '@/lib/api'
 import type {
@@ -48,6 +48,8 @@ export default function BoardReviewPage() {
   const [releaseAt,     setReleaseAt]     = useState('')
   const [sealError,     setSealError]     = useState<string | null>(null)
   const [releaseError,  setReleaseError]  = useState<string | null>(null)
+  const [pdfLoading,    setPdfLoading]    = useState(false)
+  const [pdfError,      setPdfError]      = useState<string | null>(null)
 
   const { data: paper, isLoading: paperLoading } = useQuery({
     queryKey: ['exam-paper', id],
@@ -297,6 +299,39 @@ export default function BoardReviewPage() {
               {paper.released_at && (
                 <p className="text-xs mt-1 text-emerald-600">
                   Released at: {new Date(paper.released_at).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Export PDF — available when questions are readable */}
+          {['SUBMITTED','BOARD_APPROVED','BOARD_RETURNED','RELEASED'].includes(paper.status) && (
+            <div className="space-y-1">
+              <Button
+                variant="outline"
+                disabled={pdfLoading}
+                onClick={async () => {
+                  setPdfError(null)
+                  setPdfLoading(true)
+                  try {
+                    await exportPdf(id!, setLabel)
+                  } catch (err: unknown) {
+                    setPdfError(err instanceof Error ? err.message : 'PDF export failed.')
+                  } finally {
+                    setPdfLoading(false)
+                  }
+                }}
+                className="w-full gap-2"
+              >
+                {pdfLoading
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <FileDown className="w-4 h-4" />
+                }
+                Export PDF (Set {setLabel})
+              </Button>
+              {pdfError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {pdfError}
                 </p>
               )}
             </div>

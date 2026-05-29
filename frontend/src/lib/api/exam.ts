@@ -141,6 +141,21 @@ export async function exportAnswers(paperId: string, setLabel = 'A') {
   return data
 }
 
+export async function exportPdf(paperId: string, setLabel = 'A'): Promise<void> {
+  const response = await api.get(`${BASE}/${paperId}/export/pdf`, {
+    params: { set_label: setLabel },
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(response.data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `exam_${paperId}_set${setLabel}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 // ---- H-35: Faculty approve (INTERNAL workflow) ----
 
 export async function facultyApprovePaper(paperId: string): Promise<{ paper_id: string; status: string }> {
