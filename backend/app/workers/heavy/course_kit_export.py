@@ -310,6 +310,11 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
     H = prs.slide_height = Inches(7.5)
     BLANK = prs.slide_layouts[6]
 
+    def _clear_placeholders(slide) -> None:
+        for ph in list(slide.placeholders):
+            sp = ph._element
+            sp.getparent().remove(sp)
+
     # â”€â”€ Low-level helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _bg(slide, c: RGBColor):
@@ -373,6 +378,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
 
     # â”€â”€ 1. COVER SLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     sl = prs.slides.add_slide(BLANK)
+    _clear_placeholders(sl)
     _bg(sl, _NAV)
     _rect(sl, 0, 0, Inches(0.22), H, _ACC)     # left accent strip
 
@@ -413,6 +419,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
 
     # â”€â”€ 2. OBJECTIVES SLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     sl = prs.slides.add_slide(BLANK)
+    _clear_placeholders(sl)
     _bg(sl, _WHT)
     _header(sl, f"Unit {kit.unit_number} â€” Objectives & Schedule",
             subtitle=f'{course.code}: {course.title}')
@@ -454,6 +461,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
     # â”€â”€ 3. CONTENT SLIDES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     for ks in slides_sorted:
         sl = prs.slides.add_slide(BLANK)
+        _clear_placeholders(sl)
         _bg(sl, _WHT)
 
         content  = ks.content or {}
@@ -557,6 +565,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
     # â”€â”€ 4. TEACHING PLAN TABLE SLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if tp:
         sl = prs.slides.add_slide(BLANK)
+        _clear_placeholders(sl)
         _bg(sl, _WHT)
         _header(sl, 'Weekly Teaching Plan',
                 subtitle=f'{course.code} â€” Unit {kit.unit_number}')
@@ -576,6 +585,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
 
     # â”€â”€ 5. SUMMARY SLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     sl = prs.slides.add_slide(BLANK)
+    _clear_placeholders(sl)
     _bg(sl, _WHT)
     _header(sl, 'Unit Summary â€” Key Takeaways',
             subtitle=f'{course.code} â€” Unit {kit.unit_number}', color=_GRN)
@@ -599,6 +609,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
     resources = kit.resources or []
     if resources:
         sl = prs.slides.add_slide(BLANK)
+        _clear_placeholders(sl)
         _bg(sl, _WHT)
         _header(sl, 'Teaching Resources & References',
                 subtitle='Supplemental materials for faculty', color=_TEAL)

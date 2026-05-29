@@ -16,7 +16,7 @@ import api from '@/lib/api'
 
 type SyllabusStatus =
   | 'DRAFT' | 'AI_GENERATING' | 'PENDING_REVIEW'
-  | 'DEAN_APPROVED' | 'DEAN_LOCKED' | 'REJECTED'
+  | 'DEAN_APPROVED' | 'DEAN_LOCKED'
 
 interface DeanItem {
   id:            string
@@ -46,7 +46,6 @@ const STATUS_LABELS: Record<SyllabusStatus, string> = {
   PENDING_REVIEW: 'Pending Review',
   DEAN_APPROVED:  'Approved',
   DEAN_LOCKED:    'Locked',
-  REJECTED:       'Rejected',
 }
 
 const STATUS_CLASSES: Record<SyllabusStatus, string> = {
@@ -55,10 +54,9 @@ const STATUS_CLASSES: Record<SyllabusStatus, string> = {
   PENDING_REVIEW: 'bg-orange-100 text-orange-700',
   DEAN_APPROVED:  'bg-green-100 text-green-700',
   DEAN_LOCKED:    'bg-blue-100 text-blue-700',
-  REJECTED:       'bg-red-100 text-red-600',
 }
 
-const ALL_STATUSES = ['PENDING_REVIEW', 'DEAN_APPROVED', 'DEAN_LOCKED', 'DRAFT', 'REJECTED']
+const ALL_STATUSES: SyllabusStatus[] = ['PENDING_REVIEW', 'DEAN_APPROVED', 'DEAN_LOCKED', 'DRAFT', 'AI_GENERATING']
 
 function StatusBadge({ status }: { status: SyllabusStatus }) {
   return (
@@ -79,13 +77,13 @@ function fmt(dt: string | null | undefined) {
 export default function DeanReviewPage() {
   const navigate = useNavigate()
   const [search,        setSearch]        = useState('')
-  const [statusFilter,  setStatusFilter]  = useState<string[]>(['PENDING_REVIEW'])
+  const [statusFilter,  setStatusFilter]  = useState<SyllabusStatus[]>(['PENDING_REVIEW'])
 
   const { data, isLoading, refetch, isFetching } = useQuery<DeanOverviewResponse>({
     queryKey: ['dean-overview', statusFilter],
     queryFn:  () =>
       api
-        .get('/syllabuses/dean-overview', {
+        .get('/syllabi/dean-overview', {
           params: { status: statusFilter, page: 1, page_size: 200 },
           paramsSerializer: (p) =>
             Object.entries(p).flatMap(([k, v]) =>
@@ -146,7 +144,7 @@ export default function DeanReviewPage() {
                   : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
               }`}
             >
-              {STATUS_LABELS[s as SyllabusStatus]}
+              {STATUS_LABELS[s]}
             </button>
           ))}
         </div>

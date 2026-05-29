@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, AlertTriangle } from 'lucide-react'
+import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
+  EditProgramDialog,
+  DeleteProgramDialog,
   GenerateDialog,
   ApproveDialog,
   RejectDialog,
@@ -14,7 +16,10 @@ import {
   useRejectProgram,
   useExportProgram,
   useForkProgram,
+  useUpdateProgram,
+  useDeleteProgram,
 } from '@/hooks/programs'
+import { addToast } from '@/hooks/useToast'
 import type { Program } from '@/types/program'
 
 const WRITE_ROLES = ['ADMIN', 'DEAN']
@@ -31,32 +36,58 @@ export function ActionBar({ program }: Props) {
   const canApprove = APPROVE_ROLES.includes(role)
 
   const [generateOpen, setGenerateOpen] = useState(false)
-  const [approveOpen, setApproveOpen] = useState(false)
-  const [rejectOpen, setRejectOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
+  const [approveOpen,  setApproveOpen]  = useState(false)
+  const [rejectOpen,   setRejectOpen]   = useState(false)
+  const [exportOpen,   setExportOpen]   = useState(false)
+  const [editOpen,     setEditOpen]     = useState(false)
+  const [deleteOpen,   setDeleteOpen]   = useState(false)
 
   const generate = useGenerateProgram(program.id)
-  const approve = useApproveProgram()
-  const reject = useRejectProgram()
+  const approve  = useApproveProgram()
+  const reject   = useRejectProgram()
   const exportJob = useExportProgram()
-  const fork = useForkProgram()
+  const fork     = useForkProgram()
+  const update   = useUpdateProgram()
+  const del      = useDeleteProgram()
 
   async function handleFork() {
     const forked = await fork.mutateAsync(program.id)
     navigate(`/programs/${forked.id}`)
   }
 
+  async function handleDelete() {
+    await del.mutateAsync(program.id)
+    addToast('Program deleted.', 'success')
+    navigate('/programs')
+  }
+
   return (
     <div className="flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-      {/* DRAFT */}
+      {/* DRAFT — edit + delete + generate */}
       {program.status === 'DRAFT' && canWrite && (
-        <Button size="sm" onClick={() => setGenerateOpen(true)} disabled={generate.isPending}>
-          <Zap className="h-4 w-4 mr-1" />
-          Generate with AI
-        </Button>
+        <>
+          <Button size="sm" onClick={() => setGenerateOpen(true)} disabled={generate.isPending}>
+            <Zap className="h-4 w-4 mr-1" />
+            Generate with AI
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-red-600 border-red-200 hover:bg-red-50"
+            onClick={() => setDeleteOpen(true)}
+            disabled={del.isPending}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
+        </>
       )}
       {program.status === 'DRAFT' && !canWrite && (
-        <span className="text-sm text-gray-400">No actions available for your role.</span>
+        <span className="text-sm text-gray-400">Awaiting generation by Admin/Dean.</span>
       )}
 
       {/* GENERATION_FAILED */}
@@ -138,6 +169,20 @@ export function ActionBar({ program }: Props) {
       )}
 
       {/* Dialogs */}
+      <EditProgramDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        program={program}
+        onSubmit={(payload) => update.mutate({ id: program.id, payload })}
+        isPending={update.isPending}
+      />
+      <DeleteProgramDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        programTitle={program.title}
+        onConfirm={handleDelete}
+        isPending={del.isPending}
+      />
       <GenerateDialog
         open={generateOpen}
         onOpenChange={setGenerateOpen}
