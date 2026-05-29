@@ -2,6 +2,7 @@ import asyncio
 import io
 import logging
 import re
+import sys
 import uuid as uuid_module
 from uuid import UUID
 
@@ -17,8 +18,11 @@ def _get_async_engine():
     global _async_engine
     if _async_engine is None:
         from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
         from app.config import settings
-        _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        # NullPool: no connection caching between asyncio.run() calls.
+        # Prevents "Future attached to a different loop" on Windows --pool=solo.
+        _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
     return _async_engine
 
 
@@ -46,6 +50,8 @@ def export_program(
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_export(
             program_id=UUID(program_id),
@@ -213,9 +219,10 @@ def _s3_put_object(object_key: str, file_bytes: bytes, content_type: str) -> Non
         region_name=settings.S3_REGION,
         use_ssl=settings.S3_USE_SSL,
     )
+    s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
     client.put_object(
         Bucket=settings.S3_BUCKET,
-        Key=object_key,
+        Key=s3_key,
         Body=file_bytes,
         ContentType=content_type,
     )

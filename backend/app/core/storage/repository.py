@@ -198,11 +198,12 @@ class StorageRepository:
 
         def _gen_put():
             client = StorageRepository._get_s3_client()
+            s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
             url = client.generate_presigned_url(
                 "put_object",
                 Params={
                     "Bucket": settings.S3_BUCKET,
-                    "Key": object_key,
+                    "Key": s3_key,
                     "ContentType": content_type,
                 },
                 ExpiresIn=expires_in_seconds,
@@ -224,11 +225,12 @@ class StorageRepository:
 
         def _gen_get():
             client = StorageRepository._get_s3_client()
+            s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
             url = client.generate_presigned_url(
                 "get_object",
                 Params={
                     "Bucket": settings.S3_BUCKET,
-                    "Key": object_key,
+                    "Key": s3_key,
                 },
                 ExpiresIn=expires_in_seconds,
             )
@@ -246,8 +248,9 @@ class StorageRepository:
 
         def _delete():
             client = StorageRepository._get_s3_client()
+            s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
             try:
-                client.delete_object(Bucket=settings.S3_BUCKET, Key=object_key)
+                client.delete_object(Bucket=settings.S3_BUCKET, Key=s3_key)
             except ClientError as e:
                 if e.response["Error"]["Code"] != "NoSuchKey":
                     raise
@@ -264,8 +267,9 @@ class StorageRepository:
 
         def _check():
             client = StorageRepository._get_s3_client()
+            s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
             try:
-                client.head_object(Bucket=settings.S3_BUCKET, Key=object_key)
+                client.head_object(Bucket=settings.S3_BUCKET, Key=s3_key)
                 return True
             except ClientError as e:
                 if e.response["Error"]["Code"] == "404":

@@ -238,9 +238,10 @@ def _s3_put_object(object_key: str, file_bytes: bytes, content_type: str) -> Non
         region_name=settings.S3_REGION,
         use_ssl=settings.S3_USE_SSL,
     )
+    s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
     client.put_object(
         Bucket=settings.S3_BUCKET,
-        Key=object_key,
+        Key=s3_key,
         Body=file_bytes,
         ContentType=content_type,
     )
