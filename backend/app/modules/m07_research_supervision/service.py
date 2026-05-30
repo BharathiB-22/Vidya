@@ -112,27 +112,29 @@ class ProblemService:
         await db.refresh(problem)
 
         # Dispatch Celery evaluation task
-        from app.database import async_session_public
-        async with async_session_public() as pub_db:
-            job = await TaskJobPublicRepository.create(
-                task_name="app.workers.heavy.evaluate_research_proposal",
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            job_id = await TaskJobPublicRepository.create(
                 tenant_id=tenant_id,
+                task_type="evaluate_research_proposal",
+                queue_name="heavy",
+                payload={"problem_id": str(problem.id), "schema_name": schema_name},
                 db=pub_db,
             )
             await pub_db.commit()
 
-        await ProblemRepository.set_eval_job(problem.id, job_id=job.id, db=db)
+        await ProblemRepository.set_eval_job(problem.id, job_id=job_id, db=db)
         await db.commit()
 
         from app.workers.heavy.evaluate_research_proposal import evaluate_research_proposal
         evaluate_research_proposal.apply_async(
             kwargs={
-                "job_id":     str(job.id),
+                "job_id":     str(job_id),
                 "problem_id": str(problem.id),
                 "schema_name": schema_name,
             }
         )
-        return problem, job.id
+        return problem, job_id
 
     @staticmethod
     async def get(problem_id: UUID, *, db: AsyncSession):
@@ -300,27 +302,29 @@ class DocumentService:
         await db.refresh(doc)
 
         # Dispatch evaluation task
-        from app.database import async_session_public
-        async with async_session_public() as pub_db:
-            job = await TaskJobPublicRepository.create(
-                task_name="app.workers.heavy.evaluate_research_document",
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            job_id = await TaskJobPublicRepository.create(
                 tenant_id=tenant_id,
+                task_type="evaluate_research_document",
+                queue_name="heavy",
+                payload={"document_id": str(doc.id), "schema_name": schema_name},
                 db=pub_db,
             )
             await pub_db.commit()
 
-        await DocumentRepository.set_eval_job(doc.id, job_id=job.id, db=db)
+        await DocumentRepository.set_eval_job(doc.id, job_id=job_id, db=db)
         await db.commit()
 
         from app.workers.heavy.evaluate_research_document import evaluate_research_document
         evaluate_research_document.apply_async(
             kwargs={
-                "job_id":     str(job.id),
+                "job_id":     str(job_id),
                 "document_id": str(doc.id),
                 "schema_name": schema_name,
             }
         )
-        return doc, job.id
+        return doc, job_id
 
     @staticmethod
     async def get(doc_id: UUID, *, db: AsyncSession):
@@ -591,27 +595,29 @@ class VivaService:
         await db.commit()
 
         # Dispatch Celery processing task
-        from app.database import async_session_public
-        async with async_session_public() as pub_db:
-            job = await TaskJobPublicRepository.create(
-                task_name="app.workers.heavy.process_viva_session",
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            job_id = await TaskJobPublicRepository.create(
                 tenant_id=tenant_id,
+                task_type="process_viva_session",
+                queue_name="heavy",
+                payload={"viva_id": str(viva_id), "schema_name": schema_name},
                 db=pub_db,
             )
             await pub_db.commit()
 
-        await VivaRepository.set_eval_job(viva_id, job_id=job.id, db=db)
+        await VivaRepository.set_eval_job(viva_id, job_id=job_id, db=db)
         await db.commit()
 
         from app.workers.heavy.process_viva_session import process_viva_session
         process_viva_session.apply_async(
             kwargs={
-                "job_id":     str(job.id),
+                "job_id":     str(job_id),
                 "viva_id":    str(viva_id),
                 "schema_name": schema_name,
             }
         )
-        return await VivaRepository.get_by_id(viva_id, db=db), job.id
+        return await VivaRepository.get_by_id(viva_id, db=db), job_id
 
     @staticmethod
     async def ratify(

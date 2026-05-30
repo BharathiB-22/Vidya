@@ -503,6 +503,74 @@ class TestCreateStudentProposalValidation:
         assert exc_info.value.code == "DUPLICATE_PROPOSAL"
         assert exc_info.value.status_code == 409
 
+    @pytest.mark.asyncio
+    async def test_successful_proposal_creation_returns_problem_and_job_id(self):
+        """Happy path: valid guide + no duplicate → returns (problem, UUID job_id)."""
+        from uuid import UUID, uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import ProblemService
+        from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
+        from app.core.auth.models import TenantRole
+
+        guide_id = uuid4()
+        fake_job_id = uuid4()
+        fake_problem = MagicMock()
+        fake_problem.id = uuid4()
+
+        payload = ProblemCreate(
+            guide_user_id=str(guide_id),
+            title="Valid Research Title",
+            abstract="A valid abstract.",
+            research_questions=[ResearchQuestion(question="What is the impact?")],
+        )
+
+        fake_guide = MagicMock()
+        fake_guide.role = TenantRole.GUIDE
+        fake_guide.is_active = True
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        guide_result = MagicMock()
+        guide_result.scalar_one_or_none.return_value = fake_guide
+        mock_db.execute.return_value = guide_result
+
+        mock_pub_db = AsyncMock()
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_pub_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session_factory = MagicMock(return_value=mock_session_ctx)
+
+        with patch(
+            "app.modules.m07_research_supervision.service.ProblemRepository.find_active_by_student",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.modules.m07_research_supervision.service.ProblemRepository.create",
+            new=AsyncMock(return_value=fake_problem),
+        ), patch(
+            "app.modules.m07_research_supervision.service.ProblemRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.database.AsyncSessionLocal",
+            mock_session_factory,
+        ), patch(
+            "app.modules.m07_research_supervision.service.TaskJobPublicRepository.create",
+            new=AsyncMock(return_value=fake_job_id),
+        ), patch(
+            "app.workers.heavy.evaluate_research_proposal.evaluate_research_proposal.apply_async",
+            new=MagicMock(),
+        ):
+            problem, job_id = await ProblemService.create_student_proposal(
+                payload,
+                student_user_id=uuid4(),
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+
+        assert problem is fake_problem
+        assert isinstance(job_id, UUID)
+        assert job_id == fake_job_id
+
 
 # ===========================================================================
 # 6 — Celery task wiring

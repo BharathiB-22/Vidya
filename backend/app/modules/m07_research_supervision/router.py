@@ -698,20 +698,22 @@ async def get_job_status(
     ),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
-    from app.database import async_session_public
+    from app.database import AsyncSessionLocal
     from app.modules.m07_research_supervision.repository import TaskJobPublicRepository
 
-    async with async_session_public() as pub_db:
-        job = await TaskJobPublicRepository.get_by_id(job_id, db=pub_db)
+    async with AsyncSessionLocal() as pub_db:
+        job = await TaskJobPublicRepository.get_by_id(
+            job_id, current_user.tenant_id, db=pub_db
+        )
 
     if job is None:
         raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "message": "Job not found."})
 
     return JobStatusResponse(
-        job_id=job.id,
-        status=job.status,
-        result=job.result,
-        error=job.error,
-        created_at=job.created_at,
-        completed_at=job.completed_at,
+        job_id=job["id"],
+        status=job["status"],
+        result=job["result"],
+        error=job["error"],
+        created_at=job["created_at"],
+        completed_at=job["completed_at"],
     )
