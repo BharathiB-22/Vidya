@@ -3450,3 +3450,306 @@ class TestQualityOverride:
         assert "/{script_id}/override-quality" in paths, (
             f"override-quality endpoint not found. Paths: {paths}"
         )
+
+
+# ---------------------------------------------------------------------------
+# H-36 STEP-13 — Script file URL (presigned GET URL for uploaded scan)
+# ---------------------------------------------------------------------------
+
+class TestScriptFileUrlEndpoint:
+    """
+    Covers ScriptService.get_script_file_url() and the router endpoint.
+
+    Authorization matrix:
+      ADMIN  → always allowed
+      BOARD  → always allowed
+      FACULTY → allowed only when evaluator_id or second_evaluator_id matches caller
+    """
+
+    # ------------------------------------------------------------------ schema
+
+    def test_schema_fields_present(self):
+        from app.modules.m09_paper_admin.schemas import ScriptFileUrlResponse
+        r = ScriptFileUrlResponse(url="https://example.com/scan.pdf", expires_in=300)
+        assert r.url == "https://example.com/scan.pdf"
+        assert r.expires_in == 300
+
+    def test_schema_rejects_missing_url(self):
+        import pytest
+        from pydantic import ValidationError
+        from app.modules.m09_paper_admin.schemas import ScriptFileUrlResponse
+        with pytest.raises(ValidationError):
+            ScriptFileUrlResponse(expires_in=300)  # type: ignore[call-arg]
+
+    # ------------------------------------------------------------------ router
+
+    def test_router_has_file_url_endpoint(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = [r.path for r in router.routes]
+        assert "/{script_id}/file-url" in paths, (
+            f"/file-url endpoint not found. Paths: {paths}"
+        )
+
+    def test_router_file_url_is_get(self):
+        from app.modules.m09_paper_admin.router import router
+        for route in router.routes:
+            if hasattr(route, "path") and route.path == "/{script_id}/file-url":
+                assert "GET" in route.methods, "file-url must be GET"
+                return
+        raise AssertionError("/{script_id}/file-url route not found")
+
+    # ------------------------------------------------------------------ service: happy paths
+
+    @pytest.mark.asyncio
+    async def test_admin_gets_url_for_any_script(self):
+        """ADMIN bypasses evaluator check and receives presigned URL."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = uuid4()
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=AsyncMock(return_value="https://minio.example.com/signed"),
+        ):
+            url = await ScriptService.get_script_file_url(
+                uuid4(),
+                caller_user_id=uuid4(),
+                caller_role="ADMIN",
+                db=db,
+            )
+        assert url == "https://minio.example.com/signed"
+
+    @pytest.mark.asyncio
+    async def test_board_gets_url_for_any_script(self):
+        """BOARD bypasses evaluator check and receives presigned URL."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = uuid4()
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=AsyncMock(return_value="https://minio.example.com/signed"),
+        ):
+            url = await ScriptService.get_script_file_url(
+                uuid4(),
+                caller_user_id=uuid4(),
+                caller_role="BOARD",
+                db=db,
+            )
+        assert url == "https://minio.example.com/signed"
+
+    @pytest.mark.asyncio
+    async def test_assigned_evaluator_gets_url(self):
+        """Primary evaluator (FACULTY) receives presigned URL."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        evaluator_id = uuid4()
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = evaluator_id
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=AsyncMock(return_value="https://minio.example.com/signed"),
+        ):
+            url = await ScriptService.get_script_file_url(
+                uuid4(),
+                caller_user_id=evaluator_id,
+                caller_role="FACULTY",
+                db=db,
+            )
+        assert url == "https://minio.example.com/signed"
+
+    @pytest.mark.asyncio
+    async def test_second_evaluator_gets_url(self):
+        """Second evaluator (FACULTY) also receives presigned URL."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        second_id = uuid4()
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = uuid4()
+        script.second_evaluator_id = second_id
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=AsyncMock(return_value="https://minio.example.com/signed"),
+        ):
+            url = await ScriptService.get_script_file_url(
+                uuid4(),
+                caller_user_id=second_id,
+                caller_role="FACULTY",
+                db=db,
+            )
+        assert url == "https://minio.example.com/signed"
+
+    @pytest.mark.asyncio
+    async def test_presigned_url_expiry_forwarded(self):
+        """expires_in parameter is passed through to the storage call."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        evaluator_id = uuid4()
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = evaluator_id
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        storage_mock = AsyncMock(return_value="https://example.com/url")
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=storage_mock,
+        ):
+            await ScriptService.get_script_file_url(
+                uuid4(),
+                caller_user_id=evaluator_id,
+                caller_role="FACULTY",
+                db=db,
+                expires_in=600,
+            )
+        storage_mock.assert_called_once_with(
+            "vidya-assets/scans/test.pdf",
+            expires_in_seconds=600,
+        )
+
+    # ------------------------------------------------------------------ service: error paths
+
+    @pytest.mark.asyncio
+    async def test_no_file_raises_no_file_error(self):
+        """upload_url is None → ScriptServiceError NO_FILE (404)."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+
+        script = MagicMock()
+        script.upload_url          = None
+        script.evaluator_id        = uuid4()
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.get_script_file_url(
+                    uuid4(),
+                    caller_user_id=uuid4(),
+                    caller_role="FACULTY",
+                    db=db,
+                )
+        assert exc_info.value.code == "NO_FILE"
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_non_assigned_faculty_raises_forbidden(self):
+        """FACULTY caller not in evaluator_id/second_evaluator_id → FORBIDDEN (403)."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = uuid4()
+        script.second_evaluator_id = uuid4()
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.get_script_file_url(
+                    uuid4(),
+                    caller_user_id=uuid4(),  # unrelated user
+                    caller_role="FACULTY",
+                    db=db,
+                )
+        assert exc_info.value.code == "FORBIDDEN"
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_admin_not_blocked_even_without_evaluator(self):
+        """ADMIN gets the URL even when evaluator_id is null (unassigned script)."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        script = MagicMock()
+        script.upload_url          = "vidya-assets/scans/test.pdf"
+        script.evaluator_id        = None
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=AsyncMock(return_value="https://example.com/signed"),
+        ):
+            url = await ScriptService.get_script_file_url(
+                uuid4(),
+                caller_user_id=uuid4(),
+                caller_role="ADMIN",
+                db=db,
+            )
+        assert url.startswith("https://")
+
+    @pytest.mark.asyncio
+    async def test_no_file_error_not_raised_for_storage_error(self):
+        """NO_FILE is checked before the storage call is made."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+
+        script = MagicMock()
+        script.upload_url          = None
+        script.evaluator_id        = uuid4()
+        script.second_evaluator_id = None
+
+        db = MagicMock()
+        storage_mock = AsyncMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.core.storage.repository.StorageRepository.generate_presigned_get_url",
+            new=storage_mock,
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.get_script_file_url(
+                    uuid4(),
+                    caller_user_id=uuid4(),
+                    caller_role="ADMIN",
+                    db=db,
+                )
+        assert exc_info.value.code == "NO_FILE"
+        storage_mock.assert_not_called()
