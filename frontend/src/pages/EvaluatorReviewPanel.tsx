@@ -99,6 +99,7 @@ export default function EvaluatorReviewPanel() {
   const [confirmSubmit, setConfirmSubmit] = useState(false)
 
   const { mutate: recommend, isPending: recommending } = useEvaluatorRecommend(sid)
+  const [contextOpen, setContextOpen] = useState(false)
 
   useEffect(() => {
     if (!panel?.submission?.evaluation) return
@@ -133,7 +134,6 @@ export default function EvaluatorReviewPanel() {
   const evaluation = submission.evaluation
   const isRatified = submission.status === 'RATIFIED'
   const isCode = assignment.submission_type === 'CODE'
-  const [contextOpen, setContextOpen] = useState(false)
 
   function handleScoreChange(criterionId: string, score: number | '', note: string) {
     setDraftScores((prev) => ({ ...prev, [criterionId]: { score, note } }))
