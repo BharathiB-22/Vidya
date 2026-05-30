@@ -193,6 +193,53 @@ class ScriptRepository:
         )
 
     @staticmethod
+    async def set_quality_checking(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Called by detect_scan_quality Celery task at task start."""
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                status=ScriptStatus.QUALITY_CHECKING.value,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_quality_result(
+        script_id: UUID,
+        *,
+        quality_score: float,
+        flags: list[dict],
+        passed: bool,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Save scan quality results and advance status.
+        passed=True  → OCR_PROCESSING (STEP-03 task takes over).
+        passed=False → QUALITY_FAILED (admin must re-upload or override).
+        Called ONLY by detect_scan_quality Celery task.
+        """
+        new_status = (
+            ScriptStatus.OCR_PROCESSING.value
+            if passed
+            else ScriptStatus.QUALITY_FAILED.value
+        )
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                ocr_quality_score=quality_score,
+                scan_quality_flags=flags,
+                status=new_status,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def set_review_required(
         script_id: UUID,
         *,

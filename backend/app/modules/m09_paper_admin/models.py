@@ -2,9 +2,10 @@
 M09 Paper Administration & Scanning — SQLAlchemy models.
 
 Tables (all tenant-schema, no schema= kwarg):
-  scanned_scripts     — one record per uploaded answer script (physical or digital)
-  script_evaluations  — one row per question per script per evaluation round
-  exam_score_ledger   — append-only finalised marks (written only on Board finalisation)
+  scanned_script_batches — one record per upload batch (exam bundle workflow)
+  scanned_scripts        — one record per uploaded answer script (physical or digital)
+  script_evaluations     — one row per question per script per evaluation round
+  exam_score_ledger      — append-only finalised marks (written only on Board finalisation)
 
 Human-gate invariants:
   scanned_scripts.status → MARKS_SUBMITTED only via evaluator submit endpoint (Gate 1).
@@ -12,11 +13,23 @@ Human-gate invariants:
   No Celery task ever sets status beyond SCORED.
   exam_score_ledger is NEVER written by any Celery task.
   script_evaluations.evaluator_marks is NEVER set by any Celery task.
+  script_evaluations.board_adjusted_marks is NEVER set by any Celery task.
   scanned_scripts.student_user_id is NEVER returned by any API response
     until status == BOARD_FINALISED.
 
-OCR fields (ocr_status, ocr_text) are schema placeholders for future
-  OCR/document-parsing pipeline; no implementation in this sprint.
+OCR pipeline (STEP-03):
+  ocr_status / ocr_text     — populated by ocr_scanned_script Celery task.
+  ocr_quality_score         — overall scan quality 0–100; set by detect_scan_quality task.
+  scan_quality_flags        — [{type, page, severity, description}]; set by quality task.
+  page_image_keys           — [{page_no, s3_key}]; per-page images for inline viewer.
+
+Double evaluation (STEP-08):
+  Controlled by exam_papers.double_evaluation_enabled (M08→M09 integration).
+  ScriptEvaluation.evaluation_round: PRIMARY / SECONDARY / MODERATION.
+  board_adjusted_marks / board_adjustment_note: Board correction endpoint only (STEP-09).
+
+M09→M10 integration:
+  exam_score_ledger.has_board_adjustment: read by M10 BellCurveAnalysis cross-evaluator stats.
 
 Evaluation locking fields (locked_by, locked_at) reserve schema support
   for concurrent-edit prevention; no locking logic in this sprint.
@@ -44,13 +57,16 @@ from app.database import Base
 # ---------------------------------------------------------------------------
 
 class ScriptStatus(str, enum.Enum):
-    PENDING          = "PENDING"           # uploaded; not yet queued for scoring
-    PROCESSING       = "PROCESSING"        # Celery score task running
-    SCORED           = "SCORED"            # AI scoring complete; awaiting evaluator
-    FAILED           = "FAILED"            # Celery task failed (e.g. Gemini error, bad PDF)
-    REVIEW_REQUIRED  = "REVIEW_REQUIRED"   # admin manual review needed (partial score, corrupted)
-    MARKS_SUBMITTED  = "MARKS_SUBMITTED"   # Gate 1: evaluator submitted marks
-    BOARD_FINALISED  = "BOARD_FINALISED"   # Gate 2: Board finalised; identity revealed; ledger written
+    PENDING           = "PENDING"           # uploaded; queued for quality check
+    QUALITY_CHECKING  = "QUALITY_CHECKING"  # detect_scan_quality Celery task running
+    QUALITY_FAILED    = "QUALITY_FAILED"    # scan rejected (blank/duplicate/low-DPI); admin re-uploads
+    OCR_PROCESSING    = "OCR_PROCESSING"    # ocr_scanned_script Celery task running
+    PROCESSING        = "PROCESSING"        # score_scanned_script Celery task running
+    SCORED            = "SCORED"            # AI scoring complete; awaiting evaluator
+    FAILED            = "FAILED"            # unrecoverable Celery failure (Gemini error, bad PDF)
+    REVIEW_REQUIRED   = "REVIEW_REQUIRED"   # admin manual review needed (partial OCR, corrupted)
+    MARKS_SUBMITTED   = "MARKS_SUBMITTED"   # Gate 1: evaluator submitted marks
+    BOARD_FINALISED   = "BOARD_FINALISED"   # Gate 2: Board finalised; identity revealed; ledger written
 
 
 class EvaluationRound(str, enum.Enum):
@@ -63,6 +79,52 @@ class EvaluationRound(str, enum.Enum):
     PRIMARY    = "PRIMARY"
     SECONDARY  = "SECONDARY"
     MODERATION = "MODERATION"
+
+
+# ---------------------------------------------------------------------------
+# ScannedScriptBatch — exam bundle workflow
+# ---------------------------------------------------------------------------
+
+class ScannedScriptBatch(Base):
+    """
+    One upload batch — groups scripts ingested together (e.g. Hall A, Afternoon Session).
+
+    file_count:      number of files included in the batch upload request.
+    processed_count: incremented by each script's pipeline completion (success or failure).
+    status:
+      PENDING    — created; tasks not yet started
+      PROCESSING — at least one task running
+      COMPLETED  — processed_count == file_count; all succeeded
+      PARTIAL    — processed_count == file_count; some QUALITY_FAILED or FAILED
+      FAILED     — all scripts failed
+
+    Human-gate: batch status is advisory only; no human gate on the batch itself.
+    """
+    __tablename__ = "scanned_script_batches"
+    __table_args__ = (
+        Index("ix_ssb_exam_paper",  "exam_paper_id"),
+        Index("ix_ssb_uploaded_by", "uploaded_by"),
+        Index("ix_ssb_status",      "status"),
+        Index("ix_ssb_created",     "created_at"),
+    )
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exam_paper_id   = Column(UUID(as_uuid=True), nullable=False)
+    uploaded_by     = Column(UUID(as_uuid=True), nullable=False)
+    label           = Column(String, nullable=True)
+    file_count      = Column(Integer, nullable=False, default=0, server_default="0")
+    processed_count = Column(Integer, nullable=False, default=0, server_default="0")
+    status          = Column(String, nullable=False, default="PENDING", server_default="PENDING")
+    created_at      = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at      = Column(DateTime(timezone=True), nullable=True)
+
+    scripts = relationship(
+        "ScannedScript",
+        back_populates="batch",
+        foreign_keys="ScannedScript.batch_id",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +155,8 @@ class ScannedScript(Base):
         Index("ix_scanned_scripts_evaluator",   "evaluator_id"),
         Index("ix_scanned_scripts_masked_id",   "masked_id", unique=True),
         Index("ix_scanned_scripts_created",     "created_at"),
+        Index("ix_scanned_scripts_batch",       "batch_id"),
+        Index("ix_scanned_scripts_duplicate",   "duplicate_of"),
     )
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -138,9 +202,23 @@ class ScannedScript(Base):
     finalised_by        = Column(UUID(as_uuid=True), nullable=True)
     finalised_at        = Column(DateTime(timezone=True), nullable=True)
 
-    # OCR placeholders — no implementation this sprint
+    # OCR pipeline fields — populated by detect_scan_quality + ocr_scanned_script tasks (STEP-02/03)
     ocr_status          = Column(String, nullable=True)
     ocr_text            = Column(Text, nullable=True)
+    ocr_quality_score   = Column(Numeric(4, 2), nullable=True)
+    scan_quality_flags  = Column(JSONB, nullable=True)
+
+    # Exam bundle — FK to scanned_script_batches (SET NULL on batch delete)
+    batch_id            = Column(
+        UUID(as_uuid=True),
+        ForeignKey("scanned_script_batches.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Advisory duplicate link — no FK constraint; purely informational
+    duplicate_of        = Column(UUID(as_uuid=True), nullable=True)
+
+    # Per-page image S3 keys — [{page_no, s3_key}]; populated by OCR task for inline viewer (STEP-05)
+    page_image_keys     = Column(JSONB, nullable=True)
 
     # Locking placeholders — no locking logic this sprint
     locked_by           = Column(UUID(as_uuid=True), nullable=True)
@@ -151,6 +229,11 @@ class ScannedScript(Base):
     )
     updated_at          = Column(DateTime(timezone=True), nullable=True)
 
+    batch = relationship(
+        "ScannedScriptBatch",
+        back_populates="scripts",
+        foreign_keys=[batch_id],
+    )
     evaluations = relationship(
         "ScriptEvaluation",
         back_populates="script",
@@ -221,11 +304,26 @@ class ScriptEvaluation(Base):
     ai_model            = Column(String, nullable=True)
     prompt_hash         = Column(String, nullable=True)
 
+    # AI enrichment — written by score_scanned_script Celery task (STEP-06)
+    # [{keyword, found: bool, context: str}]
+    keyword_hits        = Column(JSONB, nullable=True)
+    # [{criterion, max_marks, suggested_marks, justification}]
+    rubric_mapping      = Column(JSONB, nullable=True)
+    # Scorer confidence 0.000–1.000
+    ai_confidence       = Column(Numeric(4, 3), nullable=True)
+    # {start_page: int, end_page: int} — which PDF pages contain this answer
+    page_range          = Column(JSONB, nullable=True)
+
     # Human evaluation — written ONLY by evaluator endpoints, NEVER by Celery
     evaluator_marks     = Column(Numeric(5, 1), nullable=True)
     evaluator_note      = Column(Text, nullable=True)
 
-    # Final marks — set on Board finalisation (copied from evaluator_marks)
+    # Board correction — written ONLY by Board correction endpoint (STEP-09)
+    # NULL = no correction; non-NULL = Board overrides evaluator_marks for final total
+    board_adjusted_marks  = Column(Numeric(5, 1), nullable=True)
+    board_adjustment_note = Column(Text, nullable=True)
+
+    # Final marks — set on Board finalisation: COALESCE(board_adjusted_marks, evaluator_marks)
     final_marks         = Column(Numeric(5, 1), nullable=True)
 
     created_at          = Column(
@@ -279,6 +377,11 @@ class ExamScoreLedger(Base):
     # Marks at finalisation time
     total_marks         = Column(Numeric(6, 2), nullable=False)
     max_marks           = Column(Numeric(6, 2), nullable=False)
+
+    # M09→M10 integration: True when any script_evaluation for this script had
+    # board_adjusted_marks set. M10 BellCurveAnalysis reads this flag when computing
+    # cross-evaluator anomaly stats to distinguish Board-corrected scores.
+    has_board_adjustment = Column(Boolean, nullable=False, default=False, server_default="false")
 
     # Board member who finalised
     finalised_by        = Column(UUID(as_uuid=True), nullable=False)

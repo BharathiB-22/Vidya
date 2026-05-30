@@ -1,8 +1,9 @@
 """
-M09 Paper Administration — unit tests (STEP-16).
+M09 Paper Administration — unit tests (STEP-16, updated H-36 STEP-01).
 
 Coverage:
-  1. Models       — enums, table names, status machine, relationship declarations
+  1. Models       — enums, table names, status machine, relationship declarations,
+                    new H-36 fields (batch, quality, OCR, Board correction, M09→M10 flag)
   2. Schemas      — BulkMarkUpdate/ScriptSubmitMarksRequest validators,
                     EvaluatorMarkUpdate constraints, ScannedScriptResponse fields
   3. Script scorer — MCQ extraction heuristics, no-OCR fallback,
@@ -35,11 +36,14 @@ import pytest
 # ===========================================================================
 
 class TestScriptStatusEnum:
-    def test_all_seven_status_values(self):
+    def test_all_ten_status_values(self):
         from app.modules.m09_paper_admin.models import ScriptStatus
         expected = {
+            # original seven
             "PENDING", "PROCESSING", "SCORED", "FAILED",
             "REVIEW_REQUIRED", "MARKS_SUBMITTED", "BOARD_FINALISED",
+            # H-36 STEP-01: three new pipeline statuses
+            "QUALITY_CHECKING", "QUALITY_FAILED", "OCR_PROCESSING",
         }
         actual = {s.value for s in ScriptStatus}
         assert expected == actual
@@ -60,6 +64,18 @@ class TestScriptStatusEnum:
         from app.modules.m09_paper_admin.models import ScriptStatus
         assert isinstance(ScriptStatus.SCORED, str)
         assert ScriptStatus.SCORED == "SCORED"
+
+    def test_quality_checking_status_present(self):
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        assert ScriptStatus.QUALITY_CHECKING.value == "QUALITY_CHECKING"
+
+    def test_quality_failed_status_present(self):
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        assert ScriptStatus.QUALITY_FAILED.value == "QUALITY_FAILED"
+
+    def test_ocr_processing_status_present(self):
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        assert ScriptStatus.OCR_PROCESSING.value == "OCR_PROCESSING"
 
 
 class TestEvaluationRoundEnum:
@@ -86,6 +102,10 @@ class TestModelTableNames:
     def test_exam_score_ledger_tablename(self):
         from app.modules.m09_paper_admin.models import ExamScoreLedger
         assert ExamScoreLedger.__tablename__ == "exam_score_ledger"
+
+    def test_scanned_script_batch_tablename(self):
+        from app.modules.m09_paper_admin.models import ScannedScriptBatch
+        assert ScannedScriptBatch.__tablename__ == "scanned_script_batches"
 
 
 class TestModelFields:
@@ -131,6 +151,64 @@ class TestModelFields:
     def test_ledger_has_finalised_by(self):
         from app.modules.m09_paper_admin.models import ExamScoreLedger
         assert hasattr(ExamScoreLedger, "finalised_by")
+
+    # --- H-36 STEP-01: new field assertions ---
+
+    def test_scanned_script_has_batch_id(self):
+        from app.modules.m09_paper_admin.models import ScannedScript
+        assert hasattr(ScannedScript, "batch_id")
+
+    def test_scanned_script_has_quality_fields(self):
+        from app.modules.m09_paper_admin.models import ScannedScript
+        assert hasattr(ScannedScript, "ocr_quality_score")
+        assert hasattr(ScannedScript, "scan_quality_flags")
+
+    def test_scanned_script_has_duplicate_of(self):
+        from app.modules.m09_paper_admin.models import ScannedScript
+        assert hasattr(ScannedScript, "duplicate_of")
+
+    def test_scanned_script_has_page_image_keys(self):
+        from app.modules.m09_paper_admin.models import ScannedScript
+        assert hasattr(ScannedScript, "page_image_keys")
+
+    def test_script_evaluation_has_keyword_hits(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "keyword_hits")
+
+    def test_script_evaluation_has_rubric_mapping(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "rubric_mapping")
+
+    def test_script_evaluation_has_ai_confidence(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "ai_confidence")
+
+    def test_script_evaluation_has_page_range(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "page_range")
+
+    def test_script_evaluation_has_board_adjusted_marks(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "board_adjusted_marks")
+
+    def test_script_evaluation_has_board_adjustment_note(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "board_adjustment_note")
+
+    def test_ledger_has_board_adjustment_flag(self):
+        from app.modules.m09_paper_admin.models import ExamScoreLedger
+        assert hasattr(ExamScoreLedger, "has_board_adjustment")
+
+    def test_batch_model_has_required_fields(self):
+        from app.modules.m09_paper_admin.models import ScannedScriptBatch
+        for field in ("exam_paper_id", "uploaded_by", "label",
+                      "file_count", "processed_count", "status", "created_at"):
+            assert hasattr(ScannedScriptBatch, field), f"ScannedScriptBatch missing: {field}"
+
+    def test_m08_exam_paper_has_double_evaluation_fields(self):
+        from app.modules.m08_exam_setter.models import ExamPaper
+        assert hasattr(ExamPaper, "double_evaluation_enabled")
+        assert hasattr(ExamPaper, "discrepancy_threshold_pct")
 
 
 # ===========================================================================
@@ -1296,3 +1374,399 @@ class TestLedgerAppendOnly:
             assert mid.startswith("S"), f"masked_id must start with 'S', got {mid!r}"
             assert len(mid) == 11, f"masked_id must be 11 chars, got {len(mid)}"
             assert mid[1:].isupper() or mid[1:].isalnum(), "rest must be hex upper"
+
+
+# ===========================================================================
+# 10 — Scan Quality Detector: pure-function tests (H-36 STEP-02)
+# ===========================================================================
+
+class TestScanQualityDetectorImport:
+    def test_importable(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+        assert callable(detect_scan_quality)
+
+    def test_result_dataclass_has_required_fields(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import ScanQualityResult
+        r = ScanQualityResult(quality_score=80.0, flags=[], passed=True, page_count=5)
+        assert r.quality_score == 80.0
+        assert r.passed is True
+        assert r.page_count == 5
+        assert isinstance(r.flags, list)
+
+    def test_flag_dataclass_to_dict(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import QualityFlag
+        f = QualityFlag(type="BLANK_PAGE", page=1, severity="HIGH", description="Blank")
+        d = f.to_dict()
+        assert d["type"] == "BLANK_PAGE"
+        assert d["page"] == 1
+        assert d["severity"] == "HIGH"
+        assert "description" in d
+
+    def test_quality_pass_threshold_is_60(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import QUALITY_PASS_THRESHOLD
+        assert QUALITY_PASS_THRESHOLD == 60
+
+    def test_severity_deductions_keys_present(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _SEVERITY_DEDUCTIONS
+        assert "CRITICAL" in _SEVERITY_DEDUCTIONS
+        assert "HIGH" in _SEVERITY_DEDUCTIONS
+        assert "MEDIUM" in _SEVERITY_DEDUCTIONS
+        assert "LOW" in _SEVERITY_DEDUCTIONS
+
+    def test_severity_critical_deduction_is_40(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _SEVERITY_DEDUCTIONS
+        assert _SEVERITY_DEDUCTIONS["CRITICAL"] == 40
+
+    def test_severity_high_deduction_is_25(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _SEVERITY_DEDUCTIONS
+        assert _SEVERITY_DEDUCTIONS["HIGH"] == 25
+
+
+class TestScanQualityDetectorLogic:
+    def test_empty_bytes_returns_quality_failed(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+        result = detect_scan_quality(b"")
+        assert result.passed is False
+        assert result.quality_score <= 60  # score 60 = borderline fail (strict > threshold)
+        assert len(result.flags) > 0
+        assert result.page_count == 0
+
+    def test_invalid_pdf_bytes_returns_quality_failed(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+        result = detect_scan_quality(b"NOT_A_PDF_AT_ALL")
+        assert result.passed is False
+        assert len(result.flags) > 0
+
+    def test_blank_pdf_flags_blank_pages(self):
+        """A minimal PdfWriter page has an empty content stream → BLANK_PAGE."""
+        import io
+        from pypdf import PdfWriter
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        result = detect_scan_quality(pdf_bytes)
+        flag_types = [f.type for f in result.flags]
+        assert "BLANK_PAGE" in flag_types
+
+    def test_missing_pages_flagged_when_fewer_than_expected(self):
+        """Actual 1 page < expected 5 → MISSING_PAGES flag."""
+        import io
+        from pypdf import PdfWriter
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        result = detect_scan_quality(pdf_bytes, expected_page_count=5)
+        flag_types = [f.type for f in result.flags]
+        assert "MISSING_PAGES" in flag_types
+
+    def test_no_missing_pages_when_count_matches(self):
+        import io
+        from pypdf import PdfWriter
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        result = detect_scan_quality(pdf_bytes, expected_page_count=1)
+        flag_types = [f.type for f in result.flags]
+        assert "MISSING_PAGES" not in flag_types
+
+    def test_page_count_returned_accurately(self):
+        import io
+        from pypdf import PdfWriter
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+
+        writer = PdfWriter()
+        for _ in range(3):
+            writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        result = detect_scan_quality(pdf_bytes)
+        assert result.page_count == 3
+
+    def test_empty_bytes_flag_is_partial_scan(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import detect_scan_quality
+        result = detect_scan_quality(b"")
+        assert result.flags[0].type == "PARTIAL_SCAN"
+        assert result.flags[0].severity == "CRITICAL"
+
+    def test_two_critical_flags_score_is_20(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import (
+            QualityFlag, _SEVERITY_DEDUCTIONS, QUALITY_PASS_THRESHOLD,
+        )
+        flags = [
+            QualityFlag("BLANK_PAGE",   1, "CRITICAL", "x"),
+            QualityFlag("PARTIAL_SCAN", 2, "CRITICAL", "y"),
+        ]
+        score = max(0, 100 - sum(_SEVERITY_DEDUCTIONS[f.severity] for f in flags))
+        assert score == 20
+        assert score < QUALITY_PASS_THRESHOLD
+
+    def test_single_high_flag_score_is_75_passes(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import (
+            QualityFlag, _SEVERITY_DEDUCTIONS, QUALITY_PASS_THRESHOLD,
+        )
+        flags = [QualityFlag("LOW_DPI", 1, "HIGH", "Low res")]
+        score = max(0, 100 - sum(_SEVERITY_DEDUCTIONS[f.severity] for f in flags))
+        assert score == 75
+        assert score >= QUALITY_PASS_THRESHOLD
+
+    def test_four_medium_flags_score_40_fails(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import (
+            QualityFlag, _SEVERITY_DEDUCTIONS, QUALITY_PASS_THRESHOLD,
+        )
+        flags = [QualityFlag("ROTATED", i, "MEDIUM", "x") for i in range(1, 5)]
+        score = max(0, 100 - sum(_SEVERITY_DEDUCTIONS[f.severity] for f in flags))
+        assert score == 40
+        assert score < QUALITY_PASS_THRESHOLD
+
+
+class TestScanQualityHelpers:
+    def test_rotation_helper_returns_int(self):
+        from unittest.mock import MagicMock
+        from app.modules.m09_paper_admin.scan_quality_detector import _get_rotation
+        page = MagicMock()
+        page.rotation = 90
+        assert _get_rotation(page) == 90
+
+    def test_rotation_helper_upside_down(self):
+        from unittest.mock import MagicMock
+        from app.modules.m09_paper_admin.scan_quality_detector import _get_rotation
+        page = MagicMock()
+        page.rotation = 180
+        assert _get_rotation(page) == 180
+
+    def test_rotation_helper_zero_for_normal(self):
+        from unittest.mock import MagicMock
+        from app.modules.m09_paper_admin.scan_quality_detector import _get_rotation
+        page = MagicMock()
+        page.rotation = 0
+        assert _get_rotation(page) == 0
+
+    def test_rotation_helper_returns_0_on_exception(self):
+        from unittest.mock import MagicMock, PropertyMock
+        from app.modules.m09_paper_admin.scan_quality_detector import _get_rotation
+        page = MagicMock()
+        type(page).rotation = PropertyMock(side_effect=Exception("bad"))
+        assert _get_rotation(page) == 0
+
+    def test_page_content_hash_is_deterministic(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _page_content_hash
+        h1 = _page_content_hash(b"hello world")
+        h2 = _page_content_hash(b"hello world")
+        assert h1 == h2
+
+    def test_page_content_hash_differs_for_different_content(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _page_content_hash
+        h1 = _page_content_hash(b"page one content")
+        h2 = _page_content_hash(b"page two content")
+        assert h1 != h2
+
+    def test_page_content_hash_is_64_chars(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _page_content_hash
+        h = _page_content_hash(b"data")
+        assert len(h) == 64  # SHA-256 hex digest
+
+    def test_estimate_dpi_returns_none_on_exception(self):
+        from unittest.mock import MagicMock, PropertyMock
+        from app.modules.m09_paper_admin.scan_quality_detector import _estimate_dpi
+        page = MagicMock()
+        type(page).mediabox = PropertyMock(side_effect=Exception("no mediabox"))
+        result = _estimate_dpi(page)
+        assert result is None
+
+    def test_compute_score_no_flags_returns_100(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _compute_score
+        score, passed = _compute_score([])
+        assert score == 100.0
+        assert passed is True
+
+    def test_compute_score_critical_flag_deducts_40(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _compute_score, QualityFlag
+        flags = [QualityFlag("BLANK_PAGE", 1, "CRITICAL", "x")]
+        score, passed = _compute_score(flags)
+        assert score == 60.0
+        assert passed is False  # at threshold — borderline = fail (strict >)
+
+    def test_compute_score_clamps_to_zero(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import _compute_score, QualityFlag
+        flags = [QualityFlag("X", i, "CRITICAL", "x") for i in range(5)]
+        score, passed = _compute_score(flags)
+        assert score == 0.0
+        assert passed is False
+
+
+class TestScriptRepositoryQualityMethods:
+    def test_script_repository_has_set_quality_checking(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_quality_checking")
+        assert callable(ScriptRepository.set_quality_checking)
+
+    def test_script_repository_has_set_quality_result(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_quality_result")
+        assert callable(ScriptRepository.set_quality_result)
+
+    @pytest.mark.asyncio
+    async def test_set_quality_checking_updates_status(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+
+        execute_mock = AsyncMock()
+        db = MagicMock()
+        db.execute = execute_mock
+
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            mock_update.return_value.where.return_value.values.return_value = MagicMock()
+            await ScriptRepository.set_quality_checking(uuid4(), db=db)
+
+        execute_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_quality_result_passed_uses_ocr_processing(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch, MagicMock, call
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        execute_mock = AsyncMock()
+        db = MagicMock()
+        db.execute = execute_mock
+
+        values_calls = []
+
+        def capture_values(**kwargs):
+            values_calls.append(kwargs)
+            return MagicMock()
+
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            chain = mock_update.return_value.where.return_value
+            chain.values = lambda **kw: (values_calls.append(kw), MagicMock())[1]
+            await ScriptRepository.set_quality_result(
+                uuid4(),
+                quality_score=85.0,
+                flags=[],
+                passed=True,
+                db=db,
+            )
+
+        assert any(
+            kw.get("status") == ScriptStatus.OCR_PROCESSING.value
+            for kw in values_calls
+        ), f"Expected OCR_PROCESSING in values calls, got: {values_calls}"
+
+    @pytest.mark.asyncio
+    async def test_set_quality_result_failed_uses_quality_failed(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        execute_mock = AsyncMock()
+        db = MagicMock()
+        db.execute = execute_mock
+
+        values_calls = []
+
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            chain = mock_update.return_value.where.return_value
+            chain.values = lambda **kw: (values_calls.append(kw), MagicMock())[1]
+            await ScriptRepository.set_quality_result(
+                uuid4(),
+                quality_score=30.0,
+                flags=[{"type": "BLANK_PAGE", "page": 1, "severity": "CRITICAL", "description": "x"}],
+                passed=False,
+                db=db,
+            )
+
+        assert any(
+            kw.get("status") == ScriptStatus.QUALITY_FAILED.value
+            for kw in values_calls
+        ), f"Expected QUALITY_FAILED in values calls, got: {values_calls}"
+
+
+# ===========================================================================
+# 11 — Scan Quality Worker: Celery task wiring (H-36 STEP-02)
+# ===========================================================================
+
+class TestScanQualityWorkerWiring:
+    def test_detect_scan_quality_importable(self):
+        from app.workers.heavy.detect_scan_quality import detect_scan_quality
+        assert callable(detect_scan_quality)
+
+    def test_detect_scan_quality_task_name(self):
+        from app.workers.heavy.detect_scan_quality import detect_scan_quality
+        assert detect_scan_quality.name == "app.workers.heavy.detect_scan_quality"
+
+    def test_detect_scan_quality_in_celery_include(self):
+        from app.workers.celery_app import celery_app
+        assert "app.workers.heavy.detect_scan_quality" in celery_app.conf.include
+
+    def test_detect_scan_quality_max_retries_is_2(self):
+        from app.workers.heavy.detect_scan_quality import detect_scan_quality
+        assert detect_scan_quality.max_retries == 2
+
+    def test_score_task_not_regressed(self):
+        from app.workers.celery_app import celery_app
+        assert "app.workers.heavy.score_scanned_script" in celery_app.conf.include
+
+    def test_detect_task_routes_to_heavy_queue(self):
+        from app.workers.celery_app import celery_app
+        routes = celery_app.conf.task_routes
+        assert "app.workers.heavy.*" in routes
+        assert routes["app.workers.heavy.*"]["queue"] == "celery-heavy"
+
+    def test_s3_get_object_helper_importable(self):
+        from app.workers.heavy.detect_scan_quality import _s3_get_object
+        assert callable(_s3_get_object)
+
+    def test_run_quality_check_helper_importable(self):
+        from app.workers.heavy.detect_scan_quality import _run_quality_check
+        assert callable(_run_quality_check)
+
+
+# ===========================================================================
+# 12 — Quality check audit events (H-36 STEP-02)
+# ===========================================================================
+
+class TestQualityCheckAuditEvents:
+    def test_all_quality_audit_events_present(self):
+        from app.core.audit_log.models import AuditEventType
+        for name in [
+            "SCRIPT_QUALITY_CHECK_STARTED",
+            "SCRIPT_QUALITY_CHECK_COMPLETED",
+            "SCRIPT_QUALITY_CHECK_FAILED",
+        ]:
+            assert hasattr(AuditEventType, name), f"Missing quality audit event: {name}"
+
+    def test_quality_events_have_correct_values(self):
+        from app.core.audit_log.models import AuditEventType
+        assert AuditEventType.SCRIPT_QUALITY_CHECK_STARTED.value   == "SCRIPT_QUALITY_CHECK_STARTED"
+        assert AuditEventType.SCRIPT_QUALITY_CHECK_COMPLETED.value == "SCRIPT_QUALITY_CHECK_COMPLETED"
+        assert AuditEventType.SCRIPT_QUALITY_CHECK_FAILED.value    == "SCRIPT_QUALITY_CHECK_FAILED"
+
+    def test_existing_m09_scoring_events_not_regressed(self):
+        from app.core.audit_log.models import AuditEventType
+        for name in ["SCRIPT_SCORING_QUEUED", "SCRIPT_SCORING_COMPLETED", "SCRIPT_SCORING_FAILED"]:
+            assert hasattr(AuditEventType, name), f"Scoring event regressed: {name}"
+
+    def test_existing_gate_events_not_regressed(self):
+        from app.core.audit_log.models import AuditEventType
+        for name in ["SCRIPT_MARKS_SUBMITTED", "SCRIPT_BOARD_FINALISED"]:
+            assert hasattr(AuditEventType, name), f"Gate event regressed: {name}"

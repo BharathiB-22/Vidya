@@ -224,6 +224,27 @@ class ExamPaper(Base):
     scrutinized_at      = Column(DateTime(timezone=True), nullable=True)
     scrutinizer_comment = Column(Text, nullable=True)
 
+    # --- M08→M09 integration (H-36 STEP-01) ---
+
+    # When True, each scanned_script for this paper requires two independent evaluators.
+    # The M09 service checks this flag when assigning evaluators and enforcing
+    # secondary evaluator Gate 1 before Board finalisation (STEP-08).
+    double_evaluation_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    # Delta between primary and secondary evaluator totals (as % of max_marks)
+    # that triggers a Board escalation flag in the M09 discrepancy detection step.
+    # NULL = use the tenant default (20.0%). Only meaningful when double_evaluation_enabled=True.
+    discrepancy_threshold_pct = Column(
+        Numeric(4, 1),
+        nullable=True,
+        server_default="20.0",
+    )
+
     created_at          = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
