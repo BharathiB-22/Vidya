@@ -714,6 +714,229 @@ class TestBellCurveRouterWiring:
         paths = [r.path for r in router.routes]
         assert any("reports" in p for p in paths), "reports endpoint missing"
 
+
+# ===========================================================================
+# H-37 STEP-01 — Grade Engine
+# ===========================================================================
+
+class TestGradeEngine:
+    """
+    Pure-function tests for compute_grade() and grade_distribution().
+
+    Grade scale (default pass_pct = 40 %):
+      S  ≥ 90 %  → 10.0 pts   pass
+      A  ≥ 80 %  →  9.0 pts   pass
+      B  ≥ 70 %  →  8.0 pts   pass
+      C  ≥ 60 %  →  7.0 pts   pass
+      D  ≥ 50 %  →  6.0 pts   pass
+      P  ≥ 40 %  →  5.0 pts   pass
+      F  < 40 %  →  0.0 pts   fail
+    """
+
+    # ------------------------------------------------------------------ import
+
+    def test_module_importable(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade  # noqa: F401
+
+    def test_grade_distribution_importable(self):
+        from app.modules.m10_bell_curve.grade_engine import grade_distribution  # noqa: F401
+
+    # ------------------------------------------------------------------ grade tiers
+
+    def test_s_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, points, is_pass = compute_grade(95.0, 100.0)
+        assert letter  == "S"
+        assert points  == 10.0
+        assert is_pass is True
+        assert pct     == 95.0
+
+    def test_a_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, points, is_pass = compute_grade(82.0, 100.0)
+        assert letter  == "A"
+        assert points  == 9.0
+        assert is_pass is True
+
+    def test_b_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, points, is_pass = compute_grade(75.0, 100.0)
+        assert letter  == "B"
+        assert points  == 8.0
+        assert is_pass is True
+
+    def test_c_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, points, is_pass = compute_grade(63.0, 100.0)
+        assert letter  == "C"
+        assert points  == 7.0
+        assert is_pass is True
+
+    def test_d_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, points, is_pass = compute_grade(52.0, 100.0)
+        assert letter  == "D"
+        assert points  == 6.0
+        assert is_pass is True
+
+    def test_p_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, points, is_pass = compute_grade(45.0, 100.0)
+        assert letter  == "P"
+        assert points  == 5.0
+        assert is_pass is True
+
+    def test_f_grade(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, points, is_pass = compute_grade(30.0, 100.0)
+        assert letter  == "F"
+        assert points  == 0.0
+        assert is_pass is False
+
+    # ------------------------------------------------------------------ exact boundaries
+
+    def test_exactly_90_is_s(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, _, _ = compute_grade(90.0, 100.0)
+        assert letter == "S"
+
+    def test_exactly_80_is_a(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, _, _ = compute_grade(80.0, 100.0)
+        assert letter == "A"
+
+    def test_exactly_40_is_p_and_pass(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, _, is_pass = compute_grade(40.0, 100.0)
+        assert letter  == "P"
+        assert is_pass is True
+
+    def test_just_below_pass_is_f(self):
+        """39.9 % → F, fail."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, _, is_pass = compute_grade(39.9, 100.0)
+        assert letter  == "F"
+        assert is_pass is False
+
+    def test_zero_score_is_f_fail(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, points, is_pass = compute_grade(0.0, 100.0)
+        assert pct     == 0.0
+        assert letter  == "F"
+        assert points  == 0.0
+        assert is_pass is False
+
+    def test_full_marks_is_s(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, _, is_pass = compute_grade(100.0, 100.0)
+        assert pct     == 100.0
+        assert letter  == "S"
+        assert is_pass is True
+
+    # ------------------------------------------------------------------ non-100 max_marks
+
+    def test_score_out_of_50(self):
+        """35/50 = 70 % → B."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, points, is_pass = compute_grade(35.0, 50.0)
+        assert letter  == "B"
+        assert points  == 8.0
+        assert is_pass is True
+
+    def test_score_out_of_75(self):
+        """30/75 = 40 % → P (exactly on boundary)."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, letter, _, is_pass = compute_grade(30.0, 75.0)
+        assert letter  == "P"
+        assert is_pass is True
+
+    # ------------------------------------------------------------------ pct rounding
+
+    def test_pct_rounded_to_one_decimal(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        # 67 / 100 = 67.0 (no rounding needed)
+        pct, _, _, _ = compute_grade(67.0, 100.0)
+        assert pct == 67.0
+
+    def test_pct_clamped_above_100(self):
+        """Score exceeding max_marks is clamped to 100.0 %."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, _, _ = compute_grade(105.0, 100.0)
+        assert pct    == 100.0
+        assert letter == "S"
+
+    def test_negative_score_clamped_to_zero(self):
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, _, is_pass = compute_grade(-5.0, 100.0)
+        assert pct     == 0.0
+        assert letter  == "F"
+        assert is_pass is False
+
+    # ------------------------------------------------------------------ custom pass_pct
+
+    def test_custom_pass_pct_50(self):
+        """45 % passes with default 40, fails with pass_pct=50."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, _, _, is_pass_40 = compute_grade(45.0, 100.0, pass_pct=40.0)
+        _, _, _, is_pass_50 = compute_grade(45.0, 100.0, pass_pct=50.0)
+        assert is_pass_40 is True
+        assert is_pass_50 is False
+
+    def test_custom_pass_pct_35(self):
+        """38 % fails with default 40, passes with pass_pct=35."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        _, _, _, is_pass_40 = compute_grade(38.0, 100.0, pass_pct=40.0)
+        _, _, _, is_pass_35 = compute_grade(38.0, 100.0, pass_pct=35.0)
+        assert is_pass_40 is False
+        assert is_pass_35 is True
+
+    # ------------------------------------------------------------------ zero max_marks guard
+
+    def test_zero_max_marks_returns_f_fail(self):
+        """Division by zero is guarded — returns F, fail."""
+        from app.modules.m10_bell_curve.grade_engine import compute_grade
+        pct, letter, points, is_pass = compute_grade(0.0, 0.0)
+        assert pct     == 0.0
+        assert letter  == "F"
+        assert points  == 0.0
+        assert is_pass is False
+
+    # ------------------------------------------------------------------ grade_distribution
+
+    def test_grade_distribution_counts(self):
+        from app.modules.m10_bell_curve.grade_engine import grade_distribution
+        rows = [
+            {"normalised_score": 95.0, "max_marks": 100.0},  # S
+            {"normalised_score": 85.0, "max_marks": 100.0},  # A
+            {"normalised_score": 85.0, "max_marks": 100.0},  # A
+            {"normalised_score": 30.0, "max_marks": 100.0},  # F
+        ]
+        dist = grade_distribution(rows)
+        assert dist["S"] == 1
+        assert dist["A"] == 2
+        assert dist["F"] == 1
+        assert "B" not in dist
+
+    def test_grade_distribution_empty_input(self):
+        from app.modules.m10_bell_curve.grade_engine import grade_distribution
+        assert grade_distribution([]) == {}
+
+    def test_grade_distribution_all_pass(self):
+        from app.modules.m10_bell_curve.grade_engine import grade_distribution
+        rows = [{"normalised_score": 60.0, "max_marks": 100.0}] * 5
+        dist = grade_distribution(rows)
+        assert dist.get("C", 0) == 5
+        assert "F" not in dist
+
+    def test_grade_distribution_custom_pass_pct(self):
+        """With pass_pct=50, a 45 % score should yield F in distribution."""
+        from app.modules.m10_bell_curve.grade_engine import grade_distribution
+        rows = [{"normalised_score": 45.0, "max_marks": 100.0}]
+        dist_40 = grade_distribution(rows, pass_pct=40.0)
+        dist_50 = grade_distribution(rows, pass_pct=50.0)
+        assert "P" in dist_40
+        assert "F" in dist_50
+
     def test_bell_curve_in_main_app_routes(self):
         from app.main import app
         paths = [r.path for r in app.routes]
