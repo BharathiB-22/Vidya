@@ -1,4 +1,4 @@
-// M09 Paper Administration — Admin/Board: list of scanned scripts
+// M09 Paper Administration — Admin/Board: list of scanned scripts (H-36 STEP-10: paper stats panel)
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -9,8 +9,9 @@ import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
-import { listAllScripts } from '@/lib/api/scripts'
-import type { ScannedScript, ScriptStatus } from '@/types/script'
+import { listAllScripts, getPaperStats } from '@/lib/api/scripts'
+import { listAllExamPapers } from '@/lib/api/exam'
+import type { PaperPipelineStats, ScannedScript, ScriptStatus } from '@/types/script'
 
 const STATUS_OPTS: Array<{ value: ScriptStatus | ''; label: string }> = [
   { value: '',                 label: 'All' },
@@ -42,12 +43,29 @@ const STATUS_COLOR: Record<string, string> = {
 export default function ScriptListPage() {
   const navigate = useNavigate()
   const [statusFilter, setStatusFilter] = useState<ScriptStatus | ''>('')
+  const [paperFilter, setPaperFilter]   = useState('')
   const [offset, setOffset] = useState(0)
   const limit = 20
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['scripts', statusFilter, offset],
-    queryFn:  () => listAllScripts({ status: statusFilter || undefined, offset, limit }),
+    queryKey: ['scripts', statusFilter, paperFilter, offset],
+    queryFn:  () => listAllScripts({
+      status:        statusFilter  || undefined,
+      exam_paper_id: paperFilter   || undefined,
+      offset,
+      limit,
+    }),
+  })
+
+  const { data: papersData } = useQuery({
+    queryKey: ['exam-papers-for-stats'],
+    queryFn:  () => listAllExamPapers({ limit: 200 }),
+  })
+
+  const { data: statsData } = useQuery({
+    queryKey: ['paper-stats', paperFilter],
+    queryFn:  () => getPaperStats(paperFilter),
+    enabled:  !!paperFilter,
   })
 
   return (
@@ -67,6 +85,36 @@ export default function ScriptListPage() {
           </div>
         }
       />
+
+      {/* Paper selector */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+        <div className="w-full sm:max-w-sm">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Filter by exam paper</label>
+          <select
+            value={paperFilter}
+            onChange={e => { setPaperFilter(e.target.value); setOffset(0) }}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+          >
+            <option value="">— All papers —</option>
+            {(papersData?.items ?? []).map(p => (
+              <option key={p.id} value={p.id}>
+                {p.title} · {p.exam_type.replace('_', ' ')}
+              </option>
+            ))}
+          </select>
+        </div>
+        {paperFilter && statsData && (
+          <button
+            className="text-xs text-gray-400 hover:text-gray-600 transition-colors self-end pb-2"
+            onClick={() => { setPaperFilter(''); setOffset(0) }}
+          >
+            Clear filter
+          </button>
+        )}
+      </div>
+
+      {/* Pipeline stats panel — shown when a paper is selected */}
+      {paperFilter && statsData && <PipelineStatsPanel stats={statsData} />}
 
       {/* Status filter chips */}
       <div className="flex flex-wrap gap-2">
@@ -140,6 +188,67 @@ export default function ScriptListPage() {
         </>
       )}
     </PageShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline stats panel (H-36 STEP-10)
+// ---------------------------------------------------------------------------
+
+const STAT_ROWS: Array<{ key: keyof PaperPipelineStats; label: string; color: string }> = [
+  { key: 'pending',          label: 'Pending',          color: 'text-gray-500' },
+  { key: 'quality_checking', label: 'Quality check',    color: 'text-amber-600' },
+  { key: 'quality_failed',   label: 'Quality failed',   color: 'text-red-600' },
+  { key: 'ocr_processing',   label: 'OCR',              color: 'text-sky-600' },
+  { key: 'processing',       label: 'Scoring',          color: 'text-blue-600' },
+  { key: 'scored',           label: 'Scored',           color: 'text-indigo-600' },
+  { key: 'review_required',  label: 'Review required',  color: 'text-orange-600' },
+  { key: 'marks_submitted',  label: 'Marks submitted',  color: 'text-yellow-600' },
+  { key: 'board_finalised',  label: 'Board finalised',  color: 'text-emerald-600' },
+  { key: 'failed',           label: 'Failed',           color: 'text-red-500' },
+]
+
+function PipelineStatsPanel({ stats }: { stats: PaperPipelineStats }) {
+  const pctColor = stats.completion_pct >= 75
+    ? 'text-emerald-600'
+    : stats.completion_pct >= 25
+      ? 'text-amber-600'
+      : 'text-gray-500'
+
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-gray-700">Pipeline status</p>
+        <div className="text-right">
+          <span className={`text-2xl font-bold ${pctColor}`}>{stats.completion_pct}%</span>
+          <span className="text-xs text-gray-400 ml-1">complete</span>
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="w-full bg-gray-200 rounded-full h-1.5">
+        <div
+          className="bg-emerald-500 h-1.5 rounded-full transition-all"
+          style={{ width: `${Math.min(stats.completion_pct, 100)}%` }}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        {STAT_ROWS.filter(r => (stats[r.key] as number) > 0).map(r => (
+          <div key={r.key} className="text-center bg-white rounded-lg border border-gray-100 px-2 py-1.5">
+            <p className={`text-lg font-bold ${r.color}`}>{stats[r.key] as number}</p>
+            <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{r.label}</p>
+          </div>
+        ))}
+        {stats.total === 0 && (
+          <p className="col-span-5 text-xs text-gray-400 text-center py-2">No scripts uploaded for this paper yet.</p>
+        )}
+      </div>
+
+      <p className="text-xs text-gray-400 text-right">
+        {stats.board_finalised} of {stats.total} scripts finalised
+      </p>
+    </div>
   )
 }
 

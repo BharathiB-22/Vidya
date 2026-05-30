@@ -38,6 +38,7 @@ from app.modules.m09_paper_admin.repository import (
 )
 from app.modules.m09_paper_admin.schemas import (
     BulkMarkUpdate,
+    PaperPipelineStats,
     ScriptAssignEvaluatorRequest,
     ScriptFinaliseRequest,
     ScriptIngestRequest,
@@ -784,3 +785,32 @@ class ScriptService:
         )
         total = int(count_result.scalar() or 0)
         return items, total
+
+    @staticmethod
+    async def get_paper_stats(
+        exam_paper_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> PaperPipelineStats:
+        """
+        Aggregate pipeline-status counts for all scripts in an exam paper.
+        Read-only. No identity data returned.
+        """
+        counts = await ScriptRepository.count_by_status_for_paper(exam_paper_id, db=db)
+        total   = sum(counts.values())
+        board   = counts.get(ScriptStatus.BOARD_FINALISED.value, 0)
+        return PaperPipelineStats(
+            paper_id=exam_paper_id,
+            total=total,
+            pending=counts.get(ScriptStatus.PENDING.value, 0),
+            quality_checking=counts.get(ScriptStatus.QUALITY_CHECKING.value, 0),
+            quality_failed=counts.get(ScriptStatus.QUALITY_FAILED.value, 0),
+            ocr_processing=counts.get(ScriptStatus.OCR_PROCESSING.value, 0),
+            processing=counts.get(ScriptStatus.PROCESSING.value, 0),
+            scored=counts.get(ScriptStatus.SCORED.value, 0),
+            failed=counts.get(ScriptStatus.FAILED.value, 0),
+            review_required=counts.get(ScriptStatus.REVIEW_REQUIRED.value, 0),
+            marks_submitted=counts.get(ScriptStatus.MARKS_SUBMITTED.value, 0),
+            board_finalised=board,
+            completion_pct=round(board / total * 100, 1) if total > 0 else 0.0,
+        )

@@ -43,6 +43,7 @@ from app.modules.m09_paper_admin.schemas import (
     ExamScoreLedgerListResponse,
     ExamScoreLedgerResponse,
     JobStatusResponse,
+    PaperPipelineStats,
     ScannedScriptListResponse,
     ScannedScriptResponse,
     ScriptAssignEvaluatorRequest,
@@ -192,6 +193,25 @@ async def list_scripts_for_paper(
         items=[ScannedScriptResponse.model_validate(s) for s in items],
         total=total, offset=offset, limit=limit,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /stats — paper pipeline stats (STEP-10, STATIC — must be before GET /)
+# ---------------------------------------------------------------------------
+
+@router.get("/stats", response_model=PaperPipelineStats)
+async def get_paper_stats(
+    paper_id: UUID = Query(..., description="Exam paper UUID"),
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Board/Admin: aggregate pipeline-status counts for all scripts in an exam paper.
+    Returns per-status counts and completion_pct (board_finalised / total × 100).
+    Read-only — no workflow mutations.
+    """
+    db: AsyncSession = db_info["db"]
+    return await ScriptService.get_paper_stats(paper_id, db=db)
 
 
 # ---------------------------------------------------------------------------

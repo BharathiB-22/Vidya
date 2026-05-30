@@ -358,6 +358,24 @@ class ScriptRepository:
             )
         )
 
+    @staticmethod
+    async def count_by_status_for_paper(
+        exam_paper_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> dict[str, int]:
+        """
+        Returns a mapping of status → count for all scripts in an exam paper.
+        Missing statuses are absent from the dict (caller should default to 0).
+        Single GROUP BY query — no N+1.
+        """
+        result = await db.execute(
+            select(ScannedScript.status, func.count(ScannedScript.id))
+            .where(ScannedScript.exam_paper_id == exam_paper_id)
+            .group_by(ScannedScript.status)
+        )
+        return {row[0]: row[1] for row in result.all()}
+
 
 # ---------------------------------------------------------------------------
 # ScriptEvaluationRepository

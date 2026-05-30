@@ -222,3 +222,23 @@ export interface BoardFinaliseResponse {
   script: ScannedScript
   ledger: ExamScoreLedger
 }
+
+// ---------------------------------------------------------------------------
+// Paper pipeline stats (H-36 STEP-10)
+// ---------------------------------------------------------------------------
+
+export interface PaperPipelineStats {
+  paper_id:         string
+  total:            number
+  pending:          number
+  quality_checking: number
+  quality_failed:   number
+  ocr_processing:   number
+  processing:       number
+  scored:           number
+  failed:           number
+  review_required:  number
+  marks_submitted:  number
+  board_finalised:  number
+  completion_pct:   number
+}

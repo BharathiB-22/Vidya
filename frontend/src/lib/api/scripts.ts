@@ -8,6 +8,7 @@ import type {
   ExamScoreLedger,
   ExamScoreLedgerListResponse,
   JobStatus,
+  PaperPipelineStats,
   ScannedScript,
   ScannedScriptListResponse,
   ScriptAssignEvaluatorPayload,
@@ -191,5 +192,15 @@ export async function listLedgerForPaper(
 
 export async function getScoringJobStatus(jobId: string): Promise<JobStatus> {
   const { data } = await api.get(`/exams/jobs/${jobId}`)
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Paper pipeline stats (H-36 STEP-10)
+// ---------------------------------------------------------------------------
+
+/** Board/Admin: aggregate pipeline-status counts for all scripts in an exam paper. */
+export async function getPaperStats(paperId: string): Promise<PaperPipelineStats> {
+  const { data } = await api.get(`${BASE}/stats`, { params: { paper_id: paperId } })
   return data
 }

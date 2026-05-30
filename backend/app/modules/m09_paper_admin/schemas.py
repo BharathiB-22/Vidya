@@ -249,3 +249,27 @@ class AcceptSuggestionsRequest(BaseModel):
         description="UUIDs of questions to accept. Omit to accept all.",
     )
     evaluator_note: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Paper pipeline stats (H-36 STEP-10)
+# ---------------------------------------------------------------------------
+
+class PaperPipelineStats(BaseModel):
+    """
+    Aggregate pipeline-status counts for all scripts belonging to one exam paper.
+    completion_pct = board_finalised / total * 100 (0.0 when total == 0).
+    """
+    paper_id:         UUID
+    total:            int
+    pending:          int
+    quality_checking: int
+    quality_failed:   int
+    ocr_processing:   int
+    processing:       int
+    scored:           int
+    failed:           int
+    review_required:  int
+    marks_submitted:  int
+    board_finalised:  int
+    completion_pct:   float

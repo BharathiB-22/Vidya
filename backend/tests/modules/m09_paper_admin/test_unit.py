@@ -3011,3 +3011,173 @@ class TestIngestPipelineRouting:
         assert "score_scanned_script" in src, (
             "ingest_script must dispatch score_scanned_script when upload_url is None"
         )
+
+
+# ===========================================================================
+# H-36 STEP-10 — Paper pipeline stats
+# ===========================================================================
+
+class TestPaperPipelineStats:
+    """
+    Tests for GET /scripts/stats endpoint: schema, repository, service, and router.
+    Read-only; no workflow mutations tested here.
+    """
+
+    # --- Schema ---
+
+    def test_schema_importable(self):
+        from app.modules.m09_paper_admin.schemas import PaperPipelineStats
+        assert PaperPipelineStats is not None
+
+    def test_schema_has_all_status_count_fields(self):
+        from app.modules.m09_paper_admin.schemas import PaperPipelineStats
+        expected = {
+            "paper_id", "total",
+            "pending", "quality_checking", "quality_failed", "ocr_processing",
+            "processing", "scored", "failed", "review_required",
+            "marks_submitted", "board_finalised", "completion_pct",
+        }
+        assert expected <= set(PaperPipelineStats.model_fields), (
+            f"Missing fields: {expected - set(PaperPipelineStats.model_fields)}"
+        )
+
+    def test_schema_completion_pct_is_float(self):
+        from app.modules.m09_paper_admin.schemas import PaperPipelineStats
+        import inspect
+        annotation = PaperPipelineStats.model_fields["completion_pct"].annotation
+        assert annotation is float, f"completion_pct must be float, got {annotation}"
+
+    # --- Repository ---
+
+    def test_repository_has_count_by_status_for_paper(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "count_by_status_for_paper"), (
+            "ScriptRepository must have count_by_status_for_paper"
+        )
+        assert callable(ScriptRepository.count_by_status_for_paper)
+
+    @pytest.mark.asyncio
+    async def test_count_by_status_for_paper_calls_execute(self):
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+
+        rows = [("SCORED", 3), ("BOARD_FINALISED", 2)]
+        result_mock = MagicMock()
+        result_mock.all.return_value = rows
+        execute_mock = AsyncMock(return_value=result_mock)
+        db = MagicMock()
+        db.execute = execute_mock
+
+        result = await ScriptRepository.count_by_status_for_paper(uuid4(), db=db)
+
+        execute_mock.assert_called_once()
+        assert result == {"SCORED": 3, "BOARD_FINALISED": 2}
+
+    @pytest.mark.asyncio
+    async def test_count_by_status_for_paper_empty_returns_empty_dict(self):
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+
+        result_mock = MagicMock()
+        result_mock.all.return_value = []
+        execute_mock = AsyncMock(return_value=result_mock)
+        db = MagicMock()
+        db.execute = execute_mock
+
+        result = await ScriptRepository.count_by_status_for_paper(uuid4(), db=db)
+        assert result == {}
+
+    # --- Service ---
+
+    def test_service_has_get_paper_stats(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert hasattr(ScriptService, "get_paper_stats")
+        assert callable(ScriptService.get_paper_stats)
+
+    @pytest.mark.asyncio
+    async def test_get_paper_stats_zero_scripts(self):
+        """When no scripts exist for a paper, total=0 and completion_pct=0.0."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        paper_id = uuid4()
+        db = MagicMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.count_by_status_for_paper",
+            new=AsyncMock(return_value={}),
+        ):
+            stats = await ScriptService.get_paper_stats(paper_id, db=db)
+
+        assert stats.total == 0
+        assert stats.completion_pct == 0.0
+        assert stats.board_finalised == 0
+
+    @pytest.mark.asyncio
+    async def test_get_paper_stats_correct_counts(self):
+        """Service correctly maps status → count fields."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        paper_id = uuid4()
+        db = MagicMock()
+        fake_counts = {
+            "PENDING": 5,
+            "SCORED": 10,
+            "MARKS_SUBMITTED": 3,
+            "BOARD_FINALISED": 2,
+        }
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.count_by_status_for_paper",
+            new=AsyncMock(return_value=fake_counts),
+        ):
+            stats = await ScriptService.get_paper_stats(paper_id, db=db)
+
+        assert stats.total == 20
+        assert stats.pending == 5
+        assert stats.scored == 10
+        assert stats.marks_submitted == 3
+        assert stats.board_finalised == 2
+        assert stats.quality_checking == 0  # missing key defaults to 0
+        assert stats.paper_id == paper_id
+
+    @pytest.mark.asyncio
+    async def test_get_paper_stats_completion_pct_calculation(self):
+        """completion_pct = board_finalised / total × 100, rounded to 1 dp."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        db = MagicMock()
+        fake_counts = {"BOARD_FINALISED": 1, "SCORED": 3}  # 1/4 = 25.0%
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.count_by_status_for_paper",
+            new=AsyncMock(return_value=fake_counts),
+        ):
+            stats = await ScriptService.get_paper_stats(uuid4(), db=db)
+
+        assert stats.completion_pct == 25.0
+
+    # --- Router ---
+
+    def test_router_has_stats_endpoint(self):
+        """GET /stats must be registered on the M09 router."""
+        from app.modules.m09_paper_admin.router import router
+        paths = [r.path for r in router.routes]
+        assert "/stats" in paths, f"/stats not found in router paths: {paths}"
+
+    def test_stats_endpoint_wired_before_list_all(self):
+        """/stats must be declared before the parameterised /{script_id} path."""
+        from app.modules.m09_paper_admin.router import router
+        paths = [r.path for r in router.routes]
+        assert paths.index("/stats") < paths.index("/{script_id}"), (
+            "/stats must appear before /{script_id} in route registration order"
+        )
+
+    def test_stats_schema_importable_from_router_module(self):
+        """PaperPipelineStats must be importable from the router module's namespace."""
+        import app.modules.m09_paper_admin.router as router_mod
+        assert hasattr(router_mod, "PaperPipelineStats"), (
+            "router.py must import PaperPipelineStats"
+        )
