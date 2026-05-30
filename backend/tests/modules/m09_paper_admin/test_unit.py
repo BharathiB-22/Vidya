@@ -3753,3 +3753,76 @@ class TestScriptFileUrlEndpoint:
                 )
         assert exc_info.value.code == "NO_FILE"
         storage_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# H-36 STEP-14 — Productization smoke: all H-36 symbols importable + router complete
+# ---------------------------------------------------------------------------
+
+class TestH36M09ProductizationSmoke:
+    """
+    Closure guard for the H-36 M09 productization sprint (STEP-01 through STEP-13).
+    Asserts that every H-36 symbol is importable from its expected module and that
+    the router exposes all H-36 endpoints.  No logic is tested here — existence only.
+    """
+
+    # ------------------------------------------------------------------ pure-module symbols
+
+    def test_scan_quality_detector_importable(self):
+        from app.modules.m09_paper_admin.scan_quality_detector import (  # noqa: F401
+            detect_scan_quality,
+            ScanQualityResult,
+        )
+
+    # ------------------------------------------------------------------ service methods
+
+    def test_service_get_evaluator_review_importable(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.get_evaluator_review)
+
+    def test_service_accept_suggestions_importable(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.accept_suggestions)
+
+    def test_service_override_quality_importable(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.override_quality_failed)
+
+    def test_service_get_script_file_url_importable(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.get_script_file_url)
+
+    def test_service_export_ledger_csv_importable(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.export_ledger_csv)
+
+    def test_service_get_paper_stats_importable(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.get_paper_stats)
+
+    # ------------------------------------------------------------------ schemas
+
+    def test_h36_schemas_importable(self):
+        from app.modules.m09_paper_admin.schemas import (  # noqa: F401
+            EvaluatorReviewResponse,
+            AcceptSuggestionsRequest,
+            QualityOverrideRequest,
+            PaperPipelineStats,
+            ScriptFileUrlResponse,
+        )
+
+    # ------------------------------------------------------------------ router paths
+
+    def test_router_exposes_all_h36_paths(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = {r.path for r in router.routes}
+        required = {
+            "/stats",
+            "/{script_id}/review",
+            "/{script_id}/accept",
+            "/{script_id}/override-quality",
+            "/{script_id}/file-url",
+            "/ledger/paper/{paper_id}/export",
+        }
+        missing = required - paths
+        assert not missing, f"H-36 router paths missing: {missing}"

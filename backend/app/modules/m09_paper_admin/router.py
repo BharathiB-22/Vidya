@@ -10,21 +10,28 @@ RBAC
 
 Route summary
 -------------
-  POST   /scripts/upload                  ingest scanned script + queue scoring
-  GET    /scripts                         list all scripts (ADMIN/BOARD)
-  GET    /scripts/board/pending           scripts awaiting Board finalisation
-  GET    /scripts/evaluator/me            evaluator's own assigned scripts
-  GET    /scripts/paper/{paper_id}        scripts for an exam paper
-  GET    /scripts/{script_id}             script detail (identity masked pre-finalise)
-  POST   /scripts/{script_id}/assign      assign evaluator
-  PATCH  /scripts/{script_id}/marks       evaluator saves marks (no gate)
-  POST   /scripts/{script_id}/submit      Gate 1: evaluator submits all marks
-  POST   /scripts/{script_id}/finalise    Gate 2: Board finalises + writes ledger
-  GET    /scripts/{script_id}/evaluations AI suggestions + evaluator marks
-  GET    /scripts/{script_id}/ledger      Board-finalised score record
+  POST   /scripts/upload                       ingest scanned script + queue scoring
+  GET    /scripts                              list all scripts (ADMIN/BOARD)
+  GET    /scripts/board/pending                scripts awaiting Board finalisation
+  GET    /scripts/evaluator/me                 evaluator's own assigned scripts
+  GET    /scripts/paper/{paper_id}             scripts for an exam paper
+  GET    /scripts/stats                        pipeline-status counts for a paper (H-36)
+  GET    /scripts/{script_id}                  script detail (identity masked pre-finalise)
+  POST   /scripts/{script_id}/assign           assign evaluator
+  PATCH  /scripts/{script_id}/marks            evaluator saves marks (no gate)
+  POST   /scripts/{script_id}/submit           Gate 1: evaluator submits all marks
+  POST   /scripts/{script_id}/finalise         Gate 2: Board finalises + writes ledger
+  GET    /scripts/{script_id}/review           enriched evaluator review panel (H-36)
+  POST   /scripts/{script_id}/accept           accept AI suggestions (H-36)
+  POST   /scripts/{script_id}/override-quality admin overrides QUALITY_FAILED (H-36)
+  GET    /scripts/{script_id}/file-url         presigned URL for uploaded scan (H-36)
+  GET    /scripts/{script_id}/evaluations      AI suggestions + evaluator marks
+  GET    /scripts/{script_id}/ledger           Board-finalised score record
+  GET    /scripts/ledger/paper/{paper_id}      all finalised scores for a paper
+  GET    /scripts/ledger/paper/{paper_id}/export  CSV download of score ledger (H-36)
 
-Static paths (/board/pending, /evaluator/me, /paper/...) are declared before
-/{script_id} so FastAPI routes them as literals, not path parameters.
+Static paths (/board/pending, /evaluator/me, /paper/..., /stats, /ledger/...) are
+declared before /{script_id} so FastAPI routes them as literals, not path parameters.
 """
 from __future__ import annotations
 
