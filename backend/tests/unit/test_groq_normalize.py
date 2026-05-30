@@ -6,6 +6,7 @@ output — no network calls, no DB, no env vars required.
 """
 import json
 import os
+from typing import Any
 
 import pytest
 
@@ -434,3 +435,166 @@ def test_existing_title_not_overwritten_by_unit_name():
     result = _normalize_groq_response(raw)
     assert result["units"][0]["title"] == "Correct Title"
     assert "unit_name" not in result["units"][0]
+
+
+# ---------------------------------------------------------------------------
+# Tests — total_hours aliases (BUG-002 third root cause)
+# Groq sometimes uses hours / contact_hours / teaching_hours instead of total_hours.
+# ---------------------------------------------------------------------------
+
+def _make_hours_alias_payload(hours_field: str, hours_value: Any = 10) -> str:
+    return json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Demonstrate competency in area {i} through applied work.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "units": [
+            {"unit_number": i, "title": f"Unit {i}", hours_field: hours_value,
+             "pedagogy": "lecture", "topics": [f"Topic {i}"]}
+            for i in range(1, 5)
+        ],
+        "reference_queries": [
+            {"query_str": f"programming textbook {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+
+
+def test_hours_alias_maps_to_total_hours():
+    """hours -> total_hours."""
+    raw = _make_hours_alias_payload("hours", 8)
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert unit.get("total_hours") == 8, f"expected total_hours=8, got: {unit}"
+        assert "hours" not in unit
+
+
+def test_contact_hours_alias_maps_to_total_hours():
+    """contact_hours -> total_hours."""
+    raw = _make_hours_alias_payload("contact_hours", 12)
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert unit.get("total_hours") == 12
+
+
+def test_teaching_hours_alias_maps_to_total_hours():
+    """teaching_hours -> total_hours."""
+    raw = _make_hours_alias_payload("teaching_hours", 10)
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert unit.get("total_hours") == 10
+
+
+def test_missing_total_hours_falls_back_to_default():
+    """When total_hours and all aliases are absent, a positive default is used."""
+    raw = json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Demonstrate competency in area {i} through applied work.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "units": [
+            {"unit_number": i, "title": f"Unit {i}", "pedagogy": "lecture",
+             "topics": [f"Topic {i}"]}   # no total_hours, no alias
+            for i in range(1, 5)
+        ],
+        "reference_queries": [
+            {"query_str": f"programming textbook {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert unit.get("total_hours", 0) >= 1, f"total_hours must be >= 1, got: {unit}"
+
+
+def test_hours_alias_full_pydantic_validation():
+    """End-to-end: hours alias normalizes and passes _SyllabusAI validation."""
+    raw = _make_hours_alias_payload("hours", 10)
+    normalized = _normalize_groq_response(raw)
+    parsed = _SyllabusAI.model_validate(normalized)
+    assert len(parsed.units) == 4
+    assert all(u.total_hours >= 1 for u in parsed.units)
+
+
+# ---------------------------------------------------------------------------
+# Tests — top-level key aliases for units and reference_queries
+# ---------------------------------------------------------------------------
+
+def test_course_units_alias_maps_to_units():
+    """course_units -> units at top level."""
+    raw = json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Apply learning in domain area {i} with practical depth.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "course_units": [
+            {"unit_number": i, "title": f"Unit {i}", "total_hours": 6,
+             "pedagogy": "lecture", "topics": []}
+            for i in range(1, 5)
+        ],
+        "reference_queries": [
+            {"query_str": f"textbook {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+    result = _normalize_groq_response(raw)
+    assert "units" in result
+    assert "course_units" not in result
+    assert len(result["units"]) == 4
+
+
+def test_online_learning_resources_alias_maps_to_reference_queries():
+    """online_learning_resources -> reference_queries at top level."""
+    raw = json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Apply learning in domain area {i} with practical depth.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "units": [
+            {"unit_number": i, "title": f"Unit {i}", "total_hours": 6,
+             "pedagogy": "lecture", "topics": []}
+            for i in range(1, 5)
+        ],
+        "online_learning_resources": [
+            {"query_str": f"programming resource {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 4)
+        ],
+    })
+    result = _normalize_groq_response(raw)
+    assert "reference_queries" in result
+    assert "online_learning_resources" not in result
+    assert len(result["reference_queries"]) == 3
+
+
+def test_topic_title_alias_in_unit():
+    """topic_title inside a unit's topics dict -> title."""
+    raw = json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Apply learning in domain area {i} with practical depth.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "units": [
+            {"unit_number": 1, "title": "Intro to C", "total_hours": 8, "pedagogy": "lecture",
+             "topics": [
+                 {"topic_title": "Variables and Types", "description": "Basic C types"},
+                 {"topic_title": "Control Flow", "description": "if/else/loops"},
+             ]},
+        ] + [
+            {"unit_number": i, "title": f"Unit {i}", "total_hours": 6,
+             "pedagogy": "lecture", "topics": []}
+            for i in range(2, 5)
+        ],
+        "reference_queries": [
+            {"query_str": f"c programming textbook {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+    result = _normalize_groq_response(raw)
+    for topic in result["units"][0]["topics"]:
+        assert "title" in topic, f"topic missing title: {topic}"
+        assert "topic_title" not in topic

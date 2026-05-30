@@ -457,6 +457,21 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
     if "course_outcomes" in data and "outcomes" not in data:
         data["outcomes"] = data.pop("course_outcomes")
 
+    # units: Groq sometimes uses course_units, learning_units, unit_breakdown
+    for _unit_alias in ("course_units", "learning_units", "unit_breakdown", "unit_list"):
+        if _unit_alias in data and "units" not in data:
+            data["units"] = data.pop(_unit_alias)
+            break
+
+    # reference_queries: Groq sometimes uses references, online_learning_resources, etc.
+    for _ref_alias in (
+        "online_learning_resources", "references", "bibliography",
+        "reading_list", "suggested_references", "resource_list",
+    ):
+        if _ref_alias in data and "reference_queries" not in data:
+            data["reference_queries"] = data.pop(_ref_alias)
+            break
+
     # --- CO normalization ---
     outcomes: list[Any] = data.get("outcomes", [])
     for i, co in enumerate(outcomes):
@@ -497,10 +512,12 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
     for i, unit in enumerate(units):
         if not isinstance(unit, dict):
             continue
+
+        # unit_number: display_order fallback then sequential
         if not unit.get("unit_number"):
-            # accept display_order as a fallback key, else assign sequentially
             unit["unit_number"] = unit.pop("display_order", None) or (i + 1)
-        # title aliases: Groq sometimes returns unit_name, name, or unit_title
+
+        # title aliases: unit_name / unit_title / name
         if not str(unit.get("title", "")).strip():
             for alias in ("unit_name", "unit_title", "name"):
                 candidate = str(unit.get(alias, "")).strip()
@@ -509,19 +526,70 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
                     break
         for alias in ("unit_name", "unit_title", "name"):
             unit.pop(alias, None)
+
+        # total_hours aliases: hours / contact_hours / teaching_hours / duration
+        if not unit.get("total_hours"):
+            for alias in ("hours", "contact_hours", "teaching_hours", "duration", "lecture_hours"):
+                val = unit.pop(alias, None)
+                if val is not None:
+                    try:
+                        unit["total_hours"] = max(1, int(val))
+                    except (TypeError, ValueError):
+                        pass
+                    break
+            # last resort: count hours_estimate across topics, or fall back to 6
+            if not unit.get("total_hours"):
+                raw_for_sum: list[Any] = unit.get("topics", [])
+                estimated = sum(
+                    int(t.get("hours_estimate", 0))
+                    for t in raw_for_sum
+                    if isinstance(t, dict) and t.get("hours_estimate")
+                )
+                unit["total_hours"] = estimated if estimated >= 1 else 6
+        else:
+            # Ensure it's a positive int (guard against "10 hours" strings)
+            try:
+                unit["total_hours"] = max(1, int(unit["total_hours"]))
+            except (TypeError, ValueError):
+                unit["total_hours"] = 6
+
+        # topics: strings → {"title": str}; dicts with topic_title/topic_name → title
         raw_topics: list[Any] = unit.get("topics", [])
-        unit["topics"] = [
-            {"title": t} if isinstance(t, str) else t
-            for t in raw_topics
-        ]
+        normalized_topics = []
+        for t in raw_topics:
+            if isinstance(t, str):
+                normalized_topics.append({"title": t})
+            elif isinstance(t, dict):
+                if not str(t.get("title", "")).strip():
+                    for talias in ("topic_title", "topic_name", "name"):
+                        cand = str(t.get(talias, "")).strip()
+                        if cand:
+                            t["title"] = cand
+                            break
+                for talias in ("topic_title", "topic_name"):
+                    t.pop(talias, None)
+                normalized_topics.append(t)
+        unit["topics"] = normalized_topics
 
     # --- reference_queries normalization ---
     ref_queries: list[Any] = data.get("reference_queries", [])
+    normalized_rqs = []
     for rq in ref_queries:
         if not isinstance(rq, dict):
             continue
-        if "query" in rq and "query_str" not in rq:
-            rq["query_str"] = rq.pop("query")
+        # query_str aliases: query, search_query, keyword
+        if not rq.get("query_str"):
+            for rq_alias in ("query", "search_query", "keyword", "title"):
+                cand = str(rq.get(rq_alias, "")).strip()
+                if cand:
+                    rq["query_str"] = cand
+                    break
+        for rq_alias in ("query", "search_query", "keyword"):
+            rq.pop(rq_alias, None)
+        # Only keep entries that have a valid query_str after normalization
+        if rq.get("query_str"):
+            normalized_rqs.append(rq)
+    data["reference_queries"] = normalized_rqs
 
     return data
 
