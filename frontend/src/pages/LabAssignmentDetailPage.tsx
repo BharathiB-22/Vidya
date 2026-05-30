@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Users, Clock, Download, Eye, UserCheck, Trash2 } from 'lucide-react'
+import { ChevronLeft, Users, Clock, Download, Eye, UserCheck, Trash2, BookOpen, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
@@ -199,6 +199,14 @@ export default function LabAssignmentDetailPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
+          {(assignment.course_code || assignment.course_title) && (
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+              <span className="text-xs font-medium text-gray-500">
+                {[assignment.course_code, assignment.course_title].filter(Boolean).join(' · ')}
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">{assignment.title}</h1>
             <LabStatusBadge status={assignment.status} />
@@ -212,6 +220,9 @@ export default function LabAssignmentDetailPage() {
             <p className="text-sm text-gray-400 mt-1 flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
               Due {new Date(assignment.deadline).toLocaleString()}
+              {assignment.allow_late && (
+                <span className="text-xs text-green-600 ml-1">(Late allowed)</span>
+              )}
             </p>
           )}
         </div>
@@ -219,14 +230,16 @@ export default function LabAssignmentDetailPage() {
         {canWrite && (
           <div className="flex items-center gap-2 flex-wrap">
             {assignment.status === 'DRAFT' && (
-              <Button
-                size="sm"
-                className="bg-green-700 hover:bg-green-800 text-white"
-                onClick={() => publish(assignmentId)}
-                disabled={publishing}
-              >
-                Publish
-              </Button>
+              <div title={!assignment.description?.trim() ? 'Add a problem statement before publishing' : undefined}>
+                <Button
+                  size="sm"
+                  className="bg-green-700 hover:bg-green-800 text-white disabled:opacity-50"
+                  onClick={() => publish(assignmentId)}
+                  disabled={publishing || !assignment.description?.trim()}
+                >
+                  Publish
+                </Button>
+              </div>
             )}
             {assignment.status === 'PUBLISHED' && (
               <>
@@ -288,9 +301,39 @@ export default function LabAssignmentDetailPage() {
 
       {tab === 'overview' && (
         <div className="space-y-6">
-          {assignment.description && (
-            <p className="text-sm text-gray-700 leading-relaxed">{assignment.description}</p>
-          )}
+          {/* Problem Statement */}
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Problem Statement</span>
+              {!assignment.description?.trim() && (
+                <span className="flex items-center gap-1 text-xs text-amber-600">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  Required to publish
+                </span>
+              )}
+            </div>
+            <div className="px-4 py-3">
+              {assignment.description ? (
+                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{assignment.description}</p>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No problem statement yet. Edit this assignment to add one.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Student Instructions */}
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Student Instructions</span>
+            </div>
+            <div className="px-4 py-3">
+              {assignment.instructions ? (
+                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{assignment.instructions}</p>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No specific submission instructions. Edit to add guidance for students.</p>
+              )}
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <InfoCard label="Max Marks" value={assignment.max_marks ?? totalMarks} />

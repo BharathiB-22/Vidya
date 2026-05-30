@@ -130,6 +130,7 @@ class AssignmentService:
             syllabus_id=payload.syllabus_id,
             kit_assignment_id=payload.kit_assignment_id,
             description=payload.description,
+            instructions=payload.instructions,
             language=payload.language,
             test_cases=tc_dicts,
             deadline=payload.deadline,
@@ -190,6 +191,8 @@ class AssignmentService:
             fields["title"] = payload.title
         if payload.description is not None:
             fields["description"] = payload.description
+        if payload.instructions is not None:
+            fields["instructions"] = payload.instructions
         if payload.rubric is not None:
             rubric_dicts = [c.model_dump() for c in payload.rubric]
             _validate_rubric_weights(rubric_dicts)
@@ -224,6 +227,11 @@ class AssignmentService:
                 "NOT_DRAFT",
                 "Only DRAFT assignments can be published.",
                 409,
+            )
+        if not (assignment.description or "").strip():
+            raise LabServiceError(
+                "NO_PROBLEM_STATEMENT",
+                "A problem statement is required before publishing.",
             )
         if not assignment.rubric:
             raise LabServiceError(

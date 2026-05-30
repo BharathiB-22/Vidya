@@ -289,8 +289,28 @@ export default function StudentSubmitPage() {
 
       {assignment.deadline && <DeadlineWarning deadline={assignment.deadline} />}
 
+      {/* Problem Statement */}
       {assignment.description && (
-        <p className="text-sm text-gray-700 leading-relaxed">{assignment.description}</p>
+        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Problem Statement</span>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{assignment.description}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Student Instructions */}
+      {assignment.instructions && (
+        <div className="rounded-xl border border-blue-100 bg-blue-50 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-blue-100">
+            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Submission Instructions</span>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-wrap">{assignment.instructions}</p>
+          </div>
+        </div>
       )}
 
       {/* Rubric summary */}

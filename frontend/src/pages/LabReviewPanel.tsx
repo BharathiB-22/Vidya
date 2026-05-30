@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, CheckCircle2, AlertTriangle, Loader2, Shield } from 'lucide-react'
+import { ChevronLeft, CheckCircle2, AlertTriangle, Loader2, Shield, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
@@ -132,6 +132,7 @@ export default function LabReviewPanel() {
   const evaluation = submission.evaluation
   const isRatified = submission.status === 'RATIFIED'
   const canRatify  = submission.status === 'REVIEWED' && !isRatified
+  const [contextOpen, setContextOpen] = useState(false)
 
   function handleScoreChange(criterionId: string, score: number | '', note: string) {
     setDraftScores((prev) => ({ ...prev, [criterionId]: { score, note } }))
@@ -184,6 +185,46 @@ export default function LabReviewPanel() {
           </span>
         )}
       </div>
+
+      {/* Assignment context collapsible */}
+      {(assignment.description || assignment.instructions) && (
+        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+          <button
+            type="button"
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+            onClick={() => setContextOpen((v) => !v)}
+          >
+            <div>
+              <span className="text-sm font-semibold text-gray-700">{assignment.title}</span>
+              {(assignment.course_code || assignment.course_title) && (
+                <span className="ml-2 text-xs text-gray-400">
+                  {[assignment.course_code, assignment.course_title].filter(Boolean).join(' · ')}
+                </span>
+              )}
+            </div>
+            {contextOpen
+              ? <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
+            }
+          </button>
+          {contextOpen && (
+            <div className="border-t border-gray-100 divide-y divide-gray-100">
+              {assignment.description && (
+                <div className="px-4 py-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Problem Statement</p>
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{assignment.description}</p>
+                </div>
+              )}
+              {assignment.instructions && (
+                <div className="px-4 py-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Student Instructions</p>
+                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{assignment.instructions}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* ── Left: Submission content ─────────────────────────────────── */}

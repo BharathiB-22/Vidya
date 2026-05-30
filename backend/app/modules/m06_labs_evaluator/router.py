@@ -40,6 +40,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -104,6 +105,29 @@ def _strip_hidden_tests(assignment_dict: dict) -> dict:
     tcs = assignment_dict.get("test_cases") or []
     assignment_dict["test_cases"] = [t for t in tcs if not t.get("is_hidden", False)]
     return assignment_dict
+
+
+async def _course_context(
+    syllabus_id: UUID | None,
+    db: AsyncSession,
+) -> tuple[str | None, str | None]:
+    """Resolve course title + code from syllabi → courses chain. Fails silently."""
+    if not syllabus_id:
+        return None, None
+    try:
+        row = (await db.execute(
+            text(
+                "SELECT c.title, c.code "
+                "FROM syllabi s JOIN courses c ON c.id = s.course_id "
+                "WHERE s.id = :sid"
+            ),
+            {"sid": str(syllabus_id)},
+        )).fetchone()
+        if row:
+            return row[0], row[1]
+    except Exception:
+        pass
+    return None, None
 
 
 # ===========================================================================
@@ -172,7 +196,10 @@ async def get_assignment(
         assignment = await AssignmentService.get(assignment_id, db=db)
     except LabServiceError as exc:
         raise _svc_error(exc)
-    return AssignmentResponse.model_validate(assignment)
+    course_title, course_code = await _course_context(assignment.syllabus_id, db)
+    return AssignmentResponse.model_validate(assignment).model_copy(
+        update={"course_title": course_title, "course_code": course_code}
+    )
 
 
 @router.put("/assignments/{assignment_id}", response_model=AssignmentResponse)
@@ -297,9 +324,12 @@ async def get_review_panel(
         ai_scan_result=sub.ai_scan_result,
         evaluation=eval_resp,
     )
+    course_title, course_code = await _course_context(assignment.syllabus_id, db)
     return ReviewPanelResponse(
         submission=sub_detail,
-        assignment=AssignmentResponse.model_validate(assignment),
+        assignment=AssignmentResponse.model_validate(assignment).model_copy(
+            update={"course_title": course_title, "course_code": course_code}
+        ),
         grade_entry=GradeLedgerResponse.model_validate(grade_entry) if grade_entry else None,
     )
 
@@ -541,7 +571,10 @@ async def evaluator_get_assignment(
         assignment = await AssignmentService.get(assignment_id, db=db)
     except LabServiceError as exc:
         raise _svc_error(exc)
-    return AssignmentResponse.model_validate(assignment)
+    course_title, course_code = await _course_context(assignment.syllabus_id, db)
+    return AssignmentResponse.model_validate(assignment).model_copy(
+        update={"course_title": course_title, "course_code": course_code}
+    )
 
 
 @router.get(
@@ -607,9 +640,12 @@ async def evaluator_get_review_panel(
         ai_scan_result=sub.ai_scan_result,
         evaluation=eval_resp,
     )
+    course_title, course_code = await _course_context(assignment.syllabus_id, db)
     return ReviewPanelResponse(
         submission=sub_detail,
-        assignment=AssignmentResponse.model_validate(assignment),
+        assignment=AssignmentResponse.model_validate(assignment).model_copy(
+            update={"course_title": course_title, "course_code": course_code}
+        ),
         grade_entry=GradeLedgerResponse.model_validate(grade_entry) if grade_entry else None,
     )
 
@@ -734,7 +770,10 @@ async def student_get_assignment(
         raise _svc_error(exc)
     if assignment.status not in ("PUBLISHED", "CLOSED"):
         raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "message": "Assignment not found."})
-    d = AssignmentResponse.model_validate(assignment).model_dump()
+    course_title, course_code = await _course_context(assignment.syllabus_id, db)
+    d = AssignmentResponse.model_validate(assignment).model_copy(
+        update={"course_title": course_title, "course_code": course_code}
+    ).model_dump()
     _strip_hidden_tests(d)
     return d
 
@@ -850,8 +889,11 @@ async def student_get_result(
         ai_scan_result=sub.ai_scan_result,
         evaluation=eval_resp,
     )
+    course_title, course_code = await _course_context(assignment.syllabus_id, db)
     return ReviewPanelResponse(
         submission=sub_detail,
-        assignment=AssignmentResponse.model_validate(assignment),
+        assignment=AssignmentResponse.model_validate(assignment).model_copy(
+            update={"course_title": course_title, "course_code": course_code}
+        ),
         grade_entry=GradeLedgerResponse.model_validate(grade_entry) if grade_entry else None,
     )

@@ -109,7 +109,8 @@ class LabAssignment(Base):
     created_by_user_id  = Column(UUID(as_uuid=True), nullable=False)
 
     title               = Column(String, nullable=False)
-    description         = Column(Text, nullable=True)
+    description         = Column(Text, nullable=True)   # problem statement (shown to students + LLM)
+    instructions        = Column(Text, nullable=True)   # student submission instructions
     submission_type     = Column(
         Enum(SubmissionType, native_enum=False),
         nullable=False,

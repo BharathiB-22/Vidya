@@ -41,6 +41,7 @@ class TestCase(BaseModel):
 class AssignmentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     description: str | None = None
+    instructions: str | None = None
     submission_type: str = "WRITTEN"          # WRITTEN | CODE
     language: str | None = None               # e.g. "python" — CODE only
     rubric: list[RubricCriterion] = Field(default_factory=list)
@@ -72,6 +73,7 @@ class AssignmentCreate(BaseModel):
 class AssignmentUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
+    instructions: str | None = None
     rubric: list[RubricCriterion] | None = None
     test_cases: list[TestCase] | None = None
     deadline: datetime | None = None
@@ -85,6 +87,7 @@ class AssignmentResponse(BaseModel):
     id: UUID
     title: str
     description: str | None
+    instructions: str | None = None
     submission_type: str
     language: str | None
     rubric: list[dict]
@@ -102,6 +105,9 @@ class AssignmentResponse(BaseModel):
     closed_at: datetime | None
     created_at: datetime
     updated_at: datetime | None
+    # Enriched from syllabi → courses join (populated on detail endpoints only)
+    course_title: str | None = None
+    course_code: str | None = None
 
     model_config = {"from_attributes": True}
 

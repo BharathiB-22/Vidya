@@ -722,3 +722,116 @@ class TestGradeLedgerInvariant:
                 )
         assert exc_info.value.status_code == 409
         assert exc_info.value.code == "ALREADY_RATIFIED"
+
+
+# ===========================================================================
+# 7 — Instructions field + publish guard
+# ===========================================================================
+
+class TestInstructionsAndPublishGuard:
+    """Tests for the new instructions field and publish validation."""
+
+    def test_assignment_create_schema_accepts_instructions(self):
+        from app.modules.m06_labs_evaluator.schemas import AssignmentCreate
+        payload = AssignmentCreate(
+            title="Test",
+            description="Describe a sorting algorithm.",
+            instructions="Write a 500-word essay. Use APA citations.",
+            submission_type="WRITTEN",
+        )
+        assert payload.instructions == "Write a 500-word essay. Use APA citations."
+
+    def test_assignment_create_schema_instructions_optional(self):
+        from app.modules.m06_labs_evaluator.schemas import AssignmentCreate
+        payload = AssignmentCreate(title="Test", submission_type="WRITTEN")
+        assert payload.instructions is None
+
+    def test_assignment_update_schema_accepts_instructions(self):
+        from app.modules.m06_labs_evaluator.schemas import AssignmentUpdate
+        payload = AssignmentUpdate(instructions="Updated instructions text.")
+        assert payload.instructions == "Updated instructions text."
+
+    def test_assignment_response_schema_has_instructions_field(self):
+        from app.modules.m06_labs_evaluator.schemas import AssignmentResponse
+        fields = AssignmentResponse.model_fields
+        assert "instructions" in fields
+
+    def test_assignment_response_schema_has_course_fields(self):
+        from app.modules.m06_labs_evaluator.schemas import AssignmentResponse
+        fields = AssignmentResponse.model_fields
+        assert "course_title" in fields
+        assert "course_code" in fields
+
+    @pytest.mark.asyncio
+    async def test_publish_fails_when_description_is_empty(self):
+        from app.modules.m06_labs_evaluator.service import AssignmentService, LabServiceError
+        from app.modules.m06_labs_evaluator.models import LabAssignment, AssignmentStatus
+
+        mock_db = AsyncMock()
+        assignment = MagicMock(spec=LabAssignment)
+        assignment.id = uuid.uuid4()
+        assignment.status = AssignmentStatus.DRAFT
+        assignment.description = ""          # empty problem statement
+        assignment.rubric = [{"criterion_id": "c1", "name": "Q", "max_marks": 10, "weight": 1.0}]
+
+        with patch(
+            "app.modules.m06_labs_evaluator.repository.AssignmentRepository.get_by_id",
+            new=AsyncMock(return_value=assignment),
+        ):
+            with pytest.raises(LabServiceError) as exc_info:
+                await AssignmentService.publish(assignment.id, db=mock_db)
+
+        assert exc_info.value.code == "NO_PROBLEM_STATEMENT"
+
+    @pytest.mark.asyncio
+    async def test_publish_fails_when_description_is_none(self):
+        from app.modules.m06_labs_evaluator.service import AssignmentService, LabServiceError
+        from app.modules.m06_labs_evaluator.models import LabAssignment, AssignmentStatus
+
+        mock_db = AsyncMock()
+        assignment = MagicMock(spec=LabAssignment)
+        assignment.id = uuid.uuid4()
+        assignment.status = AssignmentStatus.DRAFT
+        assignment.description = None        # no problem statement
+        assignment.rubric = [{"criterion_id": "c1", "name": "Q", "max_marks": 10, "weight": 1.0}]
+
+        with patch(
+            "app.modules.m06_labs_evaluator.repository.AssignmentRepository.get_by_id",
+            new=AsyncMock(return_value=assignment),
+        ):
+            with pytest.raises(LabServiceError) as exc_info:
+                await AssignmentService.publish(assignment.id, db=mock_db)
+
+        assert exc_info.value.code == "NO_PROBLEM_STATEMENT"
+
+    @pytest.mark.asyncio
+    async def test_publish_succeeds_with_description_and_null_instructions(self):
+        """instructions is optional — publish must not require it."""
+        from app.modules.m06_labs_evaluator.service import AssignmentService
+        from app.modules.m06_labs_evaluator.models import LabAssignment, AssignmentStatus
+
+        mock_db = AsyncMock()
+        published = MagicMock(spec=LabAssignment)
+        published.status = AssignmentStatus.PUBLISHED
+        published.max_marks = 10
+
+        assignment = MagicMock(spec=LabAssignment)
+        assignment.id = uuid.uuid4()
+        assignment.status = AssignmentStatus.DRAFT
+        assignment.description = "Implement a binary search tree."
+        assignment.instructions = None       # absent — must not block publish
+        assignment.rubric = [{"criterion_id": "c1", "name": "Q", "max_marks": 10, "weight": 1.0}]
+
+        with (
+            patch(
+                "app.modules.m06_labs_evaluator.repository.AssignmentRepository.get_by_id",
+                new=AsyncMock(return_value=assignment),
+            ),
+            patch(
+                "app.modules.m06_labs_evaluator.repository.AssignmentRepository.publish",
+                new=AsyncMock(return_value=published),
+            ),
+        ):
+            result = await AssignmentService.publish(assignment.id, db=mock_db)
+
+        assert result.status == AssignmentStatus.PUBLISHED

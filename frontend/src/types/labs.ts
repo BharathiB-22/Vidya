@@ -27,6 +27,7 @@ export interface LabAssignment {
   id: string
   title: string
   description: string | null
+  instructions: string | null
   submission_type: SubmissionType
   language: string | null
   rubric: RubricCriterion[]
@@ -44,6 +45,9 @@ export interface LabAssignment {
   closed_at: string | null
   created_at: string
   updated_at: string | null
+  // Enriched on detail endpoints from syllabi → courses join
+  course_title: string | null
+  course_code: string | null
 }
 
 export interface LabAssignmentListResponse {
@@ -56,6 +60,7 @@ export interface LabAssignmentListResponse {
 export interface AssignmentCreate {
   title: string
   description?: string
+  instructions?: string
   submission_type: SubmissionType
   language?: string
   rubric: RubricCriterion[]
@@ -70,6 +75,7 @@ export interface AssignmentCreate {
 export interface AssignmentUpdate {
   title?: string
   description?: string
+  instructions?: string
   rubric?: RubricCriterion[]
   test_cases?: TestCase[]
   deadline?: string

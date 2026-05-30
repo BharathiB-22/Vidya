@@ -40,18 +40,26 @@ function CreateDialog({
   onClose: () => void
   onCreated: (id: string) => void
 }) {
-  const [title, setTitle]   = useState('')
-  const [type, setType]     = useState<'WRITTEN' | 'CODE'>('WRITTEN')
-  const [lang, setLang]     = useState('python')
+  const [title, setTitle]           = useState('')
+  const [description, setDescription] = useState('')
+  const [instructions, setInstructions] = useState('')
+  const [type, setType]             = useState<'WRITTEN' | 'CODE'>('WRITTEN')
+  const [lang, setLang]             = useState('python')
+  const [deadline, setDeadline]     = useState('')
+  const [allowLate, setAllowLate]   = useState(false)
   const [rubricName, setRubricName] = useState('Content Quality')
-  const { mutateAsync, isPending } = useCreateAssignment()
+  const { mutateAsync, isPending }  = useCreateAssignment()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const payload: AssignmentCreate = {
       title,
+      description: description.trim() || undefined,
+      instructions: instructions.trim() || undefined,
       submission_type: type,
       language: type === 'CODE' ? lang : undefined,
+      deadline: deadline || undefined,
+      allow_late: allowLate,
       rubric: [{
         criterion_id: 'c1',
         name: rubricName,
@@ -65,16 +73,16 @@ function CreateDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
       <form
         onSubmit={handleSubmit}
-        className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-semibold text-gray-900">New Assignment</h2>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">Title</label>
+          <label className="text-sm font-medium text-gray-700">Title <span className="text-red-500">*</span></label>
           <input
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             value={title}
@@ -108,6 +116,58 @@ function CreateDialog({
             </select>
           </div>
         )}
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Problem Statement
+            <span className="ml-1 text-xs text-gray-400">(required to publish)</span>
+          </label>
+          <textarea
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y"
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe the task students must complete…"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            Student Instructions
+            <span className="ml-1 text-xs text-gray-400">(optional)</span>
+          </label>
+          <textarea
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y"
+            rows={2}
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="e.g. Write 500 words. Cite sources in APA format."
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">Due Date</label>
+            <input
+              type="datetime-local"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">Late Submissions</label>
+            <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={allowLate}
+                onChange={(e) => setAllowLate(e.target.checked)}
+              />
+              <span className="text-sm text-gray-700">Allow late</span>
+            </label>
+          </div>
+        </div>
 
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">First rubric criterion</label>
