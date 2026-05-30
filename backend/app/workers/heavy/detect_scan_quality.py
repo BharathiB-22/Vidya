@@ -87,6 +87,7 @@ def detect_scan_quality(
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_quality_check(
+            job_id=job_id,
             script_id=script_id,
             schema_name=schema_name,
         )
@@ -97,7 +98,7 @@ def detect_scan_quality(
 # Inner async implementation
 # ---------------------------------------------------------------------------
 
-async def _run_quality_check(*, script_id: str, schema_name: str) -> dict:
+async def _run_quality_check(*, job_id: str, script_id: str, schema_name: str) -> dict:
     from uuid import UUID
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,6 +199,21 @@ async def _run_quality_check(*, script_id: str, schema_name: str) -> dict:
                     "final_status":  new_status,
                 },
             )
+
+            # 6b. Chain to OCR task when quality passed
+            if result.passed:
+                from app.workers.heavy.ocr_scanned_script import ocr_scanned_script
+                ocr_scanned_script.apply_async(
+                    kwargs={
+                        "job_id":      job_id,
+                        "script_id":   script_id,
+                        "schema_name": schema_name,
+                    },
+                    queue="celery-heavy",
+                )
+                logger.info(
+                    "Quality passed — dispatched OCR task for script=%s", script_id
+                )
 
             logger.info(
                 "Quality check complete: script=%s score=%.1f passed=%s flags=%d status=%s",

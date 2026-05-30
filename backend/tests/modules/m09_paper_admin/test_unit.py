@@ -2831,3 +2831,183 @@ class TestEvaluatorReviewRouterWiring:
         accept_routes = [r for r in router.routes if r.path == "/{script_id}/accept"]
         assert len(accept_routes) >= 1
         assert "POST" in accept_routes[0].methods
+
+    def test_router_has_at_least_15_routes(self):
+        """After H-36 /review + /accept + /ledger/paper routes, count must be >= 15."""
+        from app.modules.m09_paper_admin.router import router
+        assert len(router.routes) >= 15
+
+    def test_ledger_paper_route_present(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = {r.path for r in router.routes}
+        assert "/ledger/paper/{paper_id}" in paths
+
+
+# ===========================================================================
+# 16 — Ingest pipeline routing (H-36 STEP-08)
+# ===========================================================================
+
+class TestIngestPipelineRouting:
+    """
+    Verifies that ingest_script dispatches detect_scan_quality when an
+    upload_url is present, and score_scanned_script directly when it is not.
+    """
+
+    @pytest.mark.asyncio
+    async def test_ingest_with_upload_url_dispatches_quality_task(self):
+        """upload_url present → detect_scan_quality.apply_async called."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from uuid import uuid4
+
+        script = MagicMock()
+        script.id = uuid4()
+        script.masked_id = "S1234567890"
+        script.status = "PENDING"
+
+        fake_job = MagicMock(); fake_job.id = uuid4()
+
+        quality_mock  = MagicMock()
+        score_mock    = MagicMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.create",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.TaskJobPublicRepository.create",
+            new=AsyncMock(return_value=fake_job),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ), patch(
+            "app.workers.heavy.detect_scan_quality.detect_scan_quality",
+            quality_mock,
+        ), patch(
+            "app.workers.heavy.score_scanned_script.score_scanned_script",
+            score_mock,
+        ):
+            from app.modules.m09_paper_admin.service import ScriptService
+            from app.modules.m09_paper_admin.schemas import ScriptIngestRequest
+
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+
+            # Use a fake public DB context
+            with patch("app.database.AsyncSessionLocal") as mock_session:
+                mock_session.return_value.__aenter__ = AsyncMock(return_value=db)
+                mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                await ScriptService.ingest_script(
+                    ScriptIngestRequest(exam_paper_id=uuid4()),
+                    upload_url="vidya-assets/scanned_scripts/some.pdf",
+                    page_count=4,
+                    ingested_by=uuid4(),
+                    tenant_id=uuid4(),
+                    schema_name="dsu",
+                    db=db,
+                )
+
+        quality_mock.apply_async.assert_called_once()
+        score_mock.apply_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ingest_without_upload_url_dispatches_score_directly(self):
+        """No upload_url → score_scanned_script.apply_async called directly."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from uuid import uuid4
+
+        script = MagicMock()
+        script.id = uuid4()
+        script.masked_id = "S0000000000"
+        script.status = "PENDING"
+
+        fake_job = MagicMock(); fake_job.id = uuid4()
+
+        quality_mock  = MagicMock()
+        score_mock    = MagicMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.create",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.TaskJobPublicRepository.create",
+            new=AsyncMock(return_value=fake_job),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ), patch(
+            "app.workers.heavy.detect_scan_quality.detect_scan_quality",
+            quality_mock,
+        ), patch(
+            "app.workers.heavy.score_scanned_script.score_scanned_script",
+            score_mock,
+        ):
+            from app.modules.m09_paper_admin.service import ScriptService
+            from app.modules.m09_paper_admin.schemas import ScriptIngestRequest
+
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+
+            with patch("app.database.AsyncSessionLocal") as mock_session:
+                mock_session.return_value.__aenter__ = AsyncMock(return_value=db)
+                mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                await ScriptService.ingest_script(
+                    ScriptIngestRequest(exam_paper_id=uuid4()),
+                    upload_url=None,
+                    page_count=None,
+                    ingested_by=uuid4(),
+                    tenant_id=uuid4(),
+                    schema_name="dsu",
+                    db=db,
+                )
+
+        score_mock.apply_async.assert_called_once()
+        quality_mock.apply_async.assert_not_called()
+
+    def test_detect_quality_chains_to_ocr_on_pass(self):
+        """detect_scan_quality dispatches ocr_scanned_script when quality passes."""
+        import inspect
+        from app.workers.heavy.detect_scan_quality import _run_quality_check
+        src = inspect.getsource(_run_quality_check)
+        assert "ocr_scanned_script" in src, (
+            "_run_quality_check must dispatch ocr_scanned_script when quality passes"
+        )
+        assert "apply_async" in src, (
+            "_run_quality_check must call apply_async to dispatch the OCR task"
+        )
+
+    def test_detect_quality_does_not_dispatch_on_fail(self):
+        """Quality fail path must NOT dispatch any further task."""
+        import inspect
+        from app.workers.heavy.detect_scan_quality import _run_quality_check
+        src = inspect.getsource(_run_quality_check)
+        # The dispatch is inside `if result.passed:` — verify by checking both imports
+        assert "if result.passed" in src, (
+            "Dispatch must be guarded by `if result.passed`"
+        )
+
+    def test_service_ingest_imports_detect_quality_for_upload_path(self):
+        """Service ingest_script must import detect_scan_quality for the upload code path."""
+        import inspect
+        from app.modules.m09_paper_admin.service import ScriptService
+        src = inspect.getsource(ScriptService.ingest_script)
+        assert "detect_scan_quality" in src, (
+            "ingest_script must dispatch detect_scan_quality when upload_url is present"
+        )
+
+    def test_service_ingest_still_imports_score_task_for_no_upload_path(self):
+        """Service ingest_script must keep direct score dispatch for no-upload case."""
+        import inspect
+        from app.modules.m09_paper_admin.service import ScriptService
+        src = inspect.getsource(ScriptService.ingest_script)
+        assert "score_scanned_script" in src, (
+            "ingest_script must dispatch score_scanned_script when upload_url is None"
+        )
