@@ -8,6 +8,10 @@ export type ScriptStatus =
   | 'REVIEW_REQUIRED'
   | 'MARKS_SUBMITTED'
   | 'BOARD_FINALISED'
+  // H-36 pipeline statuses
+  | 'QUALITY_CHECKING'
+  | 'QUALITY_FAILED'
+  | 'OCR_PROCESSING'
 
 export type EvaluationRound =
   | 'PRIMARY'
@@ -31,6 +35,12 @@ export interface ScriptEvaluation {
   ai_justification:    string | null
   ai_model:            string | null
 
+  // H-36 enrichment fields — visible to evaluator in review panel
+  keyword_hits:        KeywordHit[] | null
+  rubric_mapping:      RubricItem[] | null
+  ai_confidence:       number | null
+  page_range:          { start: number; end: number } | null
+
   // Human marks (written only by evaluator endpoints)
   evaluator_marks:     number | null
   evaluator_note:      string | null
@@ -40,6 +50,18 @@ export interface ScriptEvaluation {
 
   created_at:          string
   updated_at:          string | null
+}
+
+export interface KeywordHit {
+  keyword:    string
+  found:      boolean
+  context?:   string
+}
+
+export interface RubricItem {
+  criterion:  string
+  matched:    boolean
+  note?:      string
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +143,32 @@ export interface JobStatus {
   job_id: string
   status: string
   result: Record<string, unknown> | null
+}
+
+// ---------------------------------------------------------------------------
+// Request payload types
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Evaluator review panel (H-36 STEP-05 backend / STEP-06 frontend)
+// ---------------------------------------------------------------------------
+
+export interface EvaluatorReviewResponse {
+  script_id:            string
+  masked_id:            string
+  exam_paper_id:        string
+  status:               ScriptStatus
+  ocr_text:             string | null
+  ocr_status:           string | null
+  page_count:           number | null
+  page_image_keys:      { page: number; key: string }[] | null
+  objective_auto_score: number | null
+  evaluations:          ScriptEvaluation[]
+}
+
+export interface AcceptSuggestionsPayload {
+  question_ids?:  string[]
+  evaluator_note?: string
 }
 
 // ---------------------------------------------------------------------------

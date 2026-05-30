@@ -1,8 +1,10 @@
 // M09 Paper Administration & Scanning — API client
 import api from '@/lib/api'
 import type {
+  AcceptSuggestionsPayload,
   BoardFinaliseResponse,
   BulkMarkUpdatePayload,
+  EvaluatorReviewResponse,
   ExamScoreLedger,
   ExamScoreLedgerListResponse,
   JobStatus,
@@ -145,6 +147,21 @@ export async function listScriptsForPaper(
 
 export async function getEvaluations(scriptId: string): Promise<ScriptEvaluation[]> {
   const { data } = await api.get(`${BASE}/${scriptId}/evaluations`)
+  return data
+}
+
+/** H-36 STEP-06: combined review panel — OCR text + enriched AI evaluations. */
+export async function getEvaluatorReview(scriptId: string): Promise<EvaluatorReviewResponse> {
+  const { data } = await api.get(`${BASE}/${scriptId}/review`)
+  return data
+}
+
+/** H-36 STEP-06: evaluator accepts AI suggestions for all or specific questions. */
+export async function acceptSuggestions(
+  scriptId: string,
+  payload:  AcceptSuggestionsPayload,
+): Promise<ScriptEvaluation[]> {
+  const { data } = await api.post(`${BASE}/${scriptId}/accept`, payload)
   return data
 }
 

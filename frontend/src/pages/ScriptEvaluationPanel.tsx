@@ -1,23 +1,148 @@
-// M09 Paper Administration — Evaluator: per-question marks entry panel
+// M09 Paper Administration — Evaluator: enriched review + marks entry panel (H-36 STEP-06)
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronLeft, Save, Send, Loader2, AlertTriangle, Info, CheckCircle2,
+  ChevronLeft, Save, Send, Loader2, AlertTriangle, Info,
+  CheckCircle2, CheckCheck, ChevronDown, ChevronUp, Zap,
+  FileText, AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
-  getScript,
-  getEvaluations,
+  getEvaluatorReview,
   updateMarks,
   submitMarks,
+  acceptSuggestions,
 } from '@/lib/api/scripts'
 import type {
   ScriptEvaluation,
   EvaluatorMarkUpdate,
   MarksMap,
   ScriptSubmitMarksPayload,
+  KeywordHit,
+  RubricItem,
+  ScriptStatus,
 } from '@/types/script'
+
+// ---------------------------------------------------------------------------
+// Status badge helpers
+// ---------------------------------------------------------------------------
+
+const STATUS_PIPELINE: ScriptStatus[] = [
+  'QUALITY_CHECKING', 'QUALITY_FAILED', 'OCR_PROCESSING',
+]
+
+function PipelineStatusBanner({ status }: { status: ScriptStatus }) {
+  if (!STATUS_PIPELINE.includes(status)) return null
+
+  const map: Record<string, { label: string; icon: React.ReactNode; cls: string }> = {
+    QUALITY_CHECKING: {
+      label: 'Checking scan quality…',
+      icon:  <Loader2 className="w-4 h-4 animate-spin" />,
+      cls:   'bg-yellow-50 border-yellow-200 text-yellow-800',
+    },
+    QUALITY_FAILED: {
+      label: 'Scan quality check failed — upload may need replacement.',
+      icon:  <AlertCircle className="w-4 h-4" />,
+      cls:   'bg-red-50 border-red-200 text-red-800',
+    },
+    OCR_PROCESSING: {
+      label: 'Extracting text from scan (OCR)…',
+      icon:  <Loader2 className="w-4 h-4 animate-spin" />,
+      cls:   'bg-blue-50 border-blue-200 text-blue-800',
+    },
+  }
+
+  const item = map[status]
+  if (!item) return null
+
+  return (
+    <div className={`flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm ${item.cls}`}>
+      {item.icon}
+      <span>{item.label}</span>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Keyword hits panel
+// ---------------------------------------------------------------------------
+
+function KeywordHitsPanel({ hits }: { hits: KeywordHit[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const found   = hits.filter(h => h.found)
+  const missing = hits.filter(h => !h.found)
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 text-xs">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg"
+      >
+        <span>Keywords ({found.length}/{hits.length} matched)</span>
+        {expanded ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 space-y-1">
+          {hits.map((h, i) => (
+            <div key={i} className="flex items-start gap-1.5">
+              {h.found
+                ? <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+                : <AlertTriangle className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />}
+              <span className={h.found ? 'text-emerald-700' : 'text-gray-400'}>
+                {h.keyword}
+                {h.context && h.found && (
+                  <span className="text-gray-500"> — "{h.context}"</span>
+                )}
+              </span>
+            </div>
+          ))}
+          {missing.length > 0 && (
+            <p className="text-gray-400 mt-1">
+              {missing.length} keyword{missing.length > 1 ? 's' : ''} not found in OCR text.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Rubric mapping panel
+// ---------------------------------------------------------------------------
+
+function RubricPanel({ items }: { items: RubricItem[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const matched = items.filter(r => r.matched)
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50 text-xs">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg"
+      >
+        <span>Rubric ({matched.length}/{items.length} criteria met)</span>
+        {expanded ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 space-y-1">
+          {items.map((r, i) => (
+            <div key={i} className="flex items-start gap-1.5">
+              {r.matched
+                ? <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+                : <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />}
+              <span className={r.matched ? 'text-gray-700' : 'text-gray-400'}>
+                {r.criterion}
+                {r.note && <span className="text-gray-500"> — {r.note}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Evaluation row
@@ -36,6 +161,11 @@ function EvalRow({
   onChange: (m: number | '', n: string) => void
   readOnly: boolean
 }) {
+  const hasEnrichment = (
+    (ev.keyword_hits && ev.keyword_hits.length > 0) ||
+    (ev.rubric_mapping && ev.rubric_mapping.length > 0)
+  )
+
   return (
     <div className="border border-gray-100 rounded-xl bg-white p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -45,6 +175,11 @@ function EvalRow({
               {ev.question_type.replace('_', ' ')}
             </span>
             <span className="text-xs text-gray-400 font-mono truncate">{ev.question_id}</span>
+            {ev.page_range && (
+              <span className="text-xs text-gray-400">
+                pp. {ev.page_range.start}–{ev.page_range.end}
+              </span>
+            )}
           </div>
         </div>
         <span className="text-xs text-gray-500 shrink-0">/ {ev.max_marks} marks</span>
@@ -52,17 +187,34 @@ function EvalRow({
 
       {/* AI suggestion */}
       {ev.ai_suggested_marks != null ? (
-        <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 space-y-1">
+        <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 space-y-2">
           <div className="flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-blue-500" />
             <span className="text-xs font-semibold text-blue-700">AI Suggestion</span>
-            <span className="text-sm font-bold text-blue-900 ml-auto">{ev.ai_suggested_marks}</span>
+            {ev.ai_confidence != null && (
+              <span className="ml-auto text-xs text-blue-500">
+                {Math.round(ev.ai_confidence * 100)}% confidence
+              </span>
+            )}
+            <span className="text-sm font-bold text-blue-900 ml-1">{ev.ai_suggested_marks}</span>
           </div>
           {ev.ai_justification && (
             <p className="text-xs text-blue-700 leading-relaxed">{ev.ai_justification}</p>
           )}
           {ev.ai_model && (
             <p className="text-xs text-blue-400">Model: {ev.ai_model}</p>
+          )}
+
+          {/* Enrichment panels */}
+          {hasEnrichment && (
+            <div className="space-y-1.5 pt-1">
+              {ev.keyword_hits && ev.keyword_hits.length > 0 && (
+                <KeywordHitsPanel hits={ev.keyword_hits} />
+              )}
+              {ev.rubric_mapping && ev.rubric_mapping.length > 0 && (
+                <RubricPanel items={ev.rubric_mapping} />
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -112,6 +264,35 @@ function EvalRow({
 }
 
 // ---------------------------------------------------------------------------
+// OCR text viewer
+// ---------------------------------------------------------------------------
+
+function OcrTextPanel({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const preview = text.slice(0, 300)
+
+  return (
+    <div className="border border-gray-200 rounded-xl bg-white p-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FileText className="w-4 h-4 text-gray-500" />
+          <h3 className="text-sm font-semibold text-gray-700">Extracted OCR Text</h3>
+        </div>
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="text-xs text-indigo-600 hover:underline"
+        >
+          {expanded ? 'Collapse' : 'Show all'}
+        </button>
+      </div>
+      <pre className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap break-words max-h-48 overflow-y-auto bg-gray-50 rounded-lg p-3">
+        {expanded ? text : (text.length > 300 ? preview + '…' : text)}
+      </pre>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -120,21 +301,28 @@ export default function ScriptEvaluationPanel() {
   const navigate     = useNavigate()
   const qc           = useQueryClient()
 
-  // Local marks state: question_id → {mark, note}
-  const [localMarks, setLocalMarks] = useState<Record<string, { mark: number | ''; note: string }>>({})
+  const [localMarks, setLocalMarks]   = useState<Record<string, { mark: number | ''; note: string }>>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const { data: script, isLoading: scriptLoading } = useQuery({
-    queryKey: ['script', scriptId],
-    queryFn:  () => getScript(scriptId!),
+  const { data: review, isLoading } = useQuery({
+    queryKey: ['script-review', scriptId],
+    queryFn:  () => getEvaluatorReview(scriptId!),
   })
 
-  const { data: evals, isLoading: evalsLoading } = useQuery({
-    queryKey: ['script-evals', scriptId],
-    queryFn:  () => getEvaluations(scriptId!),
-    enabled:  !!script,
-  })
+  const script = review
+    ? {
+        id:                  review.script_id,
+        masked_id:           review.masked_id,
+        status:              review.status,
+        ocr_status:          review.ocr_status,
+        page_count:          review.page_count,
+        objective_auto_score: review.objective_auto_score,
+        upload_url:          null as string | null,
+      }
+    : null
+
+  const evals = review?.evaluations ?? null
 
   // Seed local marks from loaded evaluations
   useEffect(() => {
@@ -168,7 +356,25 @@ export default function ScriptEvaluationPanel() {
     onSuccess: () => {
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 2000)
-      qc.invalidateQueries({ queryKey: ['script-evals', scriptId] })
+      qc.invalidateQueries({ queryKey: ['script-review', scriptId] })
+    },
+  })
+
+  const acceptMut = useMutation({
+    mutationFn: () => acceptSuggestions(scriptId!, {}),
+    onSuccess: (updatedEvals) => {
+      // Merge accepted marks into local state
+      setLocalMarks(prev => {
+        const next = { ...prev }
+        for (const ev of updatedEvals) {
+          next[ev.question_id] = {
+            mark: ev.evaluator_marks ?? '',
+            note: prev[ev.question_id]?.note ?? '',
+          }
+        }
+        return next
+      })
+      qc.invalidateQueries({ queryKey: ['script-review', scriptId] })
     },
   })
 
@@ -186,7 +392,7 @@ export default function ScriptEvaluationPanel() {
       return submitMarks(scriptId!, payload)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['script', scriptId] })
+      qc.invalidateQueries({ queryKey: ['script-review', scriptId] })
       navigate('/scripts')
     },
     onError: (err: unknown) => {
@@ -198,7 +404,6 @@ export default function ScriptEvaluationPanel() {
   function handleSubmit() {
     setSubmitError(null)
     if (!evals) return
-    // Validate all questions have a mark
     const missing = evals.filter(ev => {
       const local = localMarks[ev.question_id]
       return !local || local.mark === ''
@@ -214,7 +419,7 @@ export default function ScriptEvaluationPanel() {
     ? !['SCORED', 'REVIEW_REQUIRED'].includes(script.status)
     : true
 
-  if (scriptLoading || evalsLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24 gap-2 text-gray-500">
         <Loader2 className="w-5 h-5 animate-spin" />
@@ -223,7 +428,7 @@ export default function ScriptEvaluationPanel() {
     )
   }
 
-  if (!script) return <div className="p-8 text-red-600">Script not found.</div>
+  if (!review) return <div className="p-8 text-red-600">Script not found.</div>
 
   const totalAI = evals?.reduce((s, e) => s + (e.ai_suggested_marks ?? 0), 0) ?? 0
   const totalHuman = evals?.reduce((s, e) => {
@@ -231,6 +436,8 @@ export default function ScriptEvaluationPanel() {
     return s + (m !== '' && m != null ? Number(m) : 0)
   }, 0) ?? 0
   const maxTotal = evals?.reduce((s, e) => s + e.max_marks, 0) ?? 0
+
+  const allHaveAI = evals != null && evals.length > 0 && evals.every(e => e.ai_suggested_marks != null)
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -242,54 +449,52 @@ export default function ScriptEvaluationPanel() {
         </Button>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold text-gray-900">
-            Evaluation — <span className="font-mono text-indigo-600">{script.masked_id}</span>
+            Evaluation — <span className="font-mono text-indigo-600">{review.masked_id}</span>
           </h1>
           <p className="text-sm text-gray-500">
-            Status: <strong>{script.status.replace(/_/g, ' ')}</strong>
+            Status: <strong>{review.status.replace(/_/g, ' ')}</strong>
           </p>
         </div>
       </div>
 
-      {/* AI advisory notice */}
+      {/* Pipeline status banner */}
+      <PipelineStatusBanner status={review.status} />
+
+      {/* AI advisory */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex gap-3 text-sm text-blue-800">
         <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
         <span>
           <strong>AI advises, human decides.</strong> AI-suggested marks are for reference only.
-          You must enter your own marks for every question. Your marks are final for Gate 1 submission.
+          Review keyword evidence and rubric matches before accepting. Your marks are final for Gate 1.
         </span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Left: script metadata + OCR placeholder */}
+        {/* Left column */}
         <div className="space-y-4">
+
+          {/* Script info card */}
           <div className="border border-gray-200 rounded-xl bg-white p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-700">Script Info</h3>
             <div className="space-y-1 text-xs text-gray-600">
-              <p><span className="font-medium">Masked ID:</span> <span className="font-mono">{script.masked_id}</span></p>
-              <p><span className="font-medium">Status:</span> {script.status.replace(/_/g, ' ')}</p>
-              {script.objective_auto_score != null && (
-                <p><span className="font-medium">MCQ Auto-score:</span> {script.objective_auto_score}</p>
+              <p><span className="font-medium">Masked ID:</span> <span className="font-mono">{review.masked_id}</span></p>
+              <p><span className="font-medium">Status:</span> {review.status.replace(/_/g, ' ')}</p>
+              {review.page_count != null && (
+                <p><span className="font-medium">Pages:</span> {review.page_count}</p>
               )}
-              {script.ocr_status && (
-                <p><span className="font-medium">OCR Status:</span> {script.ocr_status}</p>
+              {review.objective_auto_score != null && (
+                <p><span className="font-medium">MCQ Auto-score:</span> {review.objective_auto_score}</p>
+              )}
+              {review.ocr_status && (
+                <p>
+                  <span className="font-medium">OCR:</span>{' '}
+                  <span className={review.ocr_status === 'DONE' ? 'text-emerald-600' : 'text-amber-600'}>
+                    {review.ocr_status}
+                  </span>
+                </p>
               )}
             </div>
-
-            {script.upload_url ? (
-              <a
-                href={script.upload_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-xs text-indigo-600 underline break-all"
-              >
-                View uploaded scan
-              </a>
-            ) : (
-              <div className="rounded-lg bg-gray-50 border border-dashed border-gray-200 p-4 text-center text-xs text-gray-400">
-                No scan uploaded
-              </div>
-            )}
           </div>
 
           {/* Score summary */}
@@ -310,6 +515,22 @@ export default function ScriptEvaluationPanel() {
           {/* Actions */}
           {!isReadOnly && (
             <div className="space-y-2">
+
+              {/* Accept AI suggestions */}
+              {allHaveAI && (
+                <Button
+                  onClick={() => acceptMut.mutate()}
+                  disabled={acceptMut.isPending}
+                  variant="outline"
+                  className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                >
+                  {acceptMut.isPending
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Zap className="w-4 h-4" />}
+                  Accept All AI Suggestions
+                </Button>
+              )}
+
               <Button
                 onClick={() => saveMut.mutate()}
                 disabled={saveMut.isPending}
@@ -349,40 +570,65 @@ export default function ScriptEvaluationPanel() {
 
           {isReadOnly && (
             <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-500 text-center">
-              {script.status === 'MARKS_SUBMITTED' && 'Marks submitted — awaiting Board finalisation.'}
-              {script.status === 'BOARD_FINALISED' && 'Board finalised — view only.'}
-              {['PENDING', 'PROCESSING', 'FAILED'].includes(script.status) && 'Scoring in progress or failed — cannot evaluate yet.'}
+              {review.status === 'MARKS_SUBMITTED' && 'Marks submitted — awaiting Board finalisation.'}
+              {review.status === 'BOARD_FINALISED' && 'Board finalised — view only.'}
+              {(['PENDING', 'PROCESSING', 'FAILED'] as ScriptStatus[]).includes(review.status) &&
+                'Scoring in progress or failed — cannot evaluate yet.'}
+              {review.status === 'QUALITY_CHECKING' && 'Scan quality check in progress.'}
+              {review.status === 'QUALITY_FAILED' && 'Scan quality check failed — upload may need replacement.'}
+              {review.status === 'OCR_PROCESSING' && 'OCR text extraction in progress.'}
             </div>
           )}
         </div>
 
-        {/* Right: question evaluation rows */}
-        <div className="lg:col-span-2 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-700">
-            Questions ({evals?.length ?? 0})
-          </h2>
+        {/* Right column */}
+        <div className="lg:col-span-2 space-y-4">
 
-          {evals && evals.length === 0 && (
-            <div className="text-gray-500 text-center py-12">
-              No evaluation rows found. The scoring task may still be running.
+          {/* OCR text panel */}
+          {review.ocr_text && <OcrTextPanel text={review.ocr_text} />}
+
+          {/* Question evaluation rows */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">
+                Questions ({evals?.length ?? 0})
+              </h2>
+              {!isReadOnly && evals && evals.length > 0 && (
+                <button
+                  onClick={() => acceptMut.mutate()}
+                  disabled={acceptMut.isPending || !allHaveAI}
+                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-40"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  Accept all AI
+                </button>
+              )}
             </div>
-          )}
 
-          {evals && evals.map(ev => (
-            <EvalRow
-              key={ev.id}
-              ev={ev}
-              mark={localMarks[ev.question_id]?.mark ?? ''}
-              note={localMarks[ev.question_id]?.note ?? ''}
-              onChange={(m, n) =>
-                setLocalMarks(prev => ({
-                  ...prev,
-                  [ev.question_id]: { mark: m, note: n },
-                }))
-              }
-              readOnly={isReadOnly}
-            />
-          ))}
+            {evals && evals.length === 0 && (
+              <div className="text-gray-500 text-center py-12">
+                No evaluation rows found. The scoring task may still be running.
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {evals && evals.map(ev => (
+                <EvalRow
+                  key={ev.id}
+                  ev={ev}
+                  mark={localMarks[ev.question_id]?.mark ?? ''}
+                  note={localMarks[ev.question_id]?.note ?? ''}
+                  onChange={(m, n) =>
+                    setLocalMarks(prev => ({
+                      ...prev,
+                      [ev.question_id]: { mark: m, note: n },
+                    }))
+                  }
+                  readOnly={isReadOnly}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
