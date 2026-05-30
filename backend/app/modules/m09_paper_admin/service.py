@@ -39,6 +39,7 @@ from app.modules.m09_paper_admin.repository import (
 from app.modules.m09_paper_admin.schemas import (
     BulkMarkUpdate,
     PaperPipelineStats,
+    QualityOverrideRequest,
     ScriptAssignEvaluatorRequest,
     ScriptFinaliseRequest,
     ScriptIngestRequest,
@@ -785,6 +786,64 @@ class ScriptService:
         )
         total = int(count_result.scalar() or 0)
         return items, total
+
+    @staticmethod
+    async def override_quality_failed(
+        script_id: UUID,
+        payload: QualityOverrideRequest,
+        *,
+        admin_user_id: UUID,
+        tenant_id: UUID,
+        schema_name: str,
+        db: AsyncSession,
+    ) -> ScannedScript:
+        """
+        STEP-12 human gate: Admin overrides a QUALITY_FAILED script.
+
+        Allowed only when status == QUALITY_FAILED.
+        Advances status → OCR_PROCESSING and dispatches ocr_scanned_script.
+        Override reason is mandatory and captured in the audit log.
+        This is NOT an automatic action — a named Admin must explicitly trigger it.
+        """
+        script = await _require_script(script_id, db=db)
+        if script.status != ScriptStatus.QUALITY_FAILED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Quality override requires status QUALITY_FAILED, got {script.status}.",
+                400,
+            )
+
+        await ScriptRepository.set_quality_overridden(script_id, db=db)
+        await db.commit()
+
+        from app.workers.heavy.ocr_scanned_script import ocr_scanned_script
+        ocr_scanned_script.apply_async(
+            kwargs={
+                "job_id":      str(script.eval_job_id or script_id),
+                "script_id":   str(script_id),
+                "schema_name": schema_name,
+            },
+            queue="celery-heavy",
+        )
+
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+        await AuditService.log(
+            AuditEventType.SCRIPT_QUALITY_OVERRIDDEN,
+            actor_user_id=admin_user_id,
+            actor_role="ADMIN",
+            tenant_id=tenant_id,
+            schema_name=schema_name,
+            target_entity="scanned_script",
+            target_id=str(script_id),
+            output_summary=f"quality_override: {payload.reason[:200]}",
+            confidence_score=None,
+            model=None,
+            prompt_hash=None,
+        )
+
+        await db.refresh(script)
+        return script
 
     @staticmethod
     async def export_ledger_csv(

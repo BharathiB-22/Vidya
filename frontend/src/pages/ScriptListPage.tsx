@@ -1,15 +1,15 @@
-// M09 Paper Administration — Admin/Board: list of scanned scripts (H-36 STEP-10: paper stats panel)
+// M09 Paper Administration — Admin/Board: list of scanned scripts (H-36 STEP-10/12)
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { FileText, Plus, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
-import { listAllScripts, getPaperStats } from '@/lib/api/scripts'
+import { listAllScripts, getPaperStats, overrideQualityFailed } from '@/lib/api/scripts'
 import { listAllExamPapers } from '@/lib/api/exam'
 import type { PaperPipelineStats, ScannedScript, ScriptStatus } from '@/types/script'
 
@@ -41,10 +41,14 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 export default function ScriptListPage() {
-  const navigate = useNavigate()
+  const navigate     = useNavigate()
+  const queryClient  = useQueryClient()
   const [statusFilter, setStatusFilter] = useState<ScriptStatus | ''>('')
   const [paperFilter, setPaperFilter]   = useState('')
-  const [offset, setOffset] = useState(0)
+  const [offset, setOffset]             = useState(0)
+  const [overrideId, setOverrideId]     = useState<string | null>(null)
+  const [overrideReason, setOverrideReason] = useState('')
+  const [overriding, setOverriding]     = useState(false)
   const limit = 20
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -155,12 +159,63 @@ export default function ScriptListPage() {
         <>
           <div className="space-y-3">
             {data.items.map(script => (
-              <ScriptCard
-                key={script.id}
-                script={script}
-                onEvaluate={() => navigate(`/scripts/${script.id}/evaluate`)}
-                onBoardReview={() => navigate('/scripts/board')}
-              />
+              <div key={script.id}>
+                <ScriptCard
+                  script={script}
+                  onEvaluate={() => navigate(`/scripts/${script.id}/evaluate`)}
+                  onBoardReview={() => navigate('/scripts/board')}
+                  onOverride={script.status === 'QUALITY_FAILED'
+                    ? () => { setOverrideId(script.id); setOverrideReason('') }
+                    : undefined}
+                />
+                {/* Inline override panel — shown for the selected QUALITY_FAILED script */}
+                {overrideId === script.id && (
+                  <div className="mt-1 ml-4 rounded-b-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-orange-700">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <p className="text-sm font-medium">Override quality check</p>
+                    </div>
+                    <p className="text-xs text-orange-600">
+                      This script failed quality checks. Provide a reason to force-advance it to OCR.
+                      Your name and reason will be permanently audit-logged.
+                    </p>
+                    <textarea
+                      rows={2}
+                      value={overrideReason}
+                      onChange={e => setOverrideReason(e.target.value)}
+                      placeholder="Mandatory reason (min 10 chars)…"
+                      className="w-full border border-orange-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white resize-none"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setOverrideId(null)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={overrideReason.trim().length < 10 || overriding}
+                        onClick={async () => {
+                          setOverriding(true)
+                          try {
+                            await overrideQualityFailed(script.id, overrideReason.trim())
+                            setOverrideId(null)
+                            queryClient.invalidateQueries({ queryKey: ['scripts'] })
+                            queryClient.invalidateQueries({ queryKey: ['paper-stats'] })
+                          } finally {
+                            setOverriding(false)
+                          }
+                        }}
+                        className="bg-orange-600 hover:bg-orange-700 text-white"
+                      >
+                        {overriding ? 'Overriding…' : 'Confirm override'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
@@ -256,10 +311,12 @@ function ScriptCard({
   script,
   onEvaluate,
   onBoardReview,
+  onOverride,
 }: {
   script:        ScannedScript
   onEvaluate:    () => void
   onBoardReview: () => void
+  onOverride?:   () => void
 }) {
   const colorClass = STATUS_COLOR[script.status] ?? 'bg-gray-100 text-gray-600'
   const canEvaluate = ['SCORED', 'REVIEW_REQUIRED'].includes(script.status)
@@ -311,7 +368,17 @@ function ScriptCard({
             Board Review
           </Button>
         )}
-        {!canEvaluate && !boardPending && (
+        {script.status === 'QUALITY_FAILED' && onOverride && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOverride}
+            className="border-orange-300 text-orange-700 hover:bg-orange-50"
+          >
+            Override
+          </Button>
+        )}
+        {!canEvaluate && !boardPending && script.status !== 'QUALITY_FAILED' && (
           <Button size="sm" variant="outline" onClick={onEvaluate}>
             View
           </Button>

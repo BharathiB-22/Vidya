@@ -359,6 +359,26 @@ class ScriptRepository:
         )
 
     @staticmethod
+    async def set_quality_overridden(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Admin override: advance a QUALITY_FAILED script to OCR_PROCESSING.
+        Called ONLY by override_quality_failed service method.
+        Override reason is captured in the audit log, not in this table.
+        """
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                status=ScriptStatus.OCR_PROCESSING.value,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def count_by_status_for_paper(
         exam_paper_id: UUID,
         *,

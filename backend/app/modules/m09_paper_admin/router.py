@@ -45,6 +45,7 @@ from app.modules.m09_paper_admin.schemas import (
     ExamScoreLedgerResponse,
     JobStatusResponse,
     PaperPipelineStats,
+    QualityOverrideRequest,
     ScannedScriptListResponse,
     ScannedScriptResponse,
     ScriptAssignEvaluatorRequest,
@@ -67,10 +68,13 @@ _BOARD    = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ     = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
 
 
+_ADMIN_ONLY = [TenantRole.ADMIN]
+
 def _ingest_dep():   return require_roles(*_INGEST)
 def _eval_dep():     return require_roles(*_EVALUATE)
 def _board_dep():    return require_roles(*_BOARD)
 def _read_dep():     return require_roles(*_READ)
+def _admin_dep():    return require_roles(*_ADMIN_ONLY)
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +485,45 @@ async def accept_suggestions(
     except ScriptServiceError as exc:
         _raise(exc)
     return [ScriptEvaluationResponse.model_validate(e) for e in evals]
+
+
+# ---------------------------------------------------------------------------
+# POST /{script_id}/override-quality — H-36 STEP-12 admin override
+# ---------------------------------------------------------------------------
+
+@router.post("/{script_id}/override-quality", response_model=ScannedScriptResponse)
+async def override_quality_failed(
+    script_id: UUID,
+    payload:   QualityOverrideRequest,
+    current_user: CurrentUser = Depends(_admin_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    ADMIN-ONLY: override a QUALITY_FAILED script to proceed to OCR.
+
+    Requires status == QUALITY_FAILED.  A mandatory reason string is stored in
+    the audit log.  Dispatches ocr_scanned_script — if the script has no upload_url
+    (unusual), the task will fail gracefully and set status → FAILED.
+
+    This is a named human action — the admin's user_id is audit-logged.
+    No automatic trigger is allowed.
+    """
+    db: AsyncSession  = db_info["db"]
+    schema: str       = db_info["schema_name"]
+    tenant_id: UUID   = db_info["tenant_id"]
+
+    try:
+        script = await ScriptService.override_quality_failed(
+            script_id,
+            payload,
+            admin_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            schema_name=schema,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return ScannedScriptResponse.model_validate(script)
 
 
 # ---------------------------------------------------------------------------

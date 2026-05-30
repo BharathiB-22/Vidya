@@ -3325,3 +3325,128 @@ class TestScoreLedgerCSVExport:
         assert hasattr(router_mod, "StreamingResponse"), (
             "router.py must import StreamingResponse from fastapi.responses"
         )
+
+
+# ===========================================================================
+# H-36 STEP-12 — Quality-failed admin override
+# ===========================================================================
+
+class TestQualityOverride:
+    """
+    Tests for POST /scripts/{script_id}/override-quality.
+    Verifies gate, audit event, and OCR task dispatch.
+    Admin-only; reason mandatory (min 10 chars).
+    """
+
+    # --- Schema ---
+
+    def test_quality_override_request_importable(self):
+        from app.modules.m09_paper_admin.schemas import QualityOverrideRequest
+        assert QualityOverrideRequest is not None
+
+    def test_quality_override_request_requires_reason(self):
+        from app.modules.m09_paper_admin.schemas import QualityOverrideRequest
+        import pydantic
+        with pytest.raises((pydantic.ValidationError, Exception)):
+            QualityOverrideRequest(reason="short")  # < 10 chars
+
+    def test_quality_override_request_accepts_long_reason(self):
+        from app.modules.m09_paper_admin.schemas import QualityOverrideRequest
+        req = QualityOverrideRequest(reason="Re-scan confirmed acceptable by supervisor.")
+        assert req.reason.startswith("Re-scan")
+
+    # --- Audit event ---
+
+    def test_script_quality_overridden_audit_event_exists(self):
+        from app.core.audit_log.models import AuditEventType
+        assert hasattr(AuditEventType, "SCRIPT_QUALITY_OVERRIDDEN"), (
+            "AuditEventType must have SCRIPT_QUALITY_OVERRIDDEN"
+        )
+        assert AuditEventType.SCRIPT_QUALITY_OVERRIDDEN.value == "SCRIPT_QUALITY_OVERRIDDEN"
+
+    # --- Repository ---
+
+    def test_repository_has_set_quality_overridden(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_quality_overridden")
+        assert callable(ScriptRepository.set_quality_overridden)
+
+    # --- Service gate ---
+
+    @pytest.mark.asyncio
+    async def test_override_rejected_when_not_quality_failed(self):
+        """Service must reject override when status != QUALITY_FAILED."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.schemas import QualityOverrideRequest
+
+        script = MagicMock()
+        script.id     = uuid4()
+        script.status = "SCORED"
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.override_quality_failed(
+                    script.id,
+                    QualityOverrideRequest(reason="Admin override accepted by dean."),
+                    admin_user_id=uuid4(),
+                    tenant_id=uuid4(),
+                    schema_name="dsu",
+                    db=db,
+                )
+        assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_override_accepted_when_quality_failed(self):
+        """Service dispatches OCR task when status == QUALITY_FAILED."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.schemas import QualityOverrideRequest
+
+        script = MagicMock()
+        script.id          = uuid4()
+        script.eval_job_id = None
+        script.status      = "QUALITY_FAILED"
+
+        ocr_mock = MagicMock()
+
+        db = MagicMock()
+        db.commit  = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_quality_overridden",
+            new=AsyncMock(),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ), patch(
+            "app.workers.heavy.ocr_scanned_script.ocr_scanned_script",
+            ocr_mock,
+        ):
+            await ScriptService.override_quality_failed(
+                script.id,
+                QualityOverrideRequest(reason="Supervisor approved despite low quality score."),
+                admin_user_id=uuid4(),
+                tenant_id=uuid4(),
+                schema_name="dsu",
+                db=db,
+            )
+
+        ocr_mock.apply_async.assert_called_once()
+
+    # --- Router ---
+
+    def test_router_has_override_quality_endpoint(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = [r.path for r in router.routes]
+        assert "/{script_id}/override-quality" in paths, (
+            f"override-quality endpoint not found. Paths: {paths}"
+        )

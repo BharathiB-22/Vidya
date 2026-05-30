@@ -252,6 +252,18 @@ class AcceptSuggestionsRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Quality-failed admin override (H-36 STEP-12)
+# ---------------------------------------------------------------------------
+
+class QualityOverrideRequest(BaseModel):
+    """
+    Admin overrides a QUALITY_FAILED script to proceed to OCR anyway.
+    reason is mandatory — it is stored in the audit log.
+    """
+    reason: str = Field(..., min_length=10, description="Mandatory justification for overriding quality check.")
+
+
+# ---------------------------------------------------------------------------
 # Paper pipeline stats (H-36 STEP-10)
 # ---------------------------------------------------------------------------
 

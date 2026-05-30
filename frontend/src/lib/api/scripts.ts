@@ -209,6 +209,19 @@ export async function getPaperStats(paperId: string): Promise<PaperPipelineStats
 // Score ledger CSV export (H-36 STEP-11)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Quality-failed admin override (H-36 STEP-12)
+// ---------------------------------------------------------------------------
+
+/** Admin: override a QUALITY_FAILED script to proceed to OCR. */
+export async function overrideQualityFailed(
+  scriptId: string,
+  reason:   string,
+): Promise<ScannedScript> {
+  const { data } = await api.post(`${BASE}/${scriptId}/override-quality`, { reason })
+  return data
+}
+
 /** Board/Admin: fetch score ledger as CSV blob and trigger browser download. */
 export async function downloadLedgerCSV(paperId: string): Promise<void> {
   const response = await api.get(`${BASE}/ledger/paper/${paperId}/export`, {
