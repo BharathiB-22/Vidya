@@ -182,6 +182,12 @@ class NormalisedScoreResponse(BaseModel):
     normalisation_method: str
     created_at:           datetime
 
+    # Grade enrichment — derived from normalised_score/max_marks at serialization time; never stored in DB
+    pct:          float | None = None
+    grade_letter: str   | None = None
+    grade_point:  float | None = None
+    is_pass:      bool  | None = None
+
     model_config = {"from_attributes": True}
 
 

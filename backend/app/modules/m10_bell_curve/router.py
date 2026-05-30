@@ -48,9 +48,21 @@ from app.modules.m10_bell_curve.schemas import (
     TriggerAnalysisRequest,
     TriggerAnalysisResponse,
 )
+from app.modules.m10_bell_curve.grade_engine import compute_grade as _compute_grade
 from app.modules.m10_bell_curve.service import BellCurveService, BellCurveServiceError
 
 router = APIRouter(tags=["M10 Bell Curve"])
+
+
+def _to_score_response(orm_obj) -> NormalisedScoreResponse:
+    """Enrich a normalised-score ORM row with computed grade fields."""
+    resp = NormalisedScoreResponse.model_validate(orm_obj)
+    pct, letter, points, passed = _compute_grade(resp.normalised_score, resp.max_marks)
+    resp.pct          = pct
+    resp.grade_letter = letter
+    resp.grade_point  = points
+    resp.is_pass      = passed
+    return resp
 
 # ---------------------------------------------------------------------------
 # Role groups
@@ -398,7 +410,7 @@ async def list_normalised_ledger(
         paper_id, offset, limit, db=db
     )
     return NormalisedScoreListResponse(
-        items=[NormalisedScoreResponse.model_validate(s) for s in items],
+        items=[_to_score_response(s) for s in items],
         total=total, offset=offset, limit=limit,
     )
 

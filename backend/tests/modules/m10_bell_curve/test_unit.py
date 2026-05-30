@@ -944,6 +944,121 @@ class TestGradeEngine:
 
 
 # ===========================================================================
+# H-37 STEP-02 — Normalised score grade enrichment
+# ===========================================================================
+
+class TestNormalisedScoreResponseGradeFields:
+    """Schema has the four new grade fields with None defaults."""
+
+    def test_schema_has_pct_field(self):
+        from app.modules.m10_bell_curve.schemas import NormalisedScoreResponse
+        assert "pct" in NormalisedScoreResponse.model_fields
+
+    def test_schema_has_grade_letter_field(self):
+        from app.modules.m10_bell_curve.schemas import NormalisedScoreResponse
+        assert "grade_letter" in NormalisedScoreResponse.model_fields
+
+    def test_schema_has_grade_point_field(self):
+        from app.modules.m10_bell_curve.schemas import NormalisedScoreResponse
+        assert "grade_point" in NormalisedScoreResponse.model_fields
+
+    def test_schema_has_is_pass_field(self):
+        from app.modules.m10_bell_curve.schemas import NormalisedScoreResponse
+        assert "is_pass" in NormalisedScoreResponse.model_fields
+
+    def test_grade_fields_default_none(self):
+        from app.modules.m10_bell_curve.schemas import NormalisedScoreResponse
+        for f in ("pct", "grade_letter", "grade_point", "is_pass"):
+            assert NormalisedScoreResponse.model_fields[f].default is None, \
+                f"{f} default must be None (not a DB column)"
+
+
+class TestRouterGradeEnrichment:
+    """_to_score_response enriches ORM rows with grade data without touching raw_score."""
+
+    def _make_orm(self, normalised_score: float, max_marks: float = 100.0, raw_score: float | None = None):
+        from unittest.mock import MagicMock
+        from datetime import datetime
+        orm = MagicMock()
+        orm.id                   = uuid4()
+        orm.decision_id          = uuid4()
+        orm.analysis_id          = uuid4()
+        orm.exam_paper_id        = uuid4()
+        orm.student_user_id      = uuid4()
+        orm.student_roll_ref     = "S001"
+        orm.raw_score            = raw_score if raw_score is not None else normalised_score
+        orm.normalised_score     = normalised_score
+        orm.max_marks            = max_marks
+        orm.normalisation_method = "NONE"
+        orm.created_at           = datetime.now()
+        # grade fields are None on the ORM row; _to_score_response populates them
+        orm.pct          = None
+        orm.grade_letter = None
+        orm.grade_point  = None
+        orm.is_pass      = None
+        return orm
+
+    def test_to_score_response_importable(self):
+        from app.modules.m10_bell_curve.router import _to_score_response
+        assert callable(_to_score_response)
+
+    def test_enriches_s_grade(self):
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(92.0))
+        assert resp.grade_letter == "S"
+        assert resp.pct          == 92.0
+        assert resp.grade_point  == 10.0
+        assert resp.is_pass      is True
+
+    def test_enriches_a_grade(self):
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(83.0))
+        assert resp.grade_letter == "A"
+        assert resp.grade_point  == 9.0
+        assert resp.is_pass      is True
+
+    def test_enriches_b_grade(self):
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(75.0))
+        assert resp.grade_letter == "B"
+        assert resp.grade_point  == 8.0
+
+    def test_enriches_f_grade_failing_student(self):
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(30.0))
+        assert resp.grade_letter == "F"
+        assert resp.grade_point  == 0.0
+        assert resp.is_pass      is False
+
+    def test_raw_score_unchanged_advisory_only(self):
+        """Bell curve is advisory: enrichment must not alter raw_score."""
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(75.0, raw_score=65.0))
+        assert resp.raw_score       == 65.0
+        assert resp.normalised_score == 75.0
+
+    def test_non_100_max_marks(self):
+        """35/50 = 70 % → B."""
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(35.0, max_marks=50.0))
+        assert resp.grade_letter == "B"
+        assert resp.pct          == 70.0
+
+    def test_pct_correct(self):
+        from app.modules.m10_bell_curve.router import _to_score_response
+        resp = _to_score_response(self._make_orm(60.0))
+        assert resp.pct == 60.0
+
+    def test_enrichment_does_not_regress_base_fields(self):
+        """All original score fields survive enrichment."""
+        from app.modules.m10_bell_curve.router import _to_score_response
+        orm  = self._make_orm(55.0)
+        resp = _to_score_response(orm)
+        assert resp.normalisation_method == "NONE"
+        assert resp.max_marks            == 100.0
+
+
+# ===========================================================================
 # 9 — Audit events
 # ===========================================================================
 
