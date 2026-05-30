@@ -313,3 +313,32 @@ class BellCurveService:
             exam_paper_id, offset=offset, limit=limit, db=db
         )
 
+    @staticmethod
+    async def grade_summary(exam_paper_id: UUID, db: AsyncSession) -> dict:
+        """
+        Compute grade distribution and pass/fail stats from normalised scores.
+        Advisory only — never reads or writes raw M09 marks.
+        """
+        from app.modules.m10_bell_curve.grade_engine import grade_distribution
+
+        items, total = await BellCurveNormalisedScoreRepository.list_for_paper(
+            exam_paper_id, offset=0, limit=10_000, db=db
+        )
+        rows = [
+            {"normalised_score": float(s.normalised_score), "max_marks": float(s.max_marks)}
+            for s in items
+        ]
+        dist       = grade_distribution(rows)
+        pass_count = sum(v for k, v in dist.items() if k != "F")
+        fail_count = dist.get("F", 0)
+        pass_rate  = round(pass_count / total * 100, 1) if total > 0 else 0.0
+
+        return {
+            "exam_paper_id": exam_paper_id,
+            "total":         total,
+            "pass_count":    pass_count,
+            "fail_count":    fail_count,
+            "pass_rate":     pass_rate,
+            "grade_counts":  dist,
+        }
+

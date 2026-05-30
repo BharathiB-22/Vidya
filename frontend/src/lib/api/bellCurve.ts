@@ -5,6 +5,7 @@ import type {
   BellCurveAnalysisListResponse,
   BellCurveDecision,
   BellCurveDecisionListResponse,
+  GradeSummaryResponse,
   JobStatusResponse,
   NormalisedScoreListResponse,
   PreviewNormalisationRequest,
@@ -98,6 +99,11 @@ export async function listNormalisedLedger(
   params?: { offset?: number; limit?: number },
 ): Promise<NormalisedScoreListResponse> {
   const { data } = await api.get(`${BASE}/ledger/paper/${paperId}`, { params })
+  return data
+}
+
+export async function getGradeSummary(paperId: string): Promise<GradeSummaryResponse> {
+  const { data } = await api.get(`${BASE}/ledger/paper/${paperId}/grade-summary`)
   return data
 }
 

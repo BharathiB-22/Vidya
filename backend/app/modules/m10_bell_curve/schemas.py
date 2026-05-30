@@ -217,3 +217,12 @@ class RatifyResponse(BaseModel):
     decision:     BoardDecision
     method:       NormalisationMethod
     scores_written: int  # number of normalised score rows created (0 if REJECTED)
+
+
+class GradeSummaryResponse(BaseModel):
+    exam_paper_id: UUID
+    total:         int
+    pass_count:    int
+    fail_count:    int
+    pass_rate:     float          # 0.0 – 100.0, rounded to 1 decimal; advisory only
+    grade_counts:  dict[str, int] # {"S": 2, "A": 5, …} — only grades that appear

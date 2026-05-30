@@ -682,10 +682,10 @@ class TestBellCurveRouterWiring:
         from app.modules.m10_bell_curve.router import router
         assert router is not None
 
-    def test_router_has_eleven_routes(self):
+    def test_router_has_twelve_routes(self):
         from app.modules.m10_bell_curve.router import router
-        assert len(router.routes) == 11, \
-            f"Expected 11 routes, got {len(router.routes)}"
+        assert len(router.routes) == 12, \
+            f"Expected 12 routes, got {len(router.routes)}"
 
     def test_static_paper_route_before_id_route(self):
         from app.modules.m10_bell_curve.router import router
@@ -1056,6 +1056,150 @@ class TestRouterGradeEnrichment:
         resp = _to_score_response(orm)
         assert resp.normalisation_method == "NONE"
         assert resp.max_marks            == 100.0
+
+
+# ===========================================================================
+# H-37 STEP-04 — Grade distribution summary
+# ===========================================================================
+
+class TestGradeSummarySchema:
+    def test_schema_importable(self):
+        from app.modules.m10_bell_curve.schemas import GradeSummaryResponse
+        assert GradeSummaryResponse is not None
+
+    def test_schema_has_required_fields(self):
+        from app.modules.m10_bell_curve.schemas import GradeSummaryResponse
+        fields = GradeSummaryResponse.model_fields
+        for f in ("exam_paper_id", "total", "pass_count", "fail_count", "pass_rate", "grade_counts"):
+            assert f in fields, f"Missing field: {f}"
+
+    def test_schema_constructs(self):
+        from app.modules.m10_bell_curve.schemas import GradeSummaryResponse
+        resp = GradeSummaryResponse(
+            exam_paper_id=uuid4(),
+            total=10, pass_count=8, fail_count=2,
+            pass_rate=80.0, grade_counts={"A": 3, "B": 5, "F": 2},
+        )
+        assert resp.pass_rate == 80.0
+        assert resp.grade_counts["F"] == 2
+
+
+class TestGradeSummaryRouterWiring:
+    def test_grade_summary_route_present(self):
+        from app.modules.m10_bell_curve.router import router
+        paths = [r.path for r in router.routes]
+        assert any("grade-summary" in p for p in paths), "grade-summary endpoint missing"
+
+    def test_grade_summary_route_before_ledger_route(self):
+        from app.modules.m10_bell_curve.router import router
+        paths = [r.path for r in router.routes]
+        summary_idx = next(i for i, p in enumerate(paths) if "grade-summary" in p)
+        ledger_idx  = next(i for i, p in enumerate(paths) if "ledger" in p and "grade-summary" not in p)
+        assert summary_idx < ledger_idx, \
+            "/grade-summary must be declared before the /{paper_id} ledger route"
+
+
+class TestGradeSummaryService:
+    @pytest.mark.asyncio
+    async def test_all_pass_returns_zero_fail(self):
+        from app.modules.m10_bell_curve.service import BellCurveService
+        db = AsyncMock()
+        scores = [
+            MagicMock(normalised_score=80.0, max_marks=100.0),
+            MagicMock(normalised_score=70.0, max_marks=100.0),
+            MagicMock(normalised_score=60.0, max_marks=100.0),
+        ]
+        with patch(
+            "app.modules.m10_bell_curve.service.BellCurveNormalisedScoreRepository.list_for_paper",
+            new_callable=AsyncMock,
+            return_value=(scores, 3),
+        ):
+            result = await BellCurveService.grade_summary(uuid4(), db=db)
+        assert result["fail_count"]  == 0
+        assert result["pass_count"]  == 3
+        assert result["pass_rate"]   == 100.0
+        assert result["total"]       == 3
+
+    @pytest.mark.asyncio
+    async def test_all_fail_returns_zero_pass(self):
+        from app.modules.m10_bell_curve.service import BellCurveService
+        db = AsyncMock()
+        scores = [
+            MagicMock(normalised_score=20.0, max_marks=100.0),
+            MagicMock(normalised_score=10.0, max_marks=100.0),
+        ]
+        with patch(
+            "app.modules.m10_bell_curve.service.BellCurveNormalisedScoreRepository.list_for_paper",
+            new_callable=AsyncMock,
+            return_value=(scores, 2),
+        ):
+            result = await BellCurveService.grade_summary(uuid4(), db=db)
+        assert result["pass_count"] == 0
+        assert result["fail_count"] == 2
+        assert result["pass_rate"]  == 0.0
+
+    @pytest.mark.asyncio
+    async def test_empty_paper_returns_zeros(self):
+        from app.modules.m10_bell_curve.service import BellCurveService
+        db = AsyncMock()
+        with patch(
+            "app.modules.m10_bell_curve.service.BellCurveNormalisedScoreRepository.list_for_paper",
+            new_callable=AsyncMock,
+            return_value=([], 0),
+        ):
+            result = await BellCurveService.grade_summary(uuid4(), db=db)
+        assert result["total"]      == 0
+        assert result["pass_count"] == 0
+        assert result["fail_count"] == 0
+        assert result["pass_rate"]  == 0.0
+        assert result["grade_counts"] == {}
+
+    @pytest.mark.asyncio
+    async def test_pass_rate_rounded_to_one_decimal(self):
+        from app.modules.m10_bell_curve.service import BellCurveService
+        db = AsyncMock()
+        # 2 pass, 1 fail → 66.666…% → 66.7%
+        scores = [
+            MagicMock(normalised_score=80.0, max_marks=100.0),
+            MagicMock(normalised_score=70.0, max_marks=100.0),
+            MagicMock(normalised_score=20.0, max_marks=100.0),
+        ]
+        with patch(
+            "app.modules.m10_bell_curve.service.BellCurveNormalisedScoreRepository.list_for_paper",
+            new_callable=AsyncMock,
+            return_value=(scores, 3),
+        ):
+            result = await BellCurveService.grade_summary(uuid4(), db=db)
+        assert result["pass_rate"] == 66.7
+
+    @pytest.mark.asyncio
+    async def test_grade_counts_keys_correct(self):
+        from app.modules.m10_bell_curve.service import BellCurveService
+        db = AsyncMock()
+        scores = [
+            MagicMock(normalised_score=95.0, max_marks=100.0),  # S
+            MagicMock(normalised_score=85.0, max_marks=100.0),  # A
+            MagicMock(normalised_score=25.0, max_marks=100.0),  # F
+        ]
+        with patch(
+            "app.modules.m10_bell_curve.service.BellCurveNormalisedScoreRepository.list_for_paper",
+            new_callable=AsyncMock,
+            return_value=(scores, 3),
+        ):
+            result = await BellCurveService.grade_summary(uuid4(), db=db)
+        dist = result["grade_counts"]
+        assert dist.get("S") == 1
+        assert dist.get("A") == 1
+        assert dist.get("F") == 1
+        assert "B" not in dist
+
+    @pytest.mark.asyncio
+    async def test_does_not_write_raw_marks(self):
+        """Advisory-only invariant: grade_summary never writes to M09 ledger."""
+        import pathlib
+        src = pathlib.Path("app/modules/m10_bell_curve/service.py").read_text()
+        assert "exam_score_ledger" not in src or "INSERT" not in src.upper(), \
+            "service.py must not INSERT into exam_score_ledger"
 
 
 # ===========================================================================

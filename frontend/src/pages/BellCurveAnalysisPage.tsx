@@ -7,8 +7,8 @@ import {
   CheckCircle2, XCircle, TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getAnalysis, getAnalysisJobStatus, listNormalisedLedger } from '@/lib/api/bellCurve'
-import type { AnalysisStatus, AnomalyItem, BellCurveAnalysis, HistogramBin, NormalisedScore } from '@/types/bellCurve'
+import { getAnalysis, getAnalysisJobStatus, getGradeSummary, listNormalisedLedger } from '@/lib/api/bellCurve'
+import type { AnalysisStatus, AnomalyItem, BellCurveAnalysis, GradeSummaryResponse, HistogramBin, NormalisedScore } from '@/types/bellCurve'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -112,6 +112,79 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyItem }) {
 }
 
 // ---------------------------------------------------------------------------
+// Grade distribution summary panel (APPLIED status only)
+// ---------------------------------------------------------------------------
+
+const GRADE_ORDER   = ['S', 'A', 'B', 'C', 'D', 'P', 'F'] as const
+const GRADE_PALETTE: Record<string, { bg: string; text: string; border: string }> = {
+  S: { bg: 'bg-indigo-50', text: 'text-indigo-800', border: 'border-indigo-200' },
+  A: { bg: 'bg-green-50',  text: 'text-green-800',  border: 'border-green-200'  },
+  B: { bg: 'bg-teal-50',   text: 'text-teal-800',   border: 'border-teal-200'   },
+  C: { bg: 'bg-blue-50',   text: 'text-blue-800',   border: 'border-blue-200'   },
+  D: { bg: 'bg-yellow-50', text: 'text-yellow-800', border: 'border-yellow-200' },
+  P: { bg: 'bg-orange-50', text: 'text-orange-800', border: 'border-orange-200' },
+  F: { bg: 'bg-red-50',    text: 'text-red-800',    border: 'border-red-200'    },
+}
+
+function GradeSummaryPanel({ summary }: { summary: GradeSummaryResponse }) {
+  const { total, pass_count, fail_count, pass_rate, grade_counts } = summary
+  const passBarWidth = total > 0 ? `${pass_rate}%` : '0%'
+
+  return (
+    <div className="space-y-4">
+      {/* Grade distribution cards */}
+      <div className="grid grid-cols-7 gap-1.5">
+        {GRADE_ORDER.map(g => {
+          const count = grade_counts[g] ?? 0
+          const pal   = GRADE_PALETTE[g]
+          const pct   = total > 0 ? ((count / total) * 100).toFixed(1) : '0.0'
+          return (
+            <div
+              key={g}
+              className={`rounded-lg border ${pal.border} ${pal.bg} p-2 text-center`}
+            >
+              <div className={`text-xs font-bold ${pal.text}`}>{g}</div>
+              <div className="text-lg font-bold text-gray-800 leading-tight">{count}</div>
+              <div className="text-xs text-gray-400">{pct}%</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Pass rate bar */}
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs text-gray-500">
+          <span>Pass rate</span>
+          <span className="font-semibold text-gray-700">{pass_rate.toFixed(1)}%</span>
+        </div>
+        <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-green-500 transition-all"
+            style={{ width: passBarWidth }}
+          />
+        </div>
+      </div>
+
+      {/* Pass / fail counts */}
+      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+        <div className="rounded-lg border border-gray-100 bg-white p-2">
+          <div className="text-base font-bold text-gray-800">{total}</div>
+          <div className="text-gray-400">Total</div>
+        </div>
+        <div className="rounded-lg border border-green-100 bg-green-50 p-2">
+          <div className="text-base font-bold text-green-700">{pass_count}</div>
+          <div className="text-green-600">Pass</div>
+        </div>
+        <div className="rounded-lg border border-red-100 bg-red-50 p-2">
+          <div className="text-base font-bold text-red-700">{fail_count}</div>
+          <div className="text-red-500">Fail</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Grade badge
 // ---------------------------------------------------------------------------
 
@@ -199,6 +272,52 @@ function NormalisedLedger({ paperId }: { paperId: string }) {
           Showing {items.length} of {data?.total} scores.
         </p>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Applied section — grade summary panel + normalised ledger
+// ---------------------------------------------------------------------------
+
+function AppliedSection({ paperId }: { paperId: string }) {
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: ['bell-curve-grade-summary', paperId],
+    queryFn:  () => getGradeSummary(paperId),
+  })
+
+  return (
+    <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-5">
+      {/* Banner */}
+      <div className="flex gap-3 text-sm text-green-800">
+        <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
+        <span>
+          <strong>Board ratified.</strong> Normalised scores are recorded in the bell curve ledger.
+          Grades are advisory — raw M09 marks are unchanged.
+        </span>
+      </div>
+
+      {/* Grade distribution summary */}
+      <div className="rounded-lg border border-green-100 bg-white p-4 space-y-1">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+          Grade Distribution (Advisory)
+        </p>
+        {summaryLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading summary…
+          </div>
+        ) : summary ? (
+          <GradeSummaryPanel summary={summary} />
+        ) : null}
+      </div>
+
+      {/* Full ledger table */}
+      <div className="rounded-lg border border-green-100 bg-white p-3">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+          Normalised Score Ledger
+        </p>
+        <NormalisedLedger paperId={paperId} />
+      </div>
     </div>
   )
 }
@@ -331,21 +450,7 @@ export default function BellCurveAnalysisPage() {
 
       {/* Ratified / No-action result */}
       {analysis.status === 'APPLIED' && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-4">
-          <div className="flex gap-3 text-sm text-green-800">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
-            <span>
-              <strong>Board ratified.</strong> Normalised scores are recorded in the bell curve ledger.
-              Grades are advisory — raw M09 marks are unchanged.
-            </span>
-          </div>
-          <div className="rounded-lg border border-green-100 bg-white p-3">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
-              Normalised Score Ledger
-            </p>
-            <NormalisedLedger paperId={analysis.exam_paper_id} />
-          </div>
-        </div>
+        <AppliedSection paperId={analysis.exam_paper_id} />
       )}
 
       {analysis.status === 'NO_ACTION' && (

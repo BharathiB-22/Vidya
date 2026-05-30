@@ -39,6 +39,7 @@ from app.modules.m10_bell_curve.schemas import (
     BellCurveAnalysisResponse,
     BellCurveDecisionListResponse,
     BellCurveDecisionResponse,
+    GradeSummaryResponse,
     NormalisedScoreListResponse,
     NormalisedScoreResponse,
     PreviewNormalisationRequest,
@@ -390,6 +391,28 @@ async def get_decision(
     except BellCurveServiceError as exc:
         _raise(exc)
     return BellCurveDecisionResponse.model_validate(decision)
+
+
+# ---------------------------------------------------------------------------
+# GET /ledger/paper/{paper_id}/grade-summary — STATIC (must be before /{paper_id})
+# ---------------------------------------------------------------------------
+
+@router.get("/ledger/paper/{paper_id}/grade-summary", response_model=GradeSummaryResponse)
+async def get_grade_summary(
+    paper_id: UUID,
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Grade distribution and pass/fail summary for a paper's normalised scores.
+    Advisory only — raw M09 marks are never modified.
+    """
+    db: AsyncSession = db_info["db"]
+    try:
+        result = await BellCurveService.grade_summary(paper_id, db=db)
+    except BellCurveServiceError as exc:
+        _raise(exc)
+    return GradeSummaryResponse(**result)
 
 
 # ---------------------------------------------------------------------------

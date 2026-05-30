@@ -207,3 +207,12 @@ export interface JobStatusResponse {
   completed_at: string | null
   error:        string | null
 }
+
+export interface GradeSummaryResponse {
+  exam_paper_id: string
+  total:         number
+  pass_count:    number
+  fail_count:    number
+  pass_rate:     number          // 0.0 – 100.0; advisory only
+  grade_counts:  Record<string, number> // {"S": 2, "A": 5, …}
+}
