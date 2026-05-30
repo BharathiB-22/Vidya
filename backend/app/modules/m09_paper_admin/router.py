@@ -31,6 +31,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_tenant_context_dep, require_roles
@@ -547,4 +548,29 @@ async def list_ledger_for_paper(
     return ExamScoreLedgerListResponse(
         items=[ExamScoreLedgerResponse.model_validate(e) for e in items],
         total=total, offset=offset, limit=limit,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /ledger/paper/{paper_id}/export — CSV download (H-36 STEP-11)
+# ---------------------------------------------------------------------------
+
+@router.get("/ledger/paper/{paper_id}/export")
+async def export_ledger_csv(
+    paper_id: UUID,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Board/Admin: download all Board-finalised scores for an exam paper as CSV.
+    Returns text/csv with Content-Disposition attachment so the browser saves the file.
+    student_user_id is excluded; student_roll_ref is included post-finalisation.
+    """
+    db: AsyncSession = db_info["db"]
+    csv_text = await ScriptService.export_ledger_csv(paper_id, db=db)
+    filename  = f"score_ledger_{str(paper_id)[:8]}.csv"
+    return StreamingResponse(
+        iter([csv_text]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

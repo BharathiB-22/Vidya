@@ -204,3 +204,22 @@ export async function getPaperStats(paperId: string): Promise<PaperPipelineStats
   const { data } = await api.get(`${BASE}/stats`, { params: { paper_id: paperId } })
   return data
 }
+
+// ---------------------------------------------------------------------------
+// Score ledger CSV export (H-36 STEP-11)
+// ---------------------------------------------------------------------------
+
+/** Board/Admin: fetch score ledger as CSV blob and trigger browser download. */
+export async function downloadLedgerCSV(paperId: string): Promise<void> {
+  const response = await api.get(`${BASE}/ledger/paper/${paperId}/export`, {
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(new Blob([response.data as BlobPart], { type: 'text/csv' }))
+  const a   = document.createElement('a')
+  a.href     = url
+  a.download = `score_ledger_${paperId.slice(0, 8)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}

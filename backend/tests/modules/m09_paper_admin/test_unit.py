@@ -3181,3 +3181,147 @@ class TestPaperPipelineStats:
         assert hasattr(router_mod, "PaperPipelineStats"), (
             "router.py must import PaperPipelineStats"
         )
+
+
+# ===========================================================================
+# H-36 STEP-11 — Score ledger CSV export
+# ===========================================================================
+
+class TestScoreLedgerCSVExport:
+    """
+    Tests for GET /scripts/ledger/paper/{paper_id}/export (CSV download).
+    Read-only; verifies header, row format, privacy, and router wiring.
+    """
+
+    # --- Service ---
+
+    def test_service_has_export_ledger_csv(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert hasattr(ScriptService, "export_ledger_csv")
+        assert callable(ScriptService.export_ledger_csv)
+
+    @pytest.mark.asyncio
+    async def test_export_empty_paper_returns_header_only(self):
+        """When no finalised entries exist, CSV contains only the header row."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptService.list_ledger_for_paper",
+            new=AsyncMock(return_value=([], 0)),
+        ):
+            csv = await ScriptService.export_ledger_csv(uuid4(), db=db)
+
+        lines = csv.strip().splitlines()
+        assert len(lines) == 1, "Empty export must contain only the header row"
+        assert lines[0].startswith("#,masked_script_id")
+
+    @pytest.mark.asyncio
+    async def test_export_header_columns(self):
+        """Header row must contain all required columns."""
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptService.list_ledger_for_paper",
+            new=AsyncMock(return_value=([], 0)),
+        ):
+            csv = await ScriptService.export_ledger_csv(uuid4(), db=db)
+
+        header = csv.splitlines()[0]
+        for col in ("masked_script_id", "student_roll_ref", "total_marks", "max_marks", "pct", "finalised_at"):
+            assert col in header, f"Header missing column: {col}"
+
+    @pytest.mark.asyncio
+    async def test_export_row_count_matches_entries(self):
+        """One data row per finalised entry plus one header row."""
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        entry = MagicMock()
+        entry.script_id         = uuid4()
+        entry.student_roll_ref  = "R001"
+        entry.total_marks       = 72.0
+        entry.max_marks         = 100.0
+        entry.finalised_at      = datetime(2026, 5, 30, 10, 0, 0, tzinfo=timezone.utc)
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptService.list_ledger_for_paper",
+            new=AsyncMock(return_value=([entry], 1)),
+        ):
+            csv = await ScriptService.export_ledger_csv(uuid4(), db=db)
+
+        lines = csv.strip().splitlines()
+        assert len(lines) == 2, f"Expected header + 1 data row, got {len(lines)} lines"
+
+    @pytest.mark.asyncio
+    async def test_export_row_contains_total_marks(self):
+        """Data row must include the total_marks value."""
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        entry = MagicMock()
+        entry.script_id         = uuid4()
+        entry.student_roll_ref  = None
+        entry.total_marks       = 55.5
+        entry.max_marks         = 100.0
+        entry.finalised_at      = datetime(2026, 5, 30, tzinfo=timezone.utc)
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptService.list_ledger_for_paper",
+            new=AsyncMock(return_value=([entry], 1)),
+        ):
+            csv = await ScriptService.export_ledger_csv(uuid4(), db=db)
+
+        data_row = csv.strip().splitlines()[1]
+        assert "55.5" in data_row
+
+    @pytest.mark.asyncio
+    async def test_export_excludes_student_user_id(self):
+        """student_user_id must not appear in the CSV (privacy rule)."""
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        from app.modules.m09_paper_admin.service import ScriptService
+
+        student_id = uuid4()
+        entry = MagicMock()
+        entry.script_id         = uuid4()
+        entry.student_user_id   = student_id
+        entry.student_roll_ref  = "R099"
+        entry.total_marks       = 80.0
+        entry.max_marks         = 100.0
+        entry.finalised_at      = datetime(2026, 5, 30, tzinfo=timezone.utc)
+
+        db = MagicMock()
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptService.list_ledger_for_paper",
+            new=AsyncMock(return_value=([entry], 1)),
+        ):
+            csv = await ScriptService.export_ledger_csv(uuid4(), db=db)
+
+        assert str(student_id) not in csv, (
+            "student_user_id must not appear in the CSV export"
+        )
+
+    # --- Router ---
+
+    def test_router_has_export_endpoint(self):
+        """GET /ledger/paper/{paper_id}/export must be registered."""
+        from app.modules.m09_paper_admin.router import router
+        paths = [r.path for r in router.routes]
+        assert "/ledger/paper/{paper_id}/export" in paths, (
+            f"Export path not found. Registered paths: {paths}"
+        )
+
+    def test_router_imports_streaming_response(self):
+        """router.py must import StreamingResponse for the CSV endpoint."""
+        import app.modules.m09_paper_admin.router as router_mod
+        assert hasattr(router_mod, "StreamingResponse"), (
+            "router.py must import StreamingResponse from fastapi.responses"
+        )

@@ -787,6 +787,37 @@ class ScriptService:
         return items, total
 
     @staticmethod
+    async def export_ledger_csv(
+        exam_paper_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> str:
+        """
+        Return all Board-finalised score entries for a paper as a CSV string.
+        Fetches up to 10 000 rows — no pagination (export context).
+        student_user_id is intentionally excluded; student_roll_ref is included
+        (it is already captured in the ledger row at finalisation time and is not
+        subject to masking rules post-finalisation).
+        """
+        items, _ = await ScriptService.list_ledger_for_paper(
+            exam_paper_id, offset=0, limit=10_000, db=db
+        )
+        header = "#,masked_script_id,student_roll_ref,total_marks,max_marks,pct,finalised_at"
+        rows = [header]
+        for i, entry in enumerate(items, 1):
+            pct = (
+                round(entry.total_marks / entry.max_marks * 100, 1)
+                if entry.max_marks > 0 else ""
+            )
+            roll = entry.student_roll_ref or ""
+            rows.append(
+                f"{i},{str(entry.script_id)[:8]},{roll},"
+                f"{entry.total_marks},{entry.max_marks},{pct},"
+                f"{entry.finalised_at.isoformat()}"
+            )
+        return "\n".join(rows)
+
+    @staticmethod
     async def get_paper_stats(
         exam_paper_id: UUID,
         *,

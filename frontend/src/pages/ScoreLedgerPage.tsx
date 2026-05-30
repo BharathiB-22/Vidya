@@ -1,19 +1,20 @@
-// M09 Paper Administration — Score Ledger: Board-finalised results per exam paper (H-36 STEP-09)
+// M09 Paper Administration — Score Ledger: Board-finalised results per exam paper (H-36 STEP-09/11)
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BookLock, ChevronDown, ChevronUp } from 'lucide-react'
+import { BookLock, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { Button } from '@/components/ui/button'
-import { listLedgerForPaper } from '@/lib/api/scripts'
+import { listLedgerForPaper, downloadLedgerCSV } from '@/lib/api/scripts'
 import { listAllExamPapers } from '@/lib/api/exam'
 import type { ExamScoreLedger } from '@/types/script'
 
 export default function ScoreLedgerPage() {
-  const [paperId, setPaperId] = useState('')
-  const [offset, setOffset]   = useState(0)
+  const [paperId, setPaperId]     = useState('')
+  const [offset, setOffset]       = useState(0)
+  const [exporting, setExporting] = useState(false)
   const limit = 50
 
   const { data: papersData } = useQuery({
@@ -35,7 +36,28 @@ export default function ScoreLedgerPage() {
 
   return (
     <PageShell>
-      <PageHeader icon={BookLock} title="Score Ledger" />
+      <PageHeader
+        icon={BookLock}
+        title="Score Ledger"
+        action={
+          items.length > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true)
+                try { await downloadLedgerCSV(paperId) }
+                finally { setExporting(false) }
+              }}
+              className="gap-2"
+            >
+              <Download className="w-4 h-4" />
+              {exporting ? 'Exporting…' : 'Export CSV'}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Paper selector */}
       <div className="max-w-md">
