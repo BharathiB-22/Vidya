@@ -345,3 +345,92 @@ def test_description_present_takes_priority():
     result = _normalize_groq_response(raw)
     assert result["outcomes"][0]["description"] == "Existing correct description with enough length"
     assert "co_statement" not in result["outcomes"][0]
+
+
+# ---------------------------------------------------------------------------
+# Tests — unit title aliases (BUG-002 second root cause)
+# Groq sometimes emits unit_name / unit_title / name instead of title.
+# ---------------------------------------------------------------------------
+
+def _make_unit_name_payload(title_field: str) -> str:
+    """Build a minimal valid Groq payload where units use the given title alias."""
+    return json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Students will demonstrate competency in area {i} through applied learning.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "units": [
+            {title_field: f"Unit {i} Title", "unit_number": i, "total_hours": 6,
+             "pedagogy": "lecture", "topics": [f"Topic {i}"]}
+            for i in range(1, 5)
+        ],
+        "reference_queries": [
+            {"query_str": f"programming fundamentals textbook {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+
+
+def test_unit_name_alias_maps_to_title():
+    """unit_name -> title (exact alias observed in BUG-002 Celery logs)."""
+    raw = _make_unit_name_payload("unit_name")
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert "title" in unit, f"unit missing title after normalization: {unit}"
+        assert unit["title"].startswith("Unit ")
+        assert "unit_name" not in unit
+
+
+def test_unit_title_alias_maps_to_title():
+    """unit_title -> title."""
+    raw = _make_unit_name_payload("unit_title")
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert "title" in unit
+        assert "unit_title" not in unit
+
+
+def test_name_alias_maps_to_title():
+    """name -> title (lowest-priority alias)."""
+    raw = _make_unit_name_payload("name")
+    result = _normalize_groq_response(raw)
+    for unit in result["units"]:
+        assert "title" in unit
+        assert "name" not in unit
+
+
+def test_unit_name_pydantic_validates():
+    """Full pipeline: unit_name payload normalizes and passes _SyllabusAI validation."""
+    raw = _make_unit_name_payload("unit_name")
+    normalized = _normalize_groq_response(raw)
+    parsed = _SyllabusAI.model_validate(normalized)
+    assert len(parsed.units) == 4
+    assert all(len(u.title) >= 3 for u in parsed.units)
+
+
+def test_existing_title_not_overwritten_by_unit_name():
+    """If title is already present, unit_name must not overwrite it."""
+    units = [
+        {"title": "Correct Title", "unit_name": "Should Be Ignored",
+         "unit_number": 1, "total_hours": 6, "pedagogy": "lecture", "topics": []},
+    ] + [
+        {"unit_number": i, "title": f"Unit {i}", "total_hours": 6,
+         "pedagogy": "lecture", "topics": []}
+        for i in range(2, 5)
+    ]
+    raw = json.dumps({
+        "outcomes": [
+            {"code": f"CO{i}", "description": f"Demonstrate competency in area {i} through applied work.",
+             "bloom_level": "Apply", "suggested_po_codes": []}
+            for i in range(1, 5)
+        ],
+        "units": units,
+        "reference_queries": [
+            {"query_str": f"c programming textbook {i}", "ref_type": "TEXTBOOK"}
+            for i in range(1, 6)
+        ],
+    })
+    result = _normalize_groq_response(raw)
+    assert result["units"][0]["title"] == "Correct Title"
+    assert "unit_name" not in result["units"][0]

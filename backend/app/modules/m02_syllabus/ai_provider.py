@@ -500,6 +500,15 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
         if not unit.get("unit_number"):
             # accept display_order as a fallback key, else assign sequentially
             unit["unit_number"] = unit.pop("display_order", None) or (i + 1)
+        # title aliases: Groq sometimes returns unit_name, name, or unit_title
+        if not str(unit.get("title", "")).strip():
+            for alias in ("unit_name", "unit_title", "name"):
+                candidate = str(unit.get(alias, "")).strip()
+                if candidate:
+                    unit["title"] = candidate
+                    break
+        for alias in ("unit_name", "unit_title", "name"):
+            unit.pop(alias, None)
         raw_topics: list[Any] = unit.get("topics", [])
         unit["topics"] = [
             {"title": t} if isinstance(t, str) else t
