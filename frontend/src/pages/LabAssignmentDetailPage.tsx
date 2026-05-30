@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Users, Clock, Download, Eye, UserCheck, Trash2, BookOpen, AlertCircle } from 'lucide-react'
+import { ChevronLeft, Users, Clock, Download, Eye, UserCheck, Trash2, BookOpen, AlertCircle, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
@@ -8,9 +8,10 @@ import {
   useLabAssignment, useSubmissions, usePublishAssignment, useCloseAssignment,
   useAssignmentEvaluators, useAssignEvaluator, useRemoveEvaluator, useTenantEvaluators,
 } from '@/hooks/labs'
+import { useUpdateAssignment } from '@/hooks/labs'
 import { getModerationReportUrl } from '@/lib/api/labs'
 import { addToast } from '@/hooks/useToast'
-import type { LabSubmission, SubmissionStatus } from '@/types/labs'
+import type { LabSubmission, RubricCriterion, SubmissionStatus } from '@/types/labs'
 
 type Tab = 'overview' | 'submissions' | 'evaluators'
 
@@ -153,6 +154,187 @@ function EvaluatorsPanel({
     </div>
   )
 }
+
+// ── Rubric Editor (DRAFT assignments only) ───────────────────────────────────
+
+type DraftCriterion = RubricCriterion & { _key: string }
+
+function makeKey() {
+  return Math.random().toString(36).slice(2)
+}
+
+function toDraft(rubric: RubricCriterion[]): DraftCriterion[] {
+  return rubric.map((c) => ({ ...c, _key: makeKey() }))
+}
+
+function RubricEditor({
+  assignmentId,
+  initialRubric,
+}: {
+  assignmentId: string
+  initialRubric: RubricCriterion[]
+}) {
+  const [rows, setRows] = useState<DraftCriterion[]>(() =>
+    initialRubric.length > 0
+      ? toDraft(initialRubric)
+      : [{ _key: makeKey(), criterion_id: 'c1', name: '', description: '', max_marks: 100, weight: 1.0 }]
+  )
+  const { mutate: updateAssignment, isPending: saving } = useUpdateAssignment(assignmentId)
+
+  function addRow() {
+    const idx = rows.length + 1
+    setRows((prev) => [
+      ...prev,
+      { _key: makeKey(), criterion_id: `c${idx}`, name: '', description: '', max_marks: 10, weight: 0 },
+    ])
+  }
+
+  function removeRow(key: string) {
+    if (rows.length <= 1) return
+    setRows((prev) => prev.filter((r) => r._key !== key))
+  }
+
+  function updateRow(key: string, field: keyof RubricCriterion, value: string | number) {
+    setRows((prev) =>
+      prev.map((r) => (r._key === key ? { ...r, [field]: value } : r))
+    )
+  }
+
+  function handleSave() {
+    // Validate
+    for (const r of rows) {
+      if (!r.name.trim()) {
+        addToast('All criteria must have a name.', 'error')
+        return
+      }
+      if (r.max_marks < 1) {
+        addToast('Max marks must be at least 1 for each criterion.', 'error')
+        return
+      }
+    }
+
+    // Weights: if all zero, distribute evenly; otherwise normalise to decimal (user entered %)
+    const rawWeights = rows.map((r) => Number(r.weight))
+    const allZero = rawWeights.every((w) => w === 0)
+    let weights: number[]
+    if (allZero) {
+      weights = rows.map(() => 1 / rows.length)
+    } else {
+      const total = rawWeights.reduce((s, w) => s + w, 0)
+      weights = rawWeights.map((w) => w / total)
+    }
+
+    const rubric: RubricCriterion[] = rows.map((r, i) => ({
+      criterion_id: r.criterion_id || `c${i + 1}`,
+      name: r.name.trim(),
+      description: r.description.trim(),
+      max_marks: Number(r.max_marks),
+      weight: Math.round(weights[i] * 10000) / 10000,
+    }))
+
+    updateAssignment(
+      { rubric },
+      {
+        onSuccess: () => addToast('Rubric saved.', 'success'),
+        onError:   () => addToast('Failed to save rubric.', 'error'),
+      }
+    )
+  }
+
+  // Display weight as percentage for easier editing
+  const totalWeight = rows.reduce((s, r) => s + Number(r.weight), 0)
+  const weightOk = totalWeight === 0 || Math.abs(totalWeight - 100) <= 1
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        Add criteria and set weights (as percentages that sum to 100). Rubric editing is only available on DRAFT assignments.
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        {/* Header row */}
+        <div className="grid grid-cols-[1fr_1.5fr_5rem_6rem_2rem] gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100 text-xs font-medium text-gray-500 uppercase tracking-wide">
+          <span>Criterion Name</span>
+          <span>Description</span>
+          <span>Max Marks</span>
+          <span>Weight %</span>
+          <span />
+        </div>
+
+        {rows.map((row) => (
+          <div
+            key={row._key}
+            className="grid grid-cols-[1fr_1.5fr_5rem_6rem_2rem] gap-2 px-3 py-2 border-b border-gray-100 last:border-0 items-center"
+          >
+            <input
+              className="rounded border border-gray-200 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+              placeholder="e.g. Code Quality"
+              value={row.name}
+              onChange={(e) => updateRow(row._key, 'name', e.target.value)}
+            />
+            <input
+              className="rounded border border-gray-200 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300"
+              placeholder="Description (optional)"
+              value={row.description}
+              onChange={(e) => updateRow(row._key, 'description', e.target.value)}
+            />
+            <input
+              type="number"
+              min={1}
+              className="rounded border border-gray-200 px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gray-300"
+              value={row.max_marks}
+              onChange={(e) => updateRow(row._key, 'max_marks', Number(e.target.value))}
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={5}
+              placeholder="e.g. 40"
+              className={`rounded border px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 ${
+                weightOk ? 'border-gray-200 focus:ring-gray-300' : 'border-red-300 focus:ring-red-300'
+              }`}
+              value={row.weight === 0 ? '' : row.weight}
+              onChange={(e) => updateRow(row._key, 'weight', Number(e.target.value) || 0)}
+            />
+            <button
+              type="button"
+              title="Remove criterion"
+              disabled={rows.length <= 1}
+              onClick={() => removeRow(row._key)}
+              className="text-gray-300 hover:text-red-500 disabled:opacity-30 transition-colors"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {!weightOk && (
+        <p className="text-xs text-red-600">
+          Weights sum to {totalWeight.toFixed(0)}% — they must sum to 100%.
+          Leave all blank to distribute equally.
+        </p>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-gray-400">
+          Total max marks: {rows.reduce((s, r) => s + Number(r.max_marks), 0)}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={addRow} className="gap-1">
+            <Plus className="h-3.5 w-3.5" />
+            Add Criterion
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving || !weightOk}>
+            {saving ? 'Saving…' : 'Save Rubric'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 
 export default function LabAssignmentDetailPage() {
   const { id }    = useParams<{ id: string }>()
@@ -351,21 +533,35 @@ export default function LabAssignmentDetailPage() {
           {/* Rubric */}
           <div>
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Rubric</h2>
-            <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-              {assignment.rubric.map((c) => (
-                <div key={c.criterion_id} className="px-4 py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-gray-800">{c.name}</span>
-                    <span className="text-xs text-gray-500 shrink-0">
-                      {c.max_marks} marks · weight {c.weight.toFixed(2)}
-                    </span>
+
+            {canWrite && assignment.status === 'DRAFT' ? (
+              <RubricEditor
+                assignmentId={assignmentId}
+                initialRubric={assignment.rubric}
+              />
+            ) : (
+              <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+                {assignment.rubric.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-gray-400">
+                    No rubric criteria defined.
                   </div>
-                  {c.description && (
-                    <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>
-                  )}
-                </div>
-              ))}
-            </div>
+                ) : (
+                  assignment.rubric.map((c) => (
+                    <div key={c.criterion_id} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-gray-800">{c.name}</span>
+                        <span className="text-xs text-gray-500 shrink-0">
+                          {c.max_marks} marks · {(c.weight * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      {c.description && (
+                        <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Test cases — CODE only */}

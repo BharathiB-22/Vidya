@@ -125,10 +125,107 @@ def _classify_confidence(
 
 
 # ---------------------------------------------------------------------------
+# Response normaliser
+# ---------------------------------------------------------------------------
+
+# All known envelope keys LLMs use to wrap a scores array.
+# Groq's json_object mode always returns a dict, so we must handle many shapes.
+_ARRAY_ENVELOPE_KEYS = (
+    "scores", "criteria_scores", "rubric_scores", "results",
+    "criteria", "items", "data", "evaluations", "evaluation",
+    "criterion_scores",
+)
+
+
+def _normalise_to_items(parsed: Any) -> list[dict]:
+    """Convert any valid AI response shape to a flat list of score dicts.
+
+    Handles:
+      1. Bare JSON array                    → returned as-is
+      2. Single criterion object            → wrapped in [...]
+      3. Dict with a known array key        → array extracted
+      4. Dict keyed by criterion_id         → converted to array
+    Raises ValueError for unrecognised shapes so the caller can log clearly.
+    """
+    if isinstance(parsed, list):
+        return parsed
+
+    if not isinstance(parsed, dict):
+        raise ValueError(f"Expected JSON array; got {type(parsed).__name__}")
+
+    # Case A: the dict IS a single criterion score (Groq sometimes returns this
+    # when the rubric has only one criterion or the model collapses the array).
+    if "criterion_id" in parsed and "ai_score" in parsed:
+        return [parsed]
+
+    # Case B: dict with a recognised array envelope key
+    for key in _ARRAY_ENVELOPE_KEYS:
+        val = parsed.get(key)
+        if isinstance(val, list):
+            return val
+
+    # Case C: dict keyed by criterion_id with score objects as values
+    # e.g. {"c1": {"ai_score": 8, "ai_justification": "..."}, "c2": {...}}
+    cid_keyed = [
+        {"criterion_id": k, **v}
+        for k, v in parsed.items()
+        if isinstance(v, dict) and "ai_score" in v
+    ]
+    if cid_keyed:
+        return cid_keyed
+
+    raise ValueError(
+        f"Expected JSON array; got dict with unrecognised shape "
+        f"(keys: {list(parsed.keys())[:10]})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Response parser
 # ---------------------------------------------------------------------------
 
+def _resolve_to_canonical_id(
+    ai_cid: str,
+    rubric: list[dict],
+    matched: set[str],
+) -> str | None:
+    """
+    Resolve an AI-returned criterion_id string to a canonical rubric criterion_id.
+
+    Stage 1 — exact match on criterion_id.
+    Stage 2 — case-insensitive match on criterion name
+               (LLMs sometimes return the criterion name as the id).
+    Returns None when neither stage matches; caller applies positional fallback.
+    """
+    ai_lower = ai_cid.lower().strip()
+
+    for c in rubric:
+        if c["criterion_id"] in matched:
+            continue
+        if c["criterion_id"] == ai_cid:
+            return c["criterion_id"]
+
+    for c in rubric:
+        if c["criterion_id"] in matched:
+            continue
+        cname = c.get("name", "").lower().strip()
+        if cname and (ai_lower == cname or ai_lower in cname or cname in ai_lower):
+            return c["criterion_id"]
+
+    return None
+
+
 def _parse_response(raw: str, rubric: list[dict]) -> list[CriterionScore]:
+    """
+    Parse the LLM JSON response into a list of CriterionScore objects.
+
+    AI-returned criterion_ids are hints only; output always uses canonical ids
+    from the rubric definition. Resolution order per item:
+      1. Exact criterion_id match
+      2. Criterion-name match (case-insensitive, partial containment)
+      3. Positional fallback — i-th unresolved item maps to i-th unmatched rubric
+         criterion (valid because the prompt requests SAME ORDER as the rubric)
+    """
     rubric_map = {c["criterion_id"]: c for c in rubric}
 
     try:
@@ -136,42 +233,49 @@ def _parse_response(raw: str, rubric: list[dict]) -> list[CriterionScore]:
     except json.JSONDecodeError as exc:
         raise ValueError(f"AI response is not valid JSON: {exc}\nRaw: {raw[:400]}") from exc
 
-    # Unwrap dict envelope — LLMs sometimes return {"scores": [...]} instead of a bare array
-    if isinstance(parsed, dict):
-        for key in ("scores", "criteria_scores", "rubric_scores", "results"):
-            if key in parsed and isinstance(parsed[key], list):
-                parsed = parsed[key]
-                break
-
-    if not isinstance(parsed, list):
-        raise ValueError(f"Expected JSON array; got {type(parsed).__name__}")
+    items = _normalise_to_items(parsed)
 
     scores: list[CriterionScore] = []
-    seen_ids: set[str] = set()
+    matched: set[str] = set()   # canonical ids already resolved
+    deferred: list[dict] = []   # items that need positional fallback
 
-    for item in parsed:
-        cid   = str(item.get("criterion_id", ""))
-        score = float(item.get("ai_score", 0))
-        just  = str(item.get("ai_justification", "")).strip()
+    for item in items:
+        ai_cid = str(item.get("criterion_id", ""))
+        score  = float(item.get("ai_score", 0))
+        just   = str(item.get("ai_justification", "")).strip()
 
-        if cid in rubric_map:
-            max_m = int(rubric_map[cid]["max_marks"])
-            score = max(0.0, min(float(max_m), score))  # clamp to [0, max_marks]
-        else:
-            max_m = 10  # fallback
+        canonical = _resolve_to_canonical_id(ai_cid, rubric, matched)
 
-        if cid not in seen_ids:
+        if canonical is not None:
+            rubric_crit = rubric_map[canonical]
+            max_m = int(rubric_crit["max_marks"])
+            score = max(0.0, min(float(max_m), score))
             scores.append(CriterionScore(
-                criterion_id=cid,
+                criterion_id=canonical,
                 ai_score=round(score, 2),
                 ai_justification=just or "No justification provided.",
                 max_marks=max_m,
             ))
-            seen_ids.add(cid)
+            matched.add(canonical)
+        else:
+            deferred.append({"score": score, "just": just})
 
-    # Fill in any rubric criteria the AI missed
+    # Positional fallback: pair each deferred item with an unmatched rubric criterion
+    unmatched_rubric = [c for c in rubric if c["criterion_id"] not in matched]
+    for item_data, rubric_crit in zip(deferred, unmatched_rubric):
+        max_m = int(rubric_crit["max_marks"])
+        score = max(0.0, min(float(max_m), item_data["score"]))
+        scores.append(CriterionScore(
+            criterion_id=rubric_crit["criterion_id"],
+            ai_score=round(score, 2),
+            ai_justification=item_data["just"] or "No justification provided.",
+            max_marks=max_m,
+        ))
+        matched.add(rubric_crit["criterion_id"])
+
+    # Fill any rubric criteria the AI omitted entirely
     for c in rubric:
-        if c["criterion_id"] not in seen_ids:
+        if c["criterion_id"] not in matched:
             scores.append(CriterionScore(
                 criterion_id=c["criterion_id"],
                 ai_score=0.0,

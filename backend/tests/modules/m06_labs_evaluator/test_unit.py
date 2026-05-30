@@ -341,6 +341,58 @@ class TestRubricScorerParsing:
         with pytest.raises(ValueError, match="not valid JSON"):
             _parse_response("NOT JSON", self._make_rubric())
 
+    # -- dict shape normalisation --
+
+    def test_parse_response_accepts_criteria_envelope_key(self):
+        """Groq often wraps the array under "criteria" rather than "scores"."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+        raw = json.dumps({
+            "criteria": [
+                {"criterion_id": "c1", "ai_score": 38, "ai_justification": "Well done."},
+                {"criterion_id": "c2", "ai_score": 42, "ai_justification": "Clear."},
+            ]
+        })
+        scores = _parse_response(raw, self._make_rubric())
+        assert len(scores) == 2
+        assert next(s for s in scores if s.criterion_id == "c1").ai_score == 38.0
+
+    def test_parse_response_accepts_single_criterion_dict(self):
+        """Single-criterion rubric: model may return a dict instead of a 1-element array."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+        single_rubric = [
+            {"criterion_id": "c1", "name": "Quality", "max_marks": 50, "weight": 1.0}
+        ]
+        raw = json.dumps({"criterion_id": "c1", "ai_score": 45, "ai_justification": "Excellent."})
+        scores = _parse_response(raw, single_rubric)
+        assert len(scores) == 1
+        assert scores[0].ai_score == 45.0
+        assert scores[0].ai_justification == "Excellent."
+
+    def test_parse_response_accepts_criterion_id_keyed_dict(self):
+        """Model returns a dict keyed by criterion_id: {"c1": {ai_score:…}, "c2": {…}}."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+        raw = json.dumps({
+            "c1": {"ai_score": 30, "ai_justification": "Needs work."},
+            "c2": {"ai_score": 40, "ai_justification": "Good writing."},
+        })
+        scores = _parse_response(raw, self._make_rubric())
+        assert len(scores) == 2
+        c1 = next(s for s in scores if s.criterion_id == "c1")
+        c2 = next(s for s in scores if s.criterion_id == "c2")
+        assert c1.ai_score == 30.0
+        assert c2.ai_score == 40.0
+
+    def test_parse_response_unrecognised_dict_raises_with_clear_message(self):
+        """A dict with no extractable scores raises ValueError — not a silent 0."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+        raw = json.dumps({"totally_unknown": "garbage"})
+        with pytest.raises(ValueError, match="Expected JSON array"):
+            _parse_response(raw, self._make_rubric())
+
     def test_weighted_total_calculation(self):
         from app.modules.m06_labs_evaluator.rubric_scorer import _weighted_total, CriterionScore
         rubric = self._make_rubric()
@@ -425,6 +477,72 @@ class TestRubricScorerParsing:
             )
         assert result.overall_ai_score == 0.0
         assert result.confidence_level == "LOW"
+
+    # -- criterion_id mismatch resolution (BUG-1 regression) --
+
+    def test_numeric_id_resolves_positionally(self):
+        """LLM returns "1" for criterion "c1" → positional fallback → criterion_id=c1."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response, _weighted_total
+        rubric = [{"criterion_id": "c1", "name": "Correctness", "max_marks": 50, "weight": 1.0}]
+        raw = json.dumps([{"criterion_id": "1", "ai_score": 40, "ai_justification": "Good."}])
+        scores = _parse_response(raw, rubric)
+        assert len(scores) == 1
+        assert scores[0].criterion_id == "c1"
+        assert scores[0].ai_score == 40.0
+        assert _weighted_total(scores, rubric) == 40.0
+
+    def test_criterion_prefix_id_resolves_positionally(self):
+        """LLM returns "criterion_1" for "c1" → positional fallback → criterion_id=c1."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response, _weighted_total
+        rubric = [
+            {"criterion_id": "c1", "name": "Correctness", "max_marks": 50, "weight": 0.6},
+            {"criterion_id": "c2", "name": "Clarity",     "max_marks": 50, "weight": 0.4},
+        ]
+        raw = json.dumps([
+            {"criterion_id": "criterion_1", "ai_score": 40, "ai_justification": "Correct."},
+            {"criterion_id": "criterion_2", "ai_score": 30, "ai_justification": "Clear."},
+        ])
+        scores = _parse_response(raw, rubric)
+        ids = {s.criterion_id for s in scores}
+        assert ids == {"c1", "c2"}
+        # overall must be > 0 — the historic bug was that this returned 0.0
+        total = _weighted_total(scores, rubric)
+        assert total == pytest.approx(40 * 0.6 + 30 * 0.4, abs=0.01)
+
+    def test_criterion_name_as_id_resolves_via_name_match(self):
+        """LLM returns the criterion name as the criterion_id → name match → correct id."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response, _weighted_total
+        rubric = [{"criterion_id": "c1", "name": "Content Quality", "max_marks": 100, "weight": 1.0}]
+        # LLM returned the name as the id
+        raw = json.dumps([{"criterion_id": "Content Quality", "ai_score": 75, "ai_justification": "Good."}])
+        scores = _parse_response(raw, rubric)
+        assert scores[0].criterion_id == "c1"
+        assert scores[0].ai_score == 75.0
+        assert _weighted_total(scores, rubric) == 75.0
+
+    def test_mixed_correct_and_wrong_ids_resolve(self):
+        """One exact match + one wrong id → second resolves positionally."""
+        import json
+        from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response, _weighted_total
+        rubric = [
+            {"criterion_id": "c1", "name": "Correctness", "max_marks": 50, "weight": 0.5},
+            {"criterion_id": "c2", "name": "Clarity",     "max_marks": 50, "weight": 0.5},
+        ]
+        raw = json.dumps([
+            {"criterion_id": "c1", "ai_score": 45, "ai_justification": "Correct."},
+            {"criterion_id": "wrong_id", "ai_score": 38, "ai_justification": "Clear."},
+        ])
+        scores = _parse_response(raw, rubric)
+        ids = {s.criterion_id for s in scores}
+        assert ids == {"c1", "c2"}
+        c1 = next(s for s in scores if s.criterion_id == "c1")
+        c2 = next(s for s in scores if s.criterion_id == "c2")
+        assert c1.ai_score == 45.0
+        assert c2.ai_score == 38.0
+        assert _weighted_total(scores, rubric) == pytest.approx(45 * 0.5 + 38 * 0.5, abs=0.01)
 
 
 # ===========================================================================

@@ -125,15 +125,29 @@ async def _run_evaluation(
         if assignment_row is None:
             raise ValueError(f"Assignment {assignment_id} not found.")
 
+        # 2. Transition → EVALUATING so UI shows in-progress state
+        await SubmissionRepository.set_status(
+            submission_id, SubmissionStatus.EVALUATING, db=session
+        )
+        await session.commit()
+
         sub_type = sub.submission_type
 
-        # 2. Get content to evaluate
+        # 3. Get content to evaluate
+        extraction_error: str | None = None
         content = sub.content_text or ""
         if not content and sub.content_url:
-            # For file uploads: in dev we note the URL; prod would download from S3
-            content = f"[File submission at {sub.content_url} — text extraction not yet implemented]"
+            from app.modules.m06_labs_evaluator.text_extractor import extract_text
+            content, extraction_error = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: extract_text(sub.content_url)
+            )
+            if extraction_error:
+                logger.warning(
+                    "File extraction failed for submission %s: %s",
+                    submission_id, extraction_error,
+                )
 
-        # 3. AI content scan
+        # 4. AI content scan
         from app.modules.m06_labs_evaluator.ai_scan import scan as ai_scan
         scan_result = ai_scan(content, threshold=float(settings.M06_AI_SCAN_THRESHOLD))
 
@@ -188,23 +202,46 @@ async def _run_evaluation(
             )
 
         # 6. LLM rubric scoring
-        from app.modules.m06_labs_evaluator.rubric_scorer import score_submission
-
-        # Build question context for the LLM
-        question_ctx = assignment_row.description or assignment_row.title
-        if sub_type == SubmissionType.CODE and test_results:
-            pass_count = sum(1 for t in test_results if t.get("passed"))
-            total_tc   = len(test_results)
-            question_ctx += (
-                f"\n\n[Code evaluation: {pass_count}/{total_tc} test cases passed. "
-                f"Static analysis: complexity={static_analysis.get('complexity_score') if static_analysis else 'N/A'}]"
-            )
-
-        scoring_result = await score_submission(
-            question=question_ctx,
-            submission_text=content,
-            rubric=assignment_row.rubric or [],
+        from app.modules.m06_labs_evaluator.rubric_scorer import (
+            CriterionScore, RubricScoringResult, score_submission,
         )
+
+        if extraction_error:
+            # File could not be extracted — build advisory zero result so evaluators
+            # know this submission needs manual review.
+            rubric_def = assignment_row.rubric or []
+            extraction_note = f"File extraction failed — manual review required. ({extraction_error})"
+            scoring_result = RubricScoringResult(
+                criteria_scores=[
+                    CriterionScore(
+                        criterion_id=c["criterion_id"],
+                        ai_score=0.0,
+                        ai_justification=extraction_note,
+                        max_marks=int(c["max_marks"]),
+                    )
+                    for c in rubric_def
+                ],
+                overall_ai_score=0.0,
+                confidence_level="LOW",
+                ai_model="extraction_failed",
+                prompt_hash="",
+            )
+        else:
+            # Build question context for the LLM
+            question_ctx = assignment_row.description or assignment_row.title
+            if sub_type == SubmissionType.CODE and test_results:
+                pass_count = sum(1 for t in test_results if t.get("passed"))
+                total_tc   = len(test_results)
+                question_ctx += (
+                    f"\n\n[Code evaluation: {pass_count}/{total_tc} test cases passed. "
+                    f"Static analysis: complexity={static_analysis.get('complexity_score') if static_analysis else 'N/A'}]"
+                )
+
+            scoring_result = await score_submission(
+                question=question_ctx,
+                submission_text=content,
+                rubric=assignment_row.rubric or [],
+            )
 
         # 7. Build rubric_scores list for storage
         rubric_scores: list[dict] = [

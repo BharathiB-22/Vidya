@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { LabStatusBadge } from '@/components/labs/LabStatusBadge'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
 import { ConfidenceBadge } from '@/components/labs/ConfidenceBadge'
-import { useReviewPanel } from '@/hooks/labs'
+import { useReviewPanel, useSubmissionFileUrl } from '@/hooks/labs'
 import { useUpdateScores, useRatify } from '@/hooks/labs'
 import type { CriterionScore, RubricCriterion } from '@/types/labs'
 
@@ -97,6 +97,17 @@ export default function LabReviewPanel() {
 
   const { mutate: saveScores, isPending: saving } = useUpdateScores(sid)
   const { mutate: ratify, isPending: ratifying }  = useRatify(sid)
+
+  const [fileUrlRequested, setFileUrlRequested] = useState(false)
+  const { data: fileUrlData, isFetching: fetchingFileUrl } = useSubmissionFileUrl(sid, fileUrlRequested)
+
+  // Auto-open the file as soon as the presigned URL resolves
+  useEffect(() => {
+    if (fileUrlData?.url && fileUrlRequested) {
+      window.open(fileUrlData.url, '_blank', 'noreferrer')
+      setFileUrlRequested(false)
+    }
+  }, [fileUrlData, fileUrlRequested])
 
   // Seed draft scores from evaluation data
   useEffect(() => {
@@ -246,15 +257,26 @@ export default function LabReviewPanel() {
                 </div>
               )
             ) : submission.content_url ? (
-              <div className="p-4 text-sm text-gray-500 text-center">
-                <a
-                  href={submission.content_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-600 underline"
+              <div className="p-4 flex flex-col items-center gap-2 text-sm text-gray-500">
+                <p className="text-xs text-gray-400">Student submitted a file upload.</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={fetchingFileUrl}
+                  onClick={() => {
+                    if (fileUrlData?.url) {
+                      window.open(fileUrlData.url, '_blank', 'noreferrer')
+                    } else {
+                      setFileUrlRequested(true)
+                    }
+                  }}
                 >
-                  View uploaded file
-                </a>
+                  {fetchingFileUrl ? (
+                    <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Generating link…</>
+                  ) : (
+                    'Open Uploaded File'
+                  )}
+                </Button>
               </div>
             ) : (
               <div className="p-4 text-sm text-gray-400 text-center">No content available.</div>

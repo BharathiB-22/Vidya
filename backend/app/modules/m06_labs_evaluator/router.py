@@ -702,6 +702,49 @@ async def evaluator_analytics(
 
 
 # ===========================================================================
+# Submission file download — presigned GET URL
+# ===========================================================================
+
+@router.get("/submissions/{submission_id}/file-url")
+async def get_submission_file_url(
+    submission_id: UUID,
+    current_user: CurrentUser = Depends(_EVALUATE),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """
+    Return a short-lived presigned GET URL for the uploaded submission file.
+    Accessible by faculty, admin, dean, and evaluators (scope-checked).
+    """
+    try:
+        sub = await SubmissionService.get_submission(submission_id, db=db)
+    except LabServiceError as exc:
+        raise _svc_error(exc)
+
+    # Evaluator scope check
+    if current_user.role == TenantRole.EVALUATOR:
+        try:
+            await EvaluatorService.require_scope(current_user.user_id, sub.assignment_id, db)
+        except LabServiceError as exc:
+            raise _svc_error(exc)
+
+    if not sub.content_url:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NO_FILE", "message": "No uploaded file for this submission."},
+        )
+
+    from app.config import settings
+    from app.core.storage.repository import StorageRepository
+
+    expires_in = getattr(settings, "PRESIGNED_URL_EXPIRY_MINUTES_GET", 5) * 60
+    url = await StorageRepository.generate_presigned_get_url(
+        object_key=sub.content_url,
+        expires_in_seconds=expires_in,
+    )
+    return {"url": url, "expires_in_seconds": expires_in}
+
+
+# ===========================================================================
 # Job status poll
 # ===========================================================================
 

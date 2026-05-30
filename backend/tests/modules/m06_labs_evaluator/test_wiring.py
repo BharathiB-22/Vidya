@@ -154,6 +154,7 @@ def test_key_endpoints_registered():
         "/labs/submissions/{submission_id}/review",
         "/labs/submissions/{submission_id}/scores",
         "/labs/submissions/{submission_id}/ratify",
+        "/labs/submissions/{submission_id}/file-url",
         "/labs/assignments/{assignment_id}/report",
         "/labs/jobs/{job_id}",
         "/labs/student/assignments",
@@ -270,6 +271,46 @@ def test_parse_response_rejects_unrecognised_dict():
 
     with pytest.raises(ValueError, match="Expected JSON array"):
         _parse_response(bad, rubric)
+
+
+def test_parse_response_accepts_criteria_key():
+    """Groq often wraps under 'criteria' — must not raise."""
+    import json
+    from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+
+    rubric = [
+        {"criterion_id": "c1", "name": "Q", "max_marks": 10, "weight": 1.0},
+        {"criterion_id": "c2", "name": "C", "max_marks": 5,  "weight": 0.5},
+    ]
+    wrapped = json.dumps({
+        "criteria": [
+            {"criterion_id": "c1", "ai_score": 9.0, "ai_justification": "Strong."},
+            {"criterion_id": "c2", "ai_score": 4.0, "ai_justification": "Clear."},
+        ]
+    })
+    result = _parse_response(wrapped, rubric)
+    assert len(result) == 2
+    assert result[0].ai_score == 9.0
+
+
+def test_parse_response_accepts_criterion_id_keyed_dict():
+    """Groq may key the dict by criterion_id: {"c1": {ai_score:…}, …}."""
+    import json
+    from app.modules.m06_labs_evaluator.rubric_scorer import _parse_response
+
+    rubric = [
+        {"criterion_id": "c1", "name": "Q", "max_marks": 10, "weight": 1.0},
+        {"criterion_id": "c2", "name": "C", "max_marks": 5,  "weight": 0.5},
+    ]
+    keyed = json.dumps({
+        "c1": {"ai_score": 7.0, "ai_justification": "Adequate."},
+        "c2": {"ai_score": 3.5, "ai_justification": "Needs work."},
+    })
+    result = _parse_response(keyed, rubric)
+    assert len(result) == 2
+    scores_by_id = {s.criterion_id: s for s in result}
+    assert scores_by_id["c1"].ai_score == 7.0
+    assert scores_by_id["c2"].ai_score == 3.5
 
 
 def test_grade_ledger_submission_fk_is_restrict():

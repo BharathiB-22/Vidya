@@ -13,6 +13,7 @@ export const labKeys = {
   mySubmissions: () => [...labKeys.all, 'my-submissions'] as const,
   studentAssignments: (f?: Record<string, unknown>) => [...labKeys.all, 'student', 'assignments', f] as const,
   studentResult: (submissionId: string) => [...labKeys.all, 'student', 'result', submissionId] as const,
+  submissionFileUrl: (submissionId: string) => [...labKeys.all, 'file-url', submissionId] as const,
   // Evaluator
   evaluatorAssignments: (f?: Record<string, unknown>) => [...labKeys.all, 'evaluator', 'assignments', f] as const,
   evaluatorAssignment:  (id: string) => [...labKeys.all, 'evaluator', 'assignments', id] as const,
@@ -144,5 +145,15 @@ export function useTenantEvaluators() {
   return useQuery({
     queryKey: labKeys.tenantEvaluators(),
     queryFn:  () => labsApi.listTenantEvaluators(),
+  })
+}
+
+export function useSubmissionFileUrl(submissionId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: labKeys.submissionFileUrl(submissionId),
+    queryFn:  () => labsApi.getSubmissionFileUrl(submissionId),
+    enabled:  enabled && Boolean(submissionId),
+    staleTime: 4 * 60 * 1000, // presigned URL valid ~5 min; refresh before expiry
+    gcTime:   5 * 60 * 1000,
   })
 }

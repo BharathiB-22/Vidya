@@ -147,6 +147,17 @@ export function uploadFileToPresignedUrl(
   })
 }
 
+// ── Submission file download ─────────────────────────────────────────────────
+
+export async function getSubmissionFileUrl(
+  submissionId: string
+): Promise<{ url: string; expires_in_seconds: number }> {
+  const { data } = await api.get<{ url: string; expires_in_seconds: number }>(
+    `${BASE}/submissions/${submissionId}/file-url`
+  )
+  return data
+}
+
 // ── Student ──────────────────────────────────────────────────────────────────
 
 export async function studentListAssignments(params?: {
