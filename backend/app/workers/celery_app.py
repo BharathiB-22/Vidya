@@ -29,6 +29,7 @@ celery_app = Celery(
         "app.workers.heavy.regenerate_exam_question",
         "app.workers.heavy.release_exam_paper",
         "app.workers.heavy.detect_scan_quality",
+        "app.workers.heavy.ocr_scanned_script",
         "app.workers.heavy.score_scanned_script",
         "app.workers.heavy.stale_task_cleanup",
         "app.workers.heavy.analyse_score_distribution",

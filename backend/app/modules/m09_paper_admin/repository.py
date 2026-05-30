@@ -193,6 +193,53 @@ class ScriptRepository:
         )
 
     @staticmethod
+    async def set_ocr_processing(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Mark OCR extraction in progress (ocr_status field; script stays OCR_PROCESSING)."""
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                ocr_status="PROCESSING",
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_ocr_result(
+        script_id: UUID,
+        *,
+        ocr_text: str | None,
+        ocr_status_value: str,
+        had_ocr: bool,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Save OCR output and advance script status.
+        had_ocr=True  → status = PROCESSING (score_scanned_script task takes over).
+        had_ocr=False → status = REVIEW_REQUIRED (admin reviews; evaluator enters marks manually).
+        Called ONLY by ocr_scanned_script Celery task.
+        """
+        new_status = (
+            ScriptStatus.PROCESSING.value
+            if had_ocr
+            else ScriptStatus.REVIEW_REQUIRED.value
+        )
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                ocr_text=ocr_text,
+                ocr_status=ocr_status_value,
+                status=new_status,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def set_quality_checking(
         script_id: UUID,
         *,

@@ -1770,3 +1770,237 @@ class TestQualityCheckAuditEvents:
         from app.core.audit_log.models import AuditEventType
         for name in ["SCRIPT_MARKS_SUBMITTED", "SCRIPT_BOARD_FINALISED"]:
             assert hasattr(AuditEventType, name), f"Gate event regressed: {name}"
+
+
+# ===========================================================================
+# 13 — OCR pipeline (H-36 STEP-03)
+# ===========================================================================
+
+class TestOCRWorkerWiring:
+    def test_ocr_scanned_script_importable(self):
+        from app.workers.heavy.ocr_scanned_script import ocr_scanned_script
+        assert callable(ocr_scanned_script)
+
+    def test_ocr_scanned_script_task_name(self):
+        from app.workers.heavy.ocr_scanned_script import ocr_scanned_script
+        assert ocr_scanned_script.name == "app.workers.heavy.ocr_scanned_script"
+
+    def test_ocr_scanned_script_in_celery_include(self):
+        from app.workers.celery_app import celery_app
+        assert "app.workers.heavy.ocr_scanned_script" in celery_app.conf.include
+
+    def test_ocr_scanned_script_max_retries_is_2(self):
+        from app.workers.heavy.ocr_scanned_script import ocr_scanned_script
+        assert ocr_scanned_script.max_retries == 2
+
+    def test_ocr_min_chars_constant_is_positive(self):
+        from app.workers.heavy.ocr_scanned_script import OCR_MIN_CHARS
+        assert OCR_MIN_CHARS > 0
+
+    def test_ocr_helpers_importable(self):
+        from app.workers.heavy.ocr_scanned_script import (
+            _extract_text_from_pdf,
+            _s3_get_object,
+            _run_ocr,
+        )
+        assert callable(_extract_text_from_pdf)
+        assert callable(_s3_get_object)
+        assert callable(_run_ocr)
+
+    def test_detect_task_not_regressed(self):
+        from app.workers.celery_app import celery_app
+        assert "app.workers.heavy.detect_scan_quality" in celery_app.conf.include
+
+    def test_score_task_not_regressed(self):
+        from app.workers.celery_app import celery_app
+        assert "app.workers.heavy.score_scanned_script" in celery_app.conf.include
+
+
+class TestExtractTextFromPDF:
+    def test_extract_returns_tuple_of_str_and_int(self):
+        import io
+        from pypdf import PdfWriter
+        from app.workers.heavy.ocr_scanned_script import _extract_text_from_pdf
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+
+        text, count = _extract_text_from_pdf(buf.getvalue())
+        assert isinstance(text, str)
+        assert isinstance(count, int)
+
+    def test_blank_pdf_returns_empty_text(self):
+        import io
+        from pypdf import PdfWriter
+        from app.workers.heavy.ocr_scanned_script import _extract_text_from_pdf
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+
+        text, count = _extract_text_from_pdf(buf.getvalue())
+        assert text == ""
+        assert count == 1
+
+    def test_page_count_returned_correctly(self):
+        import io
+        from pypdf import PdfWriter
+        from app.workers.heavy.ocr_scanned_script import _extract_text_from_pdf
+
+        writer = PdfWriter()
+        for _ in range(4):
+            writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+
+        _, count = _extract_text_from_pdf(buf.getvalue())
+        assert count == 4
+
+    def test_extracted_text_is_stripped(self):
+        import io
+        from pypdf import PdfWriter, PdfReader
+        from app.workers.heavy.ocr_scanned_script import _extract_text_from_pdf
+
+        # Build a minimal 1-page PDF; text extraction will be blank for blank pages
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        buf = io.BytesIO()
+        writer.write(buf)
+
+        text, _ = _extract_text_from_pdf(buf.getvalue())
+        # Strip should have already been applied — no leading/trailing whitespace
+        assert text == text.strip()
+
+    def test_had_ocr_logic_with_short_text(self):
+        from app.workers.heavy.ocr_scanned_script import OCR_MIN_CHARS
+        # text shorter than OCR_MIN_CHARS → had_ocr = False
+        text = "x" * (OCR_MIN_CHARS - 1)
+        had_ocr = len(text) >= OCR_MIN_CHARS
+        assert had_ocr is False
+
+    def test_had_ocr_logic_with_sufficient_text(self):
+        from app.workers.heavy.ocr_scanned_script import OCR_MIN_CHARS
+        # text at exactly OCR_MIN_CHARS → had_ocr = True
+        text = "x" * OCR_MIN_CHARS
+        had_ocr = len(text) >= OCR_MIN_CHARS
+        assert had_ocr is True
+
+
+class TestScriptRepositoryOCRMethods:
+    def test_script_repository_has_set_ocr_processing(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_ocr_processing")
+        assert callable(ScriptRepository.set_ocr_processing)
+
+    def test_script_repository_has_set_ocr_result(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_ocr_result")
+        assert callable(ScriptRepository.set_ocr_result)
+
+    @pytest.mark.asyncio
+    async def test_set_ocr_processing_writes_processing_status(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+
+        execute_mock = AsyncMock()
+        db = MagicMock()
+        db.execute = execute_mock
+
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            mock_update.return_value.where.return_value.values.return_value = MagicMock()
+            await ScriptRepository.set_ocr_processing(uuid4(), db=db)
+
+        execute_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_ocr_result_had_ocr_true_uses_processing_status(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        execute_mock = AsyncMock()
+        db = MagicMock()
+        db.execute = execute_mock
+
+        values_calls = []
+
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            chain = mock_update.return_value.where.return_value
+            chain.values = lambda **kw: (values_calls.append(kw), MagicMock())[1]
+            await ScriptRepository.set_ocr_result(
+                uuid4(),
+                ocr_text="Student wrote about data structures extensively.",
+                ocr_status_value="COMPLETE",
+                had_ocr=True,
+                db=db,
+            )
+
+        assert any(
+            kw.get("status") == ScriptStatus.PROCESSING.value
+            for kw in values_calls
+        ), f"Expected PROCESSING status, got: {values_calls}"
+
+    @pytest.mark.asyncio
+    async def test_set_ocr_result_had_ocr_false_uses_review_required(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        execute_mock = AsyncMock()
+        db = MagicMock()
+        db.execute = execute_mock
+
+        values_calls = []
+
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            chain = mock_update.return_value.where.return_value
+            chain.values = lambda **kw: (values_calls.append(kw), MagicMock())[1]
+            await ScriptRepository.set_ocr_result(
+                uuid4(),
+                ocr_text=None,
+                ocr_status_value="EMPTY",
+                had_ocr=False,
+                db=db,
+            )
+
+        assert any(
+            kw.get("status") == ScriptStatus.REVIEW_REQUIRED.value
+            for kw in values_calls
+        ), f"Expected REVIEW_REQUIRED status, got: {values_calls}"
+
+
+class TestOCRAuditEvents:
+    def test_all_ocr_audit_events_present(self):
+        from app.core.audit_log.models import AuditEventType
+        for name in [
+            "SCRIPT_OCR_STARTED",
+            "SCRIPT_OCR_COMPLETED",
+            "SCRIPT_OCR_FAILED",
+        ]:
+            assert hasattr(AuditEventType, name), f"Missing OCR audit event: {name}"
+
+    def test_ocr_events_have_correct_values(self):
+        from app.core.audit_log.models import AuditEventType
+        assert AuditEventType.SCRIPT_OCR_STARTED.value   == "SCRIPT_OCR_STARTED"
+        assert AuditEventType.SCRIPT_OCR_COMPLETED.value == "SCRIPT_OCR_COMPLETED"
+        assert AuditEventType.SCRIPT_OCR_FAILED.value    == "SCRIPT_OCR_FAILED"
+
+    def test_quality_check_events_not_regressed(self):
+        from app.core.audit_log.models import AuditEventType
+        for name in [
+            "SCRIPT_QUALITY_CHECK_STARTED",
+            "SCRIPT_QUALITY_CHECK_COMPLETED",
+            "SCRIPT_QUALITY_CHECK_FAILED",
+        ]:
+            assert hasattr(AuditEventType, name), f"Quality event regressed: {name}"
+
+    def test_scoring_events_not_regressed(self):
+        from app.core.audit_log.models import AuditEventType
+        for name in ["SCRIPT_SCORING_QUEUED", "SCRIPT_SCORING_COMPLETED", "SCRIPT_SCORING_FAILED"]:
+            assert hasattr(AuditEventType, name)
