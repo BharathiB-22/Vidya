@@ -2287,3 +2287,547 @@ class TestLLMResultDataclass:
         )
         assert r.confidence == 0.92
         assert r.rubric_mapping[0]["criterion"] == "A"
+
+
+# ===========================================================================
+# 15 — Evaluator Review Workflow (H-36 STEP-05)
+# ===========================================================================
+
+class TestScriptEvaluationResponseEnrichment:
+    def test_evaluation_response_has_keyword_hits(self):
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse
+        assert "keyword_hits" in ScriptEvaluationResponse.__annotations__
+
+    def test_evaluation_response_has_rubric_mapping(self):
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse
+        assert "rubric_mapping" in ScriptEvaluationResponse.__annotations__
+
+    def test_evaluation_response_has_ai_confidence(self):
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse
+        assert "ai_confidence" in ScriptEvaluationResponse.__annotations__
+
+    def test_evaluation_response_has_page_range(self):
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse
+        assert "page_range" in ScriptEvaluationResponse.__annotations__
+
+    def test_evaluation_response_enrichment_defaults_none(self):
+        from datetime import datetime
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse
+        resp = ScriptEvaluationResponse(
+            id=uuid4(), script_id=uuid4(), question_id=uuid4(),
+            question_type="MCQ", max_marks=5.0, evaluation_round="PRIMARY",
+            ai_suggested_marks=4.0, ai_justification="Good", ai_model="auto",
+            evaluator_marks=None, evaluator_note=None, final_marks=None,
+            created_at=datetime.now(), updated_at=None,
+        )
+        assert resp.keyword_hits is None
+        assert resp.rubric_mapping is None
+        assert resp.ai_confidence is None
+        assert resp.page_range is None
+
+    def test_evaluation_response_enrichment_populated(self):
+        from datetime import datetime
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse
+        resp = ScriptEvaluationResponse(
+            id=uuid4(), script_id=uuid4(), question_id=uuid4(),
+            question_type="SHORT_ANSWER", max_marks=10.0, evaluation_round="PRIMARY",
+            ai_suggested_marks=7.0, ai_justification="Good", ai_model="gemini",
+            evaluator_marks=None, evaluator_note=None, final_marks=None,
+            created_at=datetime.now(), updated_at=None,
+            keyword_hits=[{"keyword": "OOP", "found": True, "context": "OOP explained"}],
+            rubric_mapping=[{"criterion": "C1", "max_marks": 5.0, "suggested_marks": 4.0, "justification": "ok"}],
+            ai_confidence=0.87,
+            page_range={"start_page": 2, "end_page": 3},
+        )
+        assert resp.keyword_hits[0]["keyword"] == "OOP"
+        assert resp.rubric_mapping[0]["suggested_marks"] == 4.0
+        assert resp.ai_confidence == 0.87
+        assert resp.page_range["start_page"] == 2
+
+
+class TestEvaluatorReviewResponseSchema:
+    def test_importable(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert EvaluatorReviewResponse is not None
+
+    def test_schema_has_ocr_text(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "ocr_text" in EvaluatorReviewResponse.__annotations__
+
+    def test_schema_has_evaluations_list(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "evaluations" in EvaluatorReviewResponse.__annotations__
+
+    def test_schema_has_masked_id(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "masked_id" in EvaluatorReviewResponse.__annotations__
+
+    def test_schema_has_page_image_keys(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "page_image_keys" in EvaluatorReviewResponse.__annotations__
+
+    def test_schema_has_objective_auto_score(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "objective_auto_score" in EvaluatorReviewResponse.__annotations__
+
+    def test_schema_has_ocr_status(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "ocr_status" in EvaluatorReviewResponse.__annotations__
+
+    def test_schema_does_not_expose_student_identity(self):
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        annotations = EvaluatorReviewResponse.__annotations__
+        assert "student_user_id" not in annotations
+        assert "student_roll_ref" not in annotations
+
+
+class TestAcceptSuggestionsRequest:
+    def test_importable(self):
+        from app.modules.m09_paper_admin.schemas import AcceptSuggestionsRequest
+        assert AcceptSuggestionsRequest is not None
+
+    def test_empty_payload_valid(self):
+        from app.modules.m09_paper_admin.schemas import AcceptSuggestionsRequest
+        req = AcceptSuggestionsRequest()
+        assert req.question_ids is None
+        assert req.evaluator_note is None
+
+    def test_with_question_ids(self):
+        from app.modules.m09_paper_admin.schemas import AcceptSuggestionsRequest
+        qid = str(uuid4())
+        req = AcceptSuggestionsRequest(question_ids=[qid])
+        assert len(req.question_ids) == 1
+        assert req.question_ids[0] == qid
+
+    def test_with_note(self):
+        from app.modules.m09_paper_admin.schemas import AcceptSuggestionsRequest
+        req = AcceptSuggestionsRequest(evaluator_note="Accepted as is.")
+        assert req.evaluator_note == "Accepted as is."
+
+    def test_with_both_fields(self):
+        from app.modules.m09_paper_admin.schemas import AcceptSuggestionsRequest
+        qid = str(uuid4())
+        req = AcceptSuggestionsRequest(question_ids=[qid], evaluator_note="OK")
+        assert req.question_ids is not None
+        assert req.evaluator_note == "OK"
+
+
+class TestAcceptSuggestionsService:
+    @pytest.mark.asyncio
+    async def test_accept_rejected_when_pending(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.PENDING.value
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.accept_suggestions(
+                    uuid4(), None,
+                    evaluator_note=None, evaluator_user_id=uuid4(),
+                    tenant_id=uuid4(), db=AsyncMock(),
+                )
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_accept_rejected_when_board_finalised(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.BOARD_FINALISED.value
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.accept_suggestions(
+                    uuid4(), None,
+                    evaluator_note=None, evaluator_user_id=uuid4(),
+                    tenant_id=uuid4(), db=AsyncMock(),
+                )
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_accept_rejected_when_marks_submitted(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.MARKS_SUBMITTED.value
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.accept_suggestions(
+                    uuid4(), None,
+                    evaluator_note=None, evaluator_user_id=uuid4(),
+                    tenant_id=uuid4(), db=AsyncMock(),
+                )
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_accept_all_copies_ai_marks_to_evaluator_marks(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value
+        script.id = uuid4()
+
+        ev1 = MagicMock(); ev1.question_id = uuid4(); ev1.ai_suggested_marks = 8.0
+        ev2 = MagicMock(); ev2.question_id = uuid4(); ev2.ai_suggested_marks = 5.0
+
+        captured_updates: dict = {}
+
+        async def fake_bulk_update(updates, *, script_id, db):
+            captured_updates.update(updates)
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev1, ev2]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(side_effect=fake_bulk_update),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock(); db.commit = AsyncMock()
+            await ScriptService.accept_suggestions(
+                script.id, None,
+                evaluator_note=None, evaluator_user_id=uuid4(),
+                tenant_id=uuid4(), db=db,
+            )
+
+        assert ev1.question_id in captured_updates
+        assert captured_updates[ev1.question_id]["evaluator_marks"] == 8.0
+        assert ev2.question_id in captured_updates
+        assert captured_updates[ev2.question_id]["evaluator_marks"] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_accept_skips_questions_with_null_ai_marks(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value
+        script.id = uuid4()
+
+        qid1 = uuid4(); qid2 = uuid4()
+        ev1 = MagicMock(); ev1.question_id = qid1; ev1.ai_suggested_marks = None
+        ev2 = MagicMock(); ev2.question_id = qid2; ev2.ai_suggested_marks = 5.0
+
+        captured_updates: dict = {}
+
+        async def fake_bulk_update(updates, *, script_id, db):
+            captured_updates.update(updates)
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev1, ev2]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(side_effect=fake_bulk_update),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock(); db.commit = AsyncMock()
+            await ScriptService.accept_suggestions(
+                script.id, None,
+                evaluator_note=None, evaluator_user_id=uuid4(),
+                tenant_id=uuid4(), db=db,
+            )
+
+        assert qid1 not in captured_updates
+        assert qid2 in captured_updates
+
+    @pytest.mark.asyncio
+    async def test_accept_specific_questions_only(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value
+        script.id = uuid4()
+
+        qid1 = uuid4(); qid2 = uuid4()
+        ev1 = MagicMock(); ev1.question_id = qid1; ev1.ai_suggested_marks = 8.0
+        ev2 = MagicMock(); ev2.question_id = qid2; ev2.ai_suggested_marks = 5.0
+
+        captured_updates: dict = {}
+
+        async def fake_bulk_update(updates, *, script_id, db):
+            captured_updates.update(updates)
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev1, ev2]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(side_effect=fake_bulk_update),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock(); db.commit = AsyncMock()
+            await ScriptService.accept_suggestions(
+                script.id, [qid1],
+                evaluator_note=None, evaluator_user_id=uuid4(),
+                tenant_id=uuid4(), db=db,
+            )
+
+        assert qid1 in captured_updates
+        assert qid2 not in captured_updates
+
+    @pytest.mark.asyncio
+    async def test_accept_with_note_propagates_to_evaluator_note(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value
+        script.id = uuid4()
+
+        ev1 = MagicMock(); ev1.question_id = uuid4(); ev1.ai_suggested_marks = 6.0
+        captured_updates: dict = {}
+
+        async def fake_bulk_update(updates, *, script_id, db):
+            captured_updates.update(updates)
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev1]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(side_effect=fake_bulk_update),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock(); db.commit = AsyncMock()
+            await ScriptService.accept_suggestions(
+                script.id, None,
+                evaluator_note="Matches model answer.",
+                evaluator_user_id=uuid4(),
+                tenant_id=uuid4(), db=db,
+            )
+
+        assert captured_updates[ev1.question_id]["evaluator_note"] == "Matches model answer."
+
+    def test_accept_never_writes_final_marks(self):
+        """Human-gate invariant: accept_suggestions must never assign final_marks."""
+        import inspect
+        from app.modules.m09_paper_admin.service import ScriptService
+        src = inspect.getsource(ScriptService.accept_suggestions)
+        # Check no assignment to final_marks — docstring mentions it but must not write it
+        assert '"final_marks"' not in src and "final_marks =" not in src, (
+            "accept_suggestions must NEVER write final_marks — human gate invariant"
+        )
+
+    def test_accept_allowed_on_review_required_status(self):
+        """REVIEW_REQUIRED is also a valid status for accepting suggestions."""
+        import inspect
+        from app.modules.m09_paper_admin.service import ScriptService
+        src = inspect.getsource(ScriptService.accept_suggestions)
+        assert "REVIEW_REQUIRED" in src
+
+
+class TestGetEvaluatorReviewGates:
+    @pytest.mark.asyncio
+    async def test_review_forbidden_for_unassigned_faculty(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id = uuid4()
+        script.second_evaluator_id = None
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.get_evaluator_review(
+                    uuid4(),
+                    requesting_user_id=uuid4(),  # not assigned
+                    user_role="FACULTY",
+                    db=AsyncMock(),
+                )
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.code == "FORBIDDEN"
+
+    @pytest.mark.asyncio
+    async def test_review_accessible_by_primary_evaluator(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        evaluator_id = uuid4()
+        script = MagicMock()
+        script.id = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id = evaluator_id
+        script.second_evaluator_id = None
+        script.student_user_id = uuid4()
+        script.student_roll_ref = "R"
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[]),
+        ):
+            result_script, result_evals = await ScriptService.get_evaluator_review(
+                script.id,
+                requesting_user_id=evaluator_id,
+                user_role="FACULTY",
+                db=AsyncMock(),
+            )
+        # Identity masked even for assigned evaluator
+        assert result_script.student_user_id is None
+        assert isinstance(result_evals, list)
+
+    @pytest.mark.asyncio
+    async def test_review_accessible_by_second_evaluator(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        primary_id = uuid4(); secondary_id = uuid4()
+        script = MagicMock()
+        script.id = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id = primary_id
+        script.second_evaluator_id = secondary_id
+        script.student_user_id = uuid4()
+        script.student_roll_ref = "R"
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[]),
+        ):
+            # Should not raise — secondary evaluator is allowed
+            result_script, _ = await ScriptService.get_evaluator_review(
+                script.id,
+                requesting_user_id=secondary_id,
+                user_role="FACULTY",
+                db=AsyncMock(),
+            )
+        assert result_script is not None
+
+    @pytest.mark.asyncio
+    async def test_review_accessible_by_admin(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.id = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id = uuid4()
+        script.second_evaluator_id = None
+        script.student_user_id = uuid4()
+        script.student_roll_ref = "R"
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[]),
+        ):
+            # ADMIN bypasses evaluator check
+            result_script, _ = await ScriptService.get_evaluator_review(
+                script.id,
+                requesting_user_id=uuid4(),
+                user_role="ADMIN",
+                db=AsyncMock(),
+            )
+        assert result_script is not None
+
+    @pytest.mark.asyncio
+    async def test_review_accessible_by_board(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        script = MagicMock()
+        script.id = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id = uuid4()
+        script.second_evaluator_id = None
+        script.student_user_id = uuid4()
+        script.student_roll_ref = "R"
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[]),
+        ):
+            result_script, _ = await ScriptService.get_evaluator_review(
+                script.id,
+                requesting_user_id=uuid4(),
+                user_role="BOARD",
+                db=AsyncMock(),
+            )
+        assert result_script is not None
+
+    @pytest.mark.asyncio
+    async def test_review_masks_identity_for_assigned_evaluator(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        evaluator_id = uuid4(); uid = uuid4()
+        script = MagicMock()
+        script.id = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id = evaluator_id
+        script.second_evaluator_id = None
+        script.student_user_id = uid
+        script.student_roll_ref = "ROLL001"
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[]),
+        ):
+            result_script, _ = await ScriptService.get_evaluator_review(
+                script.id,
+                requesting_user_id=evaluator_id,
+                user_role="FACULTY",
+                db=AsyncMock(),
+            )
+        assert result_script.student_user_id is None
+        assert result_script.student_roll_ref is None
+
+
+class TestEvaluatorReviewRouterWiring:
+    def test_review_endpoint_present(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = {r.path for r in router.routes}
+        assert "/{script_id}/review" in paths
+
+    def test_accept_endpoint_present(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = {r.path for r in router.routes}
+        assert "/{script_id}/accept" in paths
+
+    def test_router_has_at_least_14_routes(self):
+        from app.modules.m09_paper_admin.router import router
+        assert len(router.routes) >= 14
+
+    def test_review_route_is_get_method(self):
+        from app.modules.m09_paper_admin.router import router
+        review_routes = [r for r in router.routes if r.path == "/{script_id}/review"]
+        assert len(review_routes) >= 1
+        assert "GET" in review_routes[0].methods
+
+    def test_accept_route_is_post_method(self):
+        from app.modules.m09_paper_admin.router import router
+        accept_routes = [r for r in router.routes if r.path == "/{script_id}/accept"]
+        assert len(accept_routes) >= 1
+        assert "POST" in accept_routes[0].methods

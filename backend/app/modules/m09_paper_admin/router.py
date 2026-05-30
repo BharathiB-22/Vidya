@@ -37,7 +37,9 @@ from app.core.auth.dependencies import get_tenant_context_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m09_paper_admin.schemas import (
+    AcceptSuggestionsRequest,
     BulkMarkUpdate,
+    EvaluatorReviewResponse,
     ExamScoreLedgerListResponse,
     ExamScoreLedgerResponse,
     JobStatusResponse,
@@ -375,6 +377,89 @@ async def board_finalise(
         "script":  ScannedScriptResponse.model_validate(script).model_dump(),
         "ledger":  ExamScoreLedgerResponse.model_validate(ledger).model_dump(),
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /{script_id}/review — evaluator review panel (STEP-05)
+# ---------------------------------------------------------------------------
+
+@router.get("/{script_id}/review", response_model=EvaluatorReviewResponse)
+async def get_evaluator_review(
+    script_id: UUID,
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Evaluator review panel: script with OCR text + enriched AI evaluations.
+    FACULTY callers are restricted to scripts they are assigned to.
+    ADMIN / BOARD / DEAN can view any script (oversight).
+    Identity is always masked (BOARD_FINALISED scripts excluded from this panel).
+    """
+    db: AsyncSession = db_info["db"]
+
+    try:
+        script, evals = await ScriptService.get_evaluator_review(
+            script_id,
+            requesting_user_id=current_user.user_id,
+            user_role=current_user.role,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+
+    return EvaluatorReviewResponse(
+        script_id=script.id,
+        masked_id=script.masked_id,
+        exam_paper_id=script.exam_paper_id,
+        status=script.status,
+        ocr_text=script.ocr_text,
+        ocr_status=script.ocr_status,
+        page_count=script.page_count,
+        page_image_keys=script.page_image_keys,
+        objective_auto_score=(
+            float(script.objective_auto_score)
+            if script.objective_auto_score is not None else None
+        ),
+        evaluations=[ScriptEvaluationResponse.model_validate(e) for e in evals],
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /{script_id}/accept — evaluator accepts AI suggestions (STEP-05)
+# ---------------------------------------------------------------------------
+
+@router.post("/{script_id}/accept", response_model=list[ScriptEvaluationResponse])
+async def accept_suggestions(
+    script_id: UUID,
+    payload:   AcceptSuggestionsRequest,
+    current_user: CurrentUser = Depends(_eval_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Evaluator accepts AI-suggested marks for specified questions (or all).
+    Copies ai_suggested_marks → evaluator_marks.  Never writes final_marks.
+    Script status stays SCORED or REVIEW_REQUIRED — Gate 1 is not triggered.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    question_ids = (
+        [UUID(qid) for qid in payload.question_ids]
+        if payload.question_ids is not None else None
+    )
+
+    try:
+        evals = await ScriptService.accept_suggestions(
+            script_id,
+            question_ids,
+            evaluator_note=payload.evaluator_note,
+            evaluator_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return [ScriptEvaluationResponse.model_validate(e) for e in evals]
 
 
 # ---------------------------------------------------------------------------

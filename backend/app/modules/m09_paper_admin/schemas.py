@@ -30,6 +30,8 @@ class ScriptEvaluationResponse(BaseModel):
     """
     AI suggestion + optional human marks for one question.
     Used in evaluation panel — one row per question in the script.
+    Enrichment fields (keyword_hits, rubric_mapping, ai_confidence, page_range)
+    are populated after H-36 STEP-04 scoring and exposed to the evaluator.
     """
     id:                  UUID
     script_id:           UUID
@@ -41,6 +43,12 @@ class ScriptEvaluationResponse(BaseModel):
     ai_suggested_marks:  float | None
     ai_justification:    str | None
     ai_model:            str | None
+
+    # H-36 STEP-04 enrichment — visible to evaluator in the review panel
+    keyword_hits:        list[dict] | None = None
+    rubric_mapping:      list[dict] | None = None
+    ai_confidence:       float | None = None
+    page_range:          dict | None = None
 
     evaluator_marks:     float | None
     evaluator_note:      str | None
@@ -205,3 +213,39 @@ class JobStatusResponse(BaseModel):
     job_id: UUID
     status: str
     result: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Evaluator review panel (STEP-05)
+# ---------------------------------------------------------------------------
+
+class EvaluatorReviewResponse(BaseModel):
+    """
+    Combined payload for the evaluator review panel.
+    Includes the full OCR text (evaluator context) and enriched AI evaluations.
+    Identity is always masked (student_user_id / student_roll_ref not included).
+    """
+    script_id:            UUID
+    masked_id:            str
+    exam_paper_id:        UUID
+    status:               str
+    ocr_text:             str | None
+    ocr_status:           str | None
+    page_count:           int | None
+    page_image_keys:      list[dict] | None
+    objective_auto_score: float | None
+    evaluations:          list[ScriptEvaluationResponse]
+
+
+class AcceptSuggestionsRequest(BaseModel):
+    """
+    Evaluator accepts AI-suggested marks.
+    question_ids=None → accept all questions.
+    question_ids=[...] → accept only those specific questions.
+    Skipped silently for questions where ai_suggested_marks is None.
+    """
+    question_ids:   list[str] | None = Field(
+        default=None,
+        description="UUIDs of questions to accept. Omit to accept all.",
+    )
+    evaluator_note: str | None = None

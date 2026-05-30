@@ -619,6 +619,121 @@ class ScriptService:
         )
 
     # -----------------------------------------------------------------------
+    # Evaluator review panel (STEP-05)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def get_evaluator_review(
+        script_id: UUID,
+        *,
+        requesting_user_id: UUID,
+        user_role: str,
+        db: AsyncSession,
+    ) -> tuple[ScannedScript, list[ScriptEvaluation]]:
+        """
+        Return script (with OCR text preserved) + enriched evaluations for the
+        evaluator review panel.  Identity is masked; OCR text is included.
+
+        FACULTY callers are restricted to scripts they are assigned to.
+        ADMIN / BOARD / DEAN bypass this check (oversight role).
+        """
+        script = await _require_script(script_id, db=db)
+
+        if user_role not in ("ADMIN", "BOARD", "DEAN"):
+            allowed = {script.evaluator_id, script.second_evaluator_id} - {None}
+            if requesting_user_id not in allowed:
+                raise ScriptServiceError(
+                    "FORBIDDEN",
+                    "Only the assigned evaluator may access the review panel.",
+                    403,
+                )
+
+        evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        _mask_identity(script)
+        return script, evals
+
+    # -----------------------------------------------------------------------
+    # Accept AI suggestions (STEP-05)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def accept_suggestions(
+        script_id: UUID,
+        question_ids: list[UUID] | None,
+        *,
+        evaluator_note: str | None,
+        evaluator_user_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> list[ScriptEvaluation]:
+        """
+        Evaluator accepts AI-suggested marks — copies ai_suggested_marks →
+        evaluator_marks.  Allowed only when status is SCORED or REVIEW_REQUIRED.
+
+        Human-gate invariant: final_marks is NEVER written here.
+        question_ids=None  → accept all questions.
+        question_ids=[...] → accept only those specific questions.
+        Questions where ai_suggested_marks is None are silently skipped
+        (evaluator must enter those manually).
+        """
+        script = await _require_script(script_id, db=db)
+
+        updatable = (ScriptStatus.SCORED.value, ScriptStatus.REVIEW_REQUIRED.value)
+        if script.status not in updatable:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Suggestions can only be accepted when status is SCORED or "
+                f"REVIEW_REQUIRED (current: {script.status!r}).",
+            )
+
+        evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+
+        if question_ids is not None:
+            qid_set = set(question_ids)
+            target_evals = [e for e in evals if e.question_id in qid_set]
+        else:
+            target_evals = evals
+
+        updates: dict[UUID, dict] = {
+            e.question_id: {
+                "evaluator_marks": float(e.ai_suggested_marks),
+                "evaluator_note":  evaluator_note,
+            }
+            for e in target_evals
+            if e.ai_suggested_marks is not None
+        }
+
+        if updates:
+            await ScriptEvaluationRepository.bulk_update_evaluator_marks(
+                updates, script_id=script_id, db=db
+            )
+            await db.commit()
+
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+        await AuditService.log(
+            AuditEventType.SCRIPT_MARKS_UPDATED,
+            actor_user_id=evaluator_user_id,
+            actor_role="EVALUATOR",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="scanned_script",
+            target_id=str(script_id),
+            metadata={
+                "accepted_count": len(updates),
+                "accept_all": question_ids is None,
+            },
+        )
+
+        return await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+
+    # -----------------------------------------------------------------------
     # Read — score ledger
     # -----------------------------------------------------------------------
 
