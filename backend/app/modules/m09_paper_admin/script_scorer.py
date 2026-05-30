@@ -44,6 +44,11 @@ class QuestionScore:
     ai_justification: str | None
     ai_model: str
     prompt_hash: str
+    # Enrichment fields (STEP-04) — None for MCQ / when AI omits them
+    keyword_hits:   list[dict] | None = None  # [{keyword, found, context}]
+    rubric_mapping: list[dict] | None = None  # [{criterion, max_marks, suggested_marks, justification}]
+    ai_confidence:  float | None      = None  # 0.000–1.000
+    page_range:     dict | None       = None  # {start_page, end_page}
 
 
 @dataclasses.dataclass
@@ -51,6 +56,16 @@ class ScriptScoringResult:
     scores: list[QuestionScore]
     objective_auto_score: float  # sum of MCQ ai_suggested_marks (where not None)
     had_ocr: bool                # False when ocr_text was empty/None
+
+
+# Internal dataclass for structured LLM response (STEP-04)
+@dataclasses.dataclass
+class _LLMResult:
+    marks: float | None
+    justification: str
+    model: str
+    confidence: float | None      = None
+    rubric_mapping: list[dict] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +102,75 @@ def _extract_mcq_option(ocr_text: str, question_number: int) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Enrichment helpers (STEP-04)
+# ---------------------------------------------------------------------------
+
+def _extract_keyword_hits(
+    ocr_text: str,
+    marking_scheme: list | None,
+) -> list[dict]:
+    """
+    Pure-Python keyword hit detection — no AI call required.
+    Searches OCR text for each criterion name from the marking scheme.
+    Returns [{keyword, found, context}] for every criterion.
+    """
+    if not marking_scheme:
+        return []
+
+    ocr_lower = (ocr_text or "").lower()
+    hits: list[dict] = []
+
+    for criterion in marking_scheme:
+        keyword = str(criterion.get("criterion", "")).strip()
+        if not keyword:
+            continue
+        kw_lower = keyword.lower()
+        found = kw_lower in ocr_lower
+        context = ""
+        if found:
+            idx   = ocr_lower.find(kw_lower)
+            start = max(0, idx - 30)
+            end   = min(len(ocr_text), idx + len(keyword) + 70)
+            context = ocr_text[start:end].strip()
+        hits.append({"keyword": keyword, "found": found, "context": context})
+
+    return hits
+
+
+def _parse_llm_enrichment(parsed: dict) -> tuple[float | None, list[dict] | None]:
+    """
+    Extract confidence and rubric_mapping from an AI response dict.
+    Silently ignores missing or malformed fields.
+    Returns (confidence | None, rubric_mapping | None).
+    """
+    # Confidence
+    confidence: float | None = None
+    raw_conf = parsed.get("confidence")
+    if raw_conf is not None:
+        try:
+            confidence = max(0.0, min(1.0, float(raw_conf)))
+        except (ValueError, TypeError):
+            pass
+
+    # Rubric mapping
+    rubric_mapping: list[dict] | None = None
+    raw_rubric = parsed.get("rubric_mapping")
+    if isinstance(raw_rubric, list):
+        rubric_mapping = [
+            {
+                "criterion":       str(r.get("criterion", "")),
+                "max_marks":       float(r.get("max_marks", 0)),
+                "suggested_marks": float(r.get("suggested_marks", 0)),
+                "justification":   str(r.get("justification", "")),
+            }
+            for r in raw_rubric
+            if isinstance(r, dict)
+        ]
+
+    return confidence, rubric_mapping
+
+
+# ---------------------------------------------------------------------------
 # Subjective scoring prompts
 # ---------------------------------------------------------------------------
 
@@ -99,11 +183,17 @@ def _build_subjective_prompt(
     ocr_text: str,
 ) -> tuple[str, str]:
     scheme_block = ""
+    rubric_request = ""
     if marking_scheme:
         scheme_block = "\nMarking scheme:\n" + "\n".join(
             f"  - {c.get('criterion', 'Point')} "
             f"({c.get('marks', '?')} marks): {c.get('description', '')}"
             for c in marking_scheme
+        )
+        # Ask AI to map each criterion → suggested marks
+        rubric_request = (
+            ', "rubric_mapping": [{"criterion": "<str>", "max_marks": <float>,'
+            ' "suggested_marks": <float>, "justification": "<str>"}]'
         )
 
     model_ans_block = ""
@@ -124,7 +214,8 @@ def _build_subjective_prompt(
         f"---\n{ocr_text[:6000]}\n---\n\n"
         f"Score the student's answer from 0 to {max_marks} "
         "(fractional marks allowed in 0.5 increments).\n"
-        'Return JSON exactly: {"marks": <float>, "justification": "<1-3 sentences>"}'
+        f'Return JSON: {{"marks": <float>, "justification": "<1-3 sentences>",'
+        f' "confidence": <float 0.0-1.0>{rubric_request}}}'
     )
 
     return system, user
@@ -138,7 +229,7 @@ def _prompt_hash(system: str, user: str) -> str:
 # LLM calls — Gemini primary, Groq fallback
 # ---------------------------------------------------------------------------
 
-async def _score_gemini(system: str, user: str, max_marks: float) -> tuple[float, str]:
+async def _score_gemini(system: str, user: str, max_marks: float) -> tuple[float, str, dict]:
     from google import genai
     from google.genai import types
 
@@ -159,10 +250,10 @@ async def _score_gemini(system: str, user: str, max_marks: float) -> tuple[float
     parsed = json.loads(raw)
     marks = max(0.0, min(float(max_marks), float(parsed.get("marks", 0))))
     justification = str(parsed.get("justification", "")).strip() or "No justification provided."
-    return marks, justification
+    return marks, justification, parsed
 
 
-async def _score_groq(system: str, user: str, max_marks: float) -> tuple[float, str]:
+async def _score_groq(system: str, user: str, max_marks: float) -> tuple[float, str, dict]:
     from openai import AsyncOpenAI
 
     if not settings.GROQ_API_KEY:
@@ -193,7 +284,7 @@ async def _score_groq(system: str, user: str, max_marks: float) -> tuple[float, 
                 break
     marks = max(0.0, min(float(max_marks), float(parsed.get("marks", 0))))
     justification = str(parsed.get("justification", "")).strip() or "No justification provided."
-    return marks, justification
+    return marks, justification, parsed
 
 
 _QUOTA_SIGNALS = ("resource_exhausted", "429", "quota", "rate_limit", "rate limit")
@@ -203,11 +294,15 @@ async def _llm_score_question(
     system: str,
     user: str,
     max_marks: float,
-) -> tuple[float | None, str, str]:
-    """Returns (marks | None, justification, model_name). None marks = both providers failed."""
+) -> _LLMResult:
+    """Returns _LLMResult. result.marks=None when both providers fail."""
     try:
-        marks, just = await _score_gemini(system, user, max_marks)
-        return marks, just, settings.GEMINI_MODEL
+        marks, just, parsed = await _score_gemini(system, user, max_marks)
+        conf, rubric = _parse_llm_enrichment(parsed)
+        return _LLMResult(
+            marks=marks, justification=just, model=settings.GEMINI_MODEL,
+            confidence=conf, rubric_mapping=rubric,
+        )
     except Exception as exc:
         if any(s in str(exc).lower() for s in _QUOTA_SIGNALS):
             logger.warning("Gemini quota hit — falling back to Groq.")
@@ -215,11 +310,19 @@ async def _llm_score_question(
             logger.warning("Gemini scoring failed: %s", exc)
 
     try:
-        marks, just = await _score_groq(system, user, max_marks)
-        return marks, just, settings.GROQ_MODEL
+        marks, just, parsed = await _score_groq(system, user, max_marks)
+        conf, rubric = _parse_llm_enrichment(parsed)
+        return _LLMResult(
+            marks=marks, justification=just, model=settings.GROQ_MODEL,
+            confidence=conf, rubric_mapping=rubric,
+        )
     except Exception as exc:
         logger.error("Both Gemini and Groq scoring failed: %s", exc)
-        return None, f"AI scoring failed: {exc!s:.120}", "error"
+        return _LLMResult(
+            marks=None,
+            justification=f"AI scoring failed: {exc!s:.120}",
+            model="error",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -293,25 +396,33 @@ async def score_script(
             ))
 
         else:
+            scheme = list(q.marking_scheme or [])
             system, user = _build_subjective_prompt(
                 question_text=q.question_text,
                 question_type=qtype,
                 max_marks=max_m,
                 model_answer=q.model_answer,
-                marking_scheme=list(q.marking_scheme or []),
+                marking_scheme=scheme,
                 ocr_text=ocr_text,
             )
             phash = _prompt_hash(system, user)
-            marks, just, model_name = await _llm_score_question(system, user, max_m)
+            llm = await _llm_score_question(system, user, max_m)
+
+            # Pure-Python keyword detection (always runs, no AI cost)
+            kw_hits = _extract_keyword_hits(ocr_text, scheme) or None
 
             scores.append(QuestionScore(
                 question_id=q.id,
                 question_type=qtype,
                 max_marks=max_m,
-                ai_suggested_marks=marks,
-                ai_justification=just,
-                ai_model=model_name,
+                ai_suggested_marks=llm.marks,
+                ai_justification=llm.justification,
+                ai_model=llm.model,
                 prompt_hash=phash,
+                keyword_hits=kw_hits,
+                rubric_mapping=llm.rubric_mapping,
+                ai_confidence=llm.confidence,
+                page_range=None,   # populated in a future OCR page-extraction sprint
             ))
 
     return ScriptScoringResult(

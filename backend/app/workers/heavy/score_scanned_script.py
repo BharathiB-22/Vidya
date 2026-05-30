@@ -149,6 +149,11 @@ async def _run_scoring(*, script_id: str, schema_name: str) -> dict:
                     "ai_justification":   qs.ai_justification,
                     "ai_model":           qs.ai_model,
                     "prompt_hash":        qs.prompt_hash,
+                    # Enrichment fields (STEP-04)
+                    "keyword_hits":       qs.keyword_hits,
+                    "rubric_mapping":     qs.rubric_mapping,
+                    "ai_confidence":      qs.ai_confidence,
+                    "page_range":         qs.page_range,
                 }
                 for qs in result.scores
             ]

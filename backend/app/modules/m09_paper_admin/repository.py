@@ -389,7 +389,12 @@ class ScriptEvaluationRepository:
                 ai_justification=s.get("ai_justification"),
                 ai_model=s.get("ai_model"),
                 prompt_hash=s.get("prompt_hash"),
-                # evaluator_marks intentionally left NULL
+                # Enrichment fields (STEP-04) — NULL when not available
+                keyword_hits=s.get("keyword_hits"),
+                rubric_mapping=s.get("rubric_mapping"),
+                ai_confidence=s.get("ai_confidence"),
+                page_range=s.get("page_range"),
+                # evaluator_marks intentionally left NULL — never written by Celery
             )
             db.add(obj)
             objs.append(obj)

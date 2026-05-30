@@ -2004,3 +2004,286 @@ class TestOCRAuditEvents:
         from app.core.audit_log.models import AuditEventType
         for name in ["SCRIPT_SCORING_QUEUED", "SCRIPT_SCORING_COMPLETED", "SCRIPT_SCORING_FAILED"]:
             assert hasattr(AuditEventType, name)
+
+
+# ===========================================================================
+# 14 — AI-assisted evaluation enrichment (H-36 STEP-04)
+# ===========================================================================
+
+class TestQuestionScoreEnrichmentFields:
+    def test_question_score_has_keyword_hits_field_defaulting_none(self):
+        from app.modules.m09_paper_admin.script_scorer import QuestionScore
+        qs = QuestionScore(
+            question_id=uuid4(), question_type="MCQ", max_marks=5.0,
+            ai_suggested_marks=4.0, ai_justification="Correct.",
+            ai_model="auto", prompt_hash="abc",
+        )
+        assert hasattr(qs, "keyword_hits")
+        assert qs.keyword_hits is None
+
+    def test_question_score_has_rubric_mapping_field_defaulting_none(self):
+        from app.modules.m09_paper_admin.script_scorer import QuestionScore
+        qs = QuestionScore(
+            question_id=uuid4(), question_type="SHORT_ANSWER", max_marks=10.0,
+            ai_suggested_marks=7.0, ai_justification="Good.", ai_model="gemini", prompt_hash="x",
+        )
+        assert hasattr(qs, "rubric_mapping")
+        assert qs.rubric_mapping is None
+
+    def test_question_score_has_ai_confidence_field_defaulting_none(self):
+        from app.modules.m09_paper_admin.script_scorer import QuestionScore
+        qs = QuestionScore(
+            question_id=uuid4(), question_type="LONG_ANSWER", max_marks=15.0,
+            ai_suggested_marks=12.0, ai_justification="Excellent.", ai_model="groq", prompt_hash="y",
+        )
+        assert hasattr(qs, "ai_confidence")
+        assert qs.ai_confidence is None
+
+    def test_question_score_has_page_range_field_defaulting_none(self):
+        from app.modules.m09_paper_admin.script_scorer import QuestionScore
+        qs = QuestionScore(
+            question_id=uuid4(), question_type="MCQ", max_marks=2.0,
+            ai_suggested_marks=2.0, ai_justification="Correct.", ai_model="auto", prompt_hash="",
+        )
+        assert hasattr(qs, "page_range")
+        assert qs.page_range is None
+
+    def test_question_score_enrichment_can_be_set(self):
+        from app.modules.m09_paper_admin.script_scorer import QuestionScore
+        qs = QuestionScore(
+            question_id=uuid4(), question_type="SHORT_ANSWER", max_marks=5.0,
+            ai_suggested_marks=4.0, ai_justification="Good.", ai_model="gemini", prompt_hash="z",
+            keyword_hits=[{"keyword": "OOP", "found": True, "context": "OOP principles..."}],
+            rubric_mapping=[{"criterion": "Accuracy", "max_marks": 3.0, "suggested_marks": 2.5, "justification": "Mostly correct"}],
+            ai_confidence=0.85,
+            page_range={"start_page": 1, "end_page": 2},
+        )
+        assert qs.keyword_hits[0]["keyword"] == "OOP"
+        assert qs.keyword_hits[0]["found"] is True
+        assert qs.rubric_mapping[0]["suggested_marks"] == 2.5
+        assert qs.ai_confidence == 0.85
+        assert qs.page_range["start_page"] == 1
+
+
+class TestExtractKeywordHits:
+    def test_importable(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        assert callable(_extract_keyword_hits)
+
+    def test_none_marking_scheme_returns_empty(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        assert _extract_keyword_hits("some text", None) == []
+
+    def test_empty_marking_scheme_returns_empty(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        assert _extract_keyword_hits("some text", []) == []
+
+    def test_empty_ocr_text_returns_not_found(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [{"criterion": "definition", "marks": 2}]
+        result = _extract_keyword_hits("", scheme)
+        assert len(result) == 1
+        assert result[0]["found"] is False
+
+    def test_keyword_found_in_text(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [{"criterion": "encapsulation", "marks": 3}]
+        result = _extract_keyword_hits("The student discussed encapsulation in detail.", scheme)
+        assert result[0]["found"] is True
+        assert "encapsulation" in result[0]["context"].lower()
+
+    def test_keyword_not_found_returns_empty_context(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [{"criterion": "polymorphism", "marks": 3}]
+        result = _extract_keyword_hits("Student wrote about OOP concepts.", scheme)
+        assert result[0]["found"] is False
+        assert result[0]["context"] == ""
+
+    def test_case_insensitive_match(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [{"criterion": "Encapsulation", "marks": 2}]
+        result = _extract_keyword_hits("ENCAPSULATION is the concept.", scheme)
+        assert result[0]["found"] is True
+
+    def test_multiple_criteria_all_detected(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [
+            {"criterion": "inheritance", "marks": 3},
+            {"criterion": "abstraction", "marks": 2},
+        ]
+        text = "inheritance is important in OOP. Abstraction is also covered."
+        result = _extract_keyword_hits(text, scheme)
+        assert len(result) == 2
+        assert result[0]["found"] is True   # inheritance
+        assert result[1]["found"] is True   # abstraction (case-insensitive)
+
+    def test_partial_found_partial_missing(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [
+            {"criterion": "inheritance", "marks": 3},
+            {"criterion": "polymorphism", "marks": 2},
+        ]
+        result = _extract_keyword_hits("inheritance allows code reuse.", scheme)
+        assert result[0]["found"] is True
+        assert result[1]["found"] is False
+
+    def test_result_has_required_keys(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [{"criterion": "concept", "marks": 2}]
+        result = _extract_keyword_hits("concept is here", scheme)
+        assert all(k in result[0] for k in ("keyword", "found", "context"))
+
+    def test_criterion_name_preserved_in_keyword(self):
+        from app.modules.m09_paper_admin.script_scorer import _extract_keyword_hits
+        scheme = [{"criterion": "Data Structures", "marks": 5}]
+        result = _extract_keyword_hits("Text about data structures.", scheme)
+        assert result[0]["keyword"] == "Data Structures"
+
+
+class TestParseLLMEnrichment:
+    def test_importable(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        assert callable(_parse_llm_enrichment)
+
+    def test_empty_dict_returns_nones(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        conf, rubric = _parse_llm_enrichment({})
+        assert conf is None
+        assert rubric is None
+
+    def test_confidence_extracted(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        conf, _ = _parse_llm_enrichment({"confidence": 0.9, "marks": 5})
+        assert conf == 0.9
+
+    def test_confidence_clamped_above_1(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        conf, _ = _parse_llm_enrichment({"confidence": 2.0})
+        assert conf == 1.0
+
+    def test_confidence_clamped_below_0(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        conf, _ = _parse_llm_enrichment({"confidence": -0.5})
+        assert conf == 0.0
+
+    def test_confidence_none_when_missing(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        conf, _ = _parse_llm_enrichment({"marks": 5.0, "justification": "OK"})
+        assert conf is None
+
+    def test_rubric_mapping_extracted(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        raw = {
+            "rubric_mapping": [
+                {"criterion": "Definition", "max_marks": 3, "suggested_marks": 2.5, "justification": "Good"}
+            ]
+        }
+        _, rubric = _parse_llm_enrichment(raw)
+        assert isinstance(rubric, list)
+        assert len(rubric) == 1
+        assert rubric[0]["criterion"] == "Definition"
+        assert rubric[0]["suggested_marks"] == 2.5
+
+    def test_rubric_mapping_none_when_not_list(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        _, rubric = _parse_llm_enrichment({"rubric_mapping": "invalid"})
+        assert rubric is None
+
+    def test_non_dict_entries_skipped_in_rubric(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        raw = {
+            "rubric_mapping": [
+                "string_entry",
+                {"criterion": "Accuracy", "max_marks": 2, "suggested_marks": 1.5, "justification": "ok"},
+            ]
+        }
+        _, rubric = _parse_llm_enrichment(raw)
+        assert len(rubric) == 1
+        assert rubric[0]["criterion"] == "Accuracy"
+
+    def test_rubric_entry_has_all_required_keys(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        raw = {
+            "rubric_mapping": [
+                {"criterion": "C", "max_marks": 3, "suggested_marks": 2, "justification": "j"}
+            ]
+        }
+        _, rubric = _parse_llm_enrichment(raw)
+        for key in ("criterion", "max_marks", "suggested_marks", "justification"):
+            assert key in rubric[0]
+
+    def test_invalid_confidence_type_returns_none(self):
+        from app.modules.m09_paper_admin.script_scorer import _parse_llm_enrichment
+        conf, _ = _parse_llm_enrichment({"confidence": "high"})
+        assert conf is None
+
+
+class TestScoreWorkerEnrichmentPassthrough:
+    def test_score_worker_suggestions_include_keyword_hits(self):
+        import inspect
+        from app.workers.heavy.score_scanned_script import _run_scoring
+        src = inspect.getsource(_run_scoring)
+        assert "keyword_hits" in src
+
+    def test_score_worker_suggestions_include_rubric_mapping(self):
+        import inspect
+        from app.workers.heavy.score_scanned_script import _run_scoring
+        src = inspect.getsource(_run_scoring)
+        assert "rubric_mapping" in src
+
+    def test_score_worker_suggestions_include_ai_confidence(self):
+        import inspect
+        from app.workers.heavy.score_scanned_script import _run_scoring
+        src = inspect.getsource(_run_scoring)
+        assert "ai_confidence" in src
+
+    def test_score_worker_suggestions_include_page_range(self):
+        import inspect
+        from app.workers.heavy.score_scanned_script import _run_scoring
+        src = inspect.getsource(_run_scoring)
+        assert "page_range" in src
+
+    def test_repository_bulk_create_saves_keyword_hits(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "keyword_hits")
+
+    def test_repository_bulk_create_saves_rubric_mapping(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "rubric_mapping")
+
+    def test_repository_bulk_create_saves_ai_confidence(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "ai_confidence")
+
+    def test_repository_bulk_create_saves_page_range(self):
+        from app.modules.m09_paper_admin.models import ScriptEvaluation
+        assert hasattr(ScriptEvaluation, "page_range")
+
+
+class TestLLMResultDataclass:
+    def test_llm_result_importable(self):
+        from app.modules.m09_paper_admin.script_scorer import _LLMResult
+        assert _LLMResult is not None
+
+    def test_llm_result_required_fields(self):
+        from app.modules.m09_paper_admin.script_scorer import _LLMResult
+        r = _LLMResult(marks=8.0, justification="Good.", model="gemini")
+        assert r.marks == 8.0
+        assert r.justification == "Good."
+        assert r.model == "gemini"
+
+    def test_llm_result_optional_enrichment_defaults_none(self):
+        from app.modules.m09_paper_admin.script_scorer import _LLMResult
+        r = _LLMResult(marks=None, justification="failed.", model="error")
+        assert r.confidence is None
+        assert r.rubric_mapping is None
+
+    def test_llm_result_with_enrichment(self):
+        from app.modules.m09_paper_admin.script_scorer import _LLMResult
+        r = _LLMResult(
+            marks=9.0, justification="Excellent.", model="gemini",
+            confidence=0.92,
+            rubric_mapping=[{"criterion": "A", "max_marks": 5.0, "suggested_marks": 4.5, "justification": "good"}],
+        )
+        assert r.confidence == 0.92
+        assert r.rubric_mapping[0]["criterion"] == "A"
