@@ -50,9 +50,10 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Exam Papers',     to: '/exams',                  icon: FileText,       roles: ['FACULTY', 'ADMIN', 'BOARD'] },
       { label: 'Internal Marks',  to: '/exams/internal-marks',   icon: BookMarked,     roles: ['FACULTY', 'DEAN', 'ADMIN'] },
       { label: 'Pending Review',  to: '/exams/board/pending',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
-      { label: 'Scripts',         to: '/scripts',                icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
-      { label: 'Score Ledger',    to: '/scripts/ledger',         icon: BookLock,       roles: ['ADMIN', 'BOARD'] },
-      { label: 'My Scripts',      to: '/scripts/evaluator',      icon: ClipboardList,  roles: ['FACULTY'] },
+      { label: 'Scripts',             to: '/scripts',          icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
+      { label: 'Board Script Review', to: '/scripts/board',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
+      { label: 'Score Ledger',        to: '/scripts/ledger',   icon: BookLock,       roles: ['ADMIN', 'BOARD'] },
+      { label: 'My Scripts',          to: '/scripts/evaluator',icon: ClipboardList,  roles: ['FACULTY'] },
     ],
   },
   {

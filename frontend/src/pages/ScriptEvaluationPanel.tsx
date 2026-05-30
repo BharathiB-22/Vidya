@@ -5,11 +5,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronLeft, Save, Send, Loader2, AlertTriangle, Info,
   CheckCircle2, CheckCheck, ChevronDown, ChevronUp, Zap,
-  FileText, AlertCircle,
+  FileText, AlertCircle, ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   getEvaluatorReview,
+  getScriptFileUrl,
   updateMarks,
   submitMarks,
   acceptSuggestions,
@@ -301,9 +302,25 @@ export default function ScriptEvaluationPanel() {
   const navigate     = useNavigate()
   const qc           = useQueryClient()
 
-  const [localMarks, setLocalMarks]   = useState<Record<string, { mark: number | ''; note: string }>>({})
-  const [submitError, setSubmitError] = useState<string | null>(null)
-  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [localMarks, setLocalMarks]       = useState<Record<string, { mark: number | ''; note: string }>>({})
+  const [submitError, setSubmitError]     = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess]     = useState(false)
+  const [fileUrlLoading, setFileUrlLoading] = useState(false)
+  const [fileUrlError, setFileUrlError]   = useState<string | null>(null)
+
+  async function handleViewScript() {
+    if (!scriptId) return
+    setFileUrlLoading(true)
+    setFileUrlError(null)
+    try {
+      const { url } = await getScriptFileUrl(scriptId)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      setFileUrlError('Could not fetch script file. The file may not be available.')
+    } finally {
+      setFileUrlLoading(false)
+    }
+  }
 
   const { data: review, isLoading } = useQuery({
     queryKey: ['script-review', scriptId],
@@ -495,6 +512,23 @@ export default function ScriptEvaluationPanel() {
                 </p>
               )}
             </div>
+
+            {/* View original scan */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleViewScript}
+              disabled={fileUrlLoading}
+              className="w-full gap-1.5 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+            >
+              {fileUrlLoading
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <ExternalLink className="w-3.5 h-3.5" />}
+              View Script PDF
+            </Button>
+            {fileUrlError && (
+              <p className="text-xs text-red-500">{fileUrlError}</p>
+            )}
           </div>
 
           {/* Score summary */}

@@ -50,6 +50,7 @@ from app.modules.m09_paper_admin.schemas import (
     ScannedScriptResponse,
     ScriptAssignEvaluatorRequest,
     ScriptEvaluationResponse,
+    ScriptFileUrlResponse,
     ScriptFinaliseRequest,
     ScriptIngestRequest,
     ScriptSubmitMarksRequest,
@@ -524,6 +525,37 @@ async def override_quality_failed(
     except ScriptServiceError as exc:
         _raise(exc)
     return ScannedScriptResponse.model_validate(script)
+
+
+# ---------------------------------------------------------------------------
+# GET /{script_id}/file-url — presigned URL for script scan (H-36 STEP-13)
+# ---------------------------------------------------------------------------
+
+@router.get("/{script_id}/file-url", response_model=ScriptFileUrlResponse)
+async def get_script_file_url(
+    script_id: UUID,
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Return a 5-minute presigned GET URL for the uploaded script PDF/image.
+
+    ADMIN and BOARD can access any script.  FACULTY callers must be the
+    assigned evaluator or second evaluator.  Returns HTTP 404 when the
+    script has no uploaded file (digital-only exam path).
+    """
+    db: AsyncSession = db_info["db"]
+
+    try:
+        url = await ScriptService.get_script_file_url(
+            script_id,
+            caller_user_id=current_user.user_id,
+            caller_role=current_user.role.value,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return ScriptFileUrlResponse(url=url, expires_in=300)
 
 
 # ---------------------------------------------------------------------------

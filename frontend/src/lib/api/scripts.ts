@@ -13,6 +13,7 @@ import type {
   ScannedScriptListResponse,
   ScriptAssignEvaluatorPayload,
   ScriptEvaluation,
+  ScriptFileUrlResponse,
   ScriptFinalisePayload,
   ScriptIngestPayload,
   ScriptIngestResponse,
@@ -219,6 +220,16 @@ export async function overrideQualityFailed(
   reason:   string,
 ): Promise<ScannedScript> {
   const { data } = await api.post(`${BASE}/${scriptId}/override-quality`, { reason })
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Script file URL — presigned GET URL for uploaded scan (H-36 STEP-13)
+// ---------------------------------------------------------------------------
+
+/** Evaluator/Admin/Board: get a 5-minute presigned URL to view the uploaded script PDF. */
+export async function getScriptFileUrl(scriptId: string): Promise<ScriptFileUrlResponse> {
+  const { data } = await api.get(`${BASE}/${scriptId}/file-url`)
   return data
 }
 

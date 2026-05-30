@@ -846,6 +846,50 @@ class ScriptService:
         return script
 
     @staticmethod
+    async def get_script_file_url(
+        script_id: UUID,
+        *,
+        caller_user_id: UUID,
+        caller_role: str,
+        db: AsyncSession,
+        expires_in: int = 300,
+    ) -> str:
+        """
+        Return a presigned GET URL for the script's uploaded PDF/image.
+
+        Authorization:
+          - ADMIN and BOARD roles can access any script's file.
+          - FACULTY/EVALUATOR callers must be the assigned evaluator or second evaluator.
+        Raises ScriptServiceError NO_FILE (404) when upload_url is absent.
+        Raises ScriptServiceError FORBIDDEN (403) for non-assigned faculty.
+        """
+        script = await _require_script(script_id, db=db)
+
+        if not script.upload_url:
+            raise ScriptServiceError(
+                "NO_FILE",
+                "This script has no uploaded file (digital-only exam path).",
+                404,
+            )
+
+        if caller_role not in ("ADMIN", "BOARD"):
+            if (
+                script.evaluator_id != caller_user_id
+                and script.second_evaluator_id != caller_user_id
+            ):
+                raise ScriptServiceError(
+                    "FORBIDDEN",
+                    "You are not the assigned evaluator for this script.",
+                    403,
+                )
+
+        from app.core.storage.repository import StorageRepository
+        return await StorageRepository.generate_presigned_get_url(
+            script.upload_url,
+            expires_in_seconds=expires_in,
+        )
+
+    @staticmethod
     async def export_ledger_csv(
         exam_paper_id: UUID,
         *,

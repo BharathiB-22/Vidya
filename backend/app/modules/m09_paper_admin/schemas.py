@@ -264,6 +264,20 @@ class QualityOverrideRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Script file URL (H-36 STEP-13)
+# ---------------------------------------------------------------------------
+
+class ScriptFileUrlResponse(BaseModel):
+    """
+    Presigned GET URL for the uploaded script PDF/image.
+    Generated on demand; expires in expires_in seconds (default 300).
+    Only available when upload_url is set (physical paper path).
+    """
+    url:        str
+    expires_in: int
+
+
+# ---------------------------------------------------------------------------
 # Paper pipeline stats (H-36 STEP-10)
 # ---------------------------------------------------------------------------
 
