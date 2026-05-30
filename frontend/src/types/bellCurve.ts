@@ -144,6 +144,11 @@ export interface NormalisedScore {
   max_marks:            number
   normalisation_method: string
   created_at:           string
+  // Grade enrichment — computed at serialization time; not stored in DB
+  pct:          number  | null
+  grade_letter: string  | null
+  grade_point:  number  | null
+  is_pass:      boolean | null
 }
 
 export interface NormalisedScoreListResponse {

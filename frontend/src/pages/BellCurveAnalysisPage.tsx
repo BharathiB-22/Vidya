@@ -7,8 +7,8 @@ import {
   CheckCircle2, XCircle, TrendingUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getAnalysis, getAnalysisJobStatus } from '@/lib/api/bellCurve'
-import type { AnalysisStatus, AnomalyItem, BellCurveAnalysis, HistogramBin } from '@/types/bellCurve'
+import { getAnalysis, getAnalysisJobStatus, listNormalisedLedger } from '@/lib/api/bellCurve'
+import type { AnalysisStatus, AnomalyItem, BellCurveAnalysis, HistogramBin, NormalisedScore } from '@/types/bellCurve'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -107,6 +107,98 @@ function AnomalyRow({ anomaly }: { anomaly: AnomalyItem }) {
           Threshold: {anomaly.threshold.toFixed(3)} · Observed: {anomaly.observed_value.toFixed(3)}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Grade badge
+// ---------------------------------------------------------------------------
+
+const GRADE_COLORS: Record<string, string> = {
+  S: 'bg-indigo-100 text-indigo-800',
+  A: 'bg-green-100  text-green-800',
+  B: 'bg-teal-100   text-teal-800',
+  C: 'bg-blue-100   text-blue-800',
+  D: 'bg-yellow-100 text-yellow-800',
+  P: 'bg-orange-100 text-orange-800',
+  F: 'bg-red-100    text-red-800',
+}
+
+function GradeBadge({ letter }: { letter: string | null }) {
+  if (!letter) return <span className="text-gray-400">—</span>
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${GRADE_COLORS[letter] ?? 'bg-gray-100 text-gray-700'}`}>
+      {letter}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Normalised score ledger table (shown when analysis is APPLIED)
+// ---------------------------------------------------------------------------
+
+function NormalisedLedger({ paperId }: { paperId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['bell-curve-ledger', paperId],
+    queryFn:  () => listNormalisedLedger(paperId, { limit: 200 }),
+  })
+
+  if (isLoading) return (
+    <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+      <Loader2 className="w-4 h-4 animate-spin" /> Loading normalised scores…
+    </div>
+  )
+
+  const items: NormalisedScore[] = data?.items ?? []
+  if (!items.length) return (
+    <p className="text-xs text-gray-400">No normalised scores recorded for this paper.</p>
+  )
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-gray-200 text-left text-gray-500 uppercase tracking-wide">
+            <th className="py-2 pr-4 font-medium">Roll ref</th>
+            <th className="py-2 pr-4 font-medium text-right">Raw</th>
+            <th className="py-2 pr-4 font-medium text-right">Normalised</th>
+            <th className="py-2 pr-4 font-medium text-right">Pct %</th>
+            <th className="py-2 pr-4 font-medium text-center">Grade</th>
+            <th className="py-2 pr-4 font-medium text-center">Points</th>
+            <th className="py-2     font-medium text-center">Pass</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {items.map(s => (
+            <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+              <td className="py-1.5 pr-4 font-mono text-gray-600">{s.student_roll_ref ?? '—'}</td>
+              <td className="py-1.5 pr-4 text-right text-gray-500">{s.raw_score.toFixed(1)}</td>
+              <td className="py-1.5 pr-4 text-right font-medium text-gray-800">{s.normalised_score.toFixed(1)}</td>
+              <td className="py-1.5 pr-4 text-right text-gray-600">
+                {s.pct != null ? `${s.pct.toFixed(1)}%` : '—'}
+              </td>
+              <td className="py-1.5 pr-4 text-center">
+                <GradeBadge letter={s.grade_letter} />
+              </td>
+              <td className="py-1.5 pr-4 text-center text-gray-600">
+                {s.grade_point != null ? s.grade_point.toFixed(1) : '—'}
+              </td>
+              <td className="py-1.5 text-center">
+                {s.is_pass === null ? <span className="text-gray-400">—</span>
+                  : s.is_pass
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 mx-auto" />
+                    : <XCircle     className="w-3.5 h-3.5 text-red-500   mx-auto" />}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {(data?.total ?? 0) > items.length && (
+        <p className="text-xs text-gray-400 mt-2">
+          Showing {items.length} of {data?.total} scores.
+        </p>
+      )}
     </div>
   )
 }
@@ -239,11 +331,20 @@ export default function BellCurveAnalysisPage() {
 
       {/* Ratified / No-action result */}
       {analysis.status === 'APPLIED' && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-4 flex gap-3 text-sm text-green-800">
-          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
-          <span>
-            <strong>Board ratified.</strong> Normalised scores have been recorded and stored in the bell curve ledger.
-          </span>
+        <div className="rounded-xl border border-green-200 bg-green-50 p-5 space-y-4">
+          <div className="flex gap-3 text-sm text-green-800">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
+            <span>
+              <strong>Board ratified.</strong> Normalised scores are recorded in the bell curve ledger.
+              Grades are advisory — raw M09 marks are unchanged.
+            </span>
+          </div>
+          <div className="rounded-lg border border-green-100 bg-white p-3">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+              Normalised Score Ledger
+            </p>
+            <NormalisedLedger paperId={analysis.exam_paper_id} />
+          </div>
         </div>
       )}
 
