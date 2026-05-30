@@ -461,6 +461,12 @@ class TestFacultyApproveFlow:
         req = FacultyApproveRequest(faculty_comment="All questions verified.")
         assert req.faculty_comment == "All questions verified."
 
+    def test_faculty_approve_request_schema_accepts_empty_dict(self):
+        """Simulates frontend sending {} — body must parse without 422."""
+        from app.modules.m08_exam_setter.schemas import FacultyApproveRequest
+        req = FacultyApproveRequest.model_validate({})
+        assert req.faculty_comment is None
+
 
 # ===========================================================================
 # 4 — Scrutinizer flow
@@ -1376,6 +1382,15 @@ class TestH35RouterWiring:
         from app.modules.m08_exam_setter.router import router
         paths = {r.path for r in router.routes}
         assert "/{paper_id}/faculty-approve" in paths
+
+    def test_faculty_approve_payload_has_default(self):
+        """Endpoint body must default so frontend can POST with empty body."""
+        import inspect
+        from app.modules.m08_exam_setter.router import faculty_approve
+        sig = inspect.signature(faculty_approve)
+        param = sig.parameters.get("payload")
+        assert param is not None
+        assert param.default is not inspect.Parameter.empty
 
     def test_assign_scrutinizer_endpoint_present(self):
         from app.modules.m08_exam_setter.router import router

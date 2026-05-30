@@ -159,7 +159,7 @@ export async function exportPdf(paperId: string, setLabel = 'A'): Promise<void> 
 // ---- H-35: Faculty approve (INTERNAL workflow) ----
 
 export async function facultyApprovePaper(paperId: string): Promise<{ paper_id: string; status: string }> {
-  const { data } = await api.post(`${BASE}/${paperId}/faculty-approve`)
+  const { data } = await api.post(`${BASE}/${paperId}/faculty-approve`, {})
   return data
 }
 

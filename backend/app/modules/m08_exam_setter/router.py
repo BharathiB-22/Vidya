@@ -66,7 +66,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -645,7 +645,7 @@ async def release_paper(
 @router.post("/{paper_id}/faculty-approve", response_model=ExamPaperResponse)
 async def faculty_approve(
     paper_id: UUID,
-    payload:  FacultyApproveRequest,
+    payload:  FacultyApproveRequest = Body(default_factory=FacultyApproveRequest),
     current_user: CurrentUser = Depends(_faculty_dep()),
     db_info=Depends(get_tenant_context_dep),
 ):
