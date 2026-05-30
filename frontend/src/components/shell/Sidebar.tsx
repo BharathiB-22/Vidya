@@ -4,6 +4,7 @@ import {
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
+  BookLock,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -50,6 +51,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Internal Marks',  to: '/exams/internal-marks',   icon: BookMarked,     roles: ['FACULTY', 'DEAN', 'ADMIN'] },
       { label: 'Pending Review',  to: '/exams/board/pending',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
       { label: 'Scripts',         to: '/scripts',                icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
+      { label: 'Score Ledger',    to: '/scripts/ledger',         icon: BookLock,       roles: ['ADMIN', 'BOARD'] },
       { label: 'My Scripts',      to: '/scripts/evaluator',      icon: ClipboardList,  roles: ['FACULTY'] },
     ],
   },

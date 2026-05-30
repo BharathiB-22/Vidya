@@ -42,6 +42,7 @@ import ScriptUploadPage from '@/pages/ScriptUploadPage'
 import ScriptEvaluationPanel from '@/pages/ScriptEvaluationPanel'
 import BoardScriptReviewPage from '@/pages/BoardScriptReviewPage'
 import MyScriptsPage from '@/pages/MyScriptsPage'
+import ScoreLedgerPage from '@/pages/ScoreLedgerPage'
 import BellCurveListPage from '@/pages/BellCurveListPage'
 import BellCurveAnalysisPage from '@/pages/BellCurveAnalysisPage'
 import BellCurveRatifyPage from '@/pages/BellCurveRatifyPage'
@@ -197,6 +198,7 @@ export default function App() {
             <Route path="/scripts" element={<ScriptListPage />} />
             <Route path="/scripts/upload" element={<ScriptUploadPage />} />
             <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
+            <Route path="/scripts/ledger" element={<ScoreLedgerPage />} />
           </Route>
 
           {/* Script evaluation panel — FACULTY (assigned evaluator) + ADMIN + BOARD */}
