@@ -50,6 +50,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Internal Marks',  to: '/exams/internal-marks',   icon: BookMarked,     roles: ['FACULTY', 'DEAN', 'ADMIN'] },
       { label: 'Pending Review',  to: '/exams/board/pending',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
       { label: 'Scripts',         to: '/scripts',                icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
+      { label: 'My Scripts',      to: '/scripts/evaluator',      icon: ClipboardList,  roles: ['FACULTY'] },
     ],
   },
   {

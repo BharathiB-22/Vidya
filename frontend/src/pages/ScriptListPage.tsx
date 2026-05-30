@@ -15,7 +15,10 @@ import type { ScannedScript, ScriptStatus } from '@/types/script'
 const STATUS_OPTS: Array<{ value: ScriptStatus | ''; label: string }> = [
   { value: '',                 label: 'All' },
   { value: 'PENDING',          label: 'Pending' },
-  { value: 'PROCESSING',       label: 'Processing' },
+  { value: 'QUALITY_CHECKING', label: 'Quality Check' },
+  { value: 'QUALITY_FAILED',   label: 'Quality Failed' },
+  { value: 'OCR_PROCESSING',   label: 'OCR Processing' },
+  { value: 'PROCESSING',       label: 'Scoring' },
   { value: 'SCORED',           label: 'Scored' },
   { value: 'FAILED',           label: 'Failed' },
   { value: 'REVIEW_REQUIRED',  label: 'Review Required' },
@@ -24,13 +27,16 @@ const STATUS_OPTS: Array<{ value: ScriptStatus | ''; label: string }> = [
 ]
 
 const STATUS_COLOR: Record<string, string> = {
-  PENDING:         'bg-gray-100 text-gray-600',
-  PROCESSING:      'bg-blue-100 text-blue-600',
-  SCORED:          'bg-indigo-100 text-indigo-700',
-  FAILED:          'bg-red-100 text-red-700',
-  REVIEW_REQUIRED: 'bg-orange-100 text-orange-700',
-  MARKS_SUBMITTED: 'bg-yellow-100 text-yellow-700',
-  BOARD_FINALISED: 'bg-emerald-100 text-emerald-700',
+  PENDING:          'bg-gray-100 text-gray-600',
+  QUALITY_CHECKING: 'bg-amber-100 text-amber-700',
+  QUALITY_FAILED:   'bg-red-100 text-red-700',
+  OCR_PROCESSING:   'bg-sky-100 text-sky-700',
+  PROCESSING:       'bg-blue-100 text-blue-600',
+  SCORED:           'bg-indigo-100 text-indigo-700',
+  FAILED:           'bg-red-100 text-red-700',
+  REVIEW_REQUIRED:  'bg-orange-100 text-orange-700',
+  MARKS_SUBMITTED:  'bg-yellow-100 text-yellow-700',
+  BOARD_FINALISED:  'bg-emerald-100 text-emerald-700',
 }
 
 export default function ScriptListPage() {

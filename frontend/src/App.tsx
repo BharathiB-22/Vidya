@@ -41,6 +41,7 @@ import ScriptListPage from '@/pages/ScriptListPage'
 import ScriptUploadPage from '@/pages/ScriptUploadPage'
 import ScriptEvaluationPanel from '@/pages/ScriptEvaluationPanel'
 import BoardScriptReviewPage from '@/pages/BoardScriptReviewPage'
+import MyScriptsPage from '@/pages/MyScriptsPage'
 import BellCurveListPage from '@/pages/BellCurveListPage'
 import BellCurveAnalysisPage from '@/pages/BellCurveAnalysisPage'
 import BellCurveRatifyPage from '@/pages/BellCurveRatifyPage'
@@ -196,7 +197,16 @@ export default function App() {
             <Route path="/scripts" element={<ScriptListPage />} />
             <Route path="/scripts/upload" element={<ScriptUploadPage />} />
             <Route path="/scripts/board" element={<BoardScriptReviewPage />} />
+          </Route>
+
+          {/* Script evaluation panel — FACULTY (assigned evaluator) + ADMIN + BOARD */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'BOARD']} />}>
             <Route path="/scripts/:scriptId/evaluate" element={<ScriptEvaluationPanel />} />
+          </Route>
+
+          {/* My Scripts — FACULTY evaluator view */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
+            <Route path="/scripts/evaluator" element={<MyScriptsPage />} />
           </Route>
 
           {/* Bell Curve — DEAN, ADMIN, BOARD */}
