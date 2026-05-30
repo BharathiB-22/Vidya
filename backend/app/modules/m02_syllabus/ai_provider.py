@@ -192,9 +192,9 @@ def _validate_result(
         errors.append(
             f"AI returned {len(parsed.outcomes)} COs; minimum required is 4."
         )
-    if len(parsed.units) < 5:
+    if len(parsed.units) < 4:
         errors.append(
-            f"AI returned {len(parsed.units)} units; minimum required is 5."
+            f"AI returned {len(parsed.units)} units; minimum required is 4."
         )
 
     # 2. Bloom levels (already enforced by _COAI validator, but double-check)

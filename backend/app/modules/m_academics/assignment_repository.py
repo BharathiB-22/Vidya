@@ -117,6 +117,21 @@ class SubjectAssignmentRepository:
         return list(result.scalars().all())
 
     @staticmethod
+    async def list_all(
+        *,
+        semester_id: UUID | None = None,
+        include_inactive: bool = False,
+        db: AsyncSession,
+    ) -> list[SubjectAssignment]:
+        stmt = select(SubjectAssignment).order_by(SubjectAssignment.assigned_at.desc())
+        if semester_id is not None:
+            stmt = stmt.where(SubjectAssignment.semester_id == semester_id)
+        if not include_inactive:
+            stmt = stmt.where(SubjectAssignment.is_active.is_(True))
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
     async def count_active_primary(
         course_id: UUID,
         semester_id: UUID,

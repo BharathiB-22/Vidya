@@ -528,3 +528,34 @@ async def test_after_revoke_new_primary_can_be_assigned(
         headers=make_tenant_headers(dean_user_a),
     )
     assert r2.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_list_all_without_course_id(
+    async_client: AsyncClient,
+    dean_user_a,
+    faculty_user_a,
+):
+    """GET /course-assignments without course_id returns all tenant assignments (BUG-001 fix)."""
+    ids = await _get_ids(SCHEMA_A)
+    # Create an assignment
+    create_resp = await async_client.post(
+        BASE,
+        json={
+            "course_id":       ids["course_id"],
+            "faculty_user_id": str(faculty_user_a["id"]),
+            "semester_id":     ids["semester_id"],
+            "role_in_course":  "PRIMARY",
+        },
+        headers=make_tenant_headers(dean_user_a),
+    )
+    assert create_resp.status_code == 201
+    created_id = create_resp.json()["id"]
+
+    # List without course_id — must return 200 and include the created assignment
+    resp = await async_client.get(BASE, headers=make_tenant_headers(dean_user_a))
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] >= 1
+    ids_returned = {item["id"] for item in data["items"]}
+    assert created_id in ids_returned

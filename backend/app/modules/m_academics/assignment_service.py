@@ -287,6 +287,22 @@ class AssignmentService:
         return rows[0]
 
     @staticmethod
+    async def list_all(
+        *,
+        semester_id: UUID | None = None,
+        include_inactive: bool = False,
+        db: AsyncSession,
+    ) -> AssignmentListResponse:
+        """List all assignments in the tenant (no course filter). DEAN/ADMIN only."""
+        rows = await SubjectAssignmentRepository.list_all(
+            semester_id=semester_id,
+            include_inactive=include_inactive,
+            db=db,
+        )
+        items = await _enrich(rows, db)
+        return AssignmentListResponse(total=len(items), items=items)
+
+    @staticmethod
     async def list_by_course(
         course_id: UUID,
         *,

@@ -16,8 +16,11 @@ os.environ.setdefault("GROQ_API_KEY", "placeholder")
 
 from app.modules.m02_syllabus.ai_provider import (
     SyllabusAIParseError,
+    SyllabusAIValidationError,
+    SyllabusGenerationContext,
     _SyllabusAI,
     _normalize_groq_response,
+    _validate_result,
 )
 
 # ---------------------------------------------------------------------------
@@ -296,6 +299,25 @@ def test_co_statement_full_pydantic_validation_passes():
     assert all(co.code.startswith("CO") for co in parsed.outcomes)
     # description must be long enough (>= 15 chars per _COAI schema)
     assert all(len(co.description) >= 15 for co in parsed.outcomes)
+
+
+def test_four_units_pass_validation():
+    """_validate_result accepts 4 units — matches service compliance threshold (BUG-002 fix)."""
+    normalized = _normalize_groq_response(_GROQ_RAW)
+    parsed = _SyllabusAI.model_validate(normalized)
+    assert len(parsed.units) == 4
+
+    ctx = SyllabusGenerationContext(
+        course_id="00000000-0000-0000-0000-000000000001",
+        course_code="CS101",
+        course_title="Programming in C",
+        course_credits=4,
+        program_outcomes=[],
+        custom_instructions=None,
+    )
+    violations = _validate_result(parsed, ctx)
+    unit_violations = [v for v in violations if "unit" in v.lower()]
+    assert unit_violations == [], f"4 units should pass validation; got: {unit_violations}"
 
 
 def test_description_present_takes_priority():

@@ -70,7 +70,8 @@ function AssignDialog({
   useEffect(() => { if (!open) { setFacultyId(''); setRole('PRIMARY') } }, [open])
 
   async function handleSave() {
-    if (!facultyId) { addToast('Select a faculty member.', 'error'); return }
+    if (!semesterId) { addToast('Select a semester filter before assigning.', 'error'); return }
+    if (!facultyId)  { addToast('Select a faculty member.', 'error'); return }
     setSaving(true)
     try {
       await assignmentsApi.create({ course_id: courseId, faculty_user_id: facultyId, semester_id: semesterId, role_in_course: role })
@@ -302,6 +303,7 @@ export default function CourseAssignmentsPage() {
       addToast('Assignment revoked.', 'success')
       refetchAssignments()
       qc.invalidateQueries({ queryKey: ['assignments'] })
+      qc.invalidateQueries({ queryKey: ['my-assignments'] })
     },
     onError: (err) => addToast(getErrorMessage(err), 'error'),
   })
@@ -371,6 +373,7 @@ export default function CourseAssignmentsPage() {
           onAssigned={() => {
             refetchAssignments()
             qc.invalidateQueries({ queryKey: ['assignments'] })
+            qc.invalidateQueries({ queryKey: ['my-assignments'] })
           }}
         />
       )}

@@ -93,16 +93,22 @@ async def list_faculty_users(
 
 @router.get("", response_model=AssignmentListResponse)
 async def list_assignments(
-    course_id:        UUID                = Query(..., description="Filter by course"),
+    course_id:        UUID | None         = Query(None, description="Filter by course (omit for all)"),
     semester_id:      UUID | None         = Query(None, description="Optionally filter by semester"),
     include_inactive: bool                = Query(False, description="Include revoked assignments"),
     current_user: CurrentUser             = Depends(require_roles(*_READ)),
     db: AsyncSession                      = Depends(get_tenant_db_dep),
 ) -> AssignmentListResponse:
-    """List all assignments for a course. DEAN/ADMIN only."""
+    """List assignments for a course or all courses. DEAN/ADMIN only."""
     try:
-        return await AssignmentService.list_by_course(
-            course_id,
+        if course_id is not None:
+            return await AssignmentService.list_by_course(
+                course_id,
+                semester_id=semester_id,
+                include_inactive=include_inactive,
+                db=db,
+            )
+        return await AssignmentService.list_all(
             semester_id=semester_id,
             include_inactive=include_inactive,
             db=db,
