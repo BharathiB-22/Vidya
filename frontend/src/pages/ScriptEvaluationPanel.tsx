@@ -265,6 +265,48 @@ function EvalRow({
 }
 
 // ---------------------------------------------------------------------------
+// OCR empty banner
+// ---------------------------------------------------------------------------
+
+function OcrEmptyBanner({
+  onViewPdf,
+  loading,
+}: {
+  onViewPdf: () => void
+  loading:   boolean
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-800">
+            OCR could not extract readable text
+          </p>
+          <p className="text-xs text-amber-700 leading-relaxed">
+            This PDF does not contain an embedded text layer — typical for scanned image
+            files. Open the script PDF, read the answers, and enter question marks manually
+            using the rows below.
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onViewPdf}
+        disabled={loading}
+        className="self-start gap-1.5 border-amber-300 text-amber-800 hover:bg-amber-100"
+      >
+        {loading
+          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          : <ExternalLink className="w-3.5 h-3.5" />}
+        Open Script PDF
+      </Button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // OCR text viewer
 // ---------------------------------------------------------------------------
 
@@ -477,6 +519,11 @@ export default function ScriptEvaluationPanel() {
       {/* Pipeline status banner */}
       <PipelineStatusBanner status={review.status} />
 
+      {/* OCR empty — manual review required */}
+      {review.ocr_status === 'EMPTY' && review.status === 'REVIEW_REQUIRED' && (
+        <OcrEmptyBanner onViewPdf={handleViewScript} loading={fileUrlLoading} />
+      )}
+
       {/* AI advisory */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex gap-3 text-sm text-blue-800">
         <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
@@ -506,8 +553,14 @@ export default function ScriptEvaluationPanel() {
               {review.ocr_status && (
                 <p>
                   <span className="font-medium">OCR:</span>{' '}
-                  <span className={review.ocr_status === 'DONE' ? 'text-emerald-600' : 'text-amber-600'}>
-                    {review.ocr_status}
+                  <span className={
+                    review.ocr_status === 'COMPLETE' ? 'text-emerald-600'
+                    : review.ocr_status === 'EMPTY'  ? 'text-amber-600'
+                    : 'text-red-600'
+                  }>
+                    {review.ocr_status === 'COMPLETE' ? 'Complete'
+                     : review.ocr_status === 'EMPTY'  ? 'Empty — manual review'
+                     : review.ocr_status}
                   </span>
                 </p>
               )}
@@ -613,6 +666,12 @@ export default function ScriptEvaluationPanel() {
               {review.status === 'OCR_PROCESSING' && 'OCR text extraction in progress.'}
             </div>
           )}
+
+          {!isReadOnly && evals != null && evals.length === 0 && review.ocr_status === 'EMPTY' && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700 text-center">
+              Manual review required — enter marks once question rows appear below.
+            </div>
+          )}
         </div>
 
         {/* Right column */}
@@ -640,8 +699,22 @@ export default function ScriptEvaluationPanel() {
             </div>
 
             {evals && evals.length === 0 && (
-              <div className="text-gray-500 text-center py-12">
-                No evaluation rows found. The scoring task may still be running.
+              <div className="text-center py-12 space-y-2">
+                {review.ocr_status === 'EMPTY' ? (
+                  <>
+                    <p className="text-sm font-medium text-gray-700">
+                      No AI suggestions — OCR returned no readable text
+                    </p>
+                    <p className="text-xs text-gray-500 max-w-sm mx-auto leading-relaxed">
+                      Open the PDF above, read each answer, and enter marks manually
+                      once question rows have been created by an administrator.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-gray-500 text-sm">
+                    No evaluation rows found. The scoring task may still be running.
+                  </p>
+                )}
               </div>
             )}
 

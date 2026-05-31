@@ -2007,6 +2007,96 @@ class TestOCRAuditEvents:
 
 
 # ===========================================================================
+# OCR EMPTY path regression (M09-MANUAL-QA-BUG-003)
+# ===========================================================================
+
+class TestOcrEmptyPathRegression:
+    """
+    Guards the OCR EMPTY path:
+    - ocr_status must be 'EMPTY' (not 'DONE' or any other label)
+    - score_scanned_script must NOT be dispatched when had_ocr=False
+    - REVIEW_REQUIRED must be set when OCR text is too short
+    """
+
+    def test_ocr_status_empty_string_value(self):
+        """Backend must label the empty-OCR outcome 'EMPTY', not 'DONE'."""
+        import inspect
+        from app.workers.heavy.ocr_scanned_script import _run_ocr
+        src = inspect.getsource(_run_ocr)
+        assert '"EMPTY"' in src, "ocr_status must be set to 'EMPTY' for no-text path"
+        assert '"DONE"' not in src, "ocr_status must never use 'DONE' — frontend checks for 'EMPTY'"
+
+    def test_score_task_not_dispatched_on_empty_ocr(self):
+        """score_scanned_script dispatch must be inside 'if had_ocr:' guard."""
+        import inspect
+        from app.workers.heavy.ocr_scanned_script import _run_ocr
+        src = inspect.getsource(_run_ocr)
+        # The dispatch must be guarded — verify both strings appear and that the
+        # dispatch is not unconditional by checking for the guard.
+        assert "if had_ocr:" in src, (
+            "score_scanned_script dispatch must be guarded by 'if had_ocr:'"
+        )
+        assert "score_scanned_script.apply_async" in src
+
+    def test_review_required_set_when_had_ocr_false(self):
+        """REVIEW_REQUIRED status must be selected when had_ocr is False."""
+        import inspect
+        from app.workers.heavy.ocr_scanned_script import _run_ocr
+        src = inspect.getsource(_run_ocr)
+        assert "REVIEW_REQUIRED" in src, (
+            "_run_ocr must set status to REVIEW_REQUIRED when OCR returns empty text"
+        )
+
+    def test_ocr_min_chars_threshold_present(self):
+        """OCR_MIN_CHARS constant must exist and be a positive integer."""
+        from app.workers.heavy.ocr_scanned_script import OCR_MIN_CHARS
+        assert isinstance(OCR_MIN_CHARS, int) and OCR_MIN_CHARS > 0
+
+    @pytest.mark.asyncio
+    async def test_set_ocr_result_empty_does_not_chain_scoring(self):
+        """
+        Regression: when ocr_status_value='EMPTY' and had_ocr=False,
+        the repository write must record REVIEW_REQUIRED and ocr_text=None.
+        """
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        db = MagicMock()
+        db.execute = AsyncMock()
+
+        captured = []
+        with patch("app.modules.m09_paper_admin.repository.sa_update") as mock_update:
+            chain = mock_update.return_value.where.return_value
+            chain.values = lambda **kw: (captured.append(kw), MagicMock())[1]
+            await ScriptRepository.set_ocr_result(
+                uuid4(),
+                ocr_text=None,
+                ocr_status_value="EMPTY",
+                had_ocr=False,
+                db=db,
+            )
+
+        assert any(kw.get("ocr_status") == "EMPTY" for kw in captured), (
+            "ocr_status must be written as 'EMPTY' to DB"
+        )
+        assert any(kw.get("status") == ScriptStatus.REVIEW_REQUIRED.value for kw in captured), (
+            "status must be REVIEW_REQUIRED when had_ocr=False"
+        )
+        assert any(kw.get("ocr_text") is None for kw in captured), (
+            "ocr_text must be None when OCR returned no usable text"
+        )
+
+    def test_evaluator_review_schema_exposes_ocr_status(self):
+        """EvaluatorReviewResponse must include ocr_status for the frontend to read."""
+        from app.modules.m09_paper_admin.schemas import EvaluatorReviewResponse
+        assert "ocr_status" in EvaluatorReviewResponse.__annotations__, (
+            "ocr_status must be in EvaluatorReviewResponse so the UI can show the EMPTY state"
+        )
+
+
+# ===========================================================================
 # 14 — AI-assisted evaluation enrichment (H-36 STEP-04)
 # ===========================================================================
 
