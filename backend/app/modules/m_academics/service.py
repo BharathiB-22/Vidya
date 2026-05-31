@@ -52,7 +52,7 @@ class DepartmentService:
             raise AcadServiceError("DUPLICATE_NAME", f"Department '{body.name}' already exists.")
         if await DepartmentRepo.get_by_code(body.code, db):
             raise AcadServiceError("DUPLICATE_CODE", f"Department code '{body.code}' already exists.")
-        dept = await DepartmentRepo.create(body.name, body.code, body.description, db)
+        dept = await DepartmentRepo.create(body.name, body.code, body.description, db, school_id=body.school_id)
         await db.commit()
         return dept
 

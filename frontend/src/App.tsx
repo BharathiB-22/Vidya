@@ -65,6 +65,8 @@ import ProgramsPage from '@/pages/academics/ProgramsPage'
 import BatchesPage from '@/pages/academics/BatchesPage'
 import SectionsPage from '@/pages/academics/SectionsPage'
 import SemestersPage from '@/pages/academics/SemestersPage'
+import SchoolsPage from '@/pages/sis/SchoolsPage'
+import SisDepartmentsPage from '@/pages/sis/DepartmentsPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -125,6 +127,12 @@ export default function App() {
             <Route path="/academics/semesters"   element={<SemestersPage />} />
             <Route path="/academics/batches"     element={<BatchesPage />} />
             <Route path="/academics/sections"    element={<SectionsPage />} />
+          </Route>
+
+          {/* SIS — ADMIN and DEAN */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/schools"     element={<SchoolsPage />} />
+            <Route path="/sis/departments" element={<SisDepartmentsPage />} />
           </Route>
 
           {/* User management & settings — ADMIN only */}

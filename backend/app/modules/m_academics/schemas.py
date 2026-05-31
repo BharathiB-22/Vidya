@@ -17,6 +17,7 @@ class DepartmentCreate(BaseModel):
     name: str
     code: str
     description: Optional[str] = None
+    school_id: Optional[UUID] = None
 
     @field_validator("name", "code", mode="before")
     @classmethod
@@ -41,6 +42,7 @@ class DepartmentUpdate(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    school_id: Optional[UUID] = None
 
     @field_validator("code", mode="after")
     @classmethod
@@ -50,6 +52,7 @@ class DepartmentUpdate(BaseModel):
 
 class DepartmentOut(BaseModel):
     id: UUID
+    school_id: Optional[UUID]
     name: str
     code: str
     description: Optional[str]

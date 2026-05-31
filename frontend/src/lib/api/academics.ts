@@ -2,6 +2,7 @@ import api from '@/lib/api'
 
 export interface Department {
   id: string
+  school_id: string | null
   name: string
   code: string
   description: string | null
@@ -65,9 +66,9 @@ export const academicsApi = {
   // Departments
   listDepartments: (includeInactive = false) =>
     api.get<Department[]>(`${B}/departments`, { params: { include_inactive: includeInactive } }).then(r => r.data),
-  createDepartment: (body: { name: string; code: string; description?: string }) =>
+  createDepartment: (body: { name: string; code: string; description?: string; school_id?: string }) =>
     api.post<Department>(`${B}/departments`, body).then(r => r.data),
-  updateDepartment: (id: string, body: Partial<{ name: string; code: string; description: string; is_active: boolean }>) =>
+  updateDepartment: (id: string, body: Partial<{ name: string; code: string; description: string; is_active: boolean; school_id: string }>) =>
     api.put<Department>(`${B}/departments/${id}`, body).then(r => r.data),
 
   // Programs

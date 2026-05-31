@@ -40,9 +40,11 @@ class AcadDepartment(Base):
     __table_args__ = (
         UniqueConstraint("name", name="uq_acad_departments_name"),
         UniqueConstraint("code", name="uq_acad_departments_code"),
+        Index("ix_acad_departments_school_id", "school_id"),
     )
 
     id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    school_id   = Column(UUID(as_uuid=True), ForeignKey("sis_schools.id"), nullable=True)
     name        = Column(String, nullable=False)
     code        = Column(String(10), nullable=False)
     description = Column(Text, nullable=True)
@@ -50,6 +52,8 @@ class AcadDepartment(Base):
     created_at  = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at  = Column(DateTime(timezone=True), nullable=True)
 
+    # M11 SIS: back-reference to SisSchool (string ref avoids circular import)
+    school   = relationship("SisSchool", back_populates="departments")
     programs = relationship("AcadProgram", back_populates="department")
 
 

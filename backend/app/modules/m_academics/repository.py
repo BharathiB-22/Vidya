@@ -20,8 +20,9 @@ class DepartmentRepo:
         code: str,
         description: str | None,
         db: AsyncSession,
+        school_id: "UUID | None" = None,
     ) -> AcadDepartment:
-        dept = AcadDepartment(name=name, code=code, description=description)
+        dept = AcadDepartment(name=name, code=code, description=description, school_id=school_id)
         db.add(dept)
         await db.flush()
         await db.refresh(dept)
