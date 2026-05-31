@@ -178,6 +178,9 @@ export default function App() {
             <Route path="/research/problems/:problemId" element={<ResearchProblemDetailPage />} />
             <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
             <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
+            {/* Bare paths have no content — redirect to the list page */}
+            <Route path="/research" element={<Navigate to="/research/problems" replace />} />
+            <Route path="/research/documents" element={<Navigate to="/research/problems" replace />} />
           </Route>
 
           {/* Exam Papers — FACULTY, ADMIN, BOARD */}

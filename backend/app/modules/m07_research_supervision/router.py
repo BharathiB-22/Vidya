@@ -270,6 +270,47 @@ async def get_document(
     return DocumentResponse.model_validate(doc)
 
 
+@router.get("/documents/{doc_id}/download-url")
+async def get_document_download_url(
+    doc_id: UUID,
+    current_user: CurrentUser = Depends(_READ),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Return a short-lived presigned GET URL for the document's uploaded file.
+
+    Bypasses the storage-service owner check because the guide is authorised
+    to view any document assigned to them via the research problem.
+    """
+    from fastapi import HTTPException
+    try:
+        doc = await DocumentService.get(doc_id, db=db)
+    except ResearchServiceError as exc:
+        raise _svc_error(exc)
+
+    if not doc.file_url:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NO_FILE", "message": "No file has been uploaded for this document."},
+        )
+
+    from app.core.storage.repository import StorageRepository
+    from app.config import settings
+
+    expires_in_sec = settings.PRESIGNED_URL_EXPIRY_MINUTES_GET * 60
+    try:
+        presigned_url = await StorageRepository.generate_presigned_get_url(
+            object_key=doc.file_url,
+            expires_in_seconds=expires_in_sec,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=502,
+            detail={"error": "STORAGE_ERROR", "message": "Could not generate download URL."},
+        )
+
+    return {"presigned_url": presigned_url, "expires_in_seconds": expires_in_sec}
+
+
 @router.post("/documents/{doc_id}/review", response_model=DocumentResponse)
 async def guide_review_document(
     doc_id: UUID,

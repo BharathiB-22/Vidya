@@ -377,7 +377,6 @@ class DocumentRepository:
             .where(ResearchDocument.id == doc_id)
             .values(
                 guide_comment=guide_comment,
-                new_status=new_status,
                 guide_reviewed_at=datetime.now(timezone.utc),
                 status=new_status,
             )

@@ -75,6 +75,13 @@ export async function getDocument(id: string): Promise<ResearchDocument> {
   return data
 }
 
+export async function getDocumentDownloadUrl(
+  id: string
+): Promise<{ presigned_url: string; expires_in_seconds: number }> {
+  const { data } = await api.get(`${BASE}/documents/${id}/download-url`)
+  return data
+}
+
 export async function reviewDocument(
   id: string,
   payload: GuideDocumentReviewRequest

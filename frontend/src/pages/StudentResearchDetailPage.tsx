@@ -141,7 +141,7 @@ function DocumentUploadSection({
     try {
       // 1. Get presigned upload URL from storage service
       const urlResp = await generateUploadUrl({
-        entity_type:       'research_document',
+        entity_type:       'research_doc',
         entity_id:         problemId,
         original_filename: selectedFile.name,
         content_type:      resolveContentType(selectedFile),
@@ -163,7 +163,11 @@ function DocumentUploadSection({
       addToast('Document submitted successfully.', 'success')
       onUploaded()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Upload failed. Please try again.'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = (err as any)?.response?.data?.detail
+      const msg = (typeof detail === 'object' ? detail?.message : detail)
+        ?? (err instanceof Error ? err.message : null)
+        ?? 'Upload failed. Please try again.'
       setSubmitError(msg)
       addToast('Document upload failed.', 'error')
     } finally {
