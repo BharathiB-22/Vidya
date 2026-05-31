@@ -55,18 +55,38 @@ export interface GuideDecisionRequest {
 
 // ── Document ─────────────────────────────────────────────────────────────────
 
-export interface EvaluationSection {
+export interface FormatIssue {
   section: string
-  present: boolean
+  issue: string
+}
+
+export interface PlagiarismMatch {
+  submission_id: string
+  similarity: number
+  student_user_id?: string
+}
+
+export interface AiHighlight {
+  start: number
+  end: number
   score: number
-  comment: string
+}
+
+export interface AiScanDetail {
+  probability: number
+  confidence: number
+  burstiness_score: number
+  repetition_score: number
+  vocab_richness_score: number
 }
 
 export interface EvaluationReport {
-  sections: EvaluationSection[]
-  overall_comment: string
+  format_issues: FormatIssue[]
+  plagiarism_matches: PlagiarismMatch[]
+  ai_highlights: AiHighlight[]
+  clarity_notes: string
   word_count: number
-  citation_count: number
+  ai_scan: AiScanDetail
 }
 
 export interface ResearchDocument {

@@ -573,6 +573,212 @@ class TestCreateStudentProposalValidation:
 
 
 # ===========================================================================
+# 5b — DocumentService.submit: task dispatch (BUG-009 regression)
+# ===========================================================================
+
+class TestDocumentServiceSubmitDispatch:
+    """Regression tests for M07-BUG-009: evaluate_research_document not queued."""
+
+    def _make_accepted_problem(self, student_id):
+        from app.modules.m07_research_supervision.models import ProblemStatus
+        problem = MagicMock()
+        problem.id = __import__("uuid").uuid4()
+        problem.student_user_id = student_id
+        problem.status = ProblemStatus.ACCEPTED.value
+        return problem
+
+    @pytest.mark.asyncio
+    async def test_submit_with_file_url_queues_evaluate_research_document(self):
+        """When file_url is provided in POST, evaluate_research_document.apply_async
+        must be called with job_id, document_id, schema_name, queue='celery-heavy'."""
+        from uuid import UUID, uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch, call
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import DocumentService
+        from app.modules.m07_research_supervision.schemas import DocumentSubmit
+
+        student_id = uuid4()
+        fake_doc_id = uuid4()
+        fake_job_id = uuid4()
+
+        fake_doc = MagicMock()
+        fake_doc.id = fake_doc_id
+
+        fake_problem = self._make_accepted_problem(student_id)
+
+        payload = DocumentSubmit(
+            research_problem_id=str(fake_problem.id),
+            file_url="tenant_dsu/research/doc.pdf",
+            file_name="doc.pdf",
+        )
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_pub_db = AsyncMock()
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_pub_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        apply_async_mock = MagicMock()
+
+        with patch(
+            "app.modules.m07_research_supervision.service.ProblemRepository.get_by_id",
+            new=AsyncMock(return_value=fake_problem),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.next_version_for_problem",
+            new=AsyncMock(return_value=1),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.create",
+            new=AsyncMock(return_value=fake_doc),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.database.AsyncSessionLocal",
+            return_value=mock_session_ctx,
+        ), patch(
+            "app.modules.m07_research_supervision.service.TaskJobPublicRepository.create",
+            new=AsyncMock(return_value=fake_job_id),
+        ), patch(
+            "app.workers.heavy.evaluate_research_document.evaluate_research_document.apply_async",
+            apply_async_mock,
+        ):
+            doc, job_id = await DocumentService.submit(
+                payload,
+                student_user_id=student_id,
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+
+        # Task MUST be queued
+        apply_async_mock.assert_called_once()
+        call_kwargs = apply_async_mock.call_args
+        task_kwargs = call_kwargs.kwargs.get("kwargs") or call_kwargs.args[0] if call_kwargs.args else {}
+        if not task_kwargs:
+            task_kwargs = call_kwargs.kwargs.get("kwargs", {})
+        assert str(fake_doc_id) == task_kwargs.get("document_id"), (
+            "document_id must be the newly created document's UUID"
+        )
+        assert task_kwargs.get("schema_name") == "tenant_test"
+        assert task_kwargs.get("job_id") == str(fake_job_id)
+        # Must route to celery-heavy
+        assert call_kwargs.kwargs.get("queue") == "celery-heavy", (
+            "apply_async must specify queue='celery-heavy'"
+        )
+        assert job_id == fake_job_id
+
+    @pytest.mark.asyncio
+    async def test_submit_without_file_url_does_not_queue_task(self):
+        """When file_url is None (two-step flow), no task is dispatched from submit().
+        The task will be dispatched from update_file_url() after the PATCH upload."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import DocumentService
+        from app.modules.m07_research_supervision.schemas import DocumentSubmit
+
+        student_id = uuid4()
+        fake_doc = MagicMock()
+        fake_doc.id = uuid4()
+
+        fake_problem = self._make_accepted_problem(student_id)
+
+        payload = DocumentSubmit(
+            research_problem_id=str(fake_problem.id),
+            file_url=None,
+            file_name=None,
+        )
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        apply_async_mock = MagicMock()
+
+        with patch(
+            "app.modules.m07_research_supervision.service.ProblemRepository.get_by_id",
+            new=AsyncMock(return_value=fake_problem),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.next_version_for_problem",
+            new=AsyncMock(return_value=1),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.create",
+            new=AsyncMock(return_value=fake_doc),
+        ), patch(
+            "app.workers.heavy.evaluate_research_document.evaluate_research_document.apply_async",
+            apply_async_mock,
+        ):
+            doc, job_id = await DocumentService.submit(
+                payload,
+                student_user_id=student_id,
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+
+        apply_async_mock.assert_not_called()
+        assert job_id is None
+
+    @pytest.mark.asyncio
+    async def test_update_file_url_queues_evaluate_research_document(self):
+        """PATCH /student/documents/{id}/file must dispatch evaluate_research_document
+        so the two-step upload flow reaches the AI pipeline."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import DocumentService
+
+        student_id = uuid4()
+        doc_id = uuid4()
+        fake_job_id = uuid4()
+
+        fake_doc = MagicMock()
+        fake_doc.id = doc_id
+        fake_doc.student_user_id = student_id
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_pub_db = AsyncMock()
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_pub_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        apply_async_mock = MagicMock()
+
+        with patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.get_by_id",
+            new=AsyncMock(return_value=fake_doc),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.database.AsyncSessionLocal",
+            return_value=mock_session_ctx,
+        ), patch(
+            "app.modules.m07_research_supervision.service.TaskJobPublicRepository.create",
+            new=AsyncMock(return_value=fake_job_id),
+        ), patch(
+            "app.workers.heavy.evaluate_research_document.evaluate_research_document.apply_async",
+            apply_async_mock,
+        ):
+            await DocumentService.update_file_url(
+                doc_id,
+                file_url="tenant_dsu/research/doc.pdf",
+                file_name="doc.pdf",
+                student_user_id=student_id,
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+
+        apply_async_mock.assert_called_once()
+        call_kwargs = apply_async_mock.call_args
+        task_kwargs = call_kwargs.kwargs.get("kwargs", {})
+        assert task_kwargs.get("document_id") == str(doc_id)
+        assert task_kwargs.get("schema_name") == "tenant_test"
+        assert task_kwargs.get("job_id") == str(fake_job_id)
+        assert call_kwargs.kwargs.get("queue") == "celery-heavy", (
+            "apply_async must route to celery-heavy"
+        )
+
+
+# ===========================================================================
 # 6 — Celery task wiring
 # ===========================================================================
 
@@ -941,3 +1147,173 @@ class TestWorkerRepoSignatureAlignment:
         # failure audit event must be emitted
         audit_event_args = [c.args[0] for c in audit_mock.call_args_list]
         assert AuditEventType.RESEARCH_DOCUMENT_EVAL_FAILED in audit_event_args
+
+
+# ===========================================================================
+# 10 — Worker success path (BUG-010 regression)
+# ===========================================================================
+
+class TestWorkerSuccessPath:
+    """Verify the happy path of _run_document_evaluation (BUG-010)."""
+
+    @pytest.mark.asyncio
+    async def test_worker_sets_evaluated_and_returns_scores(self):
+        """Happy path: worker runs evaluation, writes scores, sets EVALUATED status."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.workers.heavy.evaluate_research_document import _run_document_evaluation
+        from app.modules.m07_research_supervision.models import DocumentStatus
+        from app.modules.m07_research_supervision.document_eval import DocumentEvalResult
+        from app.core.audit_log.models import AuditEventType
+
+        doc_id = uuid4()
+
+        fake_doc = MagicMock()
+        fake_doc.id = doc_id
+        fake_doc.research_problem_id = uuid4()
+        fake_doc.file_url = "tenant_dsu/research/thesis.pdf"
+        fake_doc.file_name = "thesis.pdf"
+
+        fake_problem = MagicMock()
+        fake_problem.title = "AI in Education"
+        fake_problem.abstract = "This research investigates AI-assisted learning outcomes."
+
+        fake_eval_result = DocumentEvalResult(
+            plagiarism_score=0.05,
+            ai_content_score=0.15,
+            format_score=0.80,
+            clarity_score=0.88,
+            evaluation_report={
+                "format_issues": [],
+                "plagiarism_matches": [],
+                "ai_highlights": [],
+                "clarity_notes": "Well-structured research document.",
+                "word_count": 512,
+                "ai_scan": {
+                    "probability": 0.15,
+                    "confidence": 0.9,
+                    "burstiness_score": 0.7,
+                    "repetition_score": 0.05,
+                    "vocab_richness_score": 0.82,
+                },
+            },
+            ai_model="groq/llama-3.3-70b-versatile",
+            prompt_hash="abcd1234",
+        )
+
+        set_status_mock = AsyncMock()
+        set_eval_result_mock = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock()
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+        session_cm = MagicMock()
+        session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        session_cm.__aexit__ = AsyncMock(return_value=None)
+
+        mock_engine = MagicMock()
+        mock_engine.dispose = AsyncMock()
+        audit_mock = AsyncMock()
+
+        with patch(
+            "app.workers.heavy.evaluate_research_document._make_async_engine",
+            return_value=mock_engine,
+        ), patch(
+            "sqlalchemy.ext.asyncio.AsyncSession",
+            return_value=session_cm,
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.get_by_id",
+            AsyncMock(return_value=fake_doc),
+        ), patch(
+            "app.modules.m07_research_supervision.repository.ProblemRepository.get_by_id",
+            AsyncMock(return_value=fake_problem),
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.set_status",
+            set_status_mock,
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.list_for_problem",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.set_eval_result",
+            set_eval_result_mock,
+        ), patch(
+            "app.modules.m07_research_supervision.document_eval.evaluate_document",
+            AsyncMock(return_value=fake_eval_result),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            audit_mock,
+        ):
+            result = await _run_document_evaluation(doc_id, "tenant_test")
+
+        # Status must be set to EVALUATING during processing
+        status_calls = [c.args[1] for c in set_status_mock.call_args_list]
+        assert DocumentStatus.EVALUATING.value in status_calls, (
+            "Worker must set status EVALUATING before evaluation"
+        )
+        # Status must NOT be reverted to SUBMITTED (success path)
+        assert DocumentStatus.SUBMITTED.value not in status_calls, (
+            "Worker must NOT revert to SUBMITTED on success"
+        )
+
+        # set_eval_result must be called with all score fields
+        set_eval_result_mock.assert_called_once()
+        eval_kwargs = set_eval_result_mock.call_args.kwargs
+        assert eval_kwargs["plagiarism_score"] == pytest.approx(0.05)
+        assert eval_kwargs["ai_content_score"] == pytest.approx(0.15)
+        assert eval_kwargs["format_score"] == pytest.approx(0.80)
+        assert eval_kwargs["clarity_score"] == pytest.approx(0.88)
+        assert eval_kwargs["ai_model"] == "groq/llama-3.3-70b-versatile"
+        assert "format_issues" in eval_kwargs["evaluation_report"]
+        assert "clarity_notes" in eval_kwargs["evaluation_report"]
+
+        # Engine disposed after success
+        mock_engine.dispose.assert_called_once()
+
+        # No rollback on success path
+        mock_session.rollback.assert_not_called()
+
+        # Return dict contains all expected score keys
+        assert result["document_id"] == str(doc_id)
+        assert result["plagiarism_score"] == pytest.approx(0.05)
+        assert result["ai_content_score"] == pytest.approx(0.15)
+        assert result["format_score"] == pytest.approx(0.80)
+        assert result["clarity_score"] == pytest.approx(0.88)
+
+        # Success audit event emitted (not failure)
+        audit_event_args = [c.args[0] for c in audit_mock.call_args_list]
+        assert AuditEventType.RESEARCH_DOCUMENT_AI_EVALUATED in audit_event_args
+        assert AuditEventType.RESEARCH_DOCUMENT_EVAL_FAILED not in audit_event_args
+
+    def test_evaluation_report_structure_matches_frontend_types(self):
+        """The evaluation_report dict shape from document_eval must match frontend EvaluationReport.
+
+        Backend must produce: format_issues, plagiarism_matches, ai_highlights,
+        clarity_notes, word_count, ai_scan — matching types/research.ts EvaluationReport.
+        """
+        import inspect
+        import app.modules.m07_research_supervision.document_eval as mod
+        src = inspect.getsource(mod.evaluate_document)
+
+        # Fields the frontend EvaluationReport interface expects (from types/research.ts)
+        expected_keys = [
+            "format_issues",
+            "plagiarism_matches",
+            "ai_highlights",
+            "clarity_notes",
+            "word_count",
+            "ai_scan",
+        ]
+        for key in expected_keys:
+            assert f'"{key}"' in src, (
+                f"evaluation_report must include key '{key}' to match frontend EvaluationReport type"
+            )
+
+    def test_evaluation_report_does_not_use_legacy_sections_key(self):
+        """evaluation_report must NOT use 'sections' key — frontend type uses format_issues."""
+        import inspect
+        import app.modules.m07_research_supervision.document_eval as mod
+        src = inspect.getsource(mod.evaluate_document)
+        assert '"sections"' not in src, (
+            "evaluation_report must not use 'sections' key — the frontend EvaluationReport "
+            "type uses 'format_issues'. Using 'sections' causes a silent rendering mismatch."
+        )

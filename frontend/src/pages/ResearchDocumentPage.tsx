@@ -238,20 +238,42 @@ export default function ResearchDocumentPage() {
       {doc.evaluation_report && (
         <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
           <h2 className="text-sm font-semibold text-gray-700">Evaluation Report</h2>
-          {doc.evaluation_report.sections?.map((s) => (
-            <div key={s.section} className="flex items-start gap-3">
-              <span className={`mt-0.5 h-4 w-4 rounded-full flex-shrink-0 ${
-                s.present ? 'bg-green-400' : 'bg-red-300'
-              }`} />
-              <div>
-                <p className="text-sm font-medium text-gray-800">{s.section}</p>
-                {s.comment && <p className="text-xs text-gray-500">{s.comment}</p>}
-              </div>
+
+          {/* Word count */}
+          {doc.evaluation_report.word_count != null && (
+            <p className="text-xs text-gray-400">
+              Word count: {doc.evaluation_report.word_count}
+            </p>
+          )}
+
+          {/* Format compliance issues */}
+          {doc.evaluation_report.format_issues?.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Format Issues</p>
+              {doc.evaluation_report.format_issues.map((fi, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="mt-0.5 h-3.5 w-3.5 rounded-full bg-red-300 shrink-0" />
+                  <div>
+                    <span className="text-sm font-medium text-gray-800 capitalize">{fi.section}</span>
+                    {fi.issue && <p className="text-xs text-gray-500">{fi.issue}</p>}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-          {doc.evaluation_report.overall_comment && (
+          )}
+
+          {/* All sections present */}
+          {doc.evaluation_report.format_issues?.length === 0 && (
+            <div className="flex items-center gap-2 text-green-700">
+              <span className="h-3.5 w-3.5 rounded-full bg-green-400 shrink-0" />
+              <p className="text-sm">All required sections present</p>
+            </div>
+          )}
+
+          {/* Clarity notes from LLM */}
+          {doc.evaluation_report.clarity_notes && (
             <p className="text-sm text-gray-600 border-t border-gray-100 pt-3">
-              {doc.evaluation_report.overall_comment}
+              {doc.evaluation_report.clarity_notes}
             </p>
           )}
         </div>

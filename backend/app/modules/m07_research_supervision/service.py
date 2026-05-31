@@ -129,10 +129,11 @@ class ProblemService:
         from app.workers.heavy.evaluate_research_proposal import evaluate_research_proposal
         evaluate_research_proposal.apply_async(
             kwargs={
-                "job_id":     str(job_id),
-                "problem_id": str(problem.id),
+                "job_id":      str(job_id),
+                "problem_id":  str(problem.id),
                 "schema_name": schema_name,
-            }
+            },
+            queue="celery-heavy",
         )
         return problem, job_id
 
@@ -301,29 +302,35 @@ class DocumentService:
         await db.commit()
         await db.refresh(doc)
 
-        # Dispatch evaluation task
-        from app.database import AsyncSessionLocal
-        async with AsyncSessionLocal() as pub_db:
-            job_id = await TaskJobPublicRepository.create(
-                tenant_id=tenant_id,
-                task_type="evaluate_research_document",
-                queue_name="heavy",
-                payload={"document_id": str(doc.id), "schema_name": schema_name},
-                db=pub_db,
+        # Only dispatch evaluation immediately when the file is already uploaded
+        # (one-step flow). For the two-step flow (file_url=None), dispatch
+        # happens in update_file_url() after the PATCH confirms the upload.
+        job_id = None
+        if payload.file_url:
+            from app.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as pub_db:
+                job_id = await TaskJobPublicRepository.create(
+                    tenant_id=tenant_id,
+                    task_type="evaluate_research_document",
+                    queue_name="heavy",
+                    payload={"document_id": str(doc.id), "schema_name": schema_name},
+                    db=pub_db,
+                )
+                await pub_db.commit()
+
+            await DocumentRepository.set_eval_job(doc.id, job_id=job_id, db=db)
+            await db.commit()
+
+            from app.workers.heavy.evaluate_research_document import evaluate_research_document
+            evaluate_research_document.apply_async(
+                kwargs={
+                    "job_id":      str(job_id),
+                    "document_id": str(doc.id),
+                    "schema_name": schema_name,
+                },
+                queue="celery-heavy",
             )
-            await pub_db.commit()
 
-        await DocumentRepository.set_eval_job(doc.id, job_id=job_id, db=db)
-        await db.commit()
-
-        from app.workers.heavy.evaluate_research_document import evaluate_research_document
-        evaluate_research_document.apply_async(
-            kwargs={
-                "job_id":     str(job_id),
-                "document_id": str(doc.id),
-                "schema_name": schema_name,
-            }
-        )
         return doc, job_id
 
     @staticmethod
@@ -399,15 +406,21 @@ class DocumentService:
         file_url: str,
         file_name: str | None,
         student_user_id: UUID,
+        tenant_id: UUID,
+        schema_name: str,
         db: AsyncSession,
     ):
-        """Update file URL after presigned upload completes."""
+        """Update file URL after presigned upload completes (two-step upload flow).
+
+        Sets the confirmed S3 key on the document record, then queues
+        evaluate_research_document so the AI pipeline sees the real file.
+        """
         doc = await DocumentRepository.get_by_id(doc_id, db=db)
         if doc is None:
             raise ResearchServiceError("NOT_FOUND", "Document not found.", 404)
         if doc.student_user_id != student_user_id:
             raise ResearchServiceError("FORBIDDEN", "Access denied.", 403)
-        await DocumentRepository.set_status(doc_id, DocumentStatus.SUBMITTED.value, db=db)
+
         from sqlalchemy import update as sa_update
         from app.modules.m07_research_supervision.models import ResearchDocument
         await db.execute(
@@ -416,6 +429,32 @@ class DocumentService:
             .values(file_url=file_url, file_name=file_name)
         )
         await db.commit()
+
+        # Dispatch evaluation now that the file is confirmed uploaded
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            job_id = await TaskJobPublicRepository.create(
+                tenant_id=tenant_id,
+                task_type="evaluate_research_document",
+                queue_name="heavy",
+                payload={"document_id": str(doc_id), "schema_name": schema_name},
+                db=pub_db,
+            )
+            await pub_db.commit()
+
+        await DocumentRepository.set_eval_job(doc_id, job_id=job_id, db=db)
+        await db.commit()
+
+        from app.workers.heavy.evaluate_research_document import evaluate_research_document
+        evaluate_research_document.apply_async(
+            kwargs={
+                "job_id":      str(job_id),
+                "document_id": str(doc_id),
+                "schema_name": schema_name,
+            },
+            queue="celery-heavy",
+        )
+
         return await DocumentRepository.get_by_id(doc_id, db=db)
 
 
@@ -612,10 +651,11 @@ class VivaService:
         from app.workers.heavy.process_viva_session import process_viva_session
         process_viva_session.apply_async(
             kwargs={
-                "job_id":     str(job_id),
-                "viva_id":    str(viva_id),
+                "job_id":      str(job_id),
+                "viva_id":     str(viva_id),
                 "schema_name": schema_name,
-            }
+            },
+            queue="celery-heavy",
         )
         return await VivaRepository.get_by_id(viva_id, db=db), job_id
 

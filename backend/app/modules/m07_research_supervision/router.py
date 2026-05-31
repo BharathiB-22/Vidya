@@ -591,10 +591,23 @@ async def student_set_file_url(
             file_url=payload.file_url,
             file_name=payload.file_name,
             student_user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
             db=db,
         )
     except ResearchServiceError as exc:
         raise _svc_error(exc)
+
+    await AuditService.log(
+        AuditEventType.RESEARCH_DOCUMENT_EVAL_QUEUED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="research_document",
+        target_id=str(doc_id),
+        metadata={"file_name": payload.file_name},
+    )
     return DocumentResponse.model_validate(doc)
 
 
