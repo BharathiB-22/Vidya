@@ -653,3 +653,291 @@ class TestM07AuditEvents:
         from app.core.audit_log.models import AuditEventType
         for name in ["LAB_EVAL_COMPLETED", "LAB_SUBMISSION_RATIFIED", "LAB_REPORT_COMPLETED"]:
             assert hasattr(AuditEventType, name), f"M06 regression: {name}"
+
+
+# ===========================================================================
+# 9 — Worker/repo alignment: BUG-005 + BUG-006 regression suite
+# ===========================================================================
+
+class TestWorkerRepoSignatureAlignment:
+    """Regression tests for M07-BUG-005 (param mismatch) and M07-BUG-006 (event-loop)."""
+
+    # ── Static signature / source tests ───────────────────────────────────────
+
+    def test_set_eval_result_has_no_new_status_param(self):
+        """set_eval_result must not accept new_status — it hardcodes EVALUATED."""
+        import inspect
+        from app.modules.m07_research_supervision.repository import DocumentRepository
+        sig = inspect.signature(DocumentRepository.set_eval_result)
+        assert "new_status" not in sig.parameters
+
+    def test_set_eval_result_has_all_worker_kwargs(self):
+        """Every kwarg the worker passes to set_eval_result must be in the signature."""
+        import inspect
+        from app.modules.m07_research_supervision.repository import DocumentRepository
+        sig = inspect.signature(DocumentRepository.set_eval_result)
+        required = {
+            "plagiarism_score", "ai_content_score", "format_score",
+            "clarity_score", "evaluation_report", "ai_model", "prompt_hash", "db",
+        }
+        missing = required - set(sig.parameters)
+        assert not missing, f"Missing params in set_eval_result: {missing}"
+
+    def test_worker_source_does_not_pass_new_status_to_set_eval_result(self):
+        """Worker call to set_eval_result must not include new_status= kwarg."""
+        import inspect, re
+        import app.workers.heavy.evaluate_research_document as mod
+        src = inspect.getsource(mod._run_document_evaluation)
+        call_block = re.search(r"set_eval_result\(.*?\)", src, re.DOTALL)
+        assert call_block is not None, "set_eval_result call not found in worker source"
+        assert "new_status" not in call_block.group(0)
+
+    def test_worker_corpus_texts_built_as_tuples(self):
+        """corpus_texts must be [(doc_id, text)] tuples, not plain strings."""
+        import inspect
+        import app.workers.heavy.evaluate_research_document as mod
+        src = inspect.getsource(mod._run_document_evaluation)
+        assert "(d.id," in src, (
+            "corpus_texts list comprehension must yield (d.id, text) tuples"
+        )
+
+    def test_guide_review_no_spurious_new_status_column(self):
+        """set_guide_review must not pass new_status= as a column to SQLAlchemy values()."""
+        import inspect, re
+        from app.modules.m07_research_supervision.repository import DocumentRepository
+        src = inspect.getsource(DocumentRepository.set_guide_review)
+        assert not re.search(r"new_status\s*=\s*new_status", src), (
+            "set_guide_review must not use new_status= as a column name; "
+            "the column is 'status', not 'new_status'"
+        )
+
+    # ── BUG-006: NullPool / no cached engine ──────────────────────────────────
+
+    def test_no_cached_global_async_engine(self):
+        """Worker must not have a module-level _async_engine — kills event-loop reuse."""
+        import app.workers.heavy.evaluate_research_document as mod
+        assert not hasattr(mod, "_async_engine"), (
+            "Module-level _async_engine must not exist; use _make_async_engine() instead"
+        )
+
+    def test_worker_uses_nullpool(self):
+        """_make_async_engine must pass poolclass=NullPool to avoid cross-loop errors."""
+        from sqlalchemy.pool import NullPool
+        from unittest.mock import patch, MagicMock
+        import app.workers.heavy.evaluate_research_document as mod
+
+        captured: dict = {}
+
+        def spy_create(url, **kw):
+            captured["poolclass"] = kw.get("poolclass")
+            return MagicMock()
+
+        with patch("sqlalchemy.ext.asyncio.create_async_engine", side_effect=spy_create):
+            mod._make_async_engine("tenant_test")
+
+        assert captured.get("poolclass") is NullPool, (
+            "_make_async_engine must pass poolclass=NullPool"
+        )
+
+    def test_make_async_engine_returns_fresh_instance_each_call(self):
+        """Each _make_async_engine() call must return a new engine, never a cached one."""
+        from unittest.mock import patch, MagicMock
+        import app.workers.heavy.evaluate_research_document as mod
+
+        created: list = []
+
+        def spy_create(url, **kw):
+            e = MagicMock()
+            created.append(e)
+            return e
+
+        with patch("sqlalchemy.ext.asyncio.create_async_engine", side_effect=spy_create):
+            e1 = mod._make_async_engine("tenant_test")
+            e2 = mod._make_async_engine("tenant_test")
+
+        assert len(created) == 2, "_make_async_engine must create a new engine every call"
+        assert e1 is not e2
+
+    # ── BUG-007: tenant search_path via server_settings ───────────────────────
+
+    def test_make_async_engine_passes_schema_in_server_settings(self):
+        """search_path must reach asyncpg via server_settings, not just a SET statement.
+
+        SQLAlchemy releases the connection after each session.commit(), so a
+        one-time 'SET search_path' is lost.  server_settings is applied to
+        every new connection created by asyncpg.
+        """
+        from unittest.mock import patch, MagicMock
+        import app.workers.heavy.evaluate_research_document as mod
+
+        captured: dict = {}
+
+        def spy_create(url, **kw):
+            captured.update(kw)
+            return MagicMock()
+
+        with patch("sqlalchemy.ext.asyncio.create_async_engine", side_effect=spy_create):
+            mod._make_async_engine("tenant_myschema")
+
+        connect_args = captured.get("connect_args", {})
+        server_settings = connect_args.get("server_settings", {})
+        assert "search_path" in server_settings, (
+            "_make_async_engine must pass search_path via connect_args['server_settings']"
+        )
+        assert "tenant_myschema" in server_settings["search_path"], (
+            "server_settings search_path must include the tenant schema name"
+        )
+        assert "public" in server_settings["search_path"], (
+            "server_settings search_path must include 'public' as fallback"
+        )
+
+    def test_worker_source_sets_search_path_as_belt_and_suspenders(self):
+        """Worker must also issue SET search_path inside the session as belt-and-suspenders."""
+        import inspect
+        import app.workers.heavy.evaluate_research_document as mod
+        src = inspect.getsource(mod._run_document_evaluation)
+        assert "SET search_path" in src, (
+            "_run_document_evaluation must issue SET search_path inside the session "
+            "as a belt-and-suspenders guard"
+        )
+
+    @pytest.mark.asyncio
+    async def test_worker_raises_for_invalid_schema_name(self):
+        """Empty or non-tenant schema_name must raise ValueError before any DB access."""
+        from uuid import uuid4
+        from app.workers.heavy.evaluate_research_document import _run_document_evaluation
+
+        for bad_schema in ("", "public", "random_schema"):
+            with pytest.raises(ValueError, match="schema_name"):
+                await _run_document_evaluation(uuid4(), bad_schema)
+
+    def test_eval_failed_audit_event_exists(self):
+        """RESEARCH_DOCUMENT_EVAL_FAILED must be in AuditEventType."""
+        from app.core.audit_log.models import AuditEventType
+        assert hasattr(AuditEventType, "RESEARCH_DOCUMENT_EVAL_FAILED")
+
+    # ── Repo-level async tests ─────────────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_set_eval_result_accepts_valid_call_without_new_status(self):
+        """set_eval_result must accept the correct kwargs and not raise TypeError."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.repository import DocumentRepository
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_db.execute = AsyncMock()
+        await DocumentRepository.set_eval_result(
+            uuid4(),
+            plagiarism_score=0.1,
+            ai_content_score=0.2,
+            format_score=0.8,
+            clarity_score=0.9,
+            evaluation_report={"format_issues": []},
+            ai_model="test-model",
+            prompt_hash="abc123",
+            db=mock_db,
+        )
+        mock_db.execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_eval_result_rejected_with_new_status_kwarg(self):
+        """Passing new_status= to set_eval_result must raise TypeError immediately."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.repository import DocumentRepository
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        with pytest.raises(TypeError, match="new_status"):
+            await DocumentRepository.set_eval_result(
+                uuid4(),
+                plagiarism_score=0.1,
+                ai_content_score=0.2,
+                format_score=0.8,
+                clarity_score=0.9,
+                evaluation_report={},
+                ai_model="m",
+                prompt_hash="h",
+                new_status="EVALUATED",
+                db=mock_db,
+            )
+
+    # ── Worker failure-path end-to-end test ───────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_worker_resets_document_and_audits_on_evaluation_failure(self):
+        """On failure: rollback → reset to SUBMITTED → audit EVAL_FAILED → dispose engine."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from app.modules.m07_research_supervision.models import DocumentStatus
+        from app.core.audit_log.models import AuditEventType
+        from app.workers.heavy.evaluate_research_document import _run_document_evaluation
+
+        doc_id = uuid4()
+        fake_doc = MagicMock()
+        fake_doc.id = doc_id
+        fake_doc.research_problem_id = uuid4()
+        fake_doc.file_url = None
+        fake_doc.file_name = None
+
+        fake_problem = MagicMock()
+        fake_problem.title = "Test"
+        fake_problem.abstract = "Abstract"
+
+        set_status_mock = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock()
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+        session_cm = MagicMock()
+        session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        session_cm.__aexit__ = AsyncMock(return_value=None)
+
+        mock_engine = MagicMock()
+        mock_engine.dispose = AsyncMock()
+        audit_mock = AsyncMock()
+
+        with patch(
+            "app.workers.heavy.evaluate_research_document._make_async_engine",
+            return_value=mock_engine,
+        ), patch(
+            "sqlalchemy.ext.asyncio.AsyncSession",
+            return_value=session_cm,
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.get_by_id",
+            AsyncMock(return_value=fake_doc),
+        ), patch(
+            "app.modules.m07_research_supervision.repository.ProblemRepository.get_by_id",
+            AsyncMock(return_value=fake_problem),
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.set_status",
+            set_status_mock,
+        ), patch(
+            "app.modules.m07_research_supervision.repository.DocumentRepository.list_for_problem",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "app.modules.m07_research_supervision.document_eval.evaluate_document",
+            AsyncMock(side_effect=RuntimeError("LLM timeout")),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            audit_mock,
+        ):
+            with pytest.raises(RuntimeError, match="LLM timeout"):
+                await _run_document_evaluation(doc_id, "tenant_test")
+
+        # Status: first call → EVALUATING, second call → SUBMITTED
+        status_calls = [c.args[1] for c in set_status_mock.call_args_list]
+        assert DocumentStatus.EVALUATING.value in status_calls
+        assert DocumentStatus.SUBMITTED.value in status_calls
+
+        # rollback must precede the SUBMITTED reset
+        mock_session.rollback.assert_called_once()
+
+        # engine.dispose() must run even on failure (try/finally)
+        mock_engine.dispose.assert_called_once()
+
+        # failure audit event must be emitted
+        audit_event_args = [c.args[0] for c in audit_mock.call_args_list]
+        assert AuditEventType.RESEARCH_DOCUMENT_EVAL_FAILED in audit_event_args
