@@ -143,6 +143,11 @@ export async function studentGetProblem(id: string): Promise<ResearchProblem> {
   return data
 }
 
+export async function studentListProblemDocuments(problemId: string): Promise<DocumentListResponse> {
+  const { data } = await api.get<DocumentListResponse>(`${BASE}/student/problems/${problemId}/documents`)
+  return data
+}
+
 // ── Student — Documents ───────────────────────────────────────────────────────
 
 export async function studentSubmitDocument(payload: DocumentSubmit): Promise<ResearchDocument> {

@@ -478,6 +478,31 @@ async def student_get_proposal(
     return ProblemResponse.model_validate(problem)
 
 
+@router.get("/student/problems/{problem_id}/documents", response_model=DocumentListResponse)
+async def student_list_problem_documents(
+    problem_id: UUID,
+    current_user: CurrentUser = Depends(_STUDENT),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """List all documents the student has submitted for one of their proposals."""
+    try:
+        problem = await ProblemService.get(problem_id, db=db)
+    except ResearchServiceError as exc:
+        raise _svc_error(exc)
+    if problem.student_user_id != current_user.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Access denied."},
+        )
+    items = await DocumentService.list_for_problem(problem_id, db=db)
+    return DocumentListResponse(
+        items=[DocumentResponse.model_validate(d) for d in items],
+        total=len(items),
+        offset=0,
+        limit=len(items),
+    )
+
+
 # ===========================================================================
 # Student — Document submission
 # ===========================================================================
