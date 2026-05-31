@@ -189,7 +189,7 @@ class VivaScheduleRequest(BaseModel):
     """Guide schedules a viva session."""
     research_problem_id: UUID
     document_id:         UUID
-    student_user_id:     UUID
+    student_user_id:     UUID | None = None   # derived from approved document if omitted
     scheduled_at:        datetime | None = None
     session_ttl_hours:   int = Field(default=72, ge=1, le=720)
 

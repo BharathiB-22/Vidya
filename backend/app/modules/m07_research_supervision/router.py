@@ -369,7 +369,7 @@ async def schedule_viva(
         metadata={
             "problem_id":  str(payload.research_problem_id),
             "document_id": str(payload.document_id),
-            "student_id":  str(payload.student_user_id),
+            "student_id":  str(viva.student_user_id),
         },
     )
     return VivaSessionResponse.model_validate(viva)

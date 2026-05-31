@@ -779,6 +779,108 @@ class TestDocumentServiceSubmitDispatch:
 
 
 # ===========================================================================
+# 5c — VivaService.schedule: student_user_id derived from document (BUG-011)
+# ===========================================================================
+
+class TestVivaScheduleStudentIdDerivation:
+    """Regression for M07-BUG-011: schedule_viva must succeed without
+    student_user_id in the request payload by deriving it from the document."""
+
+    def _make_mock_doc(self, student_id, status="APPROVED"):
+        doc = MagicMock()
+        doc.id = __import__("uuid").uuid4()
+        doc.student_user_id = student_id
+        doc.status = status
+        return doc
+
+    def _make_mock_problem(self, guide_id):
+        from app.modules.m07_research_supervision.models import ProblemStatus
+        problem = MagicMock()
+        problem.id = __import__("uuid").uuid4()
+        problem.guide_user_id = guide_id
+        problem.status = ProblemStatus.ACCEPTED.value
+        problem.title = "Test Research"
+        problem.abstract = "Test abstract."
+        return problem
+
+    @pytest.mark.asyncio
+    async def test_schedule_viva_without_student_user_id_uses_document(self):
+        """Payload without student_user_id must succeed — student_user_id is
+        taken from the approved document record."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService
+        from app.modules.m07_research_supervision.schemas import VivaScheduleRequest
+
+        guide_id = uuid4()
+        student_id = uuid4()
+        fake_problem = self._make_mock_problem(guide_id)
+        fake_doc = self._make_mock_doc(student_id)
+
+        fake_viva = MagicMock()
+        fake_viva.id = uuid4()
+        fake_viva.student_user_id = student_id
+
+        mock_db = AsyncMock(spec=AsyncSession)
+
+        payload = VivaScheduleRequest(
+            research_problem_id=fake_problem.id,
+            document_id=fake_doc.id,
+            # student_user_id intentionally omitted
+        )
+
+        with patch(
+            "app.modules.m07_research_supervision.service.ProblemRepository.get_by_id",
+            new=AsyncMock(return_value=fake_problem),
+        ), patch(
+            "app.modules.m07_research_supervision.service.DocumentRepository.get_by_id",
+            new=AsyncMock(return_value=fake_doc),
+        ), patch(
+            "app.modules.m07_research_supervision.viva_engine.generate_base_questions",
+            new=AsyncMock(return_value=[]),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.create",
+            new=AsyncMock(return_value=fake_viva),
+        ):
+            mock_db.commit = AsyncMock()
+            mock_db.refresh = AsyncMock()
+            result = await VivaService.schedule(payload, guide_user_id=guide_id, db=mock_db)
+
+        assert result is fake_viva
+        assert result.student_user_id == student_id
+
+    @pytest.mark.asyncio
+    async def test_schedule_viva_schema_accepts_omitted_student_user_id(self):
+        """VivaScheduleRequest must not raise ValidationError when
+        student_user_id is absent from the payload."""
+        from uuid import uuid4
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaScheduleRequest
+
+        # Must not raise
+        req = VivaScheduleRequest(
+            research_problem_id=str(uuid4()),
+            document_id=str(uuid4()),
+        )
+        assert req.student_user_id is None
+
+    @pytest.mark.asyncio
+    async def test_schedule_viva_schema_still_accepts_explicit_student_user_id(self):
+        """Explicit student_user_id in payload must still be accepted (backward compat)."""
+        from uuid import uuid4
+        from app.modules.m07_research_supervision.schemas import VivaScheduleRequest
+
+        student_id = uuid4()
+        req = VivaScheduleRequest(
+            research_problem_id=str(uuid4()),
+            document_id=str(uuid4()),
+            student_user_id=str(student_id),
+        )
+        assert req.student_user_id == student_id
+
+
+# ===========================================================================
 # 6 — Celery task wiring
 # ===========================================================================
 

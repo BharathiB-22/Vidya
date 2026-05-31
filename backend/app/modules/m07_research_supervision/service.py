@@ -502,10 +502,14 @@ class VivaService:
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=payload.session_ttl_hours)
 
+        # Use caller-supplied student_user_id if provided; fall back to the
+        # document record, which is the authoritative source after validation.
+        effective_student_id = payload.student_user_id or doc.student_user_id
+
         viva = await VivaRepository.create(
             research_problem_id=payload.research_problem_id,
             document_id=payload.document_id,
-            student_user_id=payload.student_user_id,
+            student_user_id=effective_student_id,
             guide_user_id=guide_user_id,
             session_token=token,
             ai_questions=[
