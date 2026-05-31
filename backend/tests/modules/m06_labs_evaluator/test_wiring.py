@@ -324,3 +324,54 @@ def test_grade_ledger_submission_fk_is_restrict():
                 )
                 return
     raise AssertionError("No FK to submissions found in GradeLedger")
+
+
+# ===========================================================================
+# 8. M06-BUG-005 — Celery async event-loop fix smoke tests
+# ===========================================================================
+
+def test_worker_engine_uses_null_pool():
+    """_make_async_engine must use NullPool.
+
+    asyncpg binds pool objects to the event loop that created them.  Celery
+    creates a new event loop per asyncio.run() call.  A pooled engine reused
+    across invocations raises 'Future attached to a different loop'.  NullPool
+    prevents this by never holding connections between tasks.
+    """
+    import asyncio
+    from sqlalchemy.pool import NullPool
+    from app.workers.heavy.evaluate_lab_submission import _make_async_engine
+
+    engine = _make_async_engine()
+    try:
+        assert isinstance(engine.pool, NullPool), (
+            f"Expected NullPool, got {type(engine.pool).__name__}. "
+            "Without NullPool, Celery workers crash on the second task invocation."
+        )
+    finally:
+        asyncio.run(engine.dispose())
+
+
+def test_worker_has_no_cached_global_engine():
+    """evaluate_lab_submission module must not expose a cached _async_engine global.
+
+    A module-level engine cache is the root cause of M06-BUG-005: the cached
+    engine's asyncpg pool is bound to the first invocation's event loop and
+    raises RuntimeError on subsequent Celery task invocations.
+    """
+    import app.workers.heavy.evaluate_lab_submission as worker_mod
+    assert not hasattr(worker_mod, "_async_engine"), (
+        "_async_engine global found — remove it; use _make_async_engine() per invocation instead."
+    )
+
+
+def test_text_extractor_rejects_unsupported_extension():
+    """extract_text must return ('', error_message) for unsupported types, not a placeholder."""
+    from app.modules.m06_labs_evaluator.text_extractor import extract_text
+
+    text, err = extract_text("tenant/submissions/file.xyz")
+    assert text == "", "Expected empty string for unsupported file type"
+    assert err is not None and len(err) > 0, "Expected a non-empty error message"
+    assert "Unsupported" in err or "unsupported" in err.lower(), (
+        f"Error message should mention unsupported type, got: {err!r}"
+    )

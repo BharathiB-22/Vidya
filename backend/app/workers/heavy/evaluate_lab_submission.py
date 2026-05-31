@@ -20,7 +20,7 @@ Flow for CODE submissions (additional steps):
   (Steps 3, 4 for AI content scan of code also run.)
 
 On failure:
-  - Transition submission status → EVALUATED with error note.
+  - Revert submission status → SUBMITTED (allows re-queue).
   - Audit LAB_EVAL_FAILED.
   - Re-raise so Celery marks the task FAILED.
 """
@@ -34,16 +34,21 @@ from app.workers.celery_app import celery_app
 
 logger = logging.getLogger("vidya.worker.m06.evaluate_lab_submission")
 
-_async_engine = None
 
+def _make_async_engine():
+    """Create a fresh async engine with NullPool for this task invocation.
 
-def _get_async_engine():
-    global _async_engine
-    if _async_engine is None:
-        from sqlalchemy.ext.asyncio import create_async_engine
-        from app.config import settings
-        _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
-    return _async_engine
+    asyncpg binds connection-pool objects to the event loop that created them.
+    Celery calls asyncio.run() per task, which creates and then closes a new
+    event loop each time.  A pooled engine from a prior invocation holds
+    Futures bound to the closed loop — accessing it from the next invocation's
+    loop raises 'RuntimeError: Task got Future attached to a different loop'.
+    NullPool avoids this entirely: connections are never held between tasks.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+    from app.config import settings
+    return create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +94,6 @@ async def _run_evaluation(
 ) -> dict:
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
-    from sqlalchemy.orm import selectinload
 
     from app.config import settings
     from app.core.audit_log.models import AuditEventType
@@ -106,206 +110,247 @@ async def _run_evaluation(
         SubmissionRepository,
     )
 
-    engine = _get_async_engine()
+    engine = _make_async_engine()
 
-    async with AsyncSession(engine, expire_on_commit=False) as session:
-        await session.execute(text(f"SET search_path TO {schema_name}, public"))
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            await session.execute(text(f"SET search_path TO {schema_name}, public"))
 
-        # 1. Load submission
-        sub = await SubmissionRepository.get_by_id(submission_id, db=session)
-        if sub is None:
-            raise ValueError(f"Submission {submission_id} not found in {schema_name!r}.")
+            try:
+                # 1. Load submission
+                sub = await SubmissionRepository.get_by_id(submission_id, db=session)
+                if sub is None:
+                    raise ValueError(f"Submission {submission_id} not found in {schema_name!r}.")
 
-        # Load assignment via direct query (no relationship loaded)
-        from sqlalchemy import select
-        from app.modules.m06_labs_evaluator.models import LabAssignment
-        assignment_row = (
-            await session.execute(select(LabAssignment).where(LabAssignment.id == assignment_id))
-        ).scalar_one_or_none()
-        if assignment_row is None:
-            raise ValueError(f"Assignment {assignment_id} not found.")
+                # Load assignment via direct query (no relationship loaded)
+                from sqlalchemy import select
+                from app.modules.m06_labs_evaluator.models import LabAssignment
+                assignment_row = (
+                    await session.execute(select(LabAssignment).where(LabAssignment.id == assignment_id))
+                ).scalar_one_or_none()
+                if assignment_row is None:
+                    raise ValueError(f"Assignment {assignment_id} not found.")
 
-        # 2. Transition → EVALUATING so UI shows in-progress state
-        await SubmissionRepository.set_status(
-            submission_id, SubmissionStatus.EVALUATING, db=session
-        )
-        await session.commit()
-
-        sub_type = sub.submission_type
-
-        # 3. Get content to evaluate
-        extraction_error: str | None = None
-        content = sub.content_text or ""
-        if not content and sub.content_url:
-            from app.modules.m06_labs_evaluator.text_extractor import extract_text
-            content, extraction_error = await asyncio.get_running_loop().run_in_executor(
-                None, lambda: extract_text(sub.content_url)
-            )
-            if extraction_error:
-                logger.warning(
-                    "File extraction failed for submission %s: %s",
-                    submission_id, extraction_error,
+                # 2. Transition → EVALUATING so UI shows in-progress state
+                await SubmissionRepository.set_status(
+                    submission_id, SubmissionStatus.EVALUATING, db=session
                 )
+                await session.commit()
 
-        # 4. AI content scan
-        from app.modules.m06_labs_evaluator.ai_scan import scan as ai_scan
-        scan_result = ai_scan(content, threshold=float(settings.M06_AI_SCAN_THRESHOLD))
+                sub_type = sub.submission_type
 
-        ai_scan_status = AIScanStatus.FLAGGED if scan_result.is_flagged else AIScanStatus.CLEAN
-        await SubmissionRepository.set_ai_scan(
-            submission_id,
-            ai_scan_status,
-            {
-                "probability": scan_result.probability,
-                "confidence":  scan_result.confidence,
-                "highlights":  scan_result.highlights,
-            },
-            db=session,
-        )
-        await session.commit()
-
-        # 4. Plagiarism check
-        from app.modules.m06_labs_evaluator.models import LabSubmission as SubModel
-        cohort_raw = await SubmissionRepository.get_cohort_texts(
-            assignment_id, submission_id, db=session
-        )
-        plagiarism_score: float = 0.0
-        plagiarism_matches: list[dict] = []
-
-        if sub_type == SubmissionType.CODE:
-            from app.modules.m06_labs_evaluator.ast_similarity import compute_ast_similarity
-            plag_result = compute_ast_similarity(
-                content,
-                cohort_raw,
-                threshold=float(assignment_row.plagiarism_threshold),
-            )
-        else:
-            from app.modules.m06_labs_evaluator.plagiarism import compute_plagiarism
-            plag_result = compute_plagiarism(
-                content,
-                cohort_raw,
-                threshold=float(assignment_row.plagiarism_threshold),
-            )
-
-        plagiarism_score   = plag_result.max_similarity
-        plagiarism_matches = plag_result.matches
-
-        # 5 (CODE only). Sandbox + static analysis + test cases
-        test_results: list[dict] = []
-        static_analysis: dict | None = None
-
-        if sub_type == SubmissionType.CODE:
-            test_results, static_analysis = await _run_code_evaluation(
-                code=content,
-                test_cases=assignment_row.test_cases or [],
-                language=assignment_row.language or "python",
-            )
-
-        # 6. LLM rubric scoring
-        from app.modules.m06_labs_evaluator.rubric_scorer import (
-            CriterionScore, RubricScoringResult, score_submission,
-        )
-
-        if extraction_error:
-            # File could not be extracted — build advisory zero result so evaluators
-            # know this submission needs manual review.
-            rubric_def = assignment_row.rubric or []
-            extraction_note = f"File extraction failed — manual review required. ({extraction_error})"
-            scoring_result = RubricScoringResult(
-                criteria_scores=[
-                    CriterionScore(
-                        criterion_id=c["criterion_id"],
-                        ai_score=0.0,
-                        ai_justification=extraction_note,
-                        max_marks=int(c["max_marks"]),
+                # 3. Get content to evaluate
+                extraction_error: str | None = None
+                content = sub.content_text or ""
+                if not content and sub.content_url:
+                    from app.modules.m06_labs_evaluator.text_extractor import extract_text
+                    content, extraction_error = await asyncio.get_running_loop().run_in_executor(
+                        None, lambda: extract_text(sub.content_url)
                     )
-                    for c in rubric_def
-                ],
-                overall_ai_score=0.0,
-                confidence_level="LOW",
-                ai_model="extraction_failed",
-                prompt_hash="",
-            )
-        else:
-            # Build question context for the LLM
-            question_ctx = assignment_row.description or assignment_row.title
-            if sub_type == SubmissionType.CODE and test_results:
-                pass_count = sum(1 for t in test_results if t.get("passed"))
-                total_tc   = len(test_results)
-                question_ctx += (
-                    f"\n\n[Code evaluation: {pass_count}/{total_tc} test cases passed. "
-                    f"Static analysis: complexity={static_analysis.get('complexity_score') if static_analysis else 'N/A'}]"
+                    if extraction_error:
+                        logger.warning(
+                            "File extraction failed for submission %s: %s",
+                            submission_id, extraction_error,
+                        )
+
+                # 4. AI content scan
+                from app.modules.m06_labs_evaluator.ai_scan import scan as ai_scan
+                scan_result = ai_scan(content, threshold=float(settings.M06_AI_SCAN_THRESHOLD))
+
+                ai_scan_status = AIScanStatus.FLAGGED if scan_result.is_flagged else AIScanStatus.CLEAN
+                await SubmissionRepository.set_ai_scan(
+                    submission_id,
+                    ai_scan_status,
+                    {
+                        "probability": scan_result.probability,
+                        "confidence":  scan_result.confidence,
+                        "highlights":  scan_result.highlights,
+                    },
+                    db=session,
+                )
+                await session.commit()
+
+                # 4. Plagiarism check
+                cohort_raw = await SubmissionRepository.get_cohort_texts(
+                    assignment_id, submission_id, db=session
+                )
+                plagiarism_score: float = 0.0
+                plagiarism_matches: list[dict] = []
+
+                if sub_type == SubmissionType.CODE:
+                    from app.modules.m06_labs_evaluator.ast_similarity import compute_ast_similarity
+                    plag_result = compute_ast_similarity(
+                        content,
+                        cohort_raw,
+                        threshold=float(assignment_row.plagiarism_threshold),
+                    )
+                else:
+                    from app.modules.m06_labs_evaluator.plagiarism import compute_plagiarism
+                    plag_result = compute_plagiarism(
+                        content,
+                        cohort_raw,
+                        threshold=float(assignment_row.plagiarism_threshold),
+                    )
+
+                plagiarism_score   = plag_result.max_similarity
+                plagiarism_matches = plag_result.matches
+
+                # 5 (CODE only). Sandbox + static analysis + test cases
+                test_results: list[dict] = []
+                static_analysis: dict | None = None
+
+                if sub_type == SubmissionType.CODE:
+                    test_results, static_analysis = await _run_code_evaluation(
+                        code=content,
+                        test_cases=assignment_row.test_cases or [],
+                        language=assignment_row.language or "python",
+                    )
+
+                # 6. LLM rubric scoring
+                from app.modules.m06_labs_evaluator.rubric_scorer import (
+                    CriterionScore, RubricScoringResult, score_submission,
                 )
 
-            scoring_result = await score_submission(
-                question=question_ctx,
-                submission_text=content,
-                rubric=assignment_row.rubric or [],
-            )
+                if extraction_error:
+                    # File could not be extracted — build advisory zero result so evaluators
+                    # know this submission needs manual review.
+                    rubric_def = assignment_row.rubric or []
+                    extraction_note = f"File extraction failed — manual review required. ({extraction_error})"
+                    scoring_result = RubricScoringResult(
+                        criteria_scores=[
+                            CriterionScore(
+                                criterion_id=c["criterion_id"],
+                                ai_score=0.0,
+                                ai_justification=extraction_note,
+                                max_marks=int(c["max_marks"]),
+                            )
+                            for c in rubric_def
+                        ],
+                        overall_ai_score=0.0,
+                        confidence_level="LOW",
+                        ai_model="extraction_failed",
+                        prompt_hash="",
+                    )
+                else:
+                    # Build question context for the LLM
+                    question_ctx = assignment_row.description or assignment_row.title
+                    if sub_type == SubmissionType.CODE and test_results:
+                        pass_count = sum(1 for t in test_results if t.get("passed"))
+                        total_tc   = len(test_results)
+                        question_ctx += (
+                            f"\n\n[Code evaluation: {pass_count}/{total_tc} test cases passed. "
+                            f"Static analysis: complexity={static_analysis.get('complexity_score') if static_analysis else 'N/A'}]"
+                        )
 
-        # 7. Build rubric_scores list for storage
-        rubric_scores: list[dict] = [
-            {
-                "criterion_id":      cs.criterion_id,
-                "ai_score":          cs.ai_score,
-                "ai_justification":  cs.ai_justification,
-                "human_score":       None,
-                "human_note":        None,
-            }
-            for cs in scoring_result.criteria_scores
-        ]
+                    scoring_result = await score_submission(
+                        question=question_ctx,
+                        submission_text=content,
+                        rubric=assignment_row.rubric or [],
+                    )
 
-        # 8. Write LabEvaluation row
-        evaluation = await EvaluationRepository.create(
-            submission_id=submission_id,
-            rubric_scores=rubric_scores,
-            overall_ai_score=float(scoring_result.overall_ai_score),
-            confidence_level=ConfidenceLevel(scoring_result.confidence_level),
-            test_results=test_results if test_results else None,
-            static_analysis=static_analysis,
-            plagiarism_score=plagiarism_score,
-            plagiarism_matches=plagiarism_matches if plagiarism_matches else None,
-            ai_model=scoring_result.ai_model,
-            prompt_hash=scoring_result.prompt_hash,
-            db=session,
-        )
+                # 7. Build rubric_scores list for storage
+                rubric_scores: list[dict] = [
+                    {
+                        "criterion_id":      cs.criterion_id,
+                        "ai_score":          cs.ai_score,
+                        "ai_justification":  cs.ai_justification,
+                        "human_score":       None,
+                        "human_note":        None,
+                    }
+                    for cs in scoring_result.criteria_scores
+                ]
 
-        # 9. Update submission status → EVALUATED
-        await SubmissionRepository.set_status(
-            submission_id, SubmissionStatus.EVALUATED, db=session
-        )
-        await session.commit()
+                # 8. Write LabEvaluation row
+                evaluation = await EvaluationRepository.create(
+                    submission_id=submission_id,
+                    rubric_scores=rubric_scores,
+                    overall_ai_score=float(scoring_result.overall_ai_score),
+                    confidence_level=ConfidenceLevel(scoring_result.confidence_level),
+                    test_results=test_results if test_results else None,
+                    static_analysis=static_analysis,
+                    plagiarism_score=plagiarism_score,
+                    plagiarism_matches=plagiarism_matches if plagiarism_matches else None,
+                    ai_model=scoring_result.ai_model,
+                    prompt_hash=scoring_result.prompt_hash,
+                    db=session,
+                )
 
-        # 10. Audit
-        await AuditService.log(
-            AuditEventType.LAB_EVAL_COMPLETED,
-            actor_user_id=None,
-            actor_role="SYSTEM",
-            tenant_id=None,
-            schema_name=schema_name,
-            target_entity="lab_submission",
-            target_id=str(submission_id),
-            metadata={
-                "overall_ai_score": float(scoring_result.overall_ai_score),
-                "confidence":       scoring_result.confidence_level,
-                "ai_scan_status":   ai_scan_status.value,
-                "plagiarism_score": plagiarism_score,
-                "ai_model":         scoring_result.ai_model,
-            },
-        )
+                # 9. Update submission status → EVALUATED
+                await SubmissionRepository.set_status(
+                    submission_id, SubmissionStatus.EVALUATED, db=session
+                )
+                await session.commit()
 
-        logger.info(
-            "Evaluation complete: submission=%s score=%.2f confidence=%s",
-            submission_id, scoring_result.overall_ai_score, scoring_result.confidence_level
-        )
+                # 10. Audit
+                await AuditService.log(
+                    AuditEventType.LAB_EVAL_COMPLETED,
+                    actor_user_id=None,
+                    actor_role="SYSTEM",
+                    tenant_id=None,
+                    schema_name=schema_name,
+                    target_entity="lab_submission",
+                    target_id=str(submission_id),
+                    metadata={
+                        "overall_ai_score": float(scoring_result.overall_ai_score),
+                        "confidence":       scoring_result.confidence_level,
+                        "ai_scan_status":   ai_scan_status.value,
+                        "plagiarism_score": plagiarism_score,
+                        "ai_model":         scoring_result.ai_model,
+                    },
+                )
 
-        return {
-            "submission_id":    str(submission_id),
-            "overall_ai_score": float(scoring_result.overall_ai_score),
-            "confidence_level": scoring_result.confidence_level,
-            "ai_scan_status":   ai_scan_status.value,
-            "plagiarism_score": plagiarism_score,
-        }
+                logger.info(
+                    "Evaluation complete: submission=%s score=%.2f confidence=%s",
+                    submission_id, scoring_result.overall_ai_score, scoring_result.confidence_level
+                )
+
+                return {
+                    "submission_id":    str(submission_id),
+                    "overall_ai_score": float(scoring_result.overall_ai_score),
+                    "confidence_level": scoring_result.confidence_level,
+                    "ai_scan_status":   ai_scan_status.value,
+                    "plagiarism_score": plagiarism_score,
+                }
+
+            except Exception as exc:
+                failure_reason = f"{type(exc).__name__}: {exc}"
+                logger.error(
+                    "Lab evaluation failed for submission %s: %s",
+                    submission_id, failure_reason, exc_info=True,
+                )
+
+                # Revert submission to SUBMITTED so it can be re-queued.
+                # session.rollback() keeps the same connection; SET search_path persists.
+                try:
+                    await session.rollback()
+                    await SubmissionRepository.set_status(
+                        submission_id, SubmissionStatus.SUBMITTED, db=session
+                    )
+                    await session.commit()
+                except Exception as mark_exc:
+                    logger.error(
+                        "Could not revert submission %s to SUBMITTED: %s",
+                        submission_id, mark_exc,
+                    )
+
+                try:
+                    await AuditService.log(
+                        AuditEventType.LAB_EVAL_FAILED,
+                        actor_user_id=None,
+                        actor_role="SYSTEM",
+                        tenant_id=None,
+                        schema_name=schema_name,
+                        target_entity="lab_submission",
+                        target_id=str(submission_id),
+                        metadata={"error": failure_reason},
+                    )
+                except Exception:
+                    pass
+
+                raise
+
+    finally:
+        await engine.dispose()
 
 
 async def _run_code_evaluation(
