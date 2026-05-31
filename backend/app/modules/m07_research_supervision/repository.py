@@ -525,6 +525,38 @@ class VivaRepository:
         )
 
     @staticmethod
+    async def bulk_set_responses(
+        viva_id: UUID,
+        *,
+        responses: list[dict],
+        db: AsyncSession,
+    ) -> None:
+        """Replace all ai_responses at once (offline/guide-conducted viva)."""
+        await db.execute(
+            update(VivaSession)
+            .where(VivaSession.id == viva_id)
+            .values(ai_responses=responses)
+        )
+
+    @staticmethod
+    async def set_offline_completed(
+        viva_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Mark a guide-conducted offline viva as completed with consent auto-granted."""
+        await db.execute(
+            update(VivaSession)
+            .where(VivaSession.id == viva_id)
+            .values(
+                consent_recorded=True,
+                video_url="",
+                status=VivaStatus.COMPLETED,
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def set_recording(
         viva_id: UUID,
         *,
@@ -539,6 +571,19 @@ class VivaRepository:
                 status=VivaStatus.COMPLETED,
                 completed_at=datetime.now(timezone.utc),
             )
+        )
+
+    @staticmethod
+    async def set_status(
+        viva_id: UUID,
+        status: str,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        await db.execute(
+            update(VivaSession)
+            .where(VivaSession.id == viva_id)
+            .values(status=status)
         )
 
     @staticmethod
@@ -559,7 +604,7 @@ class VivaRepository:
         viva_id: UUID,
         *,
         transcript: str,
-        ai_evaluation: list[dict],
+        ai_evaluation: dict,           # {per_question, overall_score, ai_model}
         overall_ai_score: float,
         ai_model: str,
         db: AsyncSession,
@@ -581,7 +626,7 @@ class VivaRepository:
     async def set_guide_ratification(
         viva_id: UUID,
         *,
-        guide_evaluation: list[dict],
+        guide_evaluation: dict,        # {overall_guide_score, ratification_note}
         overall_guide_score: float,
         db: AsyncSession,
     ) -> VivaSession | None:

@@ -207,6 +207,17 @@ class VivaResponseSubmit(BaseModel):
     end_ms:        int | None = None
 
 
+class VivaOfflineResponse(BaseModel):
+    """One Q&A pair submitted by the guide during an offline viva."""
+    question_id:   str = Field(..., min_length=1)
+    response_text: str = Field(..., min_length=1, max_length=10000)
+
+
+class VivaConductRequest(BaseModel):
+    """Guide conducts an offline viva by submitting all Q&A responses at once."""
+    responses: list[VivaOfflineResponse] = Field(..., min_length=1)
+
+
 class VivaCompleteRequest(BaseModel):
     """Student marks session as complete and provides video upload URL."""
     video_url: str
@@ -219,9 +230,9 @@ class QuestionScoreOverride(BaseModel):
 
 
 class VivaRatifyRequest(BaseModel):
-    """Guide ratifies or amends viva evaluation. HUMAN GATE 3."""
-    question_overrides: list[QuestionScoreOverride] = Field(default_factory=list)
-    overall_comment:    str | None = Field(None, max_length=2000)
+    """Guide ratifies viva evaluation. HUMAN GATE 3. AI advises, human decides."""
+    overall_guide_score: float = Field(..., ge=0.0, le=10.0)
+    ratification_note:   str | None = Field(None, max_length=2000)
 
 
 class VivaSessionResponse(BaseModel):
@@ -235,9 +246,9 @@ class VivaSessionResponse(BaseModel):
     ai_responses:        list[dict]
     video_url:           str | None
     transcript:          str | None
-    ai_evaluation:       list[dict] | None
+    ai_evaluation:       dict | None   # {per_question, overall_score, ai_model}
     overall_ai_score:    float | None
-    guide_evaluation:    list[dict] | None
+    guide_evaluation:    dict | None    # {overall_guide_score, ratification_note}
     overall_guide_score: float | None
     consent_recorded:    bool
     ai_model:            str | None

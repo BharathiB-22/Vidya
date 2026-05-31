@@ -188,6 +188,15 @@ export interface VivaScheduleRequest {
   document_id: string
 }
 
+export interface VivaOfflineResponse {
+  question_id: string
+  response_text: string
+}
+
+export interface VivaConductRequest {
+  responses: VivaOfflineResponse[]
+}
+
 export interface VivaRatifyRequest {
   overall_guide_score: number
   guide_evaluation?: Record<string, { score: number; note: string }>

@@ -68,6 +68,7 @@ from app.modules.m07_research_supervision.schemas import (
     ProblemListResponse,
     ProblemResponse,
     VivaCompleteRequest,
+    VivaConductRequest,
     VivaConsentRequest,
     VivaListResponse,
     VivaRatifyRequest,
@@ -433,7 +434,43 @@ async def ratify_viva(
         target_id=str(viva_id),
         metadata={
             "overall_guide_score": float(viva.overall_guide_score or 0),
-            "overrides": len(payload.question_overrides),
+            "has_note": bool(payload.ratification_note),
+        },
+    )
+    return VivaSessionResponse.model_validate(viva)
+
+
+@router.post("/vivas/{viva_id}/conduct", response_model=VivaSessionResponse)
+async def conduct_viva(
+    viva_id: UUID,
+    payload: VivaConductRequest,
+    current_user: CurrentUser = Depends(_GUIDE),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Guide conducts an offline viva: submits all Q&A responses and triggers AI evaluation."""
+    try:
+        viva, job_id = await VivaService.conduct(
+            viva_id, payload,
+            guide_user_id=current_user.user_id,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+            db=db,
+        )
+    except ResearchServiceError as exc:
+        raise _svc_error(exc)
+
+    await AuditService.log(
+        AuditEventType.VIVA_SESSION_STARTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="viva_session",
+        target_id=str(viva_id),
+        metadata={
+            "mode":       "offline_guide_conducted",
+            "responses":  len(payload.responses),
+            "eval_job_id": str(job_id),
         },
     )
     return VivaSessionResponse.model_validate(viva)

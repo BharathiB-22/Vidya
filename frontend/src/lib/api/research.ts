@@ -9,6 +9,7 @@ import type {
   ProblemListResponse,
   ResearchDocument,
   ResearchProblem,
+  VivaConductRequest,
   VivaListResponse,
   VivaRatifyRequest,
   VivaRespondRequest,
@@ -113,6 +114,11 @@ export async function getViva(id: string): Promise<VivaSession> {
 
 export async function ratifyViva(id: string, payload: VivaRatifyRequest): Promise<VivaSession> {
   const { data } = await api.post<VivaSession>(`${BASE}/vivas/${id}/ratify`, payload)
+  return data
+}
+
+export async function conductViva(id: string, payload: VivaConductRequest): Promise<VivaSession> {
+  const { data } = await api.post<VivaSession>(`${BASE}/vivas/${id}/conduct`, payload)
   return data
 }
 

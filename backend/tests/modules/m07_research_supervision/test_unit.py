@@ -142,6 +142,254 @@ class TestDocumentEval:
 
 
 # ===========================================================================
+# 2b — Viva engine: robust JSON parsing (BUG-013 regression)
+# ===========================================================================
+
+class TestVivaEngineJsonParsing:
+    """Regression for M07-BUG-013: evaluate_responses fragile JSON parsing."""
+
+    def _sample_qa(self, n=2):
+        return [
+            {"question_id": f"q{i}", "question": f"Q{i}?", "response": f"Answer {i}."}
+            for i in range(1, n + 1)
+        ]
+
+    def _valid_items(self, n=2):
+        return [
+            {"question_id": f"q{i}", "coherence": 8.0, "accuracy": 7.0, "depth": 6.0, "comment": "OK"}
+            for i in range(1, n + 1)
+        ]
+
+    # -- _strip_fences --------------------------------------------------------
+
+    def test_strip_fences_removes_json_fence(self):
+        from app.modules.m07_research_supervision.viva_engine import _strip_fences
+        raw = "```json\n[]\n```"
+        assert _strip_fences(raw) == "[]"
+
+    def test_strip_fences_removes_plain_fence(self):
+        from app.modules.m07_research_supervision.viva_engine import _strip_fences
+        assert _strip_fences("```\n[1,2]\n```").strip() == "[1,2]"
+
+    def test_strip_fences_noop_on_clean_json(self):
+        from app.modules.m07_research_supervision.viva_engine import _strip_fences
+        raw = '[{"a": 1}]'
+        assert _strip_fences(raw) == raw
+
+    # -- _parse_eval_json -----------------------------------------------------
+
+    def test_parse_direct_array(self):
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        items = self._valid_items()
+        result = _parse_eval_json(json.dumps(items))
+        assert len(result) == 2
+        assert result[0]["coherence"] == 8.0
+
+    def test_parse_fenced_array(self):
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        items = self._valid_items()
+        raw = f"```json\n{json.dumps(items)}\n```"
+        result = _parse_eval_json(raw)
+        assert len(result) == 2
+
+    def test_parse_prose_wrapped_array(self):
+        """Array buried in prose — greedy regex must find the full array."""
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        items = self._valid_items()
+        raw = f"Here are the scores:\n{json.dumps(items)}\nThank you."
+        result = _parse_eval_json(raw)
+        assert len(result) == 2
+
+    def test_parse_preamble_bracket_does_not_fool_parser(self):
+        """A ] in preamble text must not cut the array short (non-greedy bug)."""
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        items = self._valid_items(n=3)
+        raw = (
+            "Based on the Q&A pairs [listed above], my evaluation:\n"
+            + json.dumps(items)
+        )
+        result = _parse_eval_json(raw)
+        assert len(result) == 3
+
+    def test_parse_object_envelope_evaluations_key(self):
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        items = self._valid_items()
+        raw = json.dumps({"evaluations": items})
+        result = _parse_eval_json(raw)
+        assert len(result) == 2
+
+    def test_parse_object_envelope_scores_key(self):
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        items = self._valid_items()
+        raw = json.dumps({"scores": items})
+        result = _parse_eval_json(raw)
+        assert len(result) == 2
+
+    def test_parse_single_item_object(self):
+        """LLM collapses single-item arrays to a bare object."""
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        import json
+        item = {"coherence": 7, "accuracy": 8, "depth": 6, "comment": "Good"}
+        result = _parse_eval_json(json.dumps(item))
+        assert len(result) == 1
+
+    def test_parse_raises_on_completely_invalid(self):
+        from app.modules.m07_research_supervision.viva_engine import _parse_eval_json
+        with pytest.raises(ValueError, match="No valid JSON"):
+            _parse_eval_json("This is just a sentence with no JSON at all.")
+
+    # -- evaluate_responses ---------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_evaluate_responses_never_raises_on_bad_json(self):
+        """evaluate_responses must return fallback scores, not raise, on bad AI output."""
+        from app.modules.m07_research_supervision.viva_engine import evaluate_responses
+
+        qa = self._sample_qa(2)
+        with patch(
+            "app.modules.m07_research_supervision.viva_engine._call_llm",
+            new=AsyncMock(return_value=("This is not JSON at all!!", "mock")),
+        ):
+            result = await evaluate_responses(qa)
+
+        assert len(result.per_question) == 2
+        # Fallback defaults: 5.0 each
+        assert result.per_question[0].coherence == pytest.approx(5.0)
+        assert result.per_question[0].accuracy  == pytest.approx(5.0)
+        assert result.per_question[0].depth      == pytest.approx(5.0)
+        assert "fallback" in result.ai_model
+
+    @pytest.mark.asyncio
+    async def test_evaluate_responses_parses_valid_fenced_json(self):
+        """evaluate_responses must succeed with markdown-fenced JSON array."""
+        import json
+        from app.modules.m07_research_supervision.viva_engine import evaluate_responses
+
+        qa = self._sample_qa(2)
+        items = [
+            {"question_id": "q1", "coherence": 9, "accuracy": 8, "depth": 7, "comment": "Excellent"},
+            {"question_id": "q2", "coherence": 6, "accuracy": 7, "depth": 8, "comment": "Good depth"},
+        ]
+        raw = f"```json\n{json.dumps(items)}\n```"
+
+        with patch(
+            "app.modules.m07_research_supervision.viva_engine._call_llm",
+            new=AsyncMock(return_value=(raw, "groq/llama")),
+        ):
+            result = await evaluate_responses(qa)
+
+        assert len(result.per_question) == 2
+        assert result.per_question[0].coherence == pytest.approx(9.0)
+        assert result.per_question[1].depth == pytest.approx(8.0)
+        assert result.overall_score > 0
+
+    @pytest.mark.asyncio
+    async def test_evaluate_responses_handles_preamble_bracket(self):
+        """Non-greedy regex bug: preamble ] must not cut array short."""
+        import json
+        from app.modules.m07_research_supervision.viva_engine import evaluate_responses
+
+        qa = self._sample_qa(3)
+        items = [
+            {"question_id": f"q{i}", "coherence": 7, "accuracy": 7, "depth": 7, "comment": "OK"}
+            for i in range(1, 4)
+        ]
+        raw = "Based on responses [above], scores:\n" + json.dumps(items)
+
+        with patch(
+            "app.modules.m07_research_supervision.viva_engine._call_llm",
+            new=AsyncMock(return_value=(raw, "groq/llama")),
+        ):
+            result = await evaluate_responses(qa)
+
+        assert len(result.per_question) == 3
+
+    @pytest.mark.asyncio
+    async def test_evaluate_responses_empty_qa_returns_zero(self):
+        from app.modules.m07_research_supervision.viva_engine import evaluate_responses
+        result = await evaluate_responses([])
+        assert result.per_question == []
+        assert result.overall_score == pytest.approx(0.0)
+
+    # -- worker stuck-status prevention ---------------------------------------
+
+    def test_viva_repository_has_set_status(self):
+        """VivaRepository.set_status must exist for failure-path status reset."""
+        import inspect
+        from app.modules.m07_research_supervision.repository import VivaRepository
+        assert hasattr(VivaRepository, "set_status")
+        sig = inspect.signature(VivaRepository.set_status)
+        assert "status" in sig.parameters
+        assert "db" in sig.parameters
+
+    def test_set_ai_evaluation_signature_no_new_status_kwarg(self):
+        """set_ai_evaluation must NOT have new_status param (worker bug fixed)."""
+        import inspect
+        from app.modules.m07_research_supervision.repository import VivaRepository
+        sig = inspect.signature(VivaRepository.set_ai_evaluation)
+        assert "new_status" not in sig.parameters
+
+    def test_set_ai_evaluation_requires_transcript(self):
+        """set_ai_evaluation must require transcript (worker must pass it)."""
+        import inspect
+        from app.modules.m07_research_supervision.repository import VivaRepository
+        sig = inspect.signature(VivaRepository.set_ai_evaluation)
+        assert "transcript" in sig.parameters
+
+    def test_worker_passes_transcript_to_set_ai_evaluation(self):
+        """Worker source must pass transcript= kwarg to set_ai_evaluation."""
+        import inspect
+        import app.workers.heavy.process_viva_session as mod
+        src = inspect.getsource(mod._run_viva_processing)
+        assert "transcript=transcript" in src, (
+            "Worker must pass transcript=transcript to set_ai_evaluation"
+        )
+
+    def test_worker_does_not_pass_new_status_to_set_ai_evaluation(self):
+        """Worker must not pass new_status= to set_ai_evaluation."""
+        import inspect, re
+        import app.workers.heavy.process_viva_session as mod
+        src = inspect.getsource(mod._run_viva_processing)
+        call_block = re.search(r"set_ai_evaluation\(.*?\)", src, re.DOTALL)
+        assert call_block is not None
+        assert "new_status" not in call_block.group(0)
+
+    def test_worker_uses_per_question_not_evaluations(self):
+        """Worker must reference eval_result.per_question, not .evaluations."""
+        import inspect
+        import app.workers.heavy.process_viva_session as mod
+        src = inspect.getsource(mod._run_viva_processing)
+        assert "eval_result.evaluations" not in src, (
+            "Worker must use eval_result.per_question — .evaluations does not exist"
+        )
+
+    def test_worker_resets_to_completed_on_evaluate_failure(self):
+        """Worker must reset viva to COMPLETED (not stuck in ASR_PROCESSING) on error."""
+        import inspect
+        import app.workers.heavy.process_viva_session as mod
+        src = inspect.getsource(mod._run_viva_processing)
+        assert "VivaStatus.COMPLETED" in src and "set_status" in src, (
+            "Worker must call set_status(COMPLETED) in the evaluate_responses error path"
+        )
+
+    def test_viva_session_response_ai_evaluation_is_dict(self):
+        """VivaSessionResponse.ai_evaluation must be dict|None, not list[dict]|None."""
+        import inspect
+        from app.modules.m07_research_supervision.schemas import VivaSessionResponse
+        hints = VivaSessionResponse.model_fields["ai_evaluation"]
+        annotation = str(hints.annotation)
+        assert "list" not in annotation, (
+            "ai_evaluation must be dict|None — the worker stores a dict, not a list"
+        )
+
+
+# ===========================================================================
 # 3 — Viva engine: prompt builders + dataclasses
 # ===========================================================================
 
@@ -383,6 +631,249 @@ class TestSchemas:
             research_questions=[ResearchQuestion(question="Why?")],
         )
         assert len(payload.research_questions) == 1
+
+
+# ===========================================================================
+# 8b — VivaRatifyRequest schema + VivaService.ratify (BUG-014 regression)
+# ===========================================================================
+
+class TestVivaRatifySchema:
+    """Schema-level regression for BUG-014: field name mismatch."""
+
+    def test_ratify_request_requires_overall_guide_score(self):
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        with pytest.raises(pydantic.ValidationError):
+            VivaRatifyRequest()   # missing overall_guide_score
+
+    def test_ratify_request_valid_score(self):
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        req = VivaRatifyRequest(overall_guide_score=7.5)
+        assert req.overall_guide_score == pytest.approx(7.5)
+        assert req.ratification_note is None
+
+    def test_ratify_request_valid_with_note(self):
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        req = VivaRatifyRequest(overall_guide_score=8.0, ratification_note="Excellent viva.")
+        assert req.ratification_note == "Excellent viva."
+
+    def test_ratify_request_rejects_score_above_10(self):
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        with pytest.raises(pydantic.ValidationError):
+            VivaRatifyRequest(overall_guide_score=10.5)
+
+    def test_ratify_request_rejects_score_below_0(self):
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        with pytest.raises(pydantic.ValidationError):
+            VivaRatifyRequest(overall_guide_score=-0.1)
+
+    def test_ratify_request_accepts_boundary_values(self):
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        lo = VivaRatifyRequest(overall_guide_score=0.0)
+        hi = VivaRatifyRequest(overall_guide_score=10.0)
+        assert lo.overall_guide_score == pytest.approx(0.0)
+        assert hi.overall_guide_score == pytest.approx(10.0)
+
+    def test_ratify_request_has_no_question_overrides_field(self):
+        """question_overrides must be gone — it was the source of the mismatch."""
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        assert not hasattr(VivaRatifyRequest.model_fields, "question_overrides"), (
+            "question_overrides must not exist; frontend sends overall_guide_score"
+        )
+
+    def test_ratify_request_has_no_overall_comment_field(self):
+        """overall_comment must be gone — frontend sends ratification_note."""
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        assert "overall_comment" not in VivaRatifyRequest.model_fields
+
+
+class TestVivaServiceRatify:
+    """Service-level regression for BUG-014."""
+
+    def _make_evaluated_viva(self, guide_id):
+        from app.modules.m07_research_supervision.models import VivaStatus
+        viva = MagicMock()
+        viva.id = __import__("uuid").uuid4()
+        viva.guide_user_id = guide_id
+        viva.status = VivaStatus.EVALUATED.value
+        viva.ai_evaluation = {
+            "per_question": [
+                {"question_id": "q1", "coherence": 8, "accuracy": 7, "depth": 6, "comment": "OK"},
+            ],
+            "overall_score": 7.0,
+            "ai_model": "groq/llama",
+        }
+        return viva
+
+    @pytest.mark.asyncio
+    async def test_ratify_happy_path_stores_guide_score(self):
+        """Guide score must be stored exactly as entered — AI score is advisory only."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+
+        guide_id = uuid4()
+        viva = self._make_evaluated_viva(guide_id)
+        updated_viva = MagicMock()
+        updated_viva.overall_guide_score = 9.0
+        updated_viva.status = "GUIDE_RATIFIED"
+
+        payload = VivaRatifyRequest(overall_guide_score=9.0, ratification_note="Outstanding.")
+
+        set_guide_mock = AsyncMock(return_value=updated_viva)
+        mock_db = AsyncMock(spec=AsyncSession)
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.set_guide_ratification",
+            set_guide_mock,
+        ):
+            result = await VivaService.ratify(
+                viva.id, payload, guide_user_id=guide_id, db=mock_db,
+            )
+
+        set_guide_mock.assert_called_once()
+        call_kwargs = set_guide_mock.call_args.kwargs
+        assert call_kwargs["overall_guide_score"] == pytest.approx(9.0)
+        assert call_kwargs["guide_evaluation"]["overall_guide_score"] == pytest.approx(9.0)
+        assert call_kwargs["guide_evaluation"]["ratification_note"] == "Outstanding."
+        assert result is updated_viva
+
+    @pytest.mark.asyncio
+    async def test_ratify_stores_guide_score_not_ai_average(self):
+        """Guide score=3.0 must be stored as 3.0, not overwritten by AI average."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+
+        guide_id = uuid4()
+        viva = self._make_evaluated_viva(guide_id)   # AI per-question avg ≈ 7.0
+        updated_viva = MagicMock()
+
+        payload = VivaRatifyRequest(overall_guide_score=3.0)  # guide gives lower score
+
+        set_guide_mock = AsyncMock(return_value=updated_viva)
+        mock_db = AsyncMock(spec=AsyncSession)
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.set_guide_ratification",
+            set_guide_mock,
+        ):
+            await VivaService.ratify(viva.id, payload, guide_user_id=guide_id, db=mock_db)
+
+        call_kwargs = set_guide_mock.call_args.kwargs
+        assert call_kwargs["overall_guide_score"] == pytest.approx(3.0), (
+            "Guide score must be 3.0, not the AI average of ~7.0"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ratify_note_is_optional(self):
+        """Ratification must succeed when ratification_note is omitted."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+
+        guide_id = uuid4()
+        viva = self._make_evaluated_viva(guide_id)
+        updated = MagicMock()
+
+        payload = VivaRatifyRequest(overall_guide_score=6.5)  # no note
+
+        set_guide_mock = AsyncMock(return_value=updated)
+        mock_db = AsyncMock(spec=AsyncSession)
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.set_guide_ratification",
+            set_guide_mock,
+        ):
+            result = await VivaService.ratify(viva.id, payload, guide_user_id=guide_id, db=mock_db)
+
+        assert result is updated
+        call_kwargs = set_guide_mock.call_args.kwargs
+        assert call_kwargs["guide_evaluation"]["ratification_note"] is None
+
+    @pytest.mark.asyncio
+    async def test_ratify_rejects_wrong_guide(self):
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+
+        guide_id = uuid4()
+        viva = self._make_evaluated_viva(uuid4())   # owned by different guide
+
+        payload = VivaRatifyRequest(overall_guide_score=7.0)
+        mock_db = AsyncMock(spec=AsyncSession)
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ):
+            with pytest.raises(ResearchServiceError) as exc_info:
+                await VivaService.ratify(viva.id, payload, guide_user_id=guide_id, db=mock_db)
+            assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_ratify_rejects_non_evaluated_status(self):
+        """Ratify must fail if viva is not yet EVALUATED (e.g. still SCHEDULED)."""
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import VivaRatifyRequest
+        from app.modules.m07_research_supervision.models import VivaStatus
+
+        guide_id = uuid4()
+        viva = MagicMock()
+        viva.id = uuid4()
+        viva.guide_user_id = guide_id
+        viva.status = VivaStatus.SCHEDULED.value   # not evaluated yet
+
+        payload = VivaRatifyRequest(overall_guide_score=7.0)
+        mock_db = AsyncMock(spec=AsyncSession)
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ):
+            with pytest.raises(ResearchServiceError) as exc_info:
+                await VivaService.ratify(viva.id, payload, guide_user_id=guide_id, db=mock_db)
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    def test_ratify_service_does_not_call_list_on_ai_evaluation(self):
+        """Service must not do list(viva.ai_evaluation) — ai_evaluation is a dict."""
+        import inspect
+        from app.modules.m07_research_supervision.service import VivaService
+        src = inspect.getsource(VivaService.ratify)
+        assert "list(viva.ai_evaluation" not in src, (
+            "Calling list() on ai_evaluation dict yields dict keys, not items"
+        )
+
+    def test_viva_session_response_guide_evaluation_is_dict(self):
+        """VivaSessionResponse.guide_evaluation must be dict|None after BUG-014 fix."""
+        from app.modules.m07_research_supervision.schemas import VivaSessionResponse
+        hints = VivaSessionResponse.model_fields["guide_evaluation"]
+        annotation = str(hints.annotation)
+        assert "list" not in annotation, (
+            "guide_evaluation must be dict|None — service now stores a dict"
+        )
 
 
 # ===========================================================================
@@ -779,7 +1270,183 @@ class TestDocumentServiceSubmitDispatch:
 
 
 # ===========================================================================
-# 5c — VivaService.schedule: student_user_id derived from document (BUG-011)
+# 5c — VivaConductRequest schema + VivaService.conduct (BUG-012)
+# ===========================================================================
+
+class TestVivaConductSchema:
+    """Schema-level validation for offline guide-conducted viva."""
+
+    def test_conduct_request_requires_at_least_one_response(self):
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaConductRequest
+        with pytest.raises(pydantic.ValidationError):
+            VivaConductRequest(responses=[])
+
+    def test_conduct_request_valid_with_one_response(self):
+        from app.modules.m07_research_supervision.schemas import VivaConductRequest, VivaOfflineResponse
+        req = VivaConductRequest(
+            responses=[VivaOfflineResponse(question_id="q1", response_text="The answer.")]
+        )
+        assert len(req.responses) == 1
+        assert req.responses[0].question_id == "q1"
+
+    def test_offline_response_rejects_empty_response_text(self):
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaOfflineResponse
+        with pytest.raises(pydantic.ValidationError):
+            VivaOfflineResponse(question_id="q1", response_text="")
+
+    def test_offline_response_rejects_empty_question_id(self):
+        import pydantic
+        from app.modules.m07_research_supervision.schemas import VivaOfflineResponse
+        with pytest.raises(pydantic.ValidationError):
+            VivaOfflineResponse(question_id="", response_text="some text")
+
+
+class TestVivaServiceConduct:
+    """Service-level tests for VivaService.conduct (BUG-012 regression)."""
+
+    def _make_scheduled_viva(self, guide_id, student_id):
+        from app.modules.m07_research_supervision.models import VivaStatus
+        viva = MagicMock()
+        viva.id = __import__("uuid").uuid4()
+        viva.guide_user_id = guide_id
+        viva.student_user_id = student_id
+        viva.status = VivaStatus.SCHEDULED.value
+        return viva
+
+    @pytest.mark.asyncio
+    async def test_conduct_rejects_wrong_guide(self):
+        from uuid import uuid4
+        from app.modules.m07_research_supervision.service import VivaService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import VivaConductRequest, VivaOfflineResponse
+        from app.modules.m07_research_supervision.models import VivaStatus
+
+        guide_id = uuid4()
+        viva = self._make_scheduled_viva(uuid4(), uuid4())  # owned by different guide
+
+        payload = VivaConductRequest(
+            responses=[VivaOfflineResponse(question_id="q1", response_text="answer")]
+        )
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ):
+            with pytest.raises(ResearchServiceError) as exc_info:
+                await VivaService.conduct(
+                    viva.id, payload,
+                    guide_user_id=guide_id,
+                    tenant_id=uuid4(),
+                    schema_name="tenant_test",
+                    db=AsyncMock(),
+                )
+            assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_conduct_rejects_non_scheduled_viva(self):
+        from uuid import uuid4
+        from app.modules.m07_research_supervision.service import VivaService, ResearchServiceError
+        from app.modules.m07_research_supervision.schemas import VivaConductRequest, VivaOfflineResponse
+        from app.modules.m07_research_supervision.models import VivaStatus
+
+        guide_id = uuid4()
+        viva = MagicMock()
+        viva.id = uuid4()
+        viva.guide_user_id = guide_id
+        viva.status = VivaStatus.EVALUATED.value  # already evaluated
+
+        payload = VivaConductRequest(
+            responses=[VivaOfflineResponse(question_id="q1", response_text="answer")]
+        )
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(return_value=viva),
+        ):
+            with pytest.raises(ResearchServiceError) as exc_info:
+                await VivaService.conduct(
+                    viva.id, payload,
+                    guide_user_id=guide_id,
+                    tenant_id=uuid4(),
+                    schema_name="tenant_test",
+                    db=AsyncMock(),
+                )
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_conduct_happy_path_dispatches_task(self):
+        """Happy path: conduct queues process_viva_session and returns updated viva."""
+        from uuid import uuid4, UUID
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.modules.m07_research_supervision.service import VivaService
+        from app.modules.m07_research_supervision.schemas import VivaConductRequest, VivaOfflineResponse
+
+        guide_id = uuid4()
+        student_id = uuid4()
+        fake_job_id = uuid4()
+        fake_viva = self._make_scheduled_viva(guide_id, student_id)
+        updated_viva = MagicMock()
+        updated_viva.id = fake_viva.id
+        updated_viva.status = "ASR_PROCESSING"
+
+        payload = VivaConductRequest(
+            responses=[
+                VivaOfflineResponse(question_id="q1", response_text="First answer."),
+                VivaOfflineResponse(question_id="q2", response_text="Second answer."),
+            ]
+        )
+
+        mock_db = AsyncMock(spec=AsyncSession)
+        mock_pub_db = AsyncMock()
+        mock_session_ctx = MagicMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_pub_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        apply_async_mock = MagicMock()
+
+        with patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.get_by_id",
+            new=AsyncMock(side_effect=[fake_viva, updated_viva]),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.bulk_set_responses",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.set_offline_completed",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m07_research_supervision.service.VivaRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.database.AsyncSessionLocal",
+            return_value=mock_session_ctx,
+        ), patch(
+            "app.modules.m07_research_supervision.service.TaskJobPublicRepository.create",
+            new=AsyncMock(return_value=fake_job_id),
+        ), patch(
+            "app.workers.heavy.process_viva_session.process_viva_session.apply_async",
+            apply_async_mock,
+        ):
+            result_viva, result_job_id = await VivaService.conduct(
+                fake_viva.id, payload,
+                guide_user_id=guide_id,
+                tenant_id=uuid4(),
+                schema_name="tenant_test",
+                db=mock_db,
+            )
+
+        apply_async_mock.assert_called_once()
+        call_kwargs = apply_async_mock.call_args.kwargs
+        assert call_kwargs.get("queue") == "celery-heavy"
+        task_kwargs = call_kwargs.get("kwargs", {})
+        assert task_kwargs.get("schema_name") == "tenant_test"
+        assert task_kwargs.get("viva_id") == str(fake_viva.id)
+        assert result_job_id == fake_job_id
+
+
+# ===========================================================================
+# 5e — VivaService.schedule: student_user_id derived from document (BUG-011)
 # ===========================================================================
 
 class TestVivaScheduleStudentIdDerivation:

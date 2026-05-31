@@ -217,38 +217,141 @@ Respond ONLY with a JSON array, one object per Q&A pair:
 ]"""
 
 
+# Envelope keys that LLMs use to wrap arrays (mirrors M06 rubric_scorer pattern).
+_EVAL_ENVELOPE_KEYS = (
+    "evaluations", "evaluation", "scores", "responses",
+    "results", "items", "data", "criteria",
+)
+
+
+def _strip_fences(raw: str) -> str:
+    """Remove markdown code fences from AI response."""
+    cleaned = re.sub(r"```(?:json|python|text)?\s*", "", raw)
+    return re.sub(r"```", "", cleaned).strip()
+
+
+def _normalise_eval_to_list(parsed: Any) -> list[dict]:
+    """Convert any valid AI response shape to a flat list of eval dicts."""
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        # Single-item collapsed response
+        if "coherence" in parsed or "accuracy" in parsed or "depth" in parsed:
+            return [parsed]
+        # Known envelope key
+        for key in _EVAL_ENVELOPE_KEYS:
+            val = parsed.get(key)
+            if isinstance(val, list):
+                return val
+    raise ValueError(f"Cannot normalise parsed value: type={type(parsed).__name__}")
+
+
+def _extract_balanced(text: str, open_ch: str, close_ch: str) -> list[str]:
+    """Return all top-level balanced open_ch…close_ch spans from text."""
+    spans: list[str] = []
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == open_ch:
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0 and start != -1:
+                spans.append(text[start : i + 1])
+                start = -1
+    return spans
+
+
+def _parse_eval_json(raw: str) -> list[dict]:
+    """
+    Robustly extract a JSON array from an AI response.
+
+    Stages:
+      1. Strip markdown fences, try direct json.loads.
+      2. Balanced bracket extraction of all [...] blocks (largest-first),
+         so preamble prose like "[listed above]" does not fool the parser.
+      3. Balanced brace extraction of all {...} blocks (largest-first)
+         for object-envelope responses.
+
+    Raises ValueError when all stages fail so the caller can apply fallback.
+    """
+    clean = _strip_fences(raw)
+
+    # Stage 1 — direct parse
+    try:
+        return _normalise_eval_to_list(json.loads(clean))
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Stage 2 — all balanced [...] spans, largest first
+    arrays = sorted(_extract_balanced(clean, "[", "]"), key=len, reverse=True)
+    for candidate in arrays:
+        try:
+            return _normalise_eval_to_list(json.loads(candidate))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Stage 3 — all balanced {...} spans (envelope keys), largest first
+    objects = sorted(_extract_balanced(clean, "{", "}"), key=len, reverse=True)
+    for candidate in objects:
+        try:
+            return _normalise_eval_to_list(json.loads(candidate))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    raise ValueError(f"No valid JSON found in AI response: {raw[:300]!r}")
+
+
+def _default_evals(qa_pairs: list[dict]) -> list[dict]:
+    """Conservative 5/5/5 fallback when the AI response cannot be parsed."""
+    return [
+        {
+            "question_id": pair.get("question_id", str(i)),
+            "coherence":   5.0,
+            "accuracy":    5.0,
+            "depth":       5.0,
+            "comment":     "AI evaluation unavailable — default score applied.",
+        }
+        for i, pair in enumerate(qa_pairs)
+    ]
+
+
 async def evaluate_responses(
-    qa_pairs: list[dict],  # [{question_id, question_text, response_text}]
+    qa_pairs: list[dict],  # [{question_id, question, response}]
 ) -> VivaEvaluationResult:
-    """LLM evaluation of all viva responses."""
+    """LLM evaluation of all viva responses. Never raises — falls back to defaults."""
     if not qa_pairs:
         return VivaEvaluationResult(per_question=[], overall_score=0.0, ai_model="none")
 
     prompt = _build_eval_prompt(qa_pairs)
     raw, model = await _call_llm(prompt)
 
-    raw_clean = re.sub(r"```json\s*|\s*```", "", raw).strip()
     try:
-        data = json.loads(raw_clean)
-    except Exception:
-        m = re.search(r"\[.*?\]", raw_clean, re.DOTALL)
-        data = json.loads(m.group(0)) if m else []
+        items = _parse_eval_json(raw)
+    except Exception as exc:
+        logger.warning(
+            "evaluate_responses: JSON parse failed (%s) — applying default scores. "
+            "Raw snippet: %r",
+            exc, raw[:200],
+        )
+        items = _default_evals(qa_pairs)
+        model = f"{model}+fallback"
 
     evals: list[ResponseEval] = []
-    for item, pair in zip(data, qa_pairs):
+    # Pair parsed items with qa_pairs positionally; unpaired questions get defaults.
+    for i, pair in enumerate(qa_pairs):
+        item = items[i] if i < len(items) else {}
         evals.append(ResponseEval(
-            question_id=pair["question_id"],
-            coherence=max(0.0, min(10.0, float(item.get("coherence", 5)))),
-            accuracy=max(0.0, min(10.0, float(item.get("accuracy", 5)))),
-            depth=max(0.0, min(10.0, float(item.get("depth", 5)))),
+            question_id=pair.get("question_id", str(i)),
+            coherence=max(0.0, min(10.0, float(item.get("coherence", 5.0)))),
+            accuracy=max(0.0, min(10.0, float(item.get("accuracy", 5.0)))),
+            depth=max(0.0, min(10.0, float(item.get("depth", 5.0)))),
             comment=str(item.get("comment", "")).strip(),
         ))
 
-    if evals:
-        overall = sum((e.coherence + e.accuracy + e.depth) / 3 for e in evals) / len(evals)
-    else:
-        overall = 0.0
-
+    overall = sum((e.coherence + e.accuracy + e.depth) / 3 for e in evals) / len(evals)
     return VivaEvaluationResult(
         per_question=evals,
         overall_score=round(overall, 2),

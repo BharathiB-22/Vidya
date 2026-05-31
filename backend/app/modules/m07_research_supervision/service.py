@@ -37,6 +37,7 @@ from app.modules.m07_research_supervision.schemas import (
     GuideDecisionRequest,
     GuideDocumentReviewRequest,
     ProblemCreate,
+    VivaConductRequest,
     VivaRatifyRequest,
     VivaScheduleRequest,
 )
@@ -664,6 +665,66 @@ class VivaService:
         return await VivaRepository.get_by_id(viva_id, db=db), job_id
 
     @staticmethod
+    async def conduct(
+        viva_id: UUID,
+        payload: VivaConductRequest,
+        *,
+        guide_user_id: UUID,
+        tenant_id: UUID,
+        schema_name: str,
+        db: AsyncSession,
+    ):
+        """Guide conducts an offline viva: bulk-load Q&A, auto-consent, dispatch evaluation."""
+        viva = await VivaRepository.get_by_id(viva_id, db=db)
+        if viva is None:
+            raise ResearchServiceError("NOT_FOUND", "Viva session not found.", 404)
+        if viva.guide_user_id != guide_user_id:
+            raise ResearchServiceError("FORBIDDEN", "Only the assigned guide can conduct.", 403)
+        if viva.status != VivaStatus.SCHEDULED.value:
+            raise ResearchServiceError(
+                "INVALID_STATUS",
+                f"Viva must be SCHEDULED to conduct offline (current={viva.status!r}).",
+            )
+
+        responses = [
+            {
+                "question_id":   r.question_id,
+                "response_text": r.response_text,
+                "start_ms":      None,
+                "end_ms":        None,
+            }
+            for r in payload.responses
+        ]
+        await VivaRepository.bulk_set_responses(viva_id, responses=responses, db=db)
+        await VivaRepository.set_offline_completed(viva_id, db=db)
+        await db.commit()
+
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as pub_db:
+            job_id = await TaskJobPublicRepository.create(
+                tenant_id=tenant_id,
+                task_type="process_viva_session",
+                queue_name="heavy",
+                payload={"viva_id": str(viva_id), "schema_name": schema_name},
+                db=pub_db,
+            )
+            await pub_db.commit()
+
+        await VivaRepository.set_eval_job(viva_id, job_id=job_id, db=db)
+        await db.commit()
+
+        from app.workers.heavy.process_viva_session import process_viva_session
+        process_viva_session.apply_async(
+            kwargs={
+                "job_id":      str(job_id),
+                "viva_id":     str(viva_id),
+                "schema_name": schema_name,
+            },
+            queue="celery-heavy",
+        )
+        return await VivaRepository.get_by_id(viva_id, db=db), job_id
+
+    @staticmethod
     async def ratify(
         viva_id: UUID,
         payload: VivaRatifyRequest,
@@ -671,7 +732,7 @@ class VivaService:
         guide_user_id: UUID,
         db: AsyncSession,
     ):
-        """HUMAN GATE 3: Guide ratifies or amends AI viva evaluation."""
+        """HUMAN GATE 3: Guide ratifies viva. Guide score is authoritative — AI advises only."""
         viva = await VivaRepository.get_by_id(viva_id, db=db)
         if viva is None:
             raise ResearchServiceError("NOT_FOUND", "Viva session not found.", 404)
@@ -683,44 +744,15 @@ class VivaService:
                 f"Viva must be EVALUATED before ratification (current={viva.status!r}).",
             )
 
-        # Build guide_evaluation: start from AI evaluation, apply overrides
-        ai_eval: list[dict] = list(viva.ai_evaluation or [])
-        overrides = {o.question_id: o for o in payload.question_overrides}
-
-        guide_eval: list[dict] = []
-        total_score = 0.0
-        count = 0
-        for item in ai_eval:
-            qid = item.get("question_id", "")
-            override = overrides.get(qid)
-            g_entry: dict = {
-                "question_id":    qid,
-                "score_override": None,
-                "comment":        None,
-            }
-            if override:
-                g_entry["score_override"] = override.score_override
-                g_entry["comment"]        = override.comment
-            guide_eval.append(g_entry)
-
-            # Compute effective score: use override if set, else AI average
-            if override and override.score_override is not None:
-                effective = override.score_override
-            else:
-                effective = (
-                    float(item.get("coherence", 0))
-                    + float(item.get("accuracy", 0))
-                    + float(item.get("depth", 0))
-                ) / 3.0
-            total_score += effective
-            count += 1
-
-        overall_guide = round(total_score / count, 2) if count else 0.0
+        guide_evaluation = {
+            "overall_guide_score": payload.overall_guide_score,
+            "ratification_note":   payload.ratification_note,
+        }
 
         updated = await VivaRepository.set_guide_ratification(
             viva_id,
-            guide_evaluation=guide_eval,
-            overall_guide_score=overall_guide,
+            guide_evaluation=guide_evaluation,
+            overall_guide_score=round(payload.overall_guide_score, 2),
             db=db,
         )
         await db.commit()

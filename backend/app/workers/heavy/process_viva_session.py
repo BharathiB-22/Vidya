@@ -95,39 +95,51 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
         # DPDP Act 2023 compliance: skip audio processing if no consent
         transcript: str = ""
         if viva.video_url and viva.consent_recorded:
-            # 1. ASR phase
+            # ASR phase — only for video vivas (not offline guide-conducted)
             await VivaRepository.set_status(viva_id, VivaStatus.ASR_PROCESSING.value, db=session)
             await session.commit()
-
             transcript = await transcribe_audio(viva.video_url)
-            await VivaRepository.set_recording(viva_id, video_url=viva.video_url,
-                                                transcript=transcript, db=session)
-            await session.commit()
         elif viva.video_url and not viva.consent_recorded:
-            # Privacy gate: consent not recorded — skip audio, proceed to text-only evaluation
             logger.info("Viva %s: consent not recorded, skipping ASR.", viva_id)
 
-        # 2. Build QA pairs from stored questions + responses
+        # Build QA pairs from stored questions + responses
         questions = viva.ai_questions or []
-        responses = {r.get("question_id"): r.get("response_text", "")
-                     for r in (viva.ai_responses or [])}
+        stored_responses = {
+            r.get("question_id"): r.get("response_text", "")
+            for r in (viva.ai_responses or [])
+        }
 
         qa_pairs = []
         for q in questions:
             qid  = q.get("id", "")
-            text = q.get("text", "")
-            resp = responses.get(qid, "")
-            if text:
-                qa_pairs.append({"question": text, "response": resp or "[No response]"})
+            text_ = q.get("text", "")
+            resp  = stored_responses.get(qid, "")
+            if text_:
+                qa_pairs.append({
+                    "question_id": qid,
+                    "question":    text_,
+                    "response":    resp or "[No response]",
+                })
 
         if not qa_pairs:
             logger.warning("Viva %s: no Q&A pairs found, using stub evaluation.", viva_id)
-            qa_pairs = [{"question": "[No questions recorded]", "response": "[No response]"}]
+            qa_pairs = [{
+                "question_id": "stub",
+                "question":    "[No questions recorded]",
+                "response":    "[No response]",
+            }]
 
-        # 3. LLM evaluation
-        eval_result = await evaluate_responses(qa_pairs)
+        # LLM evaluation — evaluate_responses never raises; falls back to defaults
+        try:
+            eval_result = await evaluate_responses(qa_pairs)
+        except Exception as exc:
+            # Belt-and-suspenders: reset status so viva is not stuck in ASR_PROCESSING
+            logger.error("Viva %s: evaluate_responses raised unexpectedly: %s", viva_id, exc)
+            await VivaRepository.set_status(viva_id, VivaStatus.COMPLETED.value, db=session)
+            await session.commit()
+            raise
 
-        # 4. Build ai_evaluation JSONB
+        # Build ai_evaluation dict stored as JSONB
         pq = [
             {
                 "question_id": re_.question_id,
@@ -139,14 +151,7 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
             for re_ in eval_result.per_question
         ]
 
-        # Overall score = mean of per-question mean scores
-        if eval_result.per_question:
-            overall = sum(
-                (re_.coherence + re_.accuracy + re_.depth) / 3.0
-                for re_ in eval_result.per_question
-            ) / len(eval_result.per_question)
-        else:
-            overall = eval_result.overall_score
+        overall = eval_result.overall_score
 
         ai_evaluation = {
             "per_question":  pq,
@@ -154,18 +159,17 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
             "ai_model":      eval_result.ai_model,
         }
 
-        # 5. Write evaluation — status → EVALUATED (human gate holds here)
+        # Write evaluation — status → EVALUATED (human gate holds here)
         await VivaRepository.set_ai_evaluation(
             viva_id,
+            transcript=transcript,
             ai_evaluation=ai_evaluation,
             overall_ai_score=round(overall, 2),
             ai_model=eval_result.ai_model,
-            new_status=VivaStatus.EVALUATED.value,
             db=session,
         )
         await session.commit()
 
-        # 6. Audit
         await AuditService.log(
             AuditEventType.VIVA_AI_EVALUATED,
             actor_user_id=None,
@@ -185,7 +189,7 @@ async def _run_viva_processing(viva_id: UUID, schema_name: str) -> dict:
 
         logger.info(
             "Viva processed: viva=%s overall_ai_score=%.2f questions=%d",
-            viva_id, overall, len(eval_result.evaluations),
+            viva_id, overall, len(eval_result.per_question),
         )
 
         return {
