@@ -162,15 +162,20 @@ class ScriptService:
         # Create task job record in public schema then dispatch
         from app.database import AsyncSessionLocal
         async with AsyncSessionLocal() as pub_db:
-            job = await TaskJobPublicRepository.create(
-                task_name="app.workers.heavy.score_scanned_script",
+            job_id = await TaskJobPublicRepository.create(
                 tenant_id=tenant_id,
+                task_type="score_scanned_script",
+                queue_name="heavy",
+                payload={
+                    "script_id":   str(script.id),
+                    "schema_name": schema_name,
+                },
                 db=pub_db,
             )
             await pub_db.commit()
 
         # Set eval_job_id + status → PROCESSING on the script
-        await ScriptRepository.set_eval_job(script.id, job_id=job.id, db=db)
+        await ScriptRepository.set_eval_job(script.id, job_id=job_id, db=db)
         await db.commit()
 
         # Route to quality pipeline when a file was uploaded; otherwise score directly.
@@ -178,7 +183,7 @@ class ScriptService:
             from app.workers.heavy.detect_scan_quality import detect_scan_quality
             detect_scan_quality.apply_async(
                 kwargs={
-                    "job_id":      str(job.id),
+                    "job_id":      str(job_id),
                     "script_id":   str(script.id),
                     "schema_name": schema_name,
                 }
@@ -187,7 +192,7 @@ class ScriptService:
             from app.workers.heavy.score_scanned_script import score_scanned_script
             score_scanned_script.apply_async(
                 kwargs={
-                    "job_id":      str(job.id),
+                    "job_id":      str(job_id),
                     "script_id":   str(script.id),
                     "schema_name": schema_name,
                 }
@@ -206,12 +211,12 @@ class ScriptService:
             metadata={
                 "masked_id":     masked_id,
                 "exam_paper_id": str(payload.exam_paper_id),
-                "job_id":        str(job.id),
+                "job_id":        str(job_id),
             },
         )
 
         _mask_identity(script)
-        return script, job.id
+        return script, job_id
 
     # -----------------------------------------------------------------------
     # Assign evaluator

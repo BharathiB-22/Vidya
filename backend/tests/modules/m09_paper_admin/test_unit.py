@@ -2864,7 +2864,7 @@ class TestIngestPipelineRouting:
         script.masked_id = "S1234567890"
         script.status = "PENDING"
 
-        fake_job = MagicMock(); fake_job.id = uuid4()
+        fake_job_id = uuid4()
 
         quality_mock  = MagicMock()
         score_mock    = MagicMock()
@@ -2874,7 +2874,7 @@ class TestIngestPipelineRouting:
             new=AsyncMock(return_value=script),
         ), patch(
             "app.modules.m09_paper_admin.service.TaskJobPublicRepository.create",
-            new=AsyncMock(return_value=fake_job),
+            new=AsyncMock(return_value=fake_job_id),
         ), patch(
             "app.modules.m09_paper_admin.service.ScriptRepository.set_eval_job",
             new=AsyncMock(),
@@ -2924,7 +2924,7 @@ class TestIngestPipelineRouting:
         script.masked_id = "S0000000000"
         script.status = "PENDING"
 
-        fake_job = MagicMock(); fake_job.id = uuid4()
+        fake_job_id = uuid4()
 
         quality_mock  = MagicMock()
         score_mock    = MagicMock()
@@ -2934,7 +2934,7 @@ class TestIngestPipelineRouting:
             new=AsyncMock(return_value=script),
         ), patch(
             "app.modules.m09_paper_admin.service.TaskJobPublicRepository.create",
-            new=AsyncMock(return_value=fake_job),
+            new=AsyncMock(return_value=fake_job_id),
         ), patch(
             "app.modules.m09_paper_admin.service.ScriptRepository.set_eval_job",
             new=AsyncMock(),
@@ -3011,6 +3011,93 @@ class TestIngestPipelineRouting:
         assert "score_scanned_script" in src, (
             "ingest_script must dispatch score_scanned_script when upload_url is None"
         )
+
+    def test_task_job_repository_uses_current_schema_fields(self):
+        """
+        Regression for M09-BUG-001: TaskJobPublicRepository.create must use
+        task_type/queue_name/payload columns, not the removed task_name column.
+        """
+        import inspect
+        from app.modules.m09_paper_admin.repository import TaskJobPublicRepository
+        src = inspect.getsource(TaskJobPublicRepository.create)
+        assert "task_name" not in src, (
+            "TaskJobPublicRepository.create must not use removed 'task_name' column"
+        )
+        assert "task_type" in src, (
+            "TaskJobPublicRepository.create must insert 'task_type'"
+        )
+        assert "queue_name" in src, (
+            "TaskJobPublicRepository.create must insert 'queue_name'"
+        )
+        assert "payload" in src, (
+            "TaskJobPublicRepository.create must insert 'payload'"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ingest_script_passes_correct_task_type_to_repository(self):
+        """
+        Regression for M09-BUG-001: ingest_script must call TaskJobPublicRepository.create
+        with task_type='score_scanned_script' and queue_name='heavy'.
+        """
+        from unittest.mock import AsyncMock, MagicMock, call, patch
+        from uuid import uuid4
+
+        script = MagicMock()
+        script.id = uuid4()
+        script.masked_id = "S9999999999"
+        script.status = "PENDING"
+
+        fake_job_id = uuid4()
+        create_mock = AsyncMock(return_value=fake_job_id)
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.create",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.TaskJobPublicRepository.create",
+            create_mock,
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_eval_job",
+            new=AsyncMock(),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ), patch(
+            "app.workers.heavy.score_scanned_script.score_scanned_script",
+            MagicMock(),
+        ):
+            from app.modules.m09_paper_admin.service import ScriptService
+            from app.modules.m09_paper_admin.schemas import ScriptIngestRequest
+
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+
+            with patch("app.database.AsyncSessionLocal") as mock_session:
+                mock_session.return_value.__aenter__ = AsyncMock(return_value=db)
+                mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+                tenant_id = uuid4()
+                await ScriptService.ingest_script(
+                    ScriptIngestRequest(exam_paper_id=uuid4()),
+                    upload_url=None,
+                    page_count=None,
+                    ingested_by=uuid4(),
+                    tenant_id=tenant_id,
+                    schema_name="dsu",
+                    db=db,
+                )
+
+        create_mock.assert_called_once()
+        _, kwargs = create_mock.call_args
+        assert kwargs["task_type"] == "score_scanned_script", (
+            f"Expected task_type='score_scanned_script', got {kwargs.get('task_type')!r}"
+        )
+        assert kwargs["queue_name"] == "heavy", (
+            f"Expected queue_name='heavy', got {kwargs.get('queue_name')!r}"
+        )
+        assert "script_id" in kwargs["payload"], "payload must contain script_id"
+        assert "schema_name" in kwargs["payload"], "payload must contain schema_name"
 
 
 # ===========================================================================

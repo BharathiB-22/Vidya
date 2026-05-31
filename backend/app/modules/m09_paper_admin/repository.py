@@ -642,28 +642,27 @@ class TaskJobPublicRepository:
 
     @staticmethod
     async def create(
-        *,
-        task_name: str,
         tenant_id: UUID,
+        task_type: str,
+        queue_name: str,
+        payload: dict,
+        *,
         db: AsyncSession,
-    ):
+    ) -> UUID:
+        import json as _json
         from sqlalchemy import text as sa_text
-        result = await db.execute(
-            sa_text(
-                "INSERT INTO public.task_jobs (id, task_name, tenant_id, status, created_at) "
-                "VALUES (:id, :task_name, :tenant_id, 'PENDING', now()) RETURNING *"
-            ),
-            {
-                "id":        str(uuid.uuid4()),
-                "task_name": task_name,
-                "tenant_id": str(tenant_id),
-            },
+        job_id = uuid.uuid4()
+        stmt = sa_text(
+            "INSERT INTO public.task_jobs "
+            "(id, tenant_id, task_type, queue_name, status, payload) "
+            "VALUES (CAST(:id AS uuid), CAST(:tenant_id AS uuid), :task_type, :queue_name, 'PENDING', CAST(:payload AS jsonb))"
         )
-        row = result.mappings().one()
-
-        class _Job:
-            pass
-
-        job = _Job()
-        job.id = UUID(row["id"]) if isinstance(row["id"], str) else row["id"]
-        return job
+        await db.execute(stmt, {
+            "id":         str(job_id),
+            "tenant_id":  str(tenant_id),
+            "task_type":  task_type,
+            "queue_name": queue_name,
+            "payload":    _json.dumps(payload),
+        })
+        await db.flush()
+        return job_id
