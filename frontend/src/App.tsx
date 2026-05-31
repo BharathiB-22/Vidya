@@ -27,6 +27,7 @@ import StudentLabListPage from '@/pages/StudentLabListPage'
 import StudentSubmitPage from '@/pages/StudentSubmitPage'
 import StudentResultPage from '@/pages/StudentResultPage'
 import ResearchProblemListPage from '@/pages/ResearchProblemListPage'
+import ResearchProblemDetailPage from '@/pages/ResearchProblemDetailPage'
 import ResearchDocumentPage from '@/pages/ResearchDocumentPage'
 import VivaRatifyPage from '@/pages/VivaRatifyPage'
 import StudentResearchPage from '@/pages/StudentResearchPage'
@@ -174,6 +175,7 @@ export default function App() {
           {/* Research Supervision — FACULTY, ADMIN, GUIDE */}
           <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'GUIDE']} />}>
             <Route path="/research/problems" element={<ResearchProblemListPage />} />
+            <Route path="/research/problems/:problemId" element={<ResearchProblemDetailPage />} />
             <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
             <Route path="/research/vivas/:id" element={<VivaRatifyPage />} />
           </Route>
