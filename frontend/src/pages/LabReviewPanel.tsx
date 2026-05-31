@@ -100,6 +100,7 @@ export default function LabReviewPanel() {
 
   const [fileUrlRequested, setFileUrlRequested] = useState(false)
   const { data: fileUrlData, isFetching: fetchingFileUrl } = useSubmissionFileUrl(sid, fileUrlRequested)
+  const [contextOpen, setContextOpen] = useState(false)
 
   // Auto-open the file as soon as the presigned URL resolves
   useEffect(() => {
@@ -143,7 +144,6 @@ export default function LabReviewPanel() {
   const evaluation = submission.evaluation
   const isRatified = submission.status === 'RATIFIED'
   const canRatify  = submission.status === 'REVIEWED' && !isRatified
-  const [contextOpen, setContextOpen] = useState(false)
 
   function handleScoreChange(criterionId: string, score: number | '', note: string) {
     setDraftScores((prev) => ({ ...prev, [criterionId]: { score, note } }))
