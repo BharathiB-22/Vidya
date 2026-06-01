@@ -89,6 +89,8 @@ class TenantResponse(BaseModel):
 
 class TenantUpdateRequest(BaseModel):
     name: Optional[str] = None
+    contact_email: Optional[EmailStr] = None
+    status: Optional[TenantStatus] = None
     is_active: Optional[bool] = None
     logo_url: Optional[str] = None
     primary_color: Optional[str] = None
@@ -104,6 +106,15 @@ class TenantUpdateRequest(BaseModel):
             raise ValueError("Tenant name must be at least 3 characters")
         if len(v) > 100:
             raise ValueError("Tenant name must be at most 100 characters")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def status_transition_allowed(cls, v: Optional[TenantStatus]) -> Optional[TenantStatus]:
+        if v is None:
+            return v
+        if v in (TenantStatus.PROVISIONING, TenantStatus.FAILED):
+            raise ValueError("Cannot set status to PROVISIONING or FAILED via update request")
         return v
 
     @field_validator("primary_color", "secondary_color", mode="before")

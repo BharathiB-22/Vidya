@@ -1,7 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { PlusCircle, Building2, CheckCircle2, Clock, AlertTriangle, Shield, Search } from 'lucide-react'
+import {
+  PlusCircle, Building2, CheckCircle2, AlertTriangle, Shield, Search,
+  Pencil, Archive, RotateCcw,
+} from 'lucide-react'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -11,13 +18,20 @@ import { listTenants, updateTenant } from '@/lib/api/tenants'
 import { getAdminErrorMessage } from '@/lib/adminApi'
 import type { Tenant, TenantStatus } from '@/lib/api/tenants'
 
+// ---------------------------------------------------------------------------
+// Status badge
+// ---------------------------------------------------------------------------
+
+const STATUS_CFG: Record<TenantStatus, { bg: string; color: string; border: string }> = {
+  ACTIVE:       { bg: 'rgba(16,185,129,0.1)',  color: '#34d399', border: 'rgba(16,185,129,0.2)' },
+  PROVISIONING: { bg: 'rgba(245,158,11,0.1)',  color: '#fbbf24', border: 'rgba(245,158,11,0.2)' },
+  FAILED:       { bg: 'rgba(239,68,68,0.1)',   color: '#f87171', border: 'rgba(239,68,68,0.2)'  },
+  INACTIVE:     { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.2)' },
+  ARCHIVED:     { bg: 'rgba(120,113,108,0.12)', color: '#a8a29e', border: 'rgba(120,113,108,0.2)' },
+}
+
 function StatusBadge({ status }: { status: TenantStatus }) {
-  const cfg: Record<TenantStatus, { bg: string; color: string; border: string }> = {
-    ACTIVE:       { bg: 'rgba(16,185,129,0.1)',  color: '#34d399', border: 'rgba(16,185,129,0.2)' },
-    PROVISIONING: { bg: 'rgba(245,158,11,0.1)',  color: '#fbbf24', border: 'rgba(245,158,11,0.2)' },
-    FAILED:       { bg: 'rgba(239,68,68,0.1)',   color: '#f87171', border: 'rgba(239,68,68,0.2)'  },
-  }
-  const { bg, color, border } = cfg[status]
+  const { bg, color, border } = STATUS_CFG[status] ?? STATUS_CFG.INACTIVE
   return (
     <span
       className="text-[10px] px-2 py-0.5 rounded-full font-bold"
@@ -27,6 +41,10 @@ function StatusBadge({ status }: { status: TenantStatus }) {
     </span>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Stat card
+// ---------------------------------------------------------------------------
 
 function StatCard({
   label, value, icon: Icon, accentColor, sub,
@@ -53,11 +71,28 @@ function StatCard({
   )
 }
 
+// ---------------------------------------------------------------------------
+// Tenant row
+// ---------------------------------------------------------------------------
+
+type LifecycleAction = 'deactivate' | 'archive' | 'reactivate'
+
 function TenantRow({
-  tenant, onSelect, onToggle,
+  tenant, onSelect, onLifecycle, onEdit,
 }: {
-  tenant: Tenant; onSelect: (t: Tenant) => void; onToggle: (t: Tenant) => void
+  tenant: Tenant
+  onSelect: (t: Tenant) => void
+  onLifecycle: (t: Tenant, action: LifecycleAction) => void
+  onEdit: (t: Tenant) => void
 }) {
+  const isArchived  = tenant.status === 'ARCHIVED'
+  const isInactive  = tenant.status === 'INACTIVE' || !tenant.is_active
+  const canDeactivate = tenant.is_active && !isArchived
+  const canArchive    = !isArchived
+  const canReactivate = isArchived || (isInactive && tenant.status !== 'FAILED' && tenant.status !== 'PROVISIONING')
+
+  const btnBase = 'text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors flex items-center gap-0.5 whitespace-nowrap'
+
   return (
     <tr
       className="cursor-pointer transition-colors"
@@ -76,66 +111,274 @@ function TenantRow({
         {new Date(tenant.created_at).toLocaleDateString()}
       </td>
       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={() => onToggle(tenant)}
-          className="text-xs px-2 py-0.5 rounded font-medium transition-colors"
-          style={
-            tenant.is_active
-              ? { background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }
-              : { background: 'rgba(16,185,129,0.08)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }
-          }
-          onMouseEnter={(e) => {
-            if (tenant.is_active) {
-              e.currentTarget.style.background = 'rgba(239,68,68,0.15)'
-            } else {
-              e.currentTarget.style.background = 'rgba(16,185,129,0.15)'
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = tenant.is_active
-              ? 'rgba(239,68,68,0.08)'
-              : 'rgba(16,185,129,0.08)'
-          }}
-        >
-          {tenant.is_active ? 'Deactivate' : 'Activate'}
-        </button>
+        <div className="flex items-center gap-1 flex-wrap">
+          {/* Edit */}
+          <button
+            onClick={() => onEdit(tenant)}
+            className={btnBase}
+            style={{ background: 'rgba(99,102,241,0.08)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)' }}
+          >
+            <Pencil className="h-2.5 w-2.5" /> Edit
+          </button>
+
+          {/* Deactivate */}
+          {canDeactivate && (
+            <button
+              onClick={() => onLifecycle(tenant, 'deactivate')}
+              className={btnBase}
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+            >
+              Deactivate
+            </button>
+          )}
+
+          {/* Archive */}
+          {canArchive && (
+            <button
+              onClick={() => onLifecycle(tenant, 'archive')}
+              className={btnBase}
+              style={{ background: 'rgba(245,158,11,0.08)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.2)' }}
+            >
+              <Archive className="h-2.5 w-2.5" /> Archive
+            </button>
+          )}
+
+          {/* Reactivate */}
+          {canReactivate && (
+            <button
+              onClick={() => onLifecycle(tenant, 'reactivate')}
+              className={btnBase}
+              style={{ background: 'rgba(16,185,129,0.08)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
+            >
+              <RotateCcw className="h-2.5 w-2.5" /> Reactivate
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Edit tenant dialog
+// ---------------------------------------------------------------------------
+
+interface EditForm {
+  name: string
+  contact_email: string
+  logo_url: string
+  primary_color: string
+  secondary_color: string
+}
+
+function EditTenantDialog({
+  tenant,
+  saving,
+  onSave,
+  onClose,
+}: {
+  tenant: Tenant
+  saving: boolean
+  onSave: (updates: Partial<EditForm>) => void
+  onClose: () => void
+}) {
+  const [form, setForm] = useState<EditForm>({
+    name:            tenant.name,
+    contact_email:   tenant.contact_email ?? '',
+    logo_url:        tenant.logo_url ?? '',
+    primary_color:   tenant.primary_color ?? '',
+    secondary_color: tenant.secondary_color ?? '',
+  })
+
+  const field = (key: keyof EditForm) => ({
+    value: form[key],
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value })),
+  })
+
+  const inputCls = 'w-full px-3 py-2 text-sm text-slate-200 rounded-lg outline-none transition-all'
+  const inputStyle = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }
+  const labelCls = 'block text-xs font-medium text-slate-400 mb-1'
+
+  function handleSave() {
+    const updates: Partial<EditForm> = {}
+    if (form.name.trim() !== tenant.name) updates.name = form.name.trim()
+    if (form.contact_email !== (tenant.contact_email ?? '')) updates.contact_email = form.contact_email || ''
+    if (form.logo_url !== (tenant.logo_url ?? '')) updates.logo_url = form.logo_url || ''
+    if (form.primary_color !== (tenant.primary_color ?? '')) updates.primary_color = form.primary_color || ''
+    if (form.secondary_color !== (tenant.secondary_color ?? '')) updates.secondary_color = form.secondary_color || ''
+    onSave(updates)
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit University</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Slug — read-only */}
+          <div>
+            <label className={labelCls}>Slug (read-only)</label>
+            <div
+              className="px-3 py-2 text-sm font-mono text-slate-500 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              {tenant.slug}
+            </div>
+          </div>
+
+          {/* Status — read-only display */}
+          <div>
+            <label className={labelCls}>Status</label>
+            <div className="flex items-center gap-2 py-1">
+              <StatusBadge status={tenant.status} />
+              <span className="text-xs text-slate-600">(change via Deactivate / Archive / Reactivate)</span>
+            </div>
+          </div>
+
+          {/* Name */}
+          <div>
+            <label className={labelCls}>University name</label>
+            <input className={inputCls} style={inputStyle} {...field('name')} maxLength={100} />
+          </div>
+
+          {/* Contact email */}
+          <div>
+            <label className={labelCls}>Contact email</label>
+            <input type="email" className={inputCls} style={inputStyle} {...field('contact_email')} />
+          </div>
+
+          {/* Logo URL */}
+          <div>
+            <label className={labelCls}>Logo URL</label>
+            <input className={inputCls} style={inputStyle} {...field('logo_url')} placeholder="https://…" />
+          </div>
+
+          {/* Colors */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Primary color</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={form.primary_color || '#10b981'}
+                  onChange={(e) => setForm((f) => ({ ...f, primary_color: e.target.value }))}
+                  className="h-8 w-8 rounded cursor-pointer border-0 bg-transparent"
+                />
+                <input className={`${inputCls} flex-1`} style={inputStyle} {...field('primary_color')} placeholder="#10b981" />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Secondary color</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={form.secondary_color || '#059669'}
+                  onChange={(e) => setForm((f) => ({ ...f, secondary_color: e.target.value }))}
+                  className="h-8 w-8 rounded cursor-pointer border-0 bg-transparent"
+                />
+                <input className={`${inputCls} flex-1`} style={inputStyle} {...field('secondary_color')} placeholder="#059669" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Save changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function TenantListPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [includeInactive, setIncludeInactive] = useState(true)
-  const [sortByName,      setSortByName]      = useState(false)
-  const [search,          setSearch]          = useState('')
-  const [confirmTenant,   setConfirmTenant]   = useState<Tenant | null>(null)
+  const [includeInactive, setIncludeInactive]       = useState(true)
+  const [sortByName,      setSortByName]             = useState(false)
+  const [search,          setSearch]                 = useState('')
+  const [editTenant,      setEditTenant]             = useState<Tenant | null>(null)
+  const [lifecycleState,  setLifecycleState]         = useState<{ tenant: Tenant; action: LifecycleAction } | null>(null)
 
   const { data: tenants, isLoading, isError, refetch } = useQuery<Tenant[]>({
     queryKey: ['admin-tenants', includeInactive],
     queryFn:  () => listTenants(includeInactive),
   })
 
-  const toggleMut = useMutation({
-    mutationFn: (t: Tenant) => updateTenant(t.id, { is_active: !t.is_active }),
-    onSuccess: (_data, t) => {
+  const lifecycleMut = useMutation({
+    mutationFn: ({ tenant, action }: { tenant: Tenant; action: LifecycleAction }) => {
+      const statusMap: Record<LifecycleAction, 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'> = {
+        deactivate: 'INACTIVE',
+        archive:    'ARCHIVED',
+        reactivate: 'ACTIVE',
+      }
+      return updateTenant(tenant.id, { status: statusMap[action] })
+    },
+    onSuccess: (_data, { action }) => {
       qc.invalidateQueries({ queryKey: ['admin-tenants'] })
-      addToast(t.is_active ? 'Tenant deactivated.' : 'Tenant activated.', 'success')
+      const msg: Record<LifecycleAction, string> = {
+        deactivate: 'Tenant deactivated.',
+        archive:    'Tenant archived.',
+        reactivate: 'Tenant reactivated.',
+      }
+      addToast(msg[action], 'success')
     },
     onError: (err) => addToast(getAdminErrorMessage(err), 'error'),
-    onSettled: () => setConfirmTenant(null),
+    onSettled: () => setLifecycleState(null),
   })
 
-  const all          = tenants ?? []
-  const query        = search.toLowerCase().trim()
-  const filtered     = query
+  const editMut = useMutation({
+    mutationFn: ({ id, updates }: { id: string; updates: object }) =>
+      updateTenant(id, updates as Parameters<typeof updateTenant>[1]),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-tenants'] })
+      addToast('Tenant updated.', 'success')
+      setEditTenant(null)
+    },
+    onError: (err) => addToast(getAdminErrorMessage(err), 'error'),
+  })
+
+  const all           = tenants ?? []
+  const query         = search.toLowerCase().trim()
+  const filtered      = query
     ? all.filter((t) => t.name.toLowerCase().includes(query) || t.slug.toLowerCase().includes(query))
     : all
-  const rows         = sortByName ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
-  const activeCount  = all.filter((t) => t.is_active).length
-  const pendingCount = all.filter((t) => t.status === 'PROVISIONING').length
-  const failedCount  = all.filter((t) => t.status === 'FAILED').length
+  const rows          = sortByName ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
+  const activeCount   = all.filter((t) => t.status === 'ACTIVE').length
+  const inactiveCount = all.filter((t) => t.status === 'INACTIVE').length
+  const archivedCount = all.filter((t) => t.status === 'ARCHIVED').length
+  const pendingCount  = all.filter((t) => t.status === 'PROVISIONING').length
+  const failedCount   = all.filter((t) => t.status === 'FAILED').length
+
+  const confirmConfig = lifecycleState ? {
+    deactivate: {
+      title: 'Deactivate tenant?',
+      description: `Users at "${lifecycleState.tenant.name}" will no longer be able to log in.`,
+      confirmLabel: 'Deactivate',
+      danger: true,
+    },
+    archive: {
+      title: 'Archive tenant?',
+      description: `"${lifecycleState.tenant.name}" will be hidden from active workspaces. Data is fully preserved and the tenant can be reactivated at any time. The database schema will not be dropped.`,
+      confirmLabel: 'Archive',
+      danger: true,
+    },
+    reactivate: {
+      title: 'Reactivate tenant?',
+      description: `Re-enable access for all users at "${lifecycleState.tenant.name}".`,
+      confirmLabel: 'Reactivate',
+      danger: false,
+    },
+  }[lifecycleState.action] : null
 
   return (
     <main className="max-w-screen-xl mx-auto px-8 py-8">
@@ -182,7 +425,7 @@ export default function TenantListPage() {
               onChange={(e) => setIncludeInactive(e.target.checked)}
               className="rounded accent-emerald-500"
             />
-            Show inactive
+            Show inactive / archived
           </label>
           <button
             onClick={() => navigate('/admin/tenants/new')}
@@ -204,15 +447,15 @@ export default function TenantListPage() {
           <StatCard label="Total Universities" value={all.length}    icon={Building2}    accentColor="#6366f1" />
           <StatCard label="Active Tenants"     value={activeCount}   icon={CheckCircle2} accentColor="#10b981" />
           <StatCard
-            label="Pending Setup"
-            value={pendingCount}
-            icon={Clock}
-            accentColor="#f59e0b"
-            sub={pendingCount > 0 ? 'Provisioning in progress' : 'All clear'}
+            label="Inactive / Archived"
+            value={inactiveCount + archivedCount}
+            icon={Archive}
+            accentColor="#94a3b8"
+            sub={archivedCount > 0 ? `${archivedCount} archived` : 'None archived'}
           />
           <StatCard
             label="Platform Health"
-            value={failedCount === 0 ? 'OK' : `${failedCount} Failed`}
+            value={failedCount === 0 && pendingCount === 0 ? 'OK' : failedCount > 0 ? `${failedCount} Failed` : `${pendingCount} Pending`}
             icon={failedCount === 0 ? Shield : AlertTriangle}
             accentColor={failedCount === 0 ? '#10b981' : '#ef4444'}
             sub={failedCount === 0 ? 'Operational' : 'Needs attention'}
@@ -231,7 +474,7 @@ export default function TenantListPage() {
         {isLoading ? (
           <PageLoading message="Loading universities…" />
         ) : rows.length === 0 ? (
-          <PageEmpty icon={Building2} message="No universities yet. Create one to get started." />
+          <PageEmpty icon={Building2} message="No universities found. Create one to get started." />
         ) : (
           <table className="w-full text-sm">
             <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
@@ -253,7 +496,8 @@ export default function TenantListPage() {
                   key={t.id}
                   tenant={t}
                   onSelect={(tenant) => navigate(`/admin/tenants/${tenant.id}`)}
-                  onToggle={(tenant) => setConfirmTenant(tenant)}
+                  onLifecycle={(tenant, action) => setLifecycleState({ tenant, action })}
+                  onEdit={(tenant) => setEditTenant(tenant)}
                 />
               ))}
             </tbody>
@@ -261,20 +505,33 @@ export default function TenantListPage() {
         )}
       </div>
 
-      {confirmTenant && (
+      {/* Lifecycle confirm dialog */}
+      {lifecycleState && confirmConfig && (
         <ConfirmDialog
-          open={!!confirmTenant}
-          title={confirmTenant.is_active ? 'Deactivate tenant?' : 'Activate tenant?'}
-          description={
-            confirmTenant.is_active
-              ? `Users at "${confirmTenant.name}" will no longer be able to log in.`
-              : `Re-enable access for all users at "${confirmTenant.name}".`
-          }
-          confirmLabel={confirmTenant.is_active ? 'Deactivate' : 'Activate'}
-          danger={confirmTenant.is_active}
-          loading={toggleMut.isPending}
-          onConfirm={() => toggleMut.mutate(confirmTenant)}
-          onCancel={() => setConfirmTenant(null)}
+          open
+          title={confirmConfig.title}
+          description={confirmConfig.description}
+          confirmLabel={confirmConfig.confirmLabel}
+          danger={confirmConfig.danger}
+          loading={lifecycleMut.isPending}
+          onConfirm={() => lifecycleMut.mutate(lifecycleState)}
+          onCancel={() => setLifecycleState(null)}
+        />
+      )}
+
+      {/* Edit dialog */}
+      {editTenant && (
+        <EditTenantDialog
+          tenant={editTenant}
+          saving={editMut.isPending}
+          onSave={(updates) => {
+            if (Object.keys(updates).length === 0) {
+              setEditTenant(null)
+              return
+            }
+            editMut.mutate({ id: editTenant.id, updates })
+          }}
+          onClose={() => setEditTenant(null)}
         />
       )}
     </main>

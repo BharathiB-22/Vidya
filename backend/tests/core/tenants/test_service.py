@@ -4,7 +4,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
+from app.core.audit_log.models import AuditEventType
 from app.core.auth.models import TenantStatus
 from app.core.tenants.schemas import CreateTenantRequest, TenantUpdateRequest
 from app.core.tenants.service import TenantError, TenantService
@@ -402,3 +404,140 @@ async def test_list_tenants_empty():
         result = await TenantService.list_tenants(db)
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# update_tenant — schema validation
+# ---------------------------------------------------------------------------
+
+
+def test_update_request_rejects_provisioning_status():
+    with pytest.raises(ValidationError):
+        TenantUpdateRequest(status=TenantStatus.PROVISIONING)
+
+
+def test_update_request_rejects_failed_status():
+    with pytest.raises(ValidationError):
+        TenantUpdateRequest(status=TenantStatus.FAILED)
+
+
+def test_update_request_accepts_active_inactive_archived():
+    for s in (TenantStatus.ACTIVE, TenantStatus.INACTIVE, TenantStatus.ARCHIVED):
+        req = TenantUpdateRequest(status=s)
+        assert req.status == s
+
+
+# ---------------------------------------------------------------------------
+# update_tenant — contact_email update
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_contact_email():
+    db = _make_db()
+    updated = _make_tenant(contact_email="new@uni.edu")
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=updated)),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()) as mock_audit,
+    ):
+        body = TenantUpdateRequest(contact_email="new@uni.edu")
+        result = await TenantService.update_tenant(updated.id, body, db)
+
+    assert result.contact_email == "new@uni.edu"
+    event_arg = mock_audit.call_args[0][0]
+    assert event_arg == AuditEventType.TENANT_UPDATED
+
+
+# ---------------------------------------------------------------------------
+# update_tenant — archive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_archive():
+    db = _make_db()
+    archived = _make_tenant(status=TenantStatus.ARCHIVED, is_active=False)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=archived)),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()) as mock_audit,
+    ):
+        body = TenantUpdateRequest(status=TenantStatus.ARCHIVED)
+        result = await TenantService.update_tenant(archived.id, body, db)
+
+    assert result.status == TenantStatus.ARCHIVED
+    assert result.is_active is False
+    event_arg = mock_audit.call_args[0][0]
+    assert event_arg == AuditEventType.TENANT_ARCHIVED
+
+
+# ---------------------------------------------------------------------------
+# update_tenant — deactivate via status=INACTIVE
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_deactivate_via_status():
+    db = _make_db()
+    inactive = _make_tenant(status=TenantStatus.INACTIVE, is_active=False)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=inactive)),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()) as mock_audit,
+    ):
+        body = TenantUpdateRequest(status=TenantStatus.INACTIVE)
+        result = await TenantService.update_tenant(inactive.id, body, db)
+
+    assert result.status == TenantStatus.INACTIVE
+    assert result.is_active is False
+    event_arg = mock_audit.call_args[0][0]
+    assert event_arg == AuditEventType.TENANT_DEACTIVATED
+
+
+# ---------------------------------------------------------------------------
+# update_tenant — reactivate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_reactivate():
+    db = _make_db()
+    active = _make_tenant(status=TenantStatus.ACTIVE, is_active=True)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=AsyncMock(return_value=active)),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()) as mock_audit,
+    ):
+        body = TenantUpdateRequest(status=TenantStatus.ACTIVE)
+        result = await TenantService.update_tenant(active.id, body, db)
+
+    assert result.status == TenantStatus.ACTIVE
+    assert result.is_active is True
+    event_arg = mock_audit.call_args[0][0]
+    assert event_arg == AuditEventType.TENANT_REACTIVATED
+
+
+# ---------------------------------------------------------------------------
+# update_tenant — legacy is_active=False sets INACTIVE status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_legacy_deactivate_sets_inactive_status():
+    db = _make_db()
+    inactive = _make_tenant(status=TenantStatus.INACTIVE, is_active=False)
+    update_mock = AsyncMock(return_value=inactive)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.update_tenant", new=update_mock),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()) as mock_audit,
+    ):
+        body = TenantUpdateRequest(is_active=False)
+        await TenantService.update_tenant(inactive.id, body, db)
+
+    call_updates = update_mock.call_args[0][1]
+    assert call_updates.get("status") == TenantStatus.INACTIVE
+    assert call_updates.get("is_active") is False
+    event_arg = mock_audit.call_args[0][0]
+    assert event_arg == AuditEventType.TENANT_DEACTIVATED

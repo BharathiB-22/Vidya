@@ -12,8 +12,10 @@ function StatusBadge({ status }: { status: TenantStatus }) {
     ACTIVE:       { bg: 'rgba(16,185,129,0.1)',   color: '#34d399', border: 'rgba(16,185,129,0.2)' },
     PROVISIONING: { bg: 'rgba(245,158,11,0.1)',   color: '#fbbf24', border: 'rgba(245,158,11,0.2)' },
     FAILED:       { bg: 'rgba(239,68,68,0.1)',    color: '#f87171', border: 'rgba(239,68,68,0.2)'  },
+    INACTIVE:     { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.2)' },
+    ARCHIVED:     { bg: 'rgba(120,113,108,0.12)', color: '#a8a29e', border: 'rgba(120,113,108,0.2)' },
   }
-  const { bg, color, border } = cfg[status]
+  const { bg, color, border } = cfg[status] ?? cfg.INACTIVE
   return (
     <span
       className="text-[10px] px-2 py-0.5 rounded-full font-bold"

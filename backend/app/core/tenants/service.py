@@ -239,9 +239,27 @@ class TenantService:
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> TenantResponse:
-        updates = body.model_dump(exclude_none=True)
-        if not updates:
+        raw = body.model_dump(exclude_none=True)
+        if not raw:
             raise TenantError("NO_FIELDS", "No fields to update", 422)
+
+        updates: dict = {}
+
+        # Metadata fields pass through directly
+        for field in ("name", "contact_email", "logo_url", "primary_color", "secondary_color"):
+            if field in raw:
+                updates[field] = raw[field]
+
+        # Status transition atomically drives is_active
+        if "status" in raw:
+            requested = raw["status"]
+            updates["status"] = requested
+            updates["is_active"] = requested == TenantStatus.ACTIVE
+        elif "is_active" in raw:
+            # Legacy deactivate path: keep status consistent
+            updates["is_active"] = raw["is_active"]
+            if not raw["is_active"]:
+                updates["status"] = TenantStatus.INACTIVE
 
         tenant = await TenantRepository.update_tenant(tenant_id, updates, db)
         await db.commit()
@@ -249,11 +267,16 @@ class TenantService:
         if tenant is None:
             raise TenantError("NOT_FOUND", "Tenant not found", 404)
 
-        event = (
-            AuditEventType.TENANT_DEACTIVATED
-            if updates.get("is_active") is False
-            else AuditEventType.TENANT_UPDATED
-        )
+        requested_status = raw.get("status")
+        if requested_status == TenantStatus.ARCHIVED:
+            event = AuditEventType.TENANT_ARCHIVED
+        elif requested_status == TenantStatus.ACTIVE:
+            event = AuditEventType.TENANT_REACTIVATED
+        elif updates.get("is_active") is False:
+            event = AuditEventType.TENANT_DEACTIVATED
+        else:
+            event = AuditEventType.TENANT_UPDATED
+
         await AuditService.log(
             event,
             actor_user_id=actor_user_id,
