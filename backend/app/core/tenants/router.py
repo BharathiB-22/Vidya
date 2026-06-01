@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import require_super_admin
 from app.core.auth.schemas import CurrentUser
 from app.database import get_db
-from app.core.tenants.schemas import CreateTenantRequest, DeleteTenantRequest, TenantResponse, TenantUpdateRequest
+from app.core.tenants.schemas import (
+    CreateTenantRequest,
+    DeleteTenantRequest,
+    PlatformStatsResponse,
+    TenantResponse,
+    TenantUpdateRequest,
+)
 from app.core.tenants.service import TenantError, TenantService
 
 router = APIRouter(tags=["tenants"])
@@ -45,6 +51,14 @@ async def list_tenants(
     db: AsyncSession = Depends(get_db),
 ) -> list[TenantResponse]:
     return await TenantService.list_tenants(db, include_inactive=include_inactive)
+
+
+@router.get("/platform-stats", response_model=PlatformStatsResponse)
+async def get_platform_stats(
+    _: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PlatformStatsResponse:
+    return await TenantService.get_platform_stats(db)
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)

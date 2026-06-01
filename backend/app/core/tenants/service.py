@@ -1,6 +1,8 @@
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
@@ -14,7 +16,17 @@ from app.core.tenants.provisioner import (
     seed_admin_user,
 )
 from app.core.tenants.repository import TenantRepository
-from app.core.tenants.schemas import CreateTenantRequest, TenantResponse, TenantUpdateRequest
+from app.core.tenants.schemas import (
+    AIServiceInfo,
+    AuditEventSummary,
+    CreateTenantRequest,
+    JobCounts,
+    PlatformStatsResponse,
+    ServiceHealthItem,
+    TenantCounts,
+    TenantResponse,
+    TenantUpdateRequest,
+)
 
 logger = logging.getLogger("vidya.tenants")
 
@@ -329,3 +341,121 @@ class TenantService:
         )
 
         return TenantResponse.model_validate(tenant)
+
+    @staticmethod
+    async def get_platform_stats(db: AsyncSession) -> PlatformStatsResponse:
+        from app.config import settings
+        from app.core.monitoring.health import HealthService
+
+        _LABELS = {
+            "db":     "PostgreSQL",
+            "redis":  "Redis",
+            "s3":     "MinIO / S3",
+            "qdrant": "Qdrant Vector DB",
+        }
+
+        # 1. Parallel health checks
+        health_results, all_healthy = await HealthService.check_all()
+        health = [
+            ServiceHealthItem(
+                service=r.service,
+                label=_LABELS.get(r.service, r.service),
+                status=r.status,
+                latency_ms=round(r.latency_ms, 1),
+                error_msg=r.error_msg,
+            )
+            for r in health_results
+        ]
+
+        # 2. Tenant counts (single query)
+        trow = await db.execute(
+            text("""
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE status = 'ACTIVE')       AS active,
+                    COUNT(*) FILTER (WHERE status = 'INACTIVE')     AS inactive,
+                    COUNT(*) FILTER (WHERE status = 'ARCHIVED')     AS archived,
+                    COUNT(*) FILTER (WHERE status = 'PROVISIONING') AS provisioning,
+                    COUNT(*) FILTER (WHERE status = 'FAILED')       AS failed
+                FROM public.tenants
+                WHERE status != 'DELETED'
+            """)
+        )
+        tc = trow.one()
+        tenants = TenantCounts(
+            total=tc.total or 0,
+            active=tc.active or 0,
+            inactive=tc.inactive or 0,
+            archived=tc.archived or 0,
+            provisioning=tc.provisioning or 0,
+            failed=tc.failed or 0,
+        )
+
+        # 3. Job counts (single query)
+        jrow = await db.execute(
+            text("""
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'PENDING')  AS pending,
+                    COUNT(*) FILTER (WHERE status = 'RUNNING')  AS running,
+                    COUNT(*) FILTER (WHERE status = 'SUCCESS')  AS completed,
+                    COUNT(*) FILTER (WHERE status = 'FAILED')   AS failed,
+                    COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') AS total_24h
+                FROM public.task_jobs
+            """)
+        )
+        jc = jrow.one()
+        jobs = JobCounts(
+            pending=jc.pending or 0,
+            running=jc.running or 0,
+            completed=jc.completed or 0,
+            failed=jc.failed or 0,
+            total_24h=jc.total_24h or 0,
+        )
+
+        # 4. AI services
+        active_provider = getattr(settings, "AI_PROVIDER", "groq")
+        ai_services = [
+            AIServiceInfo(
+                name="Gemini",
+                configured=bool(getattr(settings, "GEMINI_API_KEY", "")),
+                model=getattr(settings, "GEMINI_MODEL", "gemini-2.0-flash"),
+                active=(active_provider == "gemini"),
+            ),
+            AIServiceInfo(
+                name="Groq",
+                configured=bool(getattr(settings, "GROQ_API_KEY", "")),
+                model=getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile"),
+                active=(active_provider == "groq"),
+            ),
+        ]
+
+        # 5. Recent platform-level audit events
+        erows = await db.execute(
+            text("""
+                SELECT event_type, created_at, schema_name, metadata
+                FROM public.audit_logs
+                WHERE event_type LIKE 'TENANT_%'
+                   OR event_type LIKE 'PLATFORM_LOGIN%'
+                ORDER BY created_at DESC
+                LIMIT 15
+            """)
+        )
+        recent_events = [
+            AuditEventSummary(
+                event_type=r.event_type,
+                created_at=r.created_at,
+                schema_name=r.schema_name,
+                metadata_=r.metadata,
+            )
+            for r in erows.fetchall()
+        ]
+
+        return PlatformStatsResponse(
+            health=health,
+            all_healthy=all_healthy,
+            tenants=tenants,
+            jobs=jobs,
+            ai_services=ai_services,
+            recent_events=recent_events,
+            generated_at=datetime.now(timezone.utc),
+        )

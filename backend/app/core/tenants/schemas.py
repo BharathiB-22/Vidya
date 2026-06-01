@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
+from typing import Any, Optional
 from uuid import UUID
-from typing import Optional
 
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -125,3 +125,58 @@ class TenantUpdateRequest(BaseModel):
 
 class DeleteTenantRequest(BaseModel):
     confirm_slug: str
+
+
+# ---------------------------------------------------------------------------
+# Platform monitoring stats
+# ---------------------------------------------------------------------------
+
+class ServiceHealthItem(BaseModel):
+    service: str
+    label:   str
+    status:  str          # "healthy" | "unhealthy" | "skipped"
+    latency_ms: float
+    error_msg: Optional[str] = None
+
+
+class TenantCounts(BaseModel):
+    total:       int
+    active:      int
+    inactive:    int
+    archived:    int
+    provisioning: int
+    failed:      int
+
+
+class JobCounts(BaseModel):
+    pending:    int
+    running:    int
+    completed:  int
+    failed:     int
+    total_24h:  int
+
+
+class AIServiceInfo(BaseModel):
+    name:       str
+    configured: bool
+    model:      str
+    active:     bool      # True when this provider is currently selected
+
+
+class AuditEventSummary(BaseModel):
+    event_type:  str
+    created_at:  datetime
+    schema_name: Optional[str] = None
+    metadata_:   Optional[dict[str, Any]] = None
+
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class PlatformStatsResponse(BaseModel):
+    health:         list[ServiceHealthItem]
+    all_healthy:    bool
+    tenants:        TenantCounts
+    jobs:           JobCounts
+    ai_services:    list[AIServiceInfo]
+    recent_events:  list[AuditEventSummary]
+    generated_at:   datetime
