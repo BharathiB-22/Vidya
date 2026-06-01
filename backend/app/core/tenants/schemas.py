@@ -113,11 +113,15 @@ class TenantUpdateRequest(BaseModel):
     def status_transition_allowed(cls, v: Optional[TenantStatus]) -> Optional[TenantStatus]:
         if v is None:
             return v
-        if v in (TenantStatus.PROVISIONING, TenantStatus.FAILED):
-            raise ValueError("Cannot set status to PROVISIONING or FAILED via update request")
+        if v in (TenantStatus.PROVISIONING, TenantStatus.FAILED, TenantStatus.DELETED):
+            raise ValueError("Cannot set status to PROVISIONING, FAILED, or DELETED via update request")
         return v
 
     @field_validator("primary_color", "secondary_color", mode="before")
     @classmethod
     def color_format(cls, v: Optional[str]) -> Optional[str]:
         return _validate_hex_color(v)
+
+
+class DeleteTenantRequest(BaseModel):
+    confirm_slug: str

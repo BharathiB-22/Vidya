@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import require_super_admin
 from app.core.auth.schemas import CurrentUser
 from app.database import get_db
-from app.core.tenants.schemas import CreateTenantRequest, TenantResponse, TenantUpdateRequest
+from app.core.tenants.schemas import CreateTenantRequest, DeleteTenantRequest, TenantResponse, TenantUpdateRequest
 from app.core.tenants.service import TenantError, TenantService
 
 router = APIRouter(tags=["tenants"])
@@ -71,6 +71,27 @@ async def update_tenant(
         return await TenantService.update_tenant(
             tenant_id,
             body,
+            db,
+            actor_user_id=current_user.user_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except TenantError as e:
+        raise _tenant_error(e)
+
+
+@router.delete("/{tenant_id}", response_model=TenantResponse)
+async def delete_tenant(
+    request: Request,
+    tenant_id: UUID,
+    body: DeleteTenantRequest,
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TenantResponse:
+    try:
+        return await TenantService.delete_tenant(
+            tenant_id,
+            body.confirm_slug,
             db,
             actor_user_id=current_user.user_id,
             ip_address=request.client.host if request.client else None,

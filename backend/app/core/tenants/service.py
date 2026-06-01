@@ -231,6 +231,44 @@ class TenantService:
         return TenantResponse.model_validate(tenant)
 
     @staticmethod
+    async def delete_tenant(
+        tenant_id: UUID,
+        confirm_slug: str,
+        db: AsyncSession,
+        actor_user_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> TenantResponse:
+        tenant = await TenantRepository.get_tenant_by_id(tenant_id, db)
+        if tenant is None:
+            raise TenantError("NOT_FOUND", "Tenant not found", 404)
+        if tenant.slug != confirm_slug:
+            raise TenantError(
+                "SLUG_MISMATCH",
+                "Confirmation slug does not match the tenant slug. "
+                "Type the exact slug to confirm deletion.",
+                409,
+            )
+
+        tenant = await TenantRepository.delete_tenant(tenant_id, db)
+        await db.commit()
+
+        await AuditService.log(
+            AuditEventType.TENANT_DELETED,
+            actor_user_id=actor_user_id,
+            actor_role="SUPER_ADMIN",
+            tenant_id=tenant.id,
+            schema_name=tenant.schema_name,
+            target_entity="Tenant",
+            target_id=str(tenant_id),
+            metadata={"name": tenant.name, "slug": tenant.slug},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+        return TenantResponse.model_validate(tenant)
+
+    @staticmethod
     async def update_tenant(
         tenant_id: UUID,
         body: TenantUpdateRequest,

@@ -75,3 +75,14 @@ class TenantRepository:
         await db.flush()
         await db.refresh(tenant)
         return tenant
+
+    @staticmethod
+    async def delete_tenant(
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> Tenant | None:
+        return await TenantRepository.update_tenant(
+            tenant_id,
+            {"status": TenantStatus.DELETED, "is_active": False},
+            db,
+        )

@@ -23,6 +23,7 @@ class TenantStatus(str, enum.Enum):
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
     FAILED = "FAILED"
+    DELETED = "DELETED"
 
 
 class OTPPurpose(str, enum.Enum):

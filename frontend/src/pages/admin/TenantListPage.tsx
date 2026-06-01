@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   PlusCircle, Building2, CheckCircle2, AlertTriangle, Shield, Search,
-  Pencil, Archive, RotateCcw,
+  Pencil, Archive, RotateCcw, Trash2, TriangleAlert,
 } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -14,7 +14,7 @@ import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { addToast } from '@/hooks/useToast'
-import { listTenants, updateTenant } from '@/lib/api/tenants'
+import { listTenants, updateTenant, deleteTenant } from '@/lib/api/tenants'
 import { getAdminErrorMessage } from '@/lib/adminApi'
 import type { Tenant, TenantStatus } from '@/lib/api/tenants'
 
@@ -23,18 +23,19 @@ import type { Tenant, TenantStatus } from '@/lib/api/tenants'
 // ---------------------------------------------------------------------------
 
 const STATUS_CFG: Record<TenantStatus, { bg: string; color: string; border: string }> = {
-  ACTIVE:       { bg: 'rgba(16,185,129,0.1)',  color: '#34d399', border: 'rgba(16,185,129,0.2)' },
-  PROVISIONING: { bg: 'rgba(245,158,11,0.1)',  color: '#fbbf24', border: 'rgba(245,158,11,0.2)' },
-  FAILED:       { bg: 'rgba(239,68,68,0.1)',   color: '#f87171', border: 'rgba(239,68,68,0.2)'  },
-  INACTIVE:     { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.2)' },
-  ARCHIVED:     { bg: 'rgba(120,113,108,0.12)', color: '#a8a29e', border: 'rgba(120,113,108,0.2)' },
+  ACTIVE:       { bg: 'rgba(16,185,129,0.12)',  color: '#34d399', border: 'rgba(16,185,129,0.25)' },
+  PROVISIONING: { bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+  FAILED:       { bg: 'rgba(239,68,68,0.12)',   color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
+  INACTIVE:     { bg: 'rgba(100,116,139,0.14)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
+  ARCHIVED:     { bg: 'rgba(120,113,108,0.14)', color: '#a8a29e', border: 'rgba(120,113,108,0.25)' },
+  DELETED:      { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)'  },
 }
 
 function StatusBadge({ status }: { status: TenantStatus }) {
   const { bg, color, border } = STATUS_CFG[status] ?? STATUS_CFG.INACTIVE
   return (
     <span
-      className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+      className="text-[11px] px-2.5 py-0.5 rounded-full font-bold tracking-wide"
       style={{ background: bg, color, border: `1px solid ${border}` }}
     >
       {status}
@@ -54,18 +55,22 @@ function StatCard({
   return (
     <div
       className="rounded-xl p-5 flex items-center gap-4"
-      style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+      style={{
+        background: 'linear-gradient(135deg, rgba(15,26,48,0.95), rgba(10,18,35,0.95))',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+      }}
     >
       <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: accentColor + '18', border: `1px solid ${accentColor}30` }}
+        className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+        style={{ background: accentColor + '1a', border: `1px solid ${accentColor}35` }}
       >
         <Icon className="h-5 w-5" style={{ color: accentColor }} />
       </div>
       <div className="min-w-0">
-        <p className="text-2xl font-bold text-slate-100 leading-tight">{value}</p>
-        <p className="text-xs font-medium text-slate-500 truncate">{label}</p>
-        {sub && <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>}
+        <p className="text-3xl font-bold text-white leading-tight">{value}</p>
+        <p className="text-xs font-semibold text-slate-400 truncate mt-0.5">{label}</p>
+        {sub && <p className="text-[11px] text-slate-600 mt-0.5">{sub}</p>}
       </div>
     </div>
   )
@@ -78,55 +83,60 @@ function StatCard({
 type LifecycleAction = 'deactivate' | 'archive' | 'reactivate'
 
 function TenantRow({
-  tenant, onSelect, onLifecycle, onEdit,
+  tenant, onSelect, onLifecycle, onEdit, onDelete,
 }: {
   tenant: Tenant
   onSelect: (t: Tenant) => void
   onLifecycle: (t: Tenant, action: LifecycleAction) => void
   onEdit: (t: Tenant) => void
+  onDelete: (t: Tenant) => void
 }) {
+  const isDeleted   = tenant.status === 'DELETED'
   const isArchived  = tenant.status === 'ARCHIVED'
   const isInactive  = tenant.status === 'INACTIVE' || !tenant.is_active
-  const canDeactivate = tenant.is_active && !isArchived
-  const canArchive    = !isArchived
-  const canReactivate = isArchived || (isInactive && tenant.status !== 'FAILED' && tenant.status !== 'PROVISIONING')
+  const canDeactivate = tenant.is_active && !isArchived && !isDeleted
+  const canArchive    = !isArchived && !isDeleted
+  const canReactivate = !isDeleted && (isArchived || (isInactive && tenant.status !== 'FAILED' && tenant.status !== 'PROVISIONING'))
+  const canDelete     = !isDeleted
 
-  const btnBase = 'text-[10px] px-1.5 py-0.5 rounded font-medium transition-colors flex items-center gap-0.5 whitespace-nowrap'
+  const btnBase = 'text-[11px] px-2 py-1 rounded-md font-semibold transition-all flex items-center gap-1 whitespace-nowrap'
 
   return (
     <tr
-      className="cursor-pointer transition-colors"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)' }}
+      className={`cursor-pointer transition-colors ${isDeleted ? 'opacity-50' : ''}`}
+      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+      onMouseEnter={(e) => { if (!isDeleted) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.025)' }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = '' }}
-      onClick={() => onSelect(tenant)}
+      onClick={() => !isDeleted && onSelect(tenant)}
     >
-      <td className="px-4 py-3">
-        <div className="font-medium text-slate-200">{tenant.name}</div>
-        <div className="text-xs text-slate-600">{tenant.slug}</div>
+      <td className="px-5 py-4">
+        <div className="font-semibold text-base text-slate-100">{tenant.name}</div>
+        <div className="text-sm text-slate-500 font-mono mt-0.5">{tenant.slug}</div>
       </td>
-      <td className="px-4 py-3"><StatusBadge status={tenant.status} /></td>
-      <td className="px-4 py-3 text-sm text-slate-500">{tenant.contact_email ?? '—'}</td>
-      <td className="px-4 py-3 text-xs text-slate-600">
+      <td className="px-5 py-4"><StatusBadge status={tenant.status} /></td>
+      <td className="px-5 py-4 text-sm text-slate-400">{tenant.contact_email ?? '—'}</td>
+      <td className="px-5 py-4 text-sm text-slate-500">
         {new Date(tenant.created_at).toLocaleDateString()}
       </td>
-      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-1 flex-wrap">
+      <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5 flex-wrap">
           {/* Edit */}
-          <button
-            onClick={() => onEdit(tenant)}
-            className={btnBase}
-            style={{ background: 'rgba(99,102,241,0.08)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)' }}
-          >
-            <Pencil className="h-2.5 w-2.5" /> Edit
-          </button>
+          {!isDeleted && (
+            <button
+              onClick={() => onEdit(tenant)}
+              className={btnBase}
+              style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}
+            >
+              <Pencil className="h-3 w-3" /> Edit
+            </button>
+          )}
 
           {/* Deactivate */}
           {canDeactivate && (
             <button
               onClick={() => onLifecycle(tenant, 'deactivate')}
               className={btnBase}
-              style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.2)' }}
+              style={{ background: 'rgba(239,68,68,0.08)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)' }}
             >
               Deactivate
             </button>
@@ -139,7 +149,7 @@ function TenantRow({
               className={btnBase}
               style={{ background: 'rgba(245,158,11,0.08)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.2)' }}
             >
-              <Archive className="h-2.5 w-2.5" /> Archive
+              <Archive className="h-3 w-3" /> Archive
             </button>
           )}
 
@@ -150,7 +160,18 @@ function TenantRow({
               className={btnBase}
               style={{ background: 'rgba(16,185,129,0.08)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
             >
-              <RotateCcw className="h-2.5 w-2.5" /> Reactivate
+              <RotateCcw className="h-3 w-3" /> Reactivate
+            </button>
+          )}
+
+          {/* Delete */}
+          {canDelete && (
+            <button
+              onClick={() => onDelete(tenant)}
+              className={btnBase}
+              style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+            >
+              <Trash2 className="h-3 w-3" /> Delete
             </button>
           )}
         </div>
@@ -172,15 +193,9 @@ interface EditForm {
 }
 
 function EditTenantDialog({
-  tenant,
-  saving,
-  onSave,
-  onClose,
+  tenant, saving, onSave, onClose,
 }: {
-  tenant: Tenant
-  saving: boolean
-  onSave: (updates: Partial<EditForm>) => void
-  onClose: () => void
+  tenant: Tenant; saving: boolean; onSave: (updates: Partial<EditForm>) => void; onClose: () => void
 }) {
   const [form, setForm] = useState<EditForm>({
     name:            tenant.name,
@@ -198,7 +213,7 @@ function EditTenantDialog({
 
   const inputCls = 'w-full px-3 py-2 text-sm text-slate-200 rounded-lg outline-none transition-all'
   const inputStyle = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }
-  const labelCls = 'block text-xs font-medium text-slate-400 mb-1'
+  const labelCls = 'block text-xs font-semibold text-slate-400 mb-1'
 
   function handleSave() {
     const updates: Partial<EditForm> = {}
@@ -216,47 +231,33 @@ function EditTenantDialog({
         <DialogHeader>
           <DialogTitle>Edit University</DialogTitle>
         </DialogHeader>
-
         <div className="space-y-4 py-1">
-          {/* Slug — read-only */}
           <div>
             <label className={labelCls}>Slug (read-only)</label>
-            <div
-              className="px-3 py-2 text-sm font-mono text-slate-500 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-            >
+            <div className="px-3 py-2 text-sm font-mono text-slate-500 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
               {tenant.slug}
             </div>
           </div>
-
-          {/* Status — read-only display */}
           <div>
             <label className={labelCls}>Status</label>
             <div className="flex items-center gap-2 py-1">
               <StatusBadge status={tenant.status} />
-              <span className="text-xs text-slate-600">(change via Deactivate / Archive / Reactivate)</span>
+              <span className="text-xs text-slate-600">(change via lifecycle buttons)</span>
             </div>
           </div>
-
-          {/* Name */}
           <div>
             <label className={labelCls}>University name</label>
             <input className={inputCls} style={inputStyle} {...field('name')} maxLength={100} />
           </div>
-
-          {/* Contact email */}
           <div>
             <label className={labelCls}>Contact email</label>
             <input type="email" className={inputCls} style={inputStyle} {...field('contact_email')} />
           </div>
-
-          {/* Logo URL */}
           <div>
             <label className={labelCls}>Logo URL</label>
             <input className={inputCls} style={inputStyle} {...field('logo_url')} placeholder="https://…" />
           </div>
-
-          {/* Colors */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Primary color</label>
@@ -284,11 +285,112 @@ function EditTenantDialog({
             </div>
           </div>
         </div>
-
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Delete confirmation dialog
+// ---------------------------------------------------------------------------
+
+function DeleteTenantDialog({
+  tenant, deleting, onConfirm, onClose,
+}: {
+  tenant: Tenant; deleting: boolean; onConfirm: (slug: string) => void; onClose: () => void
+}) {
+  const [typed, setTyped] = useState('')
+  const match = typed === tenant.slug
+
+  const inputCls = 'w-full px-3 py-2.5 text-sm font-mono text-slate-100 rounded-lg outline-none transition-all'
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-400">
+            <TriangleAlert className="h-5 w-5 flex-shrink-0" />
+            Delete tenant permanently
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Warning banner */}
+          <div
+            className="rounded-lg px-4 py-3 space-y-2"
+            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          >
+            <p className="text-sm font-semibold text-red-300 flex items-center gap-1.5">
+              <TriangleAlert className="h-4 w-4 flex-shrink-0" /> This action is permanent
+            </p>
+            <ul className="text-sm text-slate-400 space-y-1 pl-1">
+              <li>• Tenant data may be deleted or become inaccessible.</li>
+              <li>• All users at this institution will lose access immediately.</li>
+              <li>• The tenant schema is not dropped, but the tenant is marked DELETED.</li>
+              <li className="text-amber-400 font-medium">• Only use this for test or demo tenants.</li>
+            </ul>
+          </div>
+
+          {/* Tenant being deleted */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Tenant</p>
+            <div
+              className="px-3 py-2 rounded-lg flex items-center justify-between"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+            >
+              <div>
+                <p className="text-sm font-semibold text-slate-200">{tenant.name}</p>
+                <p className="text-xs font-mono text-slate-500">{tenant.slug}</p>
+              </div>
+              <StatusBadge status={tenant.status} />
+            </div>
+          </div>
+
+          {/* Slug confirmation */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-400 mb-1">
+              Type <span className="font-mono text-slate-200">{tenant.slug}</span> to confirm
+            </label>
+            <input
+              className={inputCls}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: typed.length === 0
+                  ? '1px solid rgba(255,255,255,0.1)'
+                  : match
+                    ? '1px solid rgba(239,68,68,0.4)'
+                    : '1px solid rgba(245,158,11,0.3)',
+              }}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={tenant.slug}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {typed.length > 0 && !match && (
+              <p className="text-[11px] text-amber-400 mt-1">Slug does not match — keep typing.</p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={deleting}>Cancel</Button>
+          <Button
+            disabled={!match || deleting}
+            onClick={() => onConfirm(typed)}
+            style={match ? {
+              background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+              color: 'white',
+              border: '1px solid rgba(239,68,68,0.4)',
+            } : {}}
+          >
+            {deleting ? 'Deleting…' : 'Delete tenant'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -308,6 +410,7 @@ export default function TenantListPage() {
   const [search,          setSearch]                 = useState('')
   const [editTenant,      setEditTenant]             = useState<Tenant | null>(null)
   const [lifecycleState,  setLifecycleState]         = useState<{ tenant: Tenant; action: LifecycleAction } | null>(null)
+  const [deleteTarget,    setDeleteTarget]           = useState<Tenant | null>(null)
 
   const { data: tenants, isLoading, isError, refetch } = useQuery<Tenant[]>({
     queryKey: ['admin-tenants', includeInactive],
@@ -347,6 +450,17 @@ export default function TenantListPage() {
     onError: (err) => addToast(getAdminErrorMessage(err), 'error'),
   })
 
+  const deleteMut = useMutation({
+    mutationFn: ({ id, slug }: { id: string; slug: string }) => deleteTenant(id, slug),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-tenants'] })
+      addToast('Tenant deleted.', 'success')
+      setDeleteTarget(null)
+    },
+    onError: (err) => addToast(getAdminErrorMessage(err), 'error'),
+    onSettled: () => setDeleteTarget(null),
+  })
+
   const all           = tenants ?? []
   const query         = search.toLowerCase().trim()
   const filtered      = query
@@ -384,16 +498,16 @@ export default function TenantListPage() {
     <main className="max-w-screen-xl mx-auto px-8 py-8">
 
       {/* Search bar */}
-      <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-600 pointer-events-none" />
+      <div className="relative mb-5">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-600 pointer-events-none" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or slug…"
-          className="w-full pl-9 pr-4 py-2 text-sm text-slate-200 placeholder:text-slate-600 rounded-xl outline-none transition-all"
+          className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 rounded-xl outline-none transition-all"
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(16,185,129,0.3)' }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(16,185,129,0.35)' }}
           onBlur={(e)  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
         />
       </div>
@@ -401,15 +515,15 @@ export default function TenantListPage() {
       {/* Header row */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-slate-100">Universities</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h2 className="text-2xl font-bold text-white">Universities</h2>
+          <p className="text-sm text-slate-400 mt-0.5">
             {isLoading
               ? 'Loading…'
               : `${all.length} institution${all.length !== 1 ? 's' : ''} · ${activeCount} active`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer">
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
             <input
               type="checkbox"
               checked={sortByName}
@@ -418,7 +532,7 @@ export default function TenantListPage() {
             />
             Sort A–Z
           </label>
-          <label className="flex items-center gap-2 text-sm text-slate-500 cursor-pointer">
+          <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
             <input
               type="checkbox"
               checked={includeInactive}
@@ -429,10 +543,10 @@ export default function TenantListPage() {
           </label>
           <button
             onClick={() => navigate('/admin/tenants/new')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-semibold text-white transition-all"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition-all"
             style={{
               background: 'linear-gradient(135deg, #10b981, #059669)',
-              boxShadow: '0 0 16px rgba(16,185,129,0.2)',
+              boxShadow: '0 0 20px rgba(16,185,129,0.25)',
             }}
           >
             <PlusCircle className="h-4 w-4" />
@@ -443,7 +557,7 @@ export default function TenantListPage() {
 
       {/* Stat cards */}
       {!isLoading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
           <StatCard label="Total Universities" value={all.length}    icon={Building2}    accentColor="#6366f1" />
           <StatCard label="Active Tenants"     value={activeCount}   icon={CheckCircle2} accentColor="#10b981" />
           <StatCard
@@ -470,20 +584,27 @@ export default function TenantListPage() {
       )}
 
       {/* Table */}
-      <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{
+          background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+        }}
+      >
         {isLoading ? (
           <PageLoading message="Loading universities…" />
         ) : rows.length === 0 ? (
           <PageEmpty icon={Building2} message="No universities found. Create one to get started." />
         ) : (
-          <table className="w-full text-sm">
-            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+          <table className="w-full">
+            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)' }}>
               <tr>
                 {['Institution', 'Status', 'Contact', 'Created', 'Actions'].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide"
-                    style={{ color: '#475569' }}
+                    className="px-5 py-3.5 text-left text-[11px] font-bold uppercase tracking-widest"
+                    style={{ color: '#64748b' }}
                   >
                     {h}
                   </th>
@@ -498,6 +619,7 @@ export default function TenantListPage() {
                   onSelect={(tenant) => navigate(`/admin/tenants/${tenant.id}`)}
                   onLifecycle={(tenant, action) => setLifecycleState({ tenant, action })}
                   onEdit={(tenant) => setEditTenant(tenant)}
+                  onDelete={(tenant) => setDeleteTarget(tenant)}
                 />
               ))}
             </tbody>
@@ -532,6 +654,16 @@ export default function TenantListPage() {
             editMut.mutate({ id: editTenant.id, updates })
           }}
           onClose={() => setEditTenant(null)}
+        />
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteTarget && (
+        <DeleteTenantDialog
+          tenant={deleteTarget}
+          deleting={deleteMut.isPending}
+          onConfirm={(slug) => deleteMut.mutate({ id: deleteTarget.id, slug })}
+          onClose={() => setDeleteTarget(null)}
         />
       )}
     </main>

@@ -519,6 +519,63 @@ async def test_update_tenant_reactivate():
 
 
 # ---------------------------------------------------------------------------
+# delete_tenant — success
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_tenant_success():
+    db = _make_db()
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True)
+    deleted_tenant = _make_tenant(status=TenantStatus.DELETED, is_active=False)
+
+    with (
+        patch("app.core.tenants.service.TenantRepository.get_tenant_by_id", new=AsyncMock(return_value=active_tenant)),
+        patch("app.core.tenants.service.TenantRepository.delete_tenant", new=AsyncMock(return_value=deleted_tenant)),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()) as mock_audit,
+    ):
+        result = await TenantService.delete_tenant(
+            active_tenant.id, active_tenant.slug, db
+        )
+
+    assert result.status == TenantStatus.DELETED
+    assert result.is_active is False
+    event_arg = mock_audit.call_args[0][0]
+    assert event_arg == AuditEventType.TENANT_DELETED
+
+
+@pytest.mark.asyncio
+async def test_delete_tenant_slug_mismatch():
+    db = _make_db()
+    active_tenant = _make_tenant(status=TenantStatus.ACTIVE, is_active=True, slug="real-slug")
+
+    with patch(
+        "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+        new=AsyncMock(return_value=active_tenant),
+    ):
+        with pytest.raises(TenantError) as exc_info:
+            await TenantService.delete_tenant(active_tenant.id, "wrong-slug", db)
+
+    assert exc_info.value.code == "SLUG_MISMATCH"
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_delete_tenant_not_found():
+    db = _make_db()
+
+    with patch(
+        "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+        new=AsyncMock(return_value=None),
+    ):
+        with pytest.raises(TenantError) as exc_info:
+            await TenantService.delete_tenant(uuid.uuid4(), "any-slug", db)
+
+    assert exc_info.value.code == "NOT_FOUND"
+    assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # update_tenant — legacy is_active=False sets INACTIVE status
 # ---------------------------------------------------------------------------
 

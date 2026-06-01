@@ -1,6 +1,6 @@
 import adminApi from '@/lib/adminApi'
 
-export type TenantStatus = 'PROVISIONING' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'FAILED'
+export type TenantStatus = 'PROVISIONING' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'FAILED' | 'DELETED'
 
 export interface Tenant {
   id: string
@@ -62,5 +62,12 @@ export async function updateTenant(
   },
 ): Promise<Tenant> {
   const { data } = await adminApi.patch<Tenant>(`/tenants/${id}`, updates)
+  return data
+}
+
+export async function deleteTenant(id: string, confirmSlug: string): Promise<Tenant> {
+  const { data } = await adminApi.delete<Tenant>(`/tenants/${id}`, {
+    data: { confirm_slug: confirmSlug },
+  })
   return data
 }

@@ -113,12 +113,12 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
                 if (item.soon || !item.to) {
                   return (
                     <li key={item.label}>
-                      <span className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-sm font-medium cursor-not-allowed select-none text-slate-700">
-                        <item.icon className="h-[15px] w-[15px] flex-shrink-0 opacity-30" />
-                        <span className="truncate opacity-30">{item.label}</span>
+                      <span className="flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-sm font-medium cursor-not-allowed select-none">
+                        <item.icon className="h-[15px] w-[15px] flex-shrink-0 text-slate-700" />
+                        <span className="truncate text-slate-600">{item.label}</span>
                         <span
-                          className="ml-auto text-[8px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide"
-                          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}
+                          className="ml-auto text-[8px] px-1.5 py-0.5 rounded-sm font-semibold uppercase tracking-wider"
+                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', color: '#334155' }}
                         >
                           soon
                         </span>
