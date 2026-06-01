@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   PlusCircle, Building2, CheckCircle2, AlertTriangle, Shield, Search,
-  Pencil, Archive, RotateCcw, Trash2, TriangleAlert,
+  Pencil, Archive, RotateCcw, Trash2, TriangleAlert, X,
 } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -297,7 +297,10 @@ function EditTenantDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Delete confirmation dialog
+// Delete confirmation dialog — custom modal (no Radix Dialog)
+// Radix UI's modal pointer-event guards can block inputs inside controlled
+// dialogs. This implementation is a plain CSS portal overlay so the slug
+// input is always fully interactive.
 // ---------------------------------------------------------------------------
 
 function DeleteTenantDialog({
@@ -308,19 +311,51 @@ function DeleteTenantDialog({
   const [typed, setTyped] = useState('')
   const match = typed === tenant.slug
 
-  const inputCls = 'w-full px-3 py-2.5 text-sm font-mono text-slate-100 rounded-lg outline-none transition-all'
+  // Escape key closes the dialog
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !deleting) onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [deleting, onClose])
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-red-400">
-            <TriangleAlert className="h-5 w-5 flex-shrink-0" />
-            Delete tenant permanently
-          </DialogTitle>
-        </DialogHeader>
+    /* Backdrop — click outside to close */
+    <div
+      className="fixed inset-0 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.72)', zIndex: 9999 }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !deleting) onClose() }}
+    >
+      {/* Modal panel */}
+      <div
+        className="w-full max-w-md rounded-xl"
+        style={{
+          background: 'linear-gradient(180deg, #0f1a2e 0%, #0a1223 100%)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          boxShadow: '0 30px 70px rgba(0,0,0,0.65)',
+          zIndex: 10000,
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center gap-2 px-5 py-4"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <TriangleAlert className="h-5 w-5 text-red-400 flex-shrink-0" />
+          <h2 className="text-base font-semibold text-red-400 flex-1">Delete tenant permanently</h2>
+          <button
+            onClick={onClose}
+            disabled={deleting}
+            className="p-1 rounded text-slate-600 hover:text-slate-300 hover:bg-white/10 disabled:pointer-events-none transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-        <div className="space-y-4 py-1">
+        {/* Body */}
+        <div className="px-5 py-4 space-y-4">
           {/* Warning banner */}
           <div
             className="rounded-lg px-4 py-3 space-y-2"
@@ -339,39 +374,42 @@ function DeleteTenantDialog({
 
           {/* Tenant being deleted */}
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Tenant</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Tenant</p>
             <div
-              className="px-3 py-2 rounded-lg flex items-center justify-between"
+              className="px-3 py-2.5 rounded-lg flex items-center justify-between gap-3"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
             >
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-200">{tenant.name}</p>
-                <p className="text-xs font-mono text-slate-500">{tenant.slug}</p>
+                <p className="text-xs font-mono text-slate-500 mt-0.5">{tenant.slug}</p>
               </div>
               <StatusBadge status={tenant.status} />
             </div>
           </div>
 
-          {/* Slug confirmation */}
+          {/* Slug confirmation input */}
           <div>
-            <label className="block text-xs font-semibold text-slate-400 mb-1">
+            <label className="block text-xs font-semibold text-slate-400 mb-1.5">
               Type <span className="font-mono text-slate-200">{tenant.slug}</span> to confirm
             </label>
             <input
-              className={inputCls}
-              style={{
-                background: 'rgba(255,255,255,0.05)',
-                border: typed.length === 0
-                  ? '1px solid rgba(255,255,255,0.1)'
-                  : match
-                    ? '1px solid rgba(239,68,68,0.4)'
-                    : '1px solid rgba(245,158,11,0.3)',
-              }}
+              type="text"
+              autoFocus
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               placeholder={tenant.slug}
               autoComplete="off"
               spellCheck={false}
+              disabled={deleting}
+              className="w-full px-3 py-2.5 text-sm font-mono text-slate-100 rounded-lg outline-none transition-all disabled:opacity-50"
+              style={{
+                background: 'rgba(255,255,255,0.07)',
+                border: typed.length === 0
+                  ? '1px solid rgba(255,255,255,0.12)'
+                  : match
+                    ? '1px solid rgba(239,68,68,0.5)'
+                    : '1px solid rgba(245,158,11,0.4)',
+              }}
             />
             {typed.length > 0 && !match && (
               <p className="text-[11px] text-amber-400 mt-1">Slug does not match — keep typing.</p>
@@ -379,12 +417,18 @@ function DeleteTenantDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={deleting}>Cancel</Button>
+        {/* Footer */}
+        <div
+          className="flex justify-end gap-2 px-5 py-4"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <Button variant="ghost" onClick={onClose} disabled={deleting}>
+            Cancel
+          </Button>
           <Button
             disabled={!match || deleting}
             onClick={() => onConfirm(typed)}
-            style={match ? {
+            style={match && !deleting ? {
               background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
               color: 'white',
               border: '1px solid rgba(239,68,68,0.4)',
@@ -392,9 +436,9 @@ function DeleteTenantDialog({
           >
             {deleting ? 'Deleting…' : 'Delete tenant'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -406,15 +450,18 @@ export default function TenantListPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [includeInactive, setIncludeInactive]       = useState(true)
+  const [showDeleted,     setShowDeleted]            = useState(false)
   const [sortByName,      setSortByName]             = useState(false)
   const [search,          setSearch]                 = useState('')
   const [editTenant,      setEditTenant]             = useState<Tenant | null>(null)
   const [lifecycleState,  setLifecycleState]         = useState<{ tenant: Tenant; action: LifecycleAction } | null>(null)
   const [deleteTarget,    setDeleteTarget]           = useState<Tenant | null>(null)
 
+  // When showDeleted is on we must fetch with include_inactive=true so the
+  // backend returns DELETED rows (they have is_active=false).
   const { data: tenants, isLoading, isError, refetch } = useQuery<Tenant[]>({
-    queryKey: ['admin-tenants', includeInactive],
-    queryFn:  () => listTenants(includeInactive),
+    queryKey: ['admin-tenants', includeInactive, showDeleted],
+    queryFn:  () => listTenants(includeInactive || showDeleted),
   })
 
   const lifecycleMut = useMutation({
@@ -461,17 +508,27 @@ export default function TenantListPage() {
     onSettled: () => setDeleteTarget(null),
   })
 
-  const all           = tenants ?? []
-  const query         = search.toLowerCase().trim()
-  const filtered      = query
-    ? all.filter((t) => t.name.toLowerCase().includes(query) || t.slug.toLowerCase().includes(query))
-    : all
-  const rows          = sortByName ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
-  const activeCount   = all.filter((t) => t.status === 'ACTIVE').length
-  const inactiveCount = all.filter((t) => t.status === 'INACTIVE').length
-  const archivedCount = all.filter((t) => t.status === 'ARCHIVED').length
-  const pendingCount  = all.filter((t) => t.status === 'PROVISIONING').length
-  const failedCount   = all.filter((t) => t.status === 'FAILED').length
+  const all = tenants ?? []
+
+  // Two-pass visibility filter (applied before search)
+  let baseRows = all
+  if (!showDeleted)     baseRows = baseRows.filter((t) => t.status !== 'DELETED')
+  if (!includeInactive) baseRows = baseRows.filter((t) => t.status !== 'INACTIVE' && t.status !== 'ARCHIVED')
+
+  const query    = search.toLowerCase().trim()
+  const filtered = query
+    ? baseRows.filter((t) => t.name.toLowerCase().includes(query) || t.slug.toLowerCase().includes(query))
+    : baseRows
+  const rows = sortByName ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
+
+  // Stat counts always exclude DELETED so the numbers reflect live institutions
+  const allNonDeleted = all.filter((t) => t.status !== 'DELETED')
+  const activeCount   = allNonDeleted.filter((t) => t.status === 'ACTIVE').length
+  const inactiveCount = allNonDeleted.filter((t) => t.status === 'INACTIVE').length
+  const archivedCount = allNonDeleted.filter((t) => t.status === 'ARCHIVED').length
+  const pendingCount  = allNonDeleted.filter((t) => t.status === 'PROVISIONING').length
+  const failedCount   = allNonDeleted.filter((t) => t.status === 'FAILED').length
+  const deletedCount  = all.filter((t) => t.status === 'DELETED').length
 
   const confirmConfig = lifecycleState ? {
     deactivate: {
@@ -519,7 +576,7 @@ export default function TenantListPage() {
           <p className="text-sm text-slate-400 mt-0.5">
             {isLoading
               ? 'Loading…'
-              : `${all.length} institution${all.length !== 1 ? 's' : ''} · ${activeCount} active`}
+              : `${allNonDeleted.length} institution${allNonDeleted.length !== 1 ? 's' : ''} · ${activeCount} active${deletedCount > 0 ? ` · ${deletedCount} deleted` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -541,6 +598,15 @@ export default function TenantListPage() {
             />
             Show inactive / archived
           </label>
+          <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showDeleted}
+              onChange={(e) => setShowDeleted(e.target.checked)}
+              className="rounded accent-red-500"
+            />
+            <span className={showDeleted ? 'text-red-400' : ''}>Show deleted</span>
+          </label>
           <button
             onClick={() => navigate('/admin/tenants/new')}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition-all"
@@ -557,9 +623,9 @@ export default function TenantListPage() {
 
       {/* Stat cards */}
       {!isLoading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
-          <StatCard label="Total Universities" value={all.length}    icon={Building2}    accentColor="#6366f1" />
-          <StatCard label="Active Tenants"     value={activeCount}   icon={CheckCircle2} accentColor="#10b981" />
+        <div className={`grid grid-cols-2 gap-4 mb-7 ${showDeleted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
+          <StatCard label="Total Universities" value={allNonDeleted.length} icon={Building2}    accentColor="#6366f1" />
+          <StatCard label="Active Tenants"     value={activeCount}          icon={CheckCircle2} accentColor="#10b981" />
           <StatCard
             label="Inactive / Archived"
             value={inactiveCount + archivedCount}
@@ -574,6 +640,15 @@ export default function TenantListPage() {
             accentColor={failedCount === 0 ? '#10b981' : '#ef4444'}
             sub={failedCount === 0 ? 'Operational' : 'Needs attention'}
           />
+          {showDeleted && (
+            <StatCard
+              label="Deleted Tenants"
+              value={deletedCount}
+              icon={Trash2}
+              accentColor="#ef4444"
+              sub="Soft-deleted, schema intact"
+            />
+          )}
         </div>
       )}
 
