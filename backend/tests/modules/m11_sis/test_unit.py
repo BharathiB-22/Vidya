@@ -165,9 +165,13 @@ def test_school_service_methods():
 # 8. Router — routes
 # ---------------------------------------------------------------------------
 
-def test_router_has_five_routes():
+def test_router_has_school_routes():
     from app.modules.m11_sis.router import router
-    assert len(router.routes) == 5
+    paths = [r.path for r in router.routes]
+    assert "/schools" in paths
+    assert "/schools/{school_id}" in paths
+    # Enrollment routes are also included; total count is >= 5
+    assert len(router.routes) >= 5
 
 
 def test_router_list_before_get_by_id():
@@ -180,9 +184,11 @@ def test_router_list_before_get_by_id():
 
 def test_router_methods():
     from app.modules.m11_sis.router import router
-    method_map = {}
+    # Merge methods for routes that share the same path (GET+POST on /schools)
+    method_map: dict = {}
     for route in router.routes:
-        method_map[route.path] = {m for m in getattr(route, "methods", set())}
+        methods = {m for m in getattr(route, "methods", set())}
+        method_map.setdefault(route.path, set()).update(methods)
     assert "GET" in method_map.get("/schools", set())
     assert "POST" in method_map.get("/schools", set())
     assert "GET" in method_map.get("/schools/{school_id}", set())

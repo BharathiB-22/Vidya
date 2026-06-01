@@ -67,6 +67,9 @@ import SectionsPage from '@/pages/academics/SectionsPage'
 import SemestersPage from '@/pages/academics/SemestersPage'
 import SchoolsPage from '@/pages/sis/SchoolsPage'
 import SisDepartmentsPage from '@/pages/sis/DepartmentsPage'
+import SisDashboardPage from '@/pages/sis/SisDashboardPage'
+import RosterPage from '@/pages/sis/RosterPage'
+import StudentProfilePage from '@/pages/sis/StudentProfilePage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -131,8 +134,11 @@ export default function App() {
 
           {/* SIS — ADMIN and DEAN */}
           <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
-            <Route path="/sis/schools"     element={<SchoolsPage />} />
-            <Route path="/sis/departments" element={<SisDepartmentsPage />} />
+            <Route path="/sis"                            element={<SisDashboardPage />} />
+            <Route path="/sis/roster"                     element={<RosterPage />} />
+            <Route path="/sis/students/:student_id"       element={<StudentProfilePage />} />
+            <Route path="/sis/schools"                    element={<SchoolsPage />} />
+            <Route path="/sis/departments"                element={<SisDepartmentsPage />} />
           </Route>
 
           {/* User management & settings — ADMIN only */}

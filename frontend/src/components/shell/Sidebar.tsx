@@ -4,7 +4,7 @@ import {
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
-  BookLock, School2,
+  BookLock, School2, UsersRound,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -65,8 +65,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'SIS',
     items: [
-      { label: 'Schools',     to: '/sis/schools',     icon: School2, roles: ['ADMIN', 'DEAN'] },
-      { label: 'Departments', to: '/sis/departments', icon: Layers,  roles: ['ADMIN', 'DEAN'] },
+      { label: 'Dashboard',          to: '/sis',              icon: LayoutDashboard, roles: ['ADMIN', 'DEAN'] },
+      { label: 'Enrollment Roster',  to: '/sis/roster',       icon: UsersRound,      roles: ['ADMIN', 'DEAN'] },
+      { label: 'Schools',            to: '/sis/schools',      icon: School2,         roles: ['ADMIN', 'DEAN'] },
+      { label: 'Departments',        to: '/sis/departments',  icon: Layers,          roles: ['ADMIN', 'DEAN'] },
     ],
   },
   {
