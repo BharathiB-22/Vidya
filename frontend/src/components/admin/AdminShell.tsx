@@ -39,7 +39,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Account',
     items: [
-      { label: 'Settings', icon: Settings, soon: true },
+      { label: 'Settings', to: '/admin/settings', icon: Settings },
     ],
   },
 ]
@@ -50,6 +50,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/admin/tenants/new': 'New University',
   '/admin/monitoring':  'Monitoring',
   '/admin/audit-logs':  'Audit Logs',
+  '/admin/settings':    'Settings',
 }
 
 function getBreadcrumb(pathname: string): string {

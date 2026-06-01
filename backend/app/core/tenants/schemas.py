@@ -180,3 +180,41 @@ class PlatformStatsResponse(BaseModel):
     ai_services:    list[AIServiceInfo]
     recent_events:  list[AuditEventSummary]
     generated_at:   datetime
+
+
+class PlatformSettingsResponse(BaseModel):
+    # Platform profile
+    platform_name:  str
+    company_name:   str
+    support_email:  str
+    environment:    str
+    build_version:  str
+
+    # AI configuration (no secrets — only configured boolean + model name)
+    ai_provider:       str
+    gemini_configured: bool
+    gemini_model:      str
+    groq_configured:   bool
+    groq_model:        str
+
+    # Storage
+    storage_provider: str
+    s3_endpoint:      str
+    s3_bucket:        str
+    s3_region:        str
+    s3_use_ssl:       bool
+    max_upload_mb:    int
+
+    # Email
+    smtp_host:     str
+    smtp_from:     str
+    email_enabled: bool
+
+    # Security (architectural constants exposed for transparency)
+    jwt_enabled:           bool
+    rbac_enabled:          bool
+    tenant_isolation:      bool
+    audit_logging_enabled: bool
+    soft_delete_enabled:   bool
+    access_token_expire_minutes: int
+    refresh_token_expire_days:   int

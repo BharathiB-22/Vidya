@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import require_super_admin
 from app.core.auth.schemas import CurrentUser
 from app.database import get_db
+from app.config import settings as app_settings
 from app.core.tenants.schemas import (
     CreateTenantRequest,
     DeleteTenantRequest,
+    PlatformSettingsResponse,
     PlatformStatsResponse,
     TenantResponse,
     TenantUpdateRequest,
@@ -59,6 +61,45 @@ async def get_platform_stats(
     db: AsyncSession = Depends(get_db),
 ) -> PlatformStatsResponse:
     return await TenantService.get_platform_stats(db)
+
+
+@router.get("/platform-settings", response_model=PlatformSettingsResponse)
+async def get_platform_settings(
+    _: CurrentUser = Depends(require_super_admin),
+) -> PlatformSettingsResponse:
+    is_minio = (
+        "minio" in app_settings.S3_ENDPOINT.lower()
+        or "localhost" in app_settings.S3_ENDPOINT
+        or "127.0.0.1" in app_settings.S3_ENDPOINT
+    )
+    return PlatformSettingsResponse(
+        platform_name="VIDYA AI",
+        company_name="SherpaVector",
+        support_email=app_settings.SMTP_FROM,
+        environment=app_settings.ENVIRONMENT,
+        build_version="H44",
+        ai_provider=app_settings.AI_PROVIDER,
+        gemini_configured=bool(app_settings.GEMINI_API_KEY),
+        gemini_model=app_settings.GEMINI_MODEL,
+        groq_configured=bool(app_settings.GROQ_API_KEY),
+        groq_model=app_settings.GROQ_MODEL,
+        storage_provider="MinIO" if is_minio else "AWS S3",
+        s3_endpoint=app_settings.S3_ENDPOINT,
+        s3_bucket=app_settings.S3_BUCKET,
+        s3_region=app_settings.S3_REGION,
+        s3_use_ssl=app_settings.S3_USE_SSL,
+        max_upload_mb=app_settings.MAX_UPLOAD_SIZE_MB,
+        smtp_host=app_settings.SMTP_HOST,
+        smtp_from=app_settings.SMTP_FROM,
+        email_enabled=app_settings.EMAIL_NOTIFICATIONS_ENABLED,
+        jwt_enabled=True,
+        rbac_enabled=True,
+        tenant_isolation=True,
+        audit_logging_enabled=True,
+        soft_delete_enabled=True,
+        access_token_expire_minutes=app_settings.ACCESS_TOKEN_EXPIRE_MINUTES,
+        refresh_token_expire_days=app_settings.REFRESH_TOKEN_EXPIRE_DAYS,
+    )
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)
