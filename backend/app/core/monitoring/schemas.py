@@ -51,6 +51,47 @@ class LivenessResponse(BaseModel):
     }
 
 
+class PlatformDiagnosticService(BaseModel):
+    service:    str
+    label:      str
+    status:     str            # healthy | unhealthy | warning | skipped
+    latency_ms: float
+    detail:     Optional[str] = None
+    error_msg:  Optional[str] = None
+
+
+class QueueDiagnostics(BaseModel):
+    pending:        int
+    running:        int
+    completed:      int
+    failed:         int
+    failed_24h:     int
+    total_24h:      int
+    celery_pending: int
+    celery_running: int
+    heavy_pending:  int
+    heavy_running:  int
+    workers_online: int
+
+
+class AIProviderDiagnostic(BaseModel):
+    name:         str
+    provider_key: str
+    active:       bool
+    configured:   bool
+    model:        str
+    status:       str          # ready | not_configured
+
+
+class PlatformHealthResponse(BaseModel):
+    generated_at: datetime
+    all_healthy:  bool
+    system:       list[PlatformDiagnosticService]
+    workers:      list[PlatformDiagnosticService]
+    queue:        QueueDiagnostics
+    ai:           list[AIProviderDiagnostic]
+
+
 class MetricsResponse(BaseModel):
     """Response for metrics endpoint (/metrics). Skeleton for future Prometheus integration."""
 

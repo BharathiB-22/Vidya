@@ -33,7 +33,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Monitoring', to: '/admin/monitoring',  icon: BarChart2  },
       { label: 'Audit Logs', to: '/admin/audit-logs', icon: ScrollText },
-      { label: 'Health',     icon: Activity,   soon: true },
+      { label: 'Health',     to: '/admin/health', icon: Activity },
     ],
   },
   {
@@ -51,6 +51,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/admin/monitoring':  'Monitoring',
   '/admin/audit-logs':  'Audit Logs',
   '/admin/settings':    'Settings',
+  '/admin/health':      'Health',
 }
 
 function getBreadcrumb(pathname: string): string {

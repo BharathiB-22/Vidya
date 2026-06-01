@@ -18,12 +18,18 @@ class HealthCheckResult:
     """Result of a single health check."""
 
     def __init__(
-        self, service: str, status: str, latency_ms: float, error_msg: Optional[str] = None
+        self,
+        service: str,
+        status: str,
+        latency_ms: float,
+        error_msg: Optional[str] = None,
+        detail: Optional[str] = None,
     ):
         self.service = service
         self.status = status
         self.latency_ms = latency_ms
         self.error_msg = error_msg
+        self.detail = detail
 
     def to_dict(self) -> dict:
         return {
@@ -31,6 +37,7 @@ class HealthCheckResult:
             "status": self.status,
             "latency_ms": round(self.latency_ms, 2),
             "error_msg": self.error_msg,
+            "detail": self.detail,
         }
 
 
@@ -216,6 +223,65 @@ class HealthService:
                 latency_ms,
                 error_msg=str(exc),
             )
+
+    @staticmethod
+    async def check_celery_workers(
+        timeout: float = 1.0,
+    ) -> tuple[list[HealthCheckResult], int]:
+        """Ping Celery workers via the broker and return (results, total_workers_online).
+
+        Uses a short timeout so the health page stays responsive.  If no workers
+        respond the check returns 'warning' (not 'unhealthy') because in local
+        development workers are often not running — this should not block the
+        overall system-health assessment.
+        """
+        start = time.perf_counter()
+
+        def _ping() -> dict:
+            try:
+                from app.workers.celery_app import celery_app  # lazy import
+                inspector = celery_app.control.inspect(timeout=timeout)
+                return inspector.ping() or {}
+            except Exception:
+                return {}
+
+        try:
+            loop = asyncio.get_event_loop()
+            ping: dict = await asyncio.wait_for(
+                loop.run_in_executor(None, _ping),
+                timeout=timeout + 1.0,
+            )
+        except asyncio.TimeoutError:
+            ping = {}
+
+        latency_ms = (time.perf_counter() - start) * 1000
+
+        default_workers = [n for n in ping if "heavy" not in n.lower()]
+        heavy_workers   = [n for n in ping if "heavy" in n.lower()]
+        total = len(ping)
+
+        def _result(service: str, workers: list[str], all_workers: dict) -> HealthCheckResult:
+            if workers:
+                return HealthCheckResult(
+                    service, "healthy", latency_ms,
+                    detail=f"{len(workers)} worker(s) online",
+                )
+            if all_workers and not workers:
+                # Some workers responded but none match this queue type —
+                # the queue is probably served by a combined worker.
+                return HealthCheckResult(
+                    service, "healthy", latency_ms,
+                    detail="Served by combined worker",
+                )
+            return HealthCheckResult(
+                service, "warning", latency_ms,
+                error_msg="No workers responding — start the Celery worker to resolve",
+            )
+
+        return [
+            _result("celery",       default_workers, ping),
+            _result("celery-heavy", heavy_workers,   ping),
+        ], total
 
     @staticmethod
     async def check_all(timeout: float = 2.0) -> tuple[list[HealthCheckResult], bool]:

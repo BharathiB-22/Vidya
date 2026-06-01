@@ -87,3 +87,49 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
   const { data } = await adminApi.get<PlatformSettings>('/tenants/platform-settings')
   return data
 }
+
+export interface PlatformDiagnosticService {
+  service: string
+  label: string
+  status: 'healthy' | 'unhealthy' | 'warning' | 'skipped'
+  latency_ms: number
+  detail: string | null
+  error_msg: string | null
+}
+
+export interface QueueDiagnostics {
+  pending: number
+  running: number
+  completed: number
+  failed: number
+  failed_24h: number
+  total_24h: number
+  celery_pending: number
+  celery_running: number
+  heavy_pending: number
+  heavy_running: number
+  workers_online: number
+}
+
+export interface AIProviderDiagnostic {
+  name: string
+  provider_key: string
+  active: boolean
+  configured: boolean
+  model: string
+  status: 'ready' | 'not_configured'
+}
+
+export interface PlatformHealth {
+  generated_at: string
+  all_healthy: boolean
+  system: PlatformDiagnosticService[]
+  workers: PlatformDiagnosticService[]
+  queue: QueueDiagnostics
+  ai: AIProviderDiagnostic[]
+}
+
+export async function getPlatformHealth(): Promise<PlatformHealth> {
+  const { data } = await adminApi.get<PlatformHealth>('/platform/health')
+  return data
+}
