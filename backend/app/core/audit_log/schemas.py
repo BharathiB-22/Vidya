@@ -38,3 +38,12 @@ class AuditLogListResponse(BaseModel):
     page:      int
     page_size: int
     items:     list[AuditLogEntry]
+
+
+class PlatformAuditStats(BaseModel):
+    total_events:   int
+    tenant_events:  int
+    login_events:   int
+    ai_events:      int
+    security_events: int
+    recent:         list[AuditLogEntry]

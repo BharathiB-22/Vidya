@@ -6,6 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditLog
 
+_LOGIN_PREFIXES  = ('AUTH_LOGIN_', 'PLATFORM_LOGIN_')
+_TENANT_PREFIX   = 'TENANT_'
+_AI_SUBSTRINGS   = ('_GENERATION_', 'AI_EVALUATED', 'AI_GENERATED', 'AI_REVIEW',
+                    'BELL_CURVE_ANALYSIS', 'LAB_EVAL_COMPLETED', 'LAB_EVAL_FAILED',
+                    'SCRIPT_SCORING_')
+_SECURITY_TYPES  = {
+    'AUTH_TOKEN_REUSE_DETECTED', 'PLATFORM_TOKEN_REUSE_DETECTED',
+    'AUTH_LOGIN_FAILURE', 'PLATFORM_LOGIN_FAILURE',
+    'AUTH_PASSWORD_RESET_OTP_FAILED', 'PLATFORM_PASSWORD_RESET_OTP_FAILED',
+}
+
 
 class AuditLogRepository:
 
@@ -110,6 +121,30 @@ class AuditLogRepository:
         stmt = stmt.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    @staticmethod
+    async def count_by_category(db: AsyncSession) -> dict[str, int]:
+        """Single GROUP BY query; returns category counts for the KPI dashboard."""
+        stmt = (
+            select(AuditLog.event_type, func.count(AuditLog.id))
+            .group_by(AuditLog.event_type)
+        )
+        result = await db.execute(stmt)
+        counts: dict[str, int] = {row[0]: row[1] for row in result.all()}
+
+        total    = sum(counts.values())
+        login    = sum(v for k, v in counts.items() if k.startswith(_LOGIN_PREFIXES))
+        tenant   = sum(v for k, v in counts.items() if k.startswith(_TENANT_PREFIX))
+        ai       = sum(v for k, v in counts.items() if any(s in k for s in _AI_SUBSTRINGS))
+        security = sum(v for k, v in counts.items() if k in _SECURITY_TYPES)
+
+        return {
+            'total':           total,
+            'login_events':    login,
+            'tenant_events':   tenant,
+            'ai_events':       ai,
+            'security_events': security,
+        }
 
     @staticmethod
     async def count(

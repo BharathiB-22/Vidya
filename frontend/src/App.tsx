@@ -12,6 +12,7 @@ import TenantCreatePage from '@/pages/admin/TenantCreatePage'
 import TenantDetailPage from '@/pages/admin/TenantDetailPage'
 import AdminDashboardPage from '@/pages/admin/AdminDashboardPage'
 import MonitoringPage from '@/pages/admin/MonitoringPage'
+import AuditLogsPage from '@/pages/admin/AuditLogsPage'
 import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
@@ -99,7 +100,8 @@ export default function App() {
           <Route path="/admin/tenants" element={<TenantListPage />} />
           <Route path="/admin/tenants/new" element={<TenantCreatePage />} />
           <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
-          <Route path="/admin/monitoring" element={<MonitoringPage />} />
+          <Route path="/admin/monitoring"   element={<MonitoringPage />} />
+          <Route path="/admin/audit-logs"  element={<AuditLogsPage />} />
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
       </Route>

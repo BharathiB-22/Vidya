@@ -20,6 +20,7 @@ from app.core.auth.admin_router import router as admin_router
 from app.core.onboarding.router import router as onboarding_router
 from app.core.tenants.router import router as tenants_router
 from app.core.audit_log.router import router as audit_log_router
+from app.core.audit_log.platform_router import router as platform_audit_router
 from app.core.notifications.router import router as notifications_router
 from app.core.storage.router import router as storage_router
 from app.core.storage.provisioner import ensure_bucket_exists
@@ -149,6 +150,7 @@ app.include_router(admin_router, prefix="/admin")
 app.include_router(onboarding_router, prefix="/admin/onboarding")
 app.include_router(tenants_router, prefix="/tenants")
 app.include_router(audit_log_router, prefix="/audit-logs")
+app.include_router(platform_audit_router, prefix="/platform/audit-logs")
 app.include_router(notifications_router, prefix="/notifications")
 app.include_router(storage_router, prefix="/storage")
 app.include_router(program_router, prefix="/programs")
