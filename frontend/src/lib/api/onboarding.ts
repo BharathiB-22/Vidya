@@ -1,38 +1,6 @@
 import api from '@/lib/api'
 
 // ---------------------------------------------------------------------------
-// Academic master data
-// ---------------------------------------------------------------------------
-
-export interface Department {
-  id: string
-  name: string
-  code: string
-  is_active: boolean
-}
-
-export interface Program {
-  id: string
-  name: string
-  code: string
-  dept_id: string | null
-  duration_years: number
-  is_active: boolean
-}
-
-export interface DepartmentCreatePayload {
-  name: string
-  code: string
-}
-
-export interface ProgramCreatePayload {
-  name: string
-  code: string
-  dept_id?: string
-  duration_years?: number
-}
-
-// ---------------------------------------------------------------------------
 // Bulk generation
 // ---------------------------------------------------------------------------
 
@@ -41,6 +9,7 @@ export interface GenerateStudentsPayload {
   program_code: string
   batch_year: number
   section?: string
+  section_id?: string
   count: number
   start_seq?: number
   seq_width?: number
@@ -54,10 +23,11 @@ export interface GenerateStudentsResult {
   duplicate_usns: string[]
   duplicate_emails: string[]
   default_password: string
+  enrollments_created: number
 }
 
 // ---------------------------------------------------------------------------
-// CSV import
+// File import (CSV and XLSX)
 // ---------------------------------------------------------------------------
 
 export interface CSVRowResult {
@@ -67,12 +37,16 @@ export interface CSVRowResult {
   identifier: string | null
   is_valid: boolean
   errors: string[]
+  section_resolved: boolean
+  program_resolved: boolean
 }
 
 export interface CSVPreviewResponse {
   total_rows: number
   valid_rows: number
   invalid_rows: number
+  duplicate_in_file: number
+  duplicate_in_db: number
   rows: CSVRowResult[]
 }
 
@@ -81,6 +55,16 @@ export interface CSVCommitResult {
   created: number
   skipped: number
   errors: string[]
+  enrollments_created: number
+}
+
+// ---------------------------------------------------------------------------
+// Import context (optional — UI cascade selection)
+// ---------------------------------------------------------------------------
+
+export interface ImportContext {
+  program_id?: string
+  section_id?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -88,43 +72,33 @@ export interface CSVCommitResult {
 // ---------------------------------------------------------------------------
 
 export const onboardingApi = {
-  // Departments
-  listDepartments: (): Promise<Department[]> =>
-    api.get('/admin/onboarding/departments').then((r) => r.data),
-
-  createDepartment: (payload: DepartmentCreatePayload): Promise<Department> =>
-    api.post('/admin/onboarding/departments', payload).then((r) => r.data),
-
-  // Programs
-  listPrograms: (): Promise<Program[]> =>
-    api.get('/admin/onboarding/programs').then((r) => r.data),
-
-  createProgram: (payload: ProgramCreatePayload): Promise<Program> =>
-    api.post('/admin/onboarding/programs', payload).then((r) => r.data),
-
   // Bulk generation
   generateStudents: (payload: GenerateStudentsPayload): Promise<GenerateStudentsResult> =>
     api.post('/admin/onboarding/generate-students', payload).then((r) => r.data),
 
-  // Students CSV
-  previewStudentsCSV: (file: File): Promise<CSVPreviewResponse> => {
+  // Students file import
+  previewStudentsCSV: (file: File, ctx?: ImportContext): Promise<CSVPreviewResponse> => {
     const form = new FormData()
     form.append('file', file)
+    if (ctx?.program_id) form.append('program_id', ctx.program_id)
+    if (ctx?.section_id) form.append('section_id', ctx.section_id)
     return api.post('/admin/onboarding/import/students/preview', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data)
   },
 
-  commitStudentsCSV: (file: File, defaultPassword: string): Promise<CSVCommitResult> => {
+  commitStudentsCSV: (file: File, defaultPassword: string, ctx?: ImportContext): Promise<CSVCommitResult> => {
     const form = new FormData()
     form.append('file', file)
     form.append('default_password', defaultPassword)
+    if (ctx?.program_id) form.append('program_id', ctx.program_id)
+    if (ctx?.section_id) form.append('section_id', ctx.section_id)
     return api.post('/admin/onboarding/import/students/commit', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data)
   },
 
-  // Faculty CSV
+  // Faculty file import
   previewFacultyCSV: (file: File): Promise<CSVPreviewResponse> => {
     const form = new FormData()
     form.append('file', file)
@@ -142,24 +116,34 @@ export const onboardingApi = {
     }).then((r) => r.data)
   },
 
-  // Sample CSV downloads (returns blob URL)
+  // Template downloads — CSV
   downloadSampleStudentsCSV: () =>
     api.get('/admin/onboarding/sample-csv/students', { responseType: 'blob' }).then((r) => {
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'text/csv' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'students_sample.csv'
-      a.click()
-      URL.revokeObjectURL(url)
+      _triggerDownload(r.data, 'students_template.csv', 'text/csv')
     }),
 
   downloadSampleFacultyCSV: () =>
     api.get('/admin/onboarding/sample-csv/faculty', { responseType: 'blob' }).then((r) => {
-      const url = URL.createObjectURL(new Blob([r.data], { type: 'text/csv' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'faculty_sample.csv'
-      a.click()
-      URL.revokeObjectURL(url)
+      _triggerDownload(r.data, 'faculty_template.csv', 'text/csv')
     }),
+
+  // Template downloads — XLSX
+  downloadSampleStudentsXLSX: () =>
+    api.get('/admin/onboarding/sample-xlsx/students', { responseType: 'blob' }).then((r) => {
+      _triggerDownload(r.data, 'students_template.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    }),
+
+  downloadSampleFacultyXLSX: () =>
+    api.get('/admin/onboarding/sample-xlsx/faculty', { responseType: 'blob' }).then((r) => {
+      _triggerDownload(r.data, 'faculty_template.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    }),
+}
+
+function _triggerDownload(data: Blob, filename: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([data], { type: mime }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }

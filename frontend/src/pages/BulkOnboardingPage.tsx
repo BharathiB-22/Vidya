@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   Users, Upload, Download, CheckCircle2, XCircle, AlertCircle,
-  ChevronDown, ChevronUp, Plus,
+  ChevronDown, ChevronUp, FileSpreadsheet, ArrowRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,10 +15,35 @@ import {
   type CSVPreviewResponse,
   type CSVRowResult,
   type GenerateStudentsResult,
+  type ImportContext,
 } from '@/lib/api/onboarding'
+import {
+  academicsApi,
+  type Department,
+  type AcadProgram,
+  type Batch,
+  type Semester,
+  type Section,
+} from '@/lib/api/academics'
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Shared types
+// ---------------------------------------------------------------------------
+
+interface AcadContext {
+  dept: Department | null
+  program: AcadProgram | null
+  batch: Batch | null
+  semester: Semester | null
+  section: Section | null
+}
+
+function emptyContext(): AcadContext {
+  return { dept: null, program: null, batch: null, semester: null, section: null }
+}
+
+// ---------------------------------------------------------------------------
+// UI primitives
 // ---------------------------------------------------------------------------
 
 function ErrorBox({ message }: { message: string }) {
@@ -40,21 +65,223 @@ function SuccessBanner({ children }: { children: React.ReactNode }) {
 
 function StatCard({ label, value, color = 'gray' }: { label: string; value: number; color?: 'gray' | 'green' | 'red' | 'amber' }) {
   const colors = {
-    gray: 'bg-gray-50 text-gray-700 border-gray-200',
+    gray:  'bg-gray-50 text-gray-700 border-gray-200',
     green: 'bg-green-50 text-green-700 border-green-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
+    red:   'bg-red-50 text-red-700 border-red-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
   }
   return (
-    <div className={`rounded-lg border px-4 py-3 text-center ${colors[color]}`}>
+    <div className={`rounded-lg border px-3 py-3 text-center ${colors[color]}`}>
       <p className="text-2xl font-bold">{value}</p>
-      <p className="text-xs font-medium mt-0.5">{label}</p>
+      <p className="text-xs font-medium mt-0.5 leading-tight">{label}</p>
     </div>
   )
 }
 
+const selectCls =
+  'w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 ' +
+  'focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 ' +
+  'disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400'
+
 // ---------------------------------------------------------------------------
-// CSV Preview table
+// Cascade academic context selector
+// ---------------------------------------------------------------------------
+
+function AcadContextSelector({
+  onContextChange,
+  showSection = true,
+  label = 'Academic context',
+}: {
+  onContextChange: (ctx: AcadContext) => void
+  showSection?: boolean
+  label?: string
+}) {
+  const [ctx, setCtx] = useState<AcadContext>(emptyContext())
+
+  const depts = useQuery({
+    queryKey: ['acad-depts-ob'],
+    queryFn: () => academicsApi.listDepartments(),
+  })
+  const programs = useQuery({
+    queryKey: ['acad-programs-ob', ctx.dept?.id],
+    queryFn: () => academicsApi.listPrograms(ctx.dept?.id),
+    enabled: !!ctx.dept,
+  })
+  const batches = useQuery({
+    queryKey: ['acad-batches-ob', ctx.program?.id],
+    queryFn: () => academicsApi.listBatches(ctx.program?.id),
+    enabled: !!ctx.program,
+  })
+  const semesters = useQuery({
+    queryKey: ['acad-sems-ob', ctx.batch?.id],
+    queryFn: () => academicsApi.listSemesters(ctx.batch?.id),
+    enabled: !!ctx.batch,
+  })
+  const sections = useQuery({
+    queryKey: ['acad-secs-ob', ctx.semester?.id],
+    queryFn: () => academicsApi.listSections(ctx.semester?.id),
+    enabled: !!ctx.semester && showSection,
+  })
+
+  function update(next: AcadContext) {
+    setCtx(next)
+    onContextChange(next)
+  }
+
+  function pickDept(id: string) {
+    const dept = depts.data?.find((d) => d.id === id) ?? null
+    update({ dept, program: null, batch: null, semester: null, section: null })
+  }
+  function pickProgram(id: string) {
+    const program = programs.data?.find((p) => p.id === id) ?? null
+    update({ ...ctx, program, batch: null, semester: null, section: null })
+  }
+  function pickBatch(id: string) {
+    const batch = batches.data?.find((b) => b.id === id) ?? null
+    update({ ...ctx, batch, semester: null, section: null })
+  }
+  function pickSemester(id: string) {
+    const semester = semesters.data?.find((s) => s.id === id) ?? null
+    update({ ...ctx, semester, section: null })
+  }
+  function pickSection(id: string) {
+    const section = sections.data?.find((s) => s.id === id) ?? null
+    update({ ...ctx, section })
+  }
+
+  const noDepts = !depts.isLoading && depts.data?.length === 0
+  if (noDepts) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-start gap-2">
+        <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+        <span>
+          No academic structure found.{' '}
+          <a href="/sis/departments" className="font-medium underline">
+            Set up Departments and Programs first
+          </a>{' '}
+          before importing users.
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+      <div className="grid grid-cols-2 gap-3">
+        {/* Department */}
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Department</label>
+          <select
+            className={selectCls}
+            value={ctx.dept?.id ?? ''}
+            onChange={(e) => pickDept(e.target.value)}
+          >
+            <option value="">— select department —</option>
+            {depts.data?.filter((d) => d.is_active).map((d) => (
+              <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Program */}
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Program</label>
+          <select
+            className={selectCls}
+            value={ctx.program?.id ?? ''}
+            disabled={!ctx.dept}
+            onChange={(e) => pickProgram(e.target.value)}
+          >
+            <option value="">— select program —</option>
+            {programs.data?.filter((p) => p.is_active).map((p) => (
+              <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Batch */}
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Batch</label>
+          <select
+            className={selectCls}
+            value={ctx.batch?.id ?? ''}
+            disabled={!ctx.program}
+            onChange={(e) => pickBatch(e.target.value)}
+          >
+            <option value="">— select batch —</option>
+            {batches.data?.filter((b) => b.is_active).map((b) => (
+              <option key={b.id} value={b.id}>{b.name} ({b.start_year}–{b.end_year})</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Semester */}
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">Semester</label>
+          <select
+            className={selectCls}
+            value={ctx.semester?.id ?? ''}
+            disabled={!ctx.batch}
+            onChange={(e) => pickSemester(e.target.value)}
+          >
+            <option value="">— select semester —</option>
+            {semesters.data?.filter((s) => s.is_active).map((s) => (
+              <option key={s.id} value={s.id}>
+                Semester {s.number}{s.label ? ` — ${s.label}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Section (optional) */}
+        {showSection && (
+          <div className="col-span-2 space-y-1">
+            <label className="text-xs font-medium text-gray-600">
+              Section <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <select
+              className={selectCls}
+              value={ctx.section?.id ?? ''}
+              disabled={!ctx.semester}
+              onChange={(e) => pickSection(e.target.value)}
+            >
+              <option value="">— no section —</option>
+              {sections.data?.filter((s) => s.is_active).map((s) => (
+                <option key={s.id} value={s.id}>Section {s.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Context summary strip */}
+      {ctx.program && (
+        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+          {ctx.dept && <ContextChip label={ctx.dept.code} />}
+          <ArrowRight className="h-3 w-3 text-gray-400" />
+          {ctx.program && <ContextChip label={`${ctx.program.code}`} highlight />}
+          {ctx.batch && <><ArrowRight className="h-3 w-3 text-gray-400" /><ContextChip label={`${ctx.batch.start_year}`} /></>}
+          {ctx.semester && <><ArrowRight className="h-3 w-3 text-gray-400" /><ContextChip label={`Sem ${ctx.semester.number}`} /></>}
+          {ctx.section && <><ArrowRight className="h-3 w-3 text-gray-400" /><ContextChip label={`Sec ${ctx.section.name}`} /></>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ContextChip({ label, highlight }: { label: string; highlight?: boolean }) {
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+      highlight ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-600'
+    }`}>
+      {label}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Preview table
 // ---------------------------------------------------------------------------
 
 function PreviewTable({ data }: { data: CSVPreviewResponse }) {
@@ -63,11 +290,12 @@ function PreviewTable({ data }: { data: CSVPreviewResponse }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-4 gap-3">
-        <StatCard label="Total rows" value={data.total_rows} />
+      <div className="grid grid-cols-5 gap-2">
+        <StatCard label="Total" value={data.total_rows} />
         <StatCard label="Valid" value={data.valid_rows} color="green" />
         <StatCard label="Invalid" value={data.invalid_rows} color={data.invalid_rows > 0 ? 'red' : 'gray'} />
-        <StatCard label="Will be created" value={data.valid_rows} color="green" />
+        <StatCard label="Dup in file" value={data.duplicate_in_file} color={data.duplicate_in_file > 0 ? 'amber' : 'gray'} />
+        <StatCard label="Dup in system" value={data.duplicate_in_db} color={data.duplicate_in_db > 0 ? 'amber' : 'gray'} />
       </div>
 
       {data.rows.length > 0 && (
@@ -75,11 +303,11 @@ function PreviewTable({ data }: { data: CSVPreviewResponse }) {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-3 py-2 text-left font-medium text-gray-600 w-12">#</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-600 w-10">#</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600">Name</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600">Email</th>
                 <th className="px-3 py-2 text-left font-medium text-gray-600">Identifier</th>
-                <th className="px-3 py-2 text-left font-medium text-gray-600 w-24">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-gray-600 w-28">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -109,19 +337,19 @@ function PreviewTable({ data }: { data: CSVPreviewResponse }) {
 function PreviewRow({ row }: { row: CSVRowResult }) {
   return (
     <tr className={row.is_valid ? '' : 'bg-red-50'}>
-      <td className="px-3 py-2 text-gray-400">{row.row_number}</td>
+      <td className="px-3 py-2 text-gray-400 text-xs">{row.row_number}</td>
       <td className="px-3 py-2 text-gray-800">{row.full_name || <span className="text-gray-400 italic">—</span>}</td>
       <td className="px-3 py-2 text-gray-700 font-mono text-xs">{row.email || <span className="text-gray-400 italic">—</span>}</td>
       <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.identifier || <span className="text-gray-400">—</span>}</td>
       <td className="px-3 py-2">
         {row.is_valid ? (
-          <span className="inline-flex items-center gap-1 text-green-700">
+          <span className="inline-flex items-center gap-1 text-green-700 text-xs">
             <CheckCircle2 className="h-3.5 w-3.5" /> Valid
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 text-red-600" title={row.errors.join('; ')}>
+          <span className="inline-flex items-center gap-1 text-red-600 text-xs" title={row.errors.join('; ')}>
             <XCircle className="h-3.5 w-3.5" />
-            <span className="text-xs">{row.errors[0]}</span>
+            <span className="truncate max-w-[100px]">{row.errors[0]}</span>
           </span>
         )}
       </td>
@@ -166,7 +394,7 @@ function CommitSummary({ result }: { result: CSVCommitResult }) {
 }
 
 // ---------------------------------------------------------------------------
-// File drop zone
+// Drop zone (CSV + XLSX)
 // ---------------------------------------------------------------------------
 
 function DropZone({
@@ -181,12 +409,19 @@ function DropZone({
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
 
+  function accept(f: File) {
+    const n = f.name.toLowerCase()
+    return n.endsWith('.csv') || n.endsWith('.xlsx')
+  }
+
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragging(false)
     const f = e.dataTransfer.files[0]
-    if (f?.name.endsWith('.csv')) onChange(f)
+    if (f && accept(f)) onChange(f)
   }
+
+  const isXlsx = file?.name.toLowerCase().endsWith('.xlsx')
 
   return (
     <div
@@ -204,20 +439,54 @@ function DropZone({
       <input
         ref={inputRef}
         type="file"
-        accept=".csv"
+        accept=".csv,.xlsx"
         className="hidden"
         disabled={disabled}
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onChange(f) }}
       />
-      <Upload className={`h-8 w-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-gray-400'}`} />
+      {isXlsx ? (
+        <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-green-500" />
+      ) : (
+        <Upload className={`h-8 w-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-gray-400'}`} />
+      )}
       {file ? (
         <p className="text-sm font-medium text-green-700">{file.name}</p>
       ) : (
         <>
-          <p className="text-sm font-medium text-gray-700">Drop CSV here or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">Max 5 MB</p>
+          <p className="text-sm font-medium text-gray-700">Drop CSV or Excel (.xlsx) file here, or click to browse</p>
+          <p className="text-xs text-gray-400 mt-1">Max 5 MB · .csv or .xlsx</p>
         </>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Template download bar
+// ---------------------------------------------------------------------------
+
+function TemplateDownloadBar({ role }: { role: 'students' | 'faculty' }) {
+  return (
+    <div className="flex items-center gap-4 flex-wrap">
+      <span className="text-xs text-gray-500 font-medium">Download template:</span>
+      <button
+        onClick={() => role === 'students'
+          ? onboardingApi.downloadSampleStudentsCSV()
+          : onboardingApi.downloadSampleFacultyCSV()
+        }
+        className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+      >
+        <Download className="h-3.5 w-3.5" /> CSV
+      </button>
+      <button
+        onClick={() => role === 'students'
+          ? onboardingApi.downloadSampleStudentsXLSX()
+          : onboardingApi.downloadSampleFacultyXLSX()
+        }
+        className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+      >
+        <FileSpreadsheet className="h-3.5 w-3.5" /> Excel (.xlsx)
+      </button>
     </div>
   )
 }
@@ -227,11 +496,9 @@ function DropZone({
 // ---------------------------------------------------------------------------
 
 function GenerateStudentsTab() {
+  const [ctx, setCtx] = useState<AcadContext>(emptyContext())
   const [form, setForm] = useState({
     usn_prefix: '',
-    program_code: '',
-    batch_year: '',
-    section: '',
     count: '30',
     start_seq: '1',
     seq_width: '3',
@@ -247,134 +514,154 @@ function GenerateStudentsTab() {
     setError(null)
   }
 
-  // Live USN preview
-  const sampleUSN = form.usn_prefix && form.program_code && form.batch_year
-    ? `${form.usn_prefix.toUpperCase()}${String(form.batch_year).padStart(2, '0')}${form.program_code.toUpperCase()}${'1'.padStart(Number(form.seq_width) || 3, '0')}`
-    : null
+  const program_code = ctx.program?.code ?? ''
+  const batch_year_str = ctx.batch ? String(ctx.batch.start_year % 100).padStart(2, '0') : ''
+
+  const sampleUSN =
+    form.usn_prefix && program_code && batch_year_str
+      ? `${form.usn_prefix.toUpperCase()}${batch_year_str}${program_code}${'1'.padStart(Number(form.seq_width) || 3, '0')}`
+      : null
+
+  const canGenerate =
+    !!ctx.program && !!ctx.batch && !!form.usn_prefix.trim() && !!form.email_domain.trim()
 
   const generateMut = useMutation({
     mutationFn: () =>
       onboardingApi.generateStudents({
-        usn_prefix: form.usn_prefix.trim(),
-        program_code: form.program_code.trim(),
-        batch_year: Number(form.batch_year),
-        section: form.section.trim() || undefined,
-        count: Number(form.count),
-        start_seq: Number(form.start_seq),
-        seq_width: Number(form.seq_width),
-        email_domain: form.email_domain.trim(),
+        usn_prefix:       form.usn_prefix.trim(),
+        program_code,
+        batch_year:       ctx.batch!.start_year % 100,
+        section:          ctx.section?.name,
+        section_id:       ctx.section?.id,
+        count:            Number(form.count),
+        start_seq:        Number(form.start_seq),
+        seq_width:        Number(form.seq_width),
+        email_domain:     form.email_domain.trim(),
         default_password: form.default_password,
       }),
     onSuccess: (data) => { setResult(data); setError(null) },
     onError: (err: unknown) => setError(getAdminErrorMessage(err)),
   })
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setResult(null)
-    setError(null)
-    generateMut.mutate()
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Institution code (USN prefix) *</label>
-          <Input value={form.usn_prefix} onChange={(e) => set('usn_prefix', e.target.value)}
-            placeholder="ABC" required maxLength={10} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Program code *</label>
-          <Input value={form.program_code} onChange={(e) => set('program_code', e.target.value)}
-            placeholder="MCA" required maxLength={10} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Batch year (2-digit) *</label>
-          <Input type="number" value={form.batch_year} onChange={(e) => set('batch_year', e.target.value)}
-            placeholder="26" required min={1} max={99} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Section (optional)</label>
-          <Input value={form.section} onChange={(e) => set('section', e.target.value)}
-            placeholder="A" maxLength={5} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Number of students *</label>
-          <Input type="number" value={form.count} onChange={(e) => set('count', e.target.value)}
-            required min={1} max={500} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Starting sequence</label>
-          <Input type="number" value={form.start_seq} onChange={(e) => set('start_seq', e.target.value)}
-            min={1} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Sequence digit width</label>
-          <Input type="number" value={form.seq_width} onChange={(e) => set('seq_width', e.target.value)}
-            min={2} max={4} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">Email domain *</label>
-          <Input value={form.email_domain} onChange={(e) => set('email_domain', e.target.value)}
-            placeholder="university.edu" required maxLength={100} />
-        </div>
-        <div className="col-span-2 space-y-1">
-          <label className="text-xs font-medium text-gray-600">Default password</label>
-          <Input value={form.default_password} onChange={(e) => set('default_password', e.target.value)}
-            placeholder="Student@123" required minLength={8} />
-          <p className="text-xs text-gray-400">All generated students use this password. They will be forced to change it on first login.</p>
-        </div>
+    <form
+      onSubmit={(e) => { e.preventDefault(); setResult(null); setError(null); generateMut.mutate() }}
+      className="space-y-5"
+    >
+      {/* Cascade context */}
+      <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+        <AcadContextSelector onContextChange={setCtx} showSection />
       </div>
 
-      {sampleUSN && (
-        <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-2 text-sm text-indigo-800">
-          <span className="font-medium">Preview: </span>
-          <code className="font-mono">{sampleUSN}</code>
-          {' → '}
-          <code className="font-mono">{sampleUSN.toLowerCase()}@{form.email_domain || 'domain.edu'}</code>
-        </div>
+      {!ctx.program && (
+        <p className="text-xs text-gray-400 text-center">
+          Select Department and Program above to proceed.
+        </p>
       )}
 
-      {error && <ErrorBox message={error} />}
+      {ctx.program && (
+        <>
+          {/* Derived context display */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Program code</label>
+              <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 font-mono">
+                {program_code}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Batch year</label>
+              <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 font-mono">
+                {batch_year_str || <span className="text-gray-400 italic">— select batch —</span>}
+              </div>
+            </div>
+          </div>
 
-      {result && (
-        <div className="space-y-3">
-          <SuccessBanner>
-            <p className="font-medium">Generation complete</p>
-            <p className="mt-0.5">
-              {result.created} student{result.created !== 1 ? 's' : ''} created
-              {result.skipped > 0 && `, ${result.skipped} skipped (already exist)`}.
-              Default password: <code className="font-mono bg-green-100 px-1 rounded">{result.default_password}</code>
-            </p>
-          </SuccessBanner>
-          {result.duplicate_usns.length > 0 && (
-            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Skipped USNs (already exist): {result.duplicate_usns.join(', ')}
+          {/* Manual fields */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Institution code (USN prefix) *</label>
+              <Input value={form.usn_prefix} onChange={(e) => set('usn_prefix', e.target.value)}
+                placeholder="ABC" required maxLength={10} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Email domain *</label>
+              <Input value={form.email_domain} onChange={(e) => set('email_domain', e.target.value)}
+                placeholder="university.edu" required maxLength={100} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Number of students *</label>
+              <Input type="number" value={form.count} onChange={(e) => set('count', e.target.value)}
+                required min={1} max={500} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Starting sequence</label>
+              <Input type="number" value={form.start_seq} onChange={(e) => set('start_seq', e.target.value)}
+                min={1} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Sequence digit width</label>
+              <Input type="number" value={form.seq_width} onChange={(e) => set('seq_width', e.target.value)}
+                min={2} max={4} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-600">Default password</label>
+              <Input value={form.default_password} onChange={(e) => set('default_password', e.target.value)}
+                placeholder="Student@123" required minLength={8} />
+            </div>
+          </div>
+
+          {sampleUSN && (
+            <div className="rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-2 text-sm text-indigo-800">
+              <span className="font-medium">USN preview: </span>
+              <code className="font-mono">{sampleUSN}</code>
+              {' → '}
+              <code className="font-mono">{sampleUSN.toLowerCase()}@{form.email_domain || 'domain.edu'}</code>
             </div>
           )}
-          <div className="grid grid-cols-3 gap-3">
-            <StatCard label="Created" value={result.created} color="green" />
-            <StatCard label="Skipped" value={result.skipped} color={result.skipped > 0 ? 'amber' : 'gray'} />
-            <StatCard label="Duplicates" value={result.duplicate_usns.length} color={result.duplicate_usns.length > 0 ? 'red' : 'gray'} />
-          </div>
-        </div>
-      )}
 
-      <Button type="submit" disabled={generateMut.isPending}>
-        {generateMut.isPending ? 'Generating…' : `Generate ${form.count || '?'} Students`}
-      </Button>
+          {error && <ErrorBox message={error} />}
+
+          {result && (
+            <div className="space-y-3">
+              <SuccessBanner>
+                <p className="font-medium">Generation complete</p>
+                <p className="mt-0.5">
+                  {result.created} student{result.created !== 1 ? 's' : ''} created
+                  {result.skipped > 0 && `, ${result.skipped} skipped (already exist)`}.
+                  Default password: <code className="font-mono bg-green-100 px-1 rounded">{result.default_password}</code>
+                </p>
+              </SuccessBanner>
+              {result.duplicate_usns.length > 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Skipped USNs (already exist): {result.duplicate_usns.join(', ')}
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-3">
+                <StatCard label="Created" value={result.created} color="green" />
+                <StatCard label="Skipped" value={result.skipped} color={result.skipped > 0 ? 'amber' : 'gray'} />
+                <StatCard label="Enrollments" value={result.enrollments_created} color={result.enrollments_created > 0 ? 'green' : 'gray'} />
+              </div>
+            </div>
+          )}
+
+          <Button type="submit" disabled={!canGenerate || generateMut.isPending}>
+            {generateMut.isPending ? 'Generating…' : `Generate ${form.count || '?'} Students`}
+          </Button>
+        </>
+      )}
     </form>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Tab 2/3: CSV Import (shared for students and faculty)
+// Tab 2 / 3: Import students or faculty
 // ---------------------------------------------------------------------------
 
 type ImportRole = 'students' | 'faculty'
 
 function CSVImportTab({ role }: { role: ImportRole }) {
+  const [ctx, setCtx] = useState<AcadContext>(emptyContext())
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<CSVPreviewResponse | null>(null)
   const [result, setResult] = useState<CSVCommitResult | null>(null)
@@ -388,31 +675,30 @@ function CSVImportTab({ role }: { role: ImportRole }) {
     setError(null)
   }
 
+  const importCtx: ImportContext = {
+    program_id: ctx.program?.id,
+    section_id: ctx.section?.id,
+  }
+
   const previewMut = useMutation({
     mutationFn: (f: File) =>
-      role === 'students' ? onboardingApi.previewStudentsCSV(f) : onboardingApi.previewFacultyCSV(f),
+      role === 'students'
+        ? onboardingApi.previewStudentsCSV(f, importCtx)
+        : onboardingApi.previewFacultyCSV(f),
     onSuccess: (data) => { setPreview(data); setError(null) },
-    onError: (err: unknown) => setError(getAdminErrorMessage(err)),
+    onError: (err: unknown) => { setError(getAdminErrorMessage(err)); setPreview(null) },
   })
 
   const commitMut = useMutation({
     mutationFn: () => {
       if (!file) throw new Error('No file selected')
       return role === 'students'
-        ? onboardingApi.commitStudentsCSV(file, password)
+        ? onboardingApi.commitStudentsCSV(file, password, importCtx)
         : onboardingApi.commitFacultyCSV(file, password)
     },
     onSuccess: (data) => { setResult(data); setError(null) },
     onError: (err: unknown) => setError(getAdminErrorMessage(err)),
   })
-
-  function handleFileChange(f: File) {
-    setFile(f)
-    setPreview(null)
-    setResult(null)
-    setError(null)
-    previewMut.mutate(f)
-  }
 
   const isLoading = previewMut.isPending || commitMut.isPending
   const canCommit = preview && preview.valid_rows > 0 && !result
@@ -425,6 +711,7 @@ function CSVImportTab({ role }: { role: ImportRole }) {
           <p className="mt-0.5">
             {result.created} user{result.created !== 1 ? 's' : ''} created.
             Default password: <code className="font-mono bg-green-100 px-1 rounded">{password}</code>
+            {result.enrollments_created > 0 && ` · ${result.enrollments_created} section enrollment${result.enrollments_created !== 1 ? 's' : ''} created.`}
           </p>
         </SuccessBanner>
         <CommitSummary result={result} />
@@ -434,27 +721,48 @@ function CSVImportTab({ role }: { role: ImportRole }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">
-          {role === 'students'
-            ? 'Upload a CSV with columns: full_name, email, identifier (optional), section (optional)'
-            : 'Upload a CSV with columns: full_name, email, employee_id (optional), department (optional), designation (optional)'}
-        </p>
-        <button
-          onClick={() =>
-            role === 'students'
-              ? onboardingApi.downloadSampleStudentsCSV()
-              : onboardingApi.downloadSampleFacultyCSV()
-          }
-          className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-        >
-          <Download className="h-3.5 w-3.5" />
-          Download sample CSV
-        </button>
+    <div className="space-y-5">
+      {/* Academic context */}
+      <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+        {role === 'students' ? (
+          <AcadContextSelector
+            onContextChange={(c) => { setCtx(c); setPreview(null) }}
+            showSection
+            label="Assign all imported students to"
+          />
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Department context</p>
+            <DeptOnlySelector />
+          </div>
+        )}
       </div>
 
-      <DropZone file={file} onChange={handleFileChange} disabled={isLoading} />
+      {/* Template downloads */}
+      <TemplateDownloadBar role={role} />
+
+      {/* Column guide */}
+      <p className="text-xs text-gray-500">
+        {role === 'students'
+          ? ctx.program
+            ? 'Required columns: full_name, email · Optional: identifier'
+            : 'Required columns: full_name, email, program_code · Optional: identifier, batch_year, section_name'
+          : 'Required columns: full_name, email · Optional: employee_id'}
+      </p>
+
+      {/* File upload */}
+      <DropZone file={file} onChange={(f) => { setFile(f); setPreview(null); setError(null) }} disabled={isLoading} />
+
+      {/* Validate button (file selected, no preview yet) */}
+      {file && !preview && !previewMut.isPending && (
+        <Button
+          variant="outline"
+          onClick={() => { setError(null); previewMut.mutate(file) }}
+          disabled={isLoading}
+        >
+          Validate File
+        </Button>
+      )}
 
       {previewMut.isPending && (
         <p className="text-sm text-gray-500 animate-pulse">Validating rows…</p>
@@ -465,6 +773,12 @@ function CSVImportTab({ role }: { role: ImportRole }) {
       {preview && !previewMut.isPending && (
         <>
           <PreviewTable data={preview} />
+
+          {preview.valid_rows === 0 && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              No valid rows found. Fix the errors above and re-upload.
+            </div>
+          )}
 
           {preview.valid_rows > 0 && (
             <div className="space-y-3 pt-2 border-t border-gray-200">
@@ -488,18 +802,12 @@ function CSVImportTab({ role }: { role: ImportRole }) {
                 >
                   {commitMut.isPending
                     ? 'Importing…'
-                    : `Confirm & Import ${preview.valid_rows} ${role === 'students' ? 'Students' : 'Faculty'}`}
+                    : `Confirm & Import ${preview.valid_rows} ${role === 'students' ? 'Student' : 'Faculty'}${preview.valid_rows !== 1 ? 's' : ''}`}
                 </Button>
                 <Button variant="ghost" onClick={reset} disabled={isLoading}>
                   Cancel
                 </Button>
               </div>
-            </div>
-          )}
-
-          {preview.valid_rows === 0 && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              No valid rows found. Fix the errors above and re-upload.
             </div>
           )}
         </>
@@ -508,144 +816,24 @@ function CSVImportTab({ role }: { role: ImportRole }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Master data manager (collapsible panel)
-// ---------------------------------------------------------------------------
-
-function MasterDataPanel() {
-  const [open, setOpen] = useState(false)
-  const [deptName, setDeptName] = useState('')
-  const [deptCode, setDeptCode] = useState('')
-  const [progName, setProgName] = useState('')
-  const [progCode, setProgCode] = useState('')
-  const [deptError, setDeptError] = useState<string | null>(null)
-  const [progError, setProgError] = useState<string | null>(null)
-  const queryClient = useQueryClient()
-
-  const depts = useQuery({ queryKey: ['departments'], queryFn: onboardingApi.listDepartments })
-  const progs = useQuery({ queryKey: ['programs'], queryFn: onboardingApi.listPrograms })
-
-  const addDept = useMutation({
-    mutationFn: () => onboardingApi.createDepartment({ name: deptName.trim(), code: deptCode.trim() }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['departments'] })
-      setDeptName('')
-      setDeptCode('')
-      setDeptError(null)
-    },
-    onError: (err: unknown) => setDeptError(getAdminErrorMessage(err)),
+// Simple dept-only dropdown (faculty context, display only)
+function DeptOnlySelector() {
+  const [selected, setSelected] = useState('')
+  const depts = useQuery({
+    queryKey: ['acad-depts-ob'],
+    queryFn: () => academicsApi.listDepartments(),
   })
-
-  const addProg = useMutation({
-    mutationFn: () => onboardingApi.createProgram({ name: progName.trim(), code: progCode.trim() }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['programs'] })
-      setProgName('')
-      setProgCode('')
-      setProgError(null)
-    },
-    onError: (err: unknown) => setProgError(getAdminErrorMessage(err)),
-  })
-
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-5 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-medium text-gray-700 transition-colors"
-      >
-        <span className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-gray-400" />
-          Departments &amp; Programs
-        </span>
-        {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-      </button>
-
-      {open && (
-        <div className="p-5 grid grid-cols-2 gap-6">
-          {/* Departments */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Departments</h4>
-            {depts.data && depts.data.length > 0 ? (
-              <ul className="space-y-1">
-                {depts.data.map((d) => (
-                  <li key={d.id} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-800">{d.name}</span>
-                    <code className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{d.code}</code>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-gray-400 italic">No departments yet.</p>
-            )}
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => { e.preventDefault(); addDept.mutate() }}
-            >
-              <Input
-                placeholder="Name"
-                value={deptName}
-                onChange={(e) => setDeptName(e.target.value)}
-                required
-                className="flex-1 h-8 text-sm"
-              />
-              <Input
-                placeholder="Code"
-                value={deptCode}
-                onChange={(e) => setDeptCode(e.target.value)}
-                required
-                maxLength={20}
-                className="w-20 h-8 text-sm"
-              />
-              <Button type="submit" size="sm" disabled={addDept.isPending}>
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </form>
-            {deptError && <p className="text-xs text-red-600">{deptError}</p>}
-          </div>
-
-          {/* Programs */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Programs</h4>
-            {progs.data && progs.data.length > 0 ? (
-              <ul className="space-y-1">
-                {progs.data.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-800">{p.name}</span>
-                    <code className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">{p.code}</code>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-gray-400 italic">No programs yet.</p>
-            )}
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => { e.preventDefault(); addProg.mutate() }}
-            >
-              <Input
-                placeholder="Name"
-                value={progName}
-                onChange={(e) => setProgName(e.target.value)}
-                required
-                className="flex-1 h-8 text-sm"
-              />
-              <Input
-                placeholder="Code"
-                value={progCode}
-                onChange={(e) => setProgCode(e.target.value)}
-                required
-                maxLength={20}
-                className="w-20 h-8 text-sm"
-              />
-              <Button type="submit" size="sm" disabled={addProg.isPending}>
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </form>
-            {progError && <p className="text-xs text-red-600">{progError}</p>}
-          </div>
-        </div>
-      )}
-    </div>
+    <select
+      className={selectCls}
+      value={selected}
+      onChange={(e) => setSelected(e.target.value)}
+    >
+      <option value="">— filter by department (display only) —</option>
+      {depts.data?.filter((d) => d.is_active).map((d) => (
+        <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+      ))}
+    </select>
   )
 }
 
@@ -657,8 +845,8 @@ type Tab = 'generate' | 'import-students' | 'import-faculty'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'generate',        label: 'Generate Students' },
-  { id: 'import-students', label: 'Import Students CSV' },
-  { id: 'import-faculty',  label: 'Import Faculty CSV' },
+  { id: 'import-students', label: 'Import Students' },
+  { id: 'import-faculty',  label: 'Import Faculty' },
 ]
 
 export default function BulkOnboardingPage() {
@@ -668,15 +856,13 @@ export default function BulkOnboardingPage() {
     <PageShell width="sm">
       <PageHeader
         icon={Users}
-        title="Bulk Onboarding"
-        subtitle="Generate student accounts in bulk or import users via CSV. All accounts require a password change on first login."
+        title="Import Users"
+        subtitle="Generate student accounts or import users from CSV and Excel files. All accounts require a password change on first login."
       />
-
-      <MasterDataPanel />
 
       {/* Tab bar */}
       <div className="border-b border-gray-200">
-        <nav className="flex gap-0" aria-label="Tabs">
+        <nav className="flex gap-0" aria-label="Import Users tabs">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -693,11 +879,10 @@ export default function BulkOnboardingPage() {
         </nav>
       </div>
 
-      {/* Tab content */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        {activeTab === 'generate' && <GenerateStudentsTab />}
+        {activeTab === 'generate'        && <GenerateStudentsTab />}
         {activeTab === 'import-students' && <CSVImportTab role="students" />}
-        {activeTab === 'import-faculty' && <CSVImportTab role="faculty" />}
+        {activeTab === 'import-faculty'  && <CSVImportTab role="faculty" />}
       </div>
     </PageShell>
   )

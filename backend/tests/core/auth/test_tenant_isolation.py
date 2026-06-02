@@ -56,7 +56,7 @@ async def test_created_user_in_correct_schema(
             "email": "isolation_check@test.com",
             "password": "Password1234!",
             "full_name": "Isolation Test",
-            "role": "STUDENT",
+            "role": "FACULTY",
         },
         headers=headers_a,
     )

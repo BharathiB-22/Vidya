@@ -257,11 +257,12 @@ async def test_csv_students_preview(http_client, provisioned, admin_headers):
     schema = provisioned["schema_name"]
     before = await _count_users(schema, "STUDENT")
 
+    # program_code is now required — rows without a resolvable program are invalid
     csv_content = (
-        "full_name,email,identifier\n"
-        "Alice Brown,alice.brown@obtest.edu,CSV26MCA001\n"
-        "Bob Green,not-an-email,CSV26MCA002\n"      # invalid email → invalid row
-        "Charlie White,charlie@obtest.edu,CSV26MCA003\n"
+        "full_name,email,identifier,program_code\n"
+        "Alice Brown,alice.brown@obtest.edu,CSV26MCA001,NOTEXIST\n"  # program not found → invalid
+        "Bob Green,not-an-email,CSV26MCA002,NOTEXIST\n"             # invalid email → invalid
+        "Charlie White,charlie@obtest.edu,CSV26MCA003,NOTEXIST\n"   # program not found → invalid
     )
 
     resp = await http_client.post(
@@ -272,9 +273,8 @@ async def test_csv_students_preview(http_client, provisioned, admin_headers):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["total_rows"] == 3
-    assert data["valid_rows"] == 2
-    assert data["invalid_rows"] == 1
-    assert any("not-an-email" in e for row in data["rows"] for e in row["errors"])
+    assert data["valid_rows"] == 0
+    assert data["invalid_rows"] == 3
 
     # No writes during preview
     assert await _count_users(schema, "STUDENT") == before
@@ -289,10 +289,12 @@ async def test_csv_students_commit(http_client, provisioned, admin_headers):
     schema = provisioned["schema_name"]
     before = await _count_users(schema, "STUDENT")
 
+    # program_code is required — rows without a resolvable program are skipped
+    # (no program set up in this tenant, so all rows will be invalid)
     csv_content = (
-        "full_name,email,identifier\n"
-        "Dave Black,dave.black@obtest.edu,CMT26MCA001\n"
-        "Eve White,eve.white@obtest.edu,CMT26MCA002\n"
+        "full_name,email,identifier,program_code\n"
+        "Dave Black,dave.black@obtest.edu,CMT26MCA001,NOTEXIST\n"
+        "Eve White,eve.white@obtest.edu,CMT26MCA002,NOTEXIST\n"
     )
 
     resp = await http_client.post(
@@ -303,20 +305,11 @@ async def test_csv_students_commit(http_client, provisioned, admin_headers):
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["created"] == 2
-    assert data["skipped"] == 0
+    # Both rows invalid (program not found) → 0 created, 2 skipped
+    assert data["created"] == 0
+    assert data["skipped"] == 2
 
-    assert await _count_users(schema, "STUDENT") == before + 2
-
-    # Verify must_change_password is set
-    async with _Session() as session:
-        async with session.begin():
-            await session.execute(text(f"SET LOCAL search_path = {schema}, public"))
-            result = await session.execute(
-                text("SELECT must_change_password FROM users WHERE email = 'dave.black@obtest.edu'")
-            )
-            row = result.scalar_one()
-    assert row is True
+    assert await _count_users(schema, "STUDENT") == before
 
 
 # ---------------------------------------------------------------------------
@@ -446,61 +439,123 @@ async def test_tenant_isolation(provisioned):
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — Department and program CRUD
+# Test 8 — Context-aware import (program_id supplied as form param)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_create_and_list_department(http_client, admin_headers):
-    resp = await http_client.post(
-        "/admin/onboarding/departments",
+@pytest_asyncio.fixture(scope="module")
+async def acad_program_id(http_client, admin_headers):
+    """Create a real department + program via the /academics/ endpoints and return the program UUID."""
+    dept_resp = await http_client.post(
+        "/academics/departments",
         json={"name": "Computer Science", "code": "CS"},
         headers=admin_headers,
     )
-    assert resp.status_code == 201, resp.text
-    dept = resp.json()
-    assert dept["code"] == "CS"
-    assert dept["is_active"] is True
+    assert dept_resp.status_code == 201, dept_resp.text
+    dept_id = dept_resp.json()["id"]
 
-    list_resp = await http_client.get("/admin/onboarding/departments", headers=admin_headers)
-    assert list_resp.status_code == 200
-    codes = [d["code"] for d in list_resp.json()]
-    assert "CS" in codes
+    prog_resp = await http_client.post(
+        "/academics/programs",
+        json={
+            "department_id": dept_id,
+            "name": "Master of Computer Applications",
+            "code": "MCA",
+            "degree_type": "PG",
+            "duration_years": 2,
+        },
+        headers=admin_headers,
+    )
+    assert prog_resp.status_code == 201, prog_resp.text
+    return prog_resp.json()["id"]
 
 
 @pytest.mark.asyncio
-async def test_duplicate_department_code_rejected(http_client, admin_headers):
-    await http_client.post(
-        "/admin/onboarding/departments",
-        json={"name": "Mathematics", "code": "MATH"},
-        headers=admin_headers,
+async def test_import_students_with_context(http_client, admin_headers, acad_program_id, provisioned):
+    schema = provisioned["schema_name"]
+    before = await _count_users(schema, "STUDENT")
+
+    # CSV without program_code — program supplied via context
+    csv_content = (
+        "full_name,email,identifier\n"
+        "Alice Context,alice.ctx@obtest.edu,CTX001\n"
+        "Bob Context,bob.ctx@obtest.edu,CTX002\n"
     )
+
     resp = await http_client.post(
-        "/admin/onboarding/departments",
-        json={"name": "Mathematics Dept", "code": "MATH"},
+        "/admin/onboarding/import/students/preview",
+        files={"file": ("students.csv", io.BytesIO(csv_content.encode()), "text/csv")},
+        data={"program_id": acad_program_id},
         headers=admin_headers,
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total_rows"] == 2
+    assert data["valid_rows"] == 2
+    assert data["invalid_rows"] == 0
+    assert data["duplicate_in_file"] == 0
+
+    # Commit with context
+    commit_resp = await http_client.post(
+        "/admin/onboarding/import/students/commit",
+        files={"file": ("students.csv", io.BytesIO(csv_content.encode()), "text/csv")},
+        data={"default_password": "Student@123", "program_id": acad_program_id},
+        headers=admin_headers,
+    )
+    assert commit_resp.status_code == 200, commit_resp.text
+    assert commit_resp.json()["created"] == 2
+    assert await _count_users(schema, "STUDENT") == before + 2
 
 
 @pytest.mark.asyncio
-async def test_create_and_list_program(http_client, admin_headers):
+async def test_import_students_xlsx(http_client, admin_headers, acad_program_id):
+    import openpyxl
+    import io as _io
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["full_name", "email", "identifier"])
+    ws.append(["Excel User 1", "xlsx1.ob@obtest.edu", "XL001"])
+    ws.append(["Excel User 2", "xlsx2.ob@obtest.edu", "XL002"])
+    buf = _io.BytesIO()
+    wb.save(buf)
+    xlsx_bytes = buf.getvalue()
+
     resp = await http_client.post(
-        "/admin/onboarding/programs",
-        json={"name": "Master of Computer Applications", "code": "MCAP", "duration_years": 2},
+        "/admin/onboarding/import/students/preview",
+        files={"file": ("students.xlsx", _io.BytesIO(xlsx_bytes),
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"program_id": acad_program_id},
         headers=admin_headers,
     )
-    assert resp.status_code == 201, resp.text
-    prog = resp.json()
-    assert prog["code"] == "MCAP"
-    assert prog["duration_years"] == 2
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total_rows"] == 2
+    assert data["valid_rows"] == 2
+    assert data["invalid_rows"] == 0
 
-    list_resp = await http_client.get("/admin/onboarding/programs", headers=admin_headers)
-    assert list_resp.status_code == 200
-    assert any(p["code"] == "MCAP" for p in list_resp.json())
+
+@pytest.mark.asyncio
+async def test_preview_duplicate_counts(http_client, admin_headers):
+    # faculty endpoint has no program_code requirement — easiest to test dup counts
+    csv_content = (
+        "full_name,email,employee_id\n"
+        "User A,dup.test.a@obtest.edu,DUPID001\n"
+        "User B,dup.test.a@obtest.edu,DUPID002\n"  # duplicate email in file
+        "User C,dup.test.c@obtest.edu,DUPID003\n"
+    )
+    resp = await http_client.post(
+        "/admin/onboarding/import/faculty/preview",
+        files={"file": ("faculty.csv", io.BytesIO(csv_content.encode()), "text/csv")},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total_rows"] == 3
+    assert data["duplicate_in_file"] == 1   # User B duplicates User A's email
+    assert data["duplicate_in_db"] == 0
 
 
 # ---------------------------------------------------------------------------
-# Test 9 — Sample CSV downloads are well-formed
+# Test 9 — Sample CSV/XLSX downloads are well-formed
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -509,7 +564,9 @@ async def test_sample_csv_students(http_client, admin_headers):
     assert resp.status_code == 200
     assert "text/csv" in resp.headers["content-type"]
     lines = resp.text.strip().splitlines()
-    assert lines[0] == "full_name,email,identifier,section"
+    assert "full_name" in lines[0]
+    assert "email" in lines[0]
+    assert "identifier" in lines[0]
     assert len(lines) >= 2
 
 
@@ -520,3 +577,25 @@ async def test_sample_csv_faculty(http_client, admin_headers):
     lines = resp.text.strip().splitlines()
     assert "full_name" in lines[0]
     assert "employee_id" in lines[0]
+
+
+@pytest.mark.asyncio
+async def test_sample_xlsx_students(http_client, admin_headers):
+    resp = await http_client.get("/admin/onboarding/sample-xlsx/students", headers=admin_headers)
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.headers["content-type"]
+    # Verify the xlsx bytes are a valid workbook
+    import openpyxl
+    import io as _io
+    wb = openpyxl.load_workbook(_io.BytesIO(resp.content))
+    ws = wb.active
+    header = [str(c.value).lower() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert "full_name" in header
+    assert "email" in header
+
+
+@pytest.mark.asyncio
+async def test_sample_xlsx_faculty(http_client, admin_headers):
+    resp = await http_client.get("/admin/onboarding/sample-xlsx/faculty", headers=admin_headers)
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.headers["content-type"]

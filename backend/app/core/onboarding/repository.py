@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +32,21 @@ class OnboardingRepository:
         return {row[0] for row in result.fetchall()}
 
     # ------------------------------------------------------------------ #
+    # Program lookup                                                       #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    async def resolve_program_by_code(program_code: str, db: AsyncSession) -> UUID | None:
+        result = await db.execute(
+            text(
+                "SELECT id FROM acad_programs "
+                "WHERE UPPER(code) = :code AND is_active = true"
+            ),
+            {"code": program_code.strip().upper()},
+        )
+        return result.scalar_one_or_none()
+
+    # ------------------------------------------------------------------ #
     # Bulk user insert (raw SQL to avoid asyncpg native-enum OID issues)  #
     # ------------------------------------------------------------------ #
 
@@ -48,10 +65,10 @@ class OnboardingRepository:
                 text(
                     "INSERT INTO users "
                     "    (id, email, password_hash, role, full_name, identifier, "
-                    "     is_active, must_change_password) "
+                    "     acad_program_id, is_active, must_change_password) "
                     "VALUES "
                     "    (:id, :email, :pw_hash, CAST(:role AS tenantrole), "
-                    "     :full_name, :identifier, true, true)"
+                    "     :full_name, :identifier, :acad_program_id, true, true)"
                 ),
                 row,
             )

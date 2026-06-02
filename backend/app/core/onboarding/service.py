@@ -39,140 +39,7 @@ def _generate_email(usn: str, domain: str) -> str:
 class OnboardingService:
 
     # ------------------------------------------------------------------ #
-    # Section resolution helpers                                           #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    async def _validate_section_active(section_id: UUID, db: AsyncSession) -> bool:
-        """Return True if section exists and is active. Used for fail-fast in generate."""
-        result = await db.execute(
-            text("SELECT id FROM acad_sections WHERE id = :sid AND is_active = true"),
-            {"sid": str(section_id)},
-        )
-        return result.scalar_one_or_none() is not None
-
-    @staticmethod
-    async def _resolve_section(
-        program_code: str,
-        batch_year_str: str,
-        section_name: str,
-        db: AsyncSession,
-    ) -> UUID | None:
-        """Resolve (program_code, batch_year, section_name) → acad_section.id.
-
-        Uses the lowest-numbered active semester for the resolved batch (D3).
-        Returns None if any step in the chain fails.
-        """
-        try:
-            batch_year = int(batch_year_str)
-        except (ValueError, TypeError):
-            return None
-
-        prog_row = await db.execute(
-            text(
-                "SELECT id FROM acad_programs "
-                "WHERE UPPER(code) = :code AND is_active = true"
-            ),
-            {"code": program_code.upper()},
-        )
-        prog_id = prog_row.scalar_one_or_none()
-        if not prog_id:
-            return None
-
-        batch_row = await db.execute(
-            text(
-                "SELECT id FROM acad_batches "
-                "WHERE program_id = :pid AND start_year = :yr AND is_active = true"
-            ),
-            {"pid": str(prog_id), "yr": batch_year},
-        )
-        batch_id = batch_row.scalar_one_or_none()
-        if not batch_id:
-            return None
-
-        sem_row = await db.execute(
-            text(
-                "SELECT id FROM acad_semesters "
-                "WHERE batch_id = :bid AND is_active = true "
-                "ORDER BY number ASC LIMIT 1"
-            ),
-            {"bid": str(batch_id)},
-        )
-        sem_id = sem_row.scalar_one_or_none()
-        if not sem_id:
-            return None
-
-        sec_row = await db.execute(
-            text(
-                "SELECT id FROM acad_sections "
-                "WHERE semester_id = :sid AND UPPER(name) = :name AND is_active = true"
-            ),
-            {"sid": str(sem_id), "name": section_name.upper()},
-        )
-        return sec_row.scalar_one_or_none()
-
-    # ------------------------------------------------------------------ #
-    # Bulk student generation                                              #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    async def generate_students(
-        req: GenerateStudentsRequest,
-        db: AsyncSession,
-    ) -> GenerateStudentsResult:
-        # D4: fail-fast if section_id is invalid — before creating any users
-        if req.section_id is not None:
-            if not await OnboardingService._validate_section_active(req.section_id, db):
-                raise OnboardingError(
-                    "SECTION_NOT_FOUND",
-                    f"Section {req.section_id} does not exist or is not active",
-                )
-
-        usns = [
-            _generate_usn(req.usn_prefix, req.batch_year, req.program_code, req.start_seq + i, req.seq_width)
-            for i in range(req.count)
-        ]
-        emails = [_generate_email(u, req.email_domain) for u in usns]
-
-        existing_ids    = await OnboardingRepository.get_existing_identifiers(usns, db)
-        existing_emails = await OnboardingRepository.get_existing_emails(emails, db)
-
-        duplicate_usns   = [u for u in usns   if u in existing_ids]
-        duplicate_emails = [e for e in emails if e in existing_emails]
-
-        pw_hash = hash_password(req.default_password)
-        rows_to_insert: list[dict] = []
-
-        for usn, email in zip(usns, emails):
-            if usn in existing_ids or email in existing_emails:
-                continue
-            rows_to_insert.append({
-                "id":         str(_uuid.uuid4()),
-                "email":      email,
-                "pw_hash":    pw_hash,
-                "role":       "STUDENT",
-                "full_name":  usn,
-                "identifier": usn,
-            })
-
-        created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
-
-        enrollments_created = 0
-        if req.section_id is not None and rows_to_insert:
-            pairs = [(row["id"], str(req.section_id)) for row in rows_to_insert]
-            enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(pairs, db)
-
-        return GenerateStudentsResult(
-            created=created,
-            skipped=req.count - created,
-            duplicate_usns=duplicate_usns,
-            duplicate_emails=duplicate_emails,
-            default_password=req.default_password,
-            enrollments_created=enrollments_created,
-        )
-
-    # ------------------------------------------------------------------ #
-    # CSV parsing helpers                                                  #
+    # File parsing helpers                                                  #
     # ------------------------------------------------------------------ #
 
     @staticmethod
@@ -185,7 +52,7 @@ class OnboardingService:
         return "", "Could not decode file — please use UTF-8 or Latin-1 encoding."
 
     @staticmethod
-    def _parse_raw_rows(
+    def _parse_csv_rows(
         content: bytes,
         required_cols: list[str],
     ) -> tuple[list[dict], str | None]:
@@ -208,6 +75,63 @@ class OnboardingService:
         for raw in reader:
             rows.append({k.strip().lower(): (v.strip() if v else "") for k, v in raw.items()})
         return rows, None
+
+    @staticmethod
+    def _parse_excel_rows(
+        content: bytes,
+        required_cols: list[str],
+    ) -> tuple[list[dict], str | None]:
+        try:
+            import openpyxl  # noqa: PLC0415
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            ws = wb.active
+            if ws is None:
+                wb.close()
+                return [], "Excel workbook has no active sheet."
+
+            rows_iter = ws.iter_rows(values_only=True)
+            header_row = next(rows_iter, None)
+            if header_row is None:
+                wb.close()
+                return [], "Excel file has no header row."
+
+            headers = [
+                str(h).strip().lower() if h is not None else ""
+                for h in header_row
+            ]
+            missing = [c for c in required_cols if c not in headers]
+            if missing:
+                wb.close()
+                return [], f"Missing required columns: {', '.join(missing)}"
+
+            rows = []
+            for raw_row in rows_iter:
+                if all(v is None for v in raw_row):
+                    continue
+                row_dict = {
+                    headers[i]: str(raw_row[i]).strip() if raw_row[i] is not None else ""
+                    for i in range(min(len(headers), len(raw_row)))
+                }
+                rows.append(row_dict)
+
+            wb.close()
+            return rows, None
+        except Exception as exc:
+            return [], f"Could not read Excel file: {exc}"
+
+    @staticmethod
+    def _parse_file(
+        content: bytes,
+        filename: str,
+        required_cols: list[str],
+    ) -> tuple[list[dict], str | None]:
+        if filename.lower().endswith(".xlsx"):
+            return OnboardingService._parse_excel_rows(content, required_cols)
+        return OnboardingService._parse_csv_rows(content, required_cols)
+
+    # ------------------------------------------------------------------ #
+    # Common row validation                                                 #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def _validate_common(
@@ -274,14 +198,161 @@ class OnboardingService:
         return rows
 
     # ------------------------------------------------------------------ #
-    # Students CSV                                                         #
+    # Section resolution helpers                                           #
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    async def preview_students_csv(content: bytes, db: AsyncSession) -> CSVPreviewResponse:
-        raw_rows, err = OnboardingService._parse_raw_rows(
-            content, required_cols=["full_name", "email"]
+    async def _validate_section_active(section_id: UUID, db: AsyncSession) -> bool:
+        result = await db.execute(
+            text("SELECT id FROM acad_sections WHERE id = :sid AND is_active = true"),
+            {"sid": str(section_id)},
         )
+        return result.scalar_one_or_none() is not None
+
+    @staticmethod
+    async def _resolve_section(
+        program_code: str,
+        batch_year_str: str,
+        section_name: str,
+        db: AsyncSession,
+    ) -> UUID | None:
+        try:
+            batch_year = int(batch_year_str)
+        except (ValueError, TypeError):
+            return None
+
+        prog_row = await db.execute(
+            text(
+                "SELECT id FROM acad_programs "
+                "WHERE UPPER(code) = :code AND is_active = true"
+            ),
+            {"code": program_code.upper()},
+        )
+        prog_id = prog_row.scalar_one_or_none()
+        if not prog_id:
+            return None
+
+        batch_row = await db.execute(
+            text(
+                "SELECT id FROM acad_batches "
+                "WHERE program_id = :pid AND start_year = :yr AND is_active = true"
+            ),
+            {"pid": str(prog_id), "yr": batch_year},
+        )
+        batch_id = batch_row.scalar_one_or_none()
+        if not batch_id:
+            return None
+
+        sem_row = await db.execute(
+            text(
+                "SELECT id FROM acad_semesters "
+                "WHERE batch_id = :bid AND is_active = true "
+                "ORDER BY number ASC LIMIT 1"
+            ),
+            {"bid": str(batch_id)},
+        )
+        sem_id = sem_row.scalar_one_or_none()
+        if not sem_id:
+            return None
+
+        sec_row = await db.execute(
+            text(
+                "SELECT id FROM acad_sections "
+                "WHERE semester_id = :sid AND UPPER(name) = :name AND is_active = true"
+            ),
+            {"sid": str(sem_id), "name": section_name.upper()},
+        )
+        return sec_row.scalar_one_or_none()
+
+    # ------------------------------------------------------------------ #
+    # Bulk student generation                                              #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    async def generate_students(
+        req: GenerateStudentsRequest,
+        db: AsyncSession,
+    ) -> GenerateStudentsResult:
+        if req.section_id is not None:
+            if not await OnboardingService._validate_section_active(req.section_id, db):
+                raise OnboardingError(
+                    "SECTION_NOT_FOUND",
+                    f"Section {req.section_id} does not exist or is not active",
+                )
+
+        usns = [
+            _generate_usn(req.usn_prefix, req.batch_year, req.program_code, req.start_seq + i, req.seq_width)
+            for i in range(req.count)
+        ]
+        emails = [_generate_email(u, req.email_domain) for u in usns]
+
+        existing_ids    = await OnboardingRepository.get_existing_identifiers(usns, db)
+        existing_emails = await OnboardingRepository.get_existing_emails(emails, db)
+
+        duplicate_usns   = [u for u in usns   if u in existing_ids]
+        duplicate_emails = [e for e in emails if e in existing_emails]
+
+        pw_hash = hash_password(req.default_password)
+        rows_to_insert: list[dict] = []
+
+        for usn, email in zip(usns, emails):
+            if usn in existing_ids or email in existing_emails:
+                continue
+            rows_to_insert.append({
+                "id":              str(_uuid.uuid4()),
+                "email":           email,
+                "pw_hash":         pw_hash,
+                "role":            "STUDENT",
+                "full_name":       usn,
+                "identifier":      usn,
+                "acad_program_id": None,
+            })
+
+        created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
+
+        enrollments_created = 0
+        if req.section_id is not None and rows_to_insert:
+            pairs = [(row["id"], str(req.section_id)) for row in rows_to_insert]
+            enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(pairs, db)
+
+        return GenerateStudentsResult(
+            created=created,
+            skipped=req.count - created,
+            duplicate_usns=duplicate_usns,
+            duplicate_emails=duplicate_emails,
+            default_password=req.default_password,
+            enrollments_created=enrollments_created,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Duplicate counter helpers                                             #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _count_duplicates(rows: list[CSVRowResult]) -> tuple[int, int]:
+        dup_file = sum(1 for r in rows if any("within this file" in e for e in r.errors))
+        dup_db   = sum(1 for r in rows if any("already exists in this institution" in e for e in r.errors))
+        return dup_file, dup_db
+
+    # ------------------------------------------------------------------ #
+    # Students file import                                                  #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    async def preview_students_csv(
+        content: bytes,
+        db: AsyncSession,
+        *,
+        filename: str = "students.csv",
+        context_program_id: UUID | None = None,
+        context_section_id: UUID | None = None,
+    ) -> CSVPreviewResponse:
+        # When a context program is supplied, program_code column is not required
+        required = ["full_name", "email"]
+        if context_program_id is None:
+            required.append("program_code")
+
+        raw_rows, err = OnboardingService._parse_file(content, filename, required)
         if err:
             return CSVPreviewResponse(
                 total_rows=0, valid_rows=0, invalid_rows=0,
@@ -291,52 +362,105 @@ class OnboardingService:
                 )],
             )
 
+        # Fail-fast: validate context section if provided
+        if context_section_id is not None:
+            if not await OnboardingService._validate_section_active(context_section_id, db):
+                return CSVPreviewResponse(
+                    total_rows=0, valid_rows=0, invalid_rows=0,
+                    rows=[CSVRowResult(
+                        row_number=0, full_name="", email="", identifier=None,
+                        is_valid=False,
+                        errors=["Selected section does not exist or is not active"],
+                    )],
+                )
+
         seen_emails: set[str] = set()
         seen_ids:    set[str] = set()
-
-        # Cache (program_code, batch_year, section_name) → section_id to avoid
-        # repeated DB round-trips for identical section combos across rows.
+        _program_cache: dict[str, UUID | None] = {}
         _section_cache: dict[tuple, UUID | None] = {}
 
         rows: list[CSVRowResult] = []
         for i, raw in enumerate(raw_rows):
             row = OnboardingService._validate_common(i + 1, raw, "identifier", seen_emails, seen_ids)
 
-            # Optional section placement (D4: fail-fast per row if columns given but not resolvable)
-            prog_code    = raw.get("program_code", "").strip()
-            batch_yr_str = raw.get("batch_year",   "").strip()
-            sec_name     = raw.get("section_name", "").strip()
-
-            if prog_code and batch_yr_str and sec_name:
-                cache_key = (prog_code.upper(), batch_yr_str, sec_name.upper())
-                if cache_key not in _section_cache:
-                    _section_cache[cache_key] = await OnboardingService._resolve_section(
-                        prog_code, batch_yr_str, sec_name, db
-                    )
-                resolved = _section_cache[cache_key]
-                if resolved is not None:
-                    row.section_id       = resolved
-                    row.section_resolved = True
-                else:
-                    row.errors.append(
-                        f"Section not found: program='{prog_code}' "
-                        f"year={batch_yr_str} section='{sec_name}'"
-                    )
+            # Program resolution
+            if context_program_id is not None:
+                row.acad_program_id  = context_program_id
+                row.program_resolved = True
+            else:
+                prog_code = raw.get("program_code", "").strip()
+                if not prog_code:
+                    row.errors.append("program_code is required")
                     row.is_valid = False
+                else:
+                    if prog_code.upper() not in _program_cache:
+                        _program_cache[prog_code.upper()] = await OnboardingRepository.resolve_program_by_code(
+                            prog_code, db
+                        )
+                    prog_id = _program_cache[prog_code.upper()]
+                    if prog_id is not None:
+                        row.acad_program_id  = prog_id
+                        row.program_resolved = True
+                    else:
+                        row.errors.append(f"Program not found: '{prog_code}'")
+                        row.is_valid = False
+
+            # Section resolution
+            if context_section_id is not None:
+                row.section_id       = context_section_id
+                row.section_resolved = True
+            else:
+                batch_yr_str = raw.get("batch_year",   "").strip()
+                sec_name     = raw.get("section_name", "").strip()
+                prog_code    = raw.get("program_code", "").strip()
+                if prog_code and batch_yr_str and sec_name:
+                    cache_key = (prog_code.upper(), batch_yr_str, sec_name.upper())
+                    if cache_key not in _section_cache:
+                        _section_cache[cache_key] = await OnboardingService._resolve_section(
+                            prog_code, batch_yr_str, sec_name, db
+                        )
+                    resolved = _section_cache[cache_key]
+                    if resolved is not None:
+                        row.section_id       = resolved
+                        row.section_resolved = True
+                    else:
+                        row.errors.append(
+                            f"Section not found: program='{prog_code}' "
+                            f"year={batch_yr_str} section='{sec_name}'"
+                        )
+                        row.is_valid = False
 
             rows.append(row)
 
         rows = await OnboardingService._check_db_duplicates(rows, db)
         valid = sum(1 for r in rows if r.is_valid)
+        dup_file, dup_db = OnboardingService._count_duplicates(rows)
+
         return CSVPreviewResponse(
-            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid, rows=rows,
+            total_rows=len(rows),
+            valid_rows=valid,
+            invalid_rows=len(rows) - valid,
+            duplicate_in_file=dup_file,
+            duplicate_in_db=dup_db,
+            rows=rows,
         )
 
     @staticmethod
     async def commit_students_csv(
-        content: bytes, default_password: str, db: AsyncSession
+        content: bytes,
+        default_password: str,
+        db: AsyncSession,
+        *,
+        filename: str = "students.csv",
+        context_program_id: UUID | None = None,
+        context_section_id: UUID | None = None,
     ) -> CSVCommitResult:
-        preview = await OnboardingService.preview_students_csv(content, db)
+        preview = await OnboardingService.preview_students_csv(
+            content, db,
+            filename=filename,
+            context_program_id=context_program_id,
+            context_section_id=context_section_id,
+        )
         pw_hash = hash_password(default_password)
 
         rows_to_insert: list[dict] = []
@@ -347,12 +471,13 @@ class OnboardingService:
                 continue
             uid = str(_uuid.uuid4())
             rows_to_insert.append({
-                "id":         uid,
-                "email":      r.email,
-                "pw_hash":    pw_hash,
-                "role":       "STUDENT",
-                "full_name":  r.full_name,
-                "identifier": r.identifier,
+                "id":              uid,
+                "email":           r.email,
+                "pw_hash":         pw_hash,
+                "role":            "STUDENT",
+                "full_name":       r.full_name,
+                "identifier":      r.identifier,
+                "acad_program_id": str(r.acad_program_id) if r.acad_program_id else None,
             })
             if r.section_resolved and r.section_id is not None:
                 enroll_pairs.append((uid, str(r.section_id)))
@@ -373,14 +498,17 @@ class OnboardingService:
         )
 
     # ------------------------------------------------------------------ #
-    # Faculty CSV                                                          #
+    # Faculty file import                                                   #
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    async def preview_faculty_csv(content: bytes, db: AsyncSession) -> CSVPreviewResponse:
-        raw_rows, err = OnboardingService._parse_raw_rows(
-            content, required_cols=["full_name", "email"]
-        )
+    async def preview_faculty_csv(
+        content: bytes,
+        db: AsyncSession,
+        *,
+        filename: str = "faculty.csv",
+    ) -> CSVPreviewResponse:
+        raw_rows, err = OnboardingService._parse_file(content, filename, required_cols=["full_name", "email"])
         if err:
             return CSVPreviewResponse(
                 total_rows=0, valid_rows=0, invalid_rows=0,
@@ -398,24 +526,36 @@ class OnboardingService:
         ]
         rows = await OnboardingService._check_db_duplicates(rows, db)
         valid = sum(1 for r in rows if r.is_valid)
+        dup_file, dup_db = OnboardingService._count_duplicates(rows)
+
         return CSVPreviewResponse(
-            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid, rows=rows,
+            total_rows=len(rows),
+            valid_rows=valid,
+            invalid_rows=len(rows) - valid,
+            duplicate_in_file=dup_file,
+            duplicate_in_db=dup_db,
+            rows=rows,
         )
 
     @staticmethod
     async def commit_faculty_csv(
-        content: bytes, default_password: str, db: AsyncSession
+        content: bytes,
+        default_password: str,
+        db: AsyncSession,
+        *,
+        filename: str = "faculty.csv",
     ) -> CSVCommitResult:
-        preview = await OnboardingService.preview_faculty_csv(content, db)
+        preview = await OnboardingService.preview_faculty_csv(content, db, filename=filename)
         pw_hash = hash_password(default_password)
         rows_to_insert = [
             {
-                "id":         str(_uuid.uuid4()),
-                "email":      r.email,
-                "pw_hash":    pw_hash,
-                "role":       "FACULTY",
-                "full_name":  r.full_name,
-                "identifier": r.identifier,
+                "id":              str(_uuid.uuid4()),
+                "email":           r.email,
+                "pw_hash":         pw_hash,
+                "role":            "FACULTY",
+                "full_name":       r.full_name,
+                "identifier":      r.identifier,
+                "acad_program_id": None,
             }
             for r in preview.rows
             if r.is_valid

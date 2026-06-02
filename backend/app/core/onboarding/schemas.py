@@ -46,7 +46,7 @@ class GenerateStudentsResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# CSV import
+# File import (CSV and XLSX)
 # ---------------------------------------------------------------------------
 
 class CSVRowResult(BaseModel):
@@ -58,12 +58,16 @@ class CSVRowResult(BaseModel):
     errors: list[str]
     section_id: Optional[UUID] = None
     section_resolved: bool = False
+    acad_program_id: Optional[UUID] = None
+    program_resolved: bool = False
 
 
 class CSVPreviewResponse(BaseModel):
     total_rows: int
     valid_rows: int
     invalid_rows: int
+    duplicate_in_file: int = 0
+    duplicate_in_db: int = 0
     rows: list[CSVRowResult]
 
 
