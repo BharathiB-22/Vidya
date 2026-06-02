@@ -15,6 +15,9 @@ import MonitoringPage from '@/pages/admin/MonitoringPage'
 import AuditLogsPage from '@/pages/admin/AuditLogsPage'
 import AdminSettingsPage from '@/pages/admin/SettingsPage'
 import HealthPage from '@/pages/admin/HealthPage'
+import ProfilePage from '@/pages/admin/ProfilePage'
+import PlatformBrandingPage from '@/pages/admin/PlatformBrandingPage'
+import DeletedTenantsPage from '@/pages/admin/DeletedTenantsPage'
 import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
@@ -102,10 +105,13 @@ export default function App() {
           <Route path="/admin/tenants" element={<TenantListPage />} />
           <Route path="/admin/tenants/new" element={<TenantCreatePage />} />
           <Route path="/admin/tenants/:id" element={<TenantDetailPage />} />
-          <Route path="/admin/monitoring"   element={<MonitoringPage />} />
-          <Route path="/admin/audit-logs"  element={<AuditLogsPage />} />
-          <Route path="/admin/settings"    element={<AdminSettingsPage />} />
-          <Route path="/admin/health"      element={<HealthPage />} />
+          <Route path="/admin/monitoring"        element={<MonitoringPage />} />
+          <Route path="/admin/audit-logs"       element={<AuditLogsPage />} />
+          <Route path="/admin/settings"         element={<AdminSettingsPage />} />
+          <Route path="/admin/health"           element={<HealthPage />} />
+          <Route path="/admin/profile"          element={<ProfilePage />} />
+          <Route path="/admin/branding"         element={<PlatformBrandingPage />} />
+          <Route path="/admin/deleted-tenants"  element={<DeletedTenantsPage />} />
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
       </Route>

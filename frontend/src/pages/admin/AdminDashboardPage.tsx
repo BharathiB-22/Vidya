@@ -14,7 +14,8 @@ function StatusBadge({ status }: { status: TenantStatus }) {
     FAILED:       { bg: 'rgba(239,68,68,0.1)',    color: '#f87171', border: 'rgba(239,68,68,0.2)'  },
     INACTIVE:     { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.2)' },
     ARCHIVED:     { bg: 'rgba(120,113,108,0.12)', color: '#a8a29e', border: 'rgba(120,113,108,0.2)' },
-    DELETED:      { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)' },
+    DELETED:              { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)' },
+    PERMANENTLY_DELETED:  { bg: 'rgba(100,116,139,0.06)', color: '#475569', border: 'rgba(100,116,139,0.12)' },
   }
   const { bg, color, border } = cfg[status] ?? cfg.INACTIVE
   return (

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -52,7 +53,9 @@ class TenantRepository:
         db: AsyncSession,
         include_inactive: bool = True,
     ) -> list[Tenant]:
-        stmt = select(Tenant)
+        # PERMANENTLY_DELETED tenants are always hidden — they are compliance
+        # tombstones and must never surface in any listing or login flow.
+        stmt = select(Tenant).where(Tenant.status != TenantStatus.PERMANENTLY_DELETED)
         if not include_inactive:
             stmt = stmt.where(Tenant.is_active.is_(True))
         stmt = stmt.order_by(Tenant.created_at.desc())
@@ -79,10 +82,40 @@ class TenantRepository:
     @staticmethod
     async def delete_tenant(
         tenant_id: UUID,
+        deleted_by_user_id: UUID | None,
         db: AsyncSession,
     ) -> Tenant | None:
         return await TenantRepository.update_tenant(
             tenant_id,
-            {"status": TenantStatus.DELETED, "is_active": False},
+            {
+                "status": TenantStatus.DELETED,
+                "is_active": False,
+                "deleted_at": datetime.now(timezone.utc),
+                "deleted_by_user_id": deleted_by_user_id,
+            },
+            db,
+        )
+
+    @staticmethod
+    async def restore_tenant(tenant_id: UUID, db: AsyncSession) -> Tenant | None:
+        return await TenantRepository.update_tenant(
+            tenant_id,
+            {
+                "status": TenantStatus.INACTIVE,
+                "is_active": False,
+                "deleted_at": None,
+                "deleted_by_user_id": None,
+            },
+            db,
+        )
+
+    @staticmethod
+    async def permanently_delete_tenant(tenant_id: UUID, db: AsyncSession) -> Tenant | None:
+        # Compliance-safe: update status to PERMANENTLY_DELETED rather than issuing
+        # a SQL DELETE, which would cascade an UPDATE onto audit_logs (blocked by
+        # the append-only trigger on that table).
+        return await TenantRepository.update_tenant(
+            tenant_id,
+            {"status": TenantStatus.PERMANENTLY_DELETED, "is_active": False},
             db,
         )

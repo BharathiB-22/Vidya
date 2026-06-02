@@ -42,6 +42,10 @@ const STATUS_CFG: Record<TenantStatus, { bg: string; color: string; border: stri
     bg: 'rgba(239,68,68,0.08)', color: '#9ca3af', border: 'rgba(239,68,68,0.15)',
     icon: <AlertTriangle className="h-3 w-3" />,
   },
+  PERMANENTLY_DELETED: {
+    bg: 'rgba(100,116,139,0.06)', color: '#475569', border: 'rgba(100,116,139,0.12)',
+    icon: <AlertTriangle className="h-3 w-3" />,
+  },
 }
 
 function StatusBadge({ status }: { status: TenantStatus }) {

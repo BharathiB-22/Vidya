@@ -18,12 +18,13 @@ class TenantRole(str, enum.Enum):
 
 
 class TenantStatus(str, enum.Enum):
-    PROVISIONING = "PROVISIONING"
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-    FAILED = "FAILED"
-    DELETED = "DELETED"
+    PROVISIONING        = "PROVISIONING"
+    ACTIVE              = "ACTIVE"
+    INACTIVE            = "INACTIVE"
+    ARCHIVED            = "ARCHIVED"
+    FAILED              = "FAILED"
+    DELETED             = "DELETED"
+    PERMANENTLY_DELETED = "PERMANENTLY_DELETED"
 
 
 class OTPPurpose(str, enum.Enum):
@@ -49,6 +50,8 @@ class Tenant(Base):
     primary_color = Column(String(7), nullable=True)
     secondary_color = Column(String(7), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_by_user_id = Column(UUID(as_uuid=True), nullable=True)
 
 
 class PlatformUser(Base):
@@ -59,6 +62,7 @@ class PlatformUser(Base):
     email = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
+    avatar_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -99,6 +103,22 @@ class PlatformOTPCode(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     user = relationship("PlatformUser", back_populates="otp_codes")
+
+
+class PlatformBranding(Base):
+    __tablename__ = "platform_branding"
+    __table_args__ = {"schema": "public"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    platform_name = Column(String(100), nullable=False, default="VIDYA AI")
+    company_name = Column(String(100), nullable=False, default="SherpaVector")
+    support_email = Column(String(255), nullable=True)
+    support_phone = Column(String(50), nullable=True)
+    logo_url = Column(String(500), nullable=True)
+    favicon_url = Column(String(500), nullable=True)
+    primary_color = Column(String(7), nullable=True)
+    accent_color = Column(String(7), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
 
 class RefreshTokenIndex(Base):

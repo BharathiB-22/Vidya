@@ -10,6 +10,7 @@ from app.config import settings as app_settings
 from app.core.tenants.schemas import (
     CreateTenantRequest,
     DeleteTenantRequest,
+    PermanentDeleteTenantRequest,
     PlatformSettingsResponse,
     PlatformStatsResponse,
     TenantResponse,
@@ -166,6 +167,46 @@ async def retry_tenant_provisioning(
     try:
         return await TenantService.retry_provisioning(
             tenant_id,
+            db,
+            actor_user_id=current_user.user_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except TenantError as e:
+        raise _tenant_error(e)
+
+
+@router.post("/{tenant_id}/restore", response_model=TenantResponse)
+async def restore_tenant(
+    request: Request,
+    tenant_id: UUID,
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TenantResponse:
+    try:
+        return await TenantService.restore_tenant(
+            tenant_id,
+            db,
+            actor_user_id=current_user.user_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except TenantError as e:
+        raise _tenant_error(e)
+
+
+@router.delete("/{tenant_id}/permanent", response_model=TenantResponse)
+async def permanently_delete_tenant(
+    request: Request,
+    tenant_id: UUID,
+    body: PermanentDeleteTenantRequest,
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TenantResponse:
+    try:
+        return await TenantService.permanently_delete_tenant(
+            tenant_id,
+            body.confirm_slug,
             db,
             actor_user_id=current_user.user_id,
             ip_address=request.client.host if request.client else None,

@@ -133,3 +133,79 @@ export async function getPlatformHealth(): Promise<PlatformHealth> {
   const { data } = await adminApi.get<PlatformHealth>('/platform/health')
   return data
 }
+
+// ---------------------------------------------------------------------------
+// Super Admin Profile
+// ---------------------------------------------------------------------------
+
+export interface PlatformProfile {
+  id: string
+  email: string
+  full_name: string
+  avatar_url: string | null
+  role: string
+  is_active: boolean
+  created_at: string | null
+  last_login_at: string | null
+}
+
+export interface PlatformSessions {
+  active_session_count: number
+  last_login_at: string | null
+}
+
+export async function getPlatformProfile(): Promise<PlatformProfile> {
+  const { data } = await adminApi.get<PlatformProfile>('/platform/auth/me')
+  return data
+}
+
+export async function updatePlatformProfile(updates: { full_name?: string; avatar_url?: string }): Promise<PlatformProfile> {
+  const { data } = await adminApi.patch<PlatformProfile>('/platform/auth/me', updates)
+  return data
+}
+
+export async function updatePlatformEmail(payload: { new_email: string; current_password: string }): Promise<PlatformProfile> {
+  const { data } = await adminApi.patch<PlatformProfile>('/platform/auth/me/email', payload)
+  return data
+}
+
+export async function changePlatformPassword(payload: {
+  current_password: string
+  new_password: string
+  confirm_password: string
+}): Promise<{ message: string }> {
+  const { data } = await adminApi.patch<{ message: string }>('/platform/auth/me/password', payload)
+  return data
+}
+
+export async function getPlatformSessions(): Promise<PlatformSessions> {
+  const { data } = await adminApi.get<PlatformSessions>('/platform/auth/me/sessions')
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Platform Branding
+// ---------------------------------------------------------------------------
+
+export interface PlatformBranding {
+  id: string
+  platform_name: string
+  company_name: string
+  support_email: string | null
+  support_phone: string | null
+  logo_url: string | null
+  favicon_url: string | null
+  primary_color: string | null
+  accent_color: string | null
+  updated_at: string
+}
+
+export async function getPlatformBranding(): Promise<PlatformBranding> {
+  const { data } = await adminApi.get<PlatformBranding>('/platform/auth/branding')
+  return data
+}
+
+export async function updatePlatformBranding(updates: Partial<Omit<PlatformBranding, 'id' | 'updated_at'>>): Promise<PlatformBranding> {
+  const { data } = await adminApi.patch<PlatformBranding>('/platform/auth/branding', updates)
+  return data
+}

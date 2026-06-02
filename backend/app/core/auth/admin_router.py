@@ -1,7 +1,7 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,10 +69,23 @@ async def create_user(
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(
+    program_id: UUID | None = Query(None, description="Filter by acad_program_id"),
     db: AsyncSession = Depends(_get_admin_db),
 ) -> list[UserResponse]:
-    users = await TenantRepository.list_users(db)
-    return [UserResponse.model_validate(u) for u in users]
+    users = await TenantRepository.list_users(db, acad_program_id=program_id)
+    result = []
+    for u in users:
+        resp = UserResponse.model_validate(u)
+        resp.acad_program_name = getattr(u, "_program_name", None)
+        result.append(resp)
+    return result
+
+
+@router.get("/academic-overview", response_model=list[dict[str, Any]])
+async def academic_overview(
+    db: AsyncSession = Depends(_get_admin_db),
+) -> list[dict]:
+    return await TenantRepository.get_academic_overview(db)
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)

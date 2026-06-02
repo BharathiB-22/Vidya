@@ -1,6 +1,6 @@
 import adminApi from '@/lib/adminApi'
 
-export type TenantStatus = 'PROVISIONING' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'FAILED' | 'DELETED'
+export type TenantStatus = 'PROVISIONING' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'FAILED' | 'DELETED' | 'PERMANENTLY_DELETED'
 
 export interface Tenant {
   id: string
@@ -14,6 +14,8 @@ export interface Tenant {
   primary_color: string | null
   secondary_color: string | null
   created_at: string
+  deleted_at: string | null
+  deleted_by_user_id: string | null
 }
 
 export interface CreateTenantPayload {
@@ -67,6 +69,18 @@ export async function updateTenant(
 
 export async function deleteTenant(id: string, confirmSlug: string): Promise<Tenant> {
   const { data } = await adminApi.delete<Tenant>(`/tenants/${id}`, {
+    data: { confirm_slug: confirmSlug },
+  })
+  return data
+}
+
+export async function restoreTenant(id: string): Promise<Tenant> {
+  const { data } = await adminApi.post<Tenant>(`/tenants/${id}/restore`)
+  return data
+}
+
+export async function permanentlyDeleteTenant(id: string, confirmSlug: string): Promise<Tenant> {
+  const { data } = await adminApi.delete<Tenant>(`/tenants/${id}/permanent`, {
     data: { confirm_slug: confirmSlug },
   })
   return data

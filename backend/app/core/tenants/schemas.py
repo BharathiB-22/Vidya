@@ -83,6 +83,8 @@ class TenantResponse(BaseModel):
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
     created_at: datetime
+    deleted_at: Optional[datetime] = None
+    deleted_by_user_id: Optional[UUID] = None
 
     model_config = {"from_attributes": True}
 
@@ -113,8 +115,17 @@ class TenantUpdateRequest(BaseModel):
     def status_transition_allowed(cls, v: Optional[TenantStatus]) -> Optional[TenantStatus]:
         if v is None:
             return v
-        if v in (TenantStatus.PROVISIONING, TenantStatus.FAILED, TenantStatus.DELETED):
-            raise ValueError("Cannot set status to PROVISIONING, FAILED, or DELETED via update request")
+        _blocked = (
+            TenantStatus.PROVISIONING,
+            TenantStatus.FAILED,
+            TenantStatus.DELETED,
+            TenantStatus.PERMANENTLY_DELETED,
+        )
+        if v in _blocked:
+            raise ValueError(
+                "Cannot set status to PROVISIONING, FAILED, DELETED, or PERMANENTLY_DELETED "
+                "via update request — use the dedicated lifecycle endpoints"
+            )
         return v
 
     @field_validator("primary_color", "secondary_color", mode="before")
@@ -124,6 +135,10 @@ class TenantUpdateRequest(BaseModel):
 
 
 class DeleteTenantRequest(BaseModel):
+    confirm_slug: str
+
+
+class PermanentDeleteTenantRequest(BaseModel):
     confirm_slug: str
 
 

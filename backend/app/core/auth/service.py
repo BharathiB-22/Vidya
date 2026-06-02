@@ -719,19 +719,31 @@ class TenantAuthService:
         existing = await TenantRepository.get_user_by_email(payload.email, db)
         if existing:
             raise AuthError("EMAIL_EXISTS", "Email already registered", 409)
+
+        program_name: str | None = None
+        if payload.acad_program_id:
+            prog = await TenantRepository.get_program_by_id(payload.acad_program_id, db)
+            if not prog or not prog.is_active:
+                raise AuthError("PROGRAM_NOT_FOUND", "Academic program not found or inactive", 422)
+            program_name = prog.name
+
         pw_hash = hash_password(payload.password)
         user = await TenantRepository.create_user(
-            payload.email, pw_hash, payload.role, payload.full_name, payload.identifier, db
+            payload.email, pw_hash, payload.role, payload.full_name, payload.identifier, db,
+            acad_program_id=payload.acad_program_id,
         )
         await AuditService.log(
             AuditEventType.USER_CREATED,
             actor_user_id=actor_user_id, actor_role=actor_role,
             tenant_id=tenant_id, schema_name=schema_name,
             target_entity="User", target_id=str(user.id),
-            metadata={"email": payload.email, "role": payload.role.value},
+            metadata={"email": payload.email, "role": payload.role.value,
+                      "acad_program_id": str(payload.acad_program_id) if payload.acad_program_id else None},
             ip_address=ip_address, user_agent=user_agent,
         )
-        return UserResponse.model_validate(user)
+        resp = UserResponse.model_validate(user)
+        resp.acad_program_name = program_name
+        return resp
 
     @staticmethod
     async def update_user(
@@ -754,9 +766,32 @@ class TenantAuthService:
             if existing and existing.id != user_id:
                 raise AuthError("EMAIL_EXISTS", "Email is already in use by another account", 409)
 
+        # Validate program if being set
+        program_name: str | None = None
+        if "acad_program_id" in updates and updates["acad_program_id"] is not None:
+            prog = await TenantRepository.get_program_by_id(updates["acad_program_id"], db)
+            if not prog or not prog.is_active:
+                raise AuthError("PROGRAM_NOT_FOUND", "Academic program not found or inactive", 422)
+            program_name = prog.name
+
+        # Enforce: if role is explicitly being SET to STUDENT, program must be present
+        target_user = await TenantRepository.get_user_by_id(user_id, db)
+        if not target_user:
+            raise AuthError("USER_NOT_FOUND", "User not found", 404)
+        from app.core.auth.models import TenantRole as _Role
+        if "role" in updates and updates["role"] == _Role.STUDENT:
+            effective_program = updates.get("acad_program_id", target_user.acad_program_id)
+            if not effective_program:
+                raise AuthError("PROGRAM_REQUIRED", "acad_program_id is required when assigning STUDENT role", 422)
+
         user = await TenantRepository.update_user(user_id, updates, db)
         if not user:
             raise AuthError("USER_NOT_FOUND", "User not found", 404)
+
+        # Resolve program name for response if not already fetched
+        if program_name is None and user.acad_program_id:
+            prog = await TenantRepository.get_program_by_id(user.acad_program_id, db)
+            program_name = prog.name if prog else None
 
         if "is_active" in updates and updates["is_active"] is False:
             event = AuditEventType.USER_DEACTIVATED
@@ -773,7 +808,9 @@ class TenantAuthService:
             metadata={"changes": updates},
             ip_address=ip_address, user_agent=user_agent,
         )
-        return UserResponse.model_validate(user)
+        resp = UserResponse.model_validate(user)
+        resp.acad_program_name = program_name
+        return resp
 
     @staticmethod
     async def change_password(

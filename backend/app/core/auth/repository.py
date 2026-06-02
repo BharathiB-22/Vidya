@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.models import (
     User, RefreshToken, OTPCode,
     PlatformUser, PlatformRefreshToken, PlatformOTPCode,
-    RefreshTokenIndex, OTPPurpose, Tenant,
+    RefreshTokenIndex, OTPPurpose, Tenant, PlatformBranding,
 )
+from app.modules.m_academics.models import AcadProgram
 
 
 class PublicRepository:
@@ -230,6 +231,41 @@ class PublicRepository:
         await db.execute(stmt)
 
     @staticmethod
+    async def count_active_platform_sessions(user_id: UUID, db: AsyncSession) -> int:
+        now = datetime.now(timezone.utc)
+        stmt = select(PlatformRefreshToken).where(
+            and_(
+                PlatformRefreshToken.user_id == user_id,
+                PlatformRefreshToken.is_revoked.is_(False),
+                PlatformRefreshToken.expires_at > now,
+            )
+        )
+        result = await db.execute(stmt)
+        return len(result.scalars().all())
+
+    @staticmethod
+    async def get_platform_branding(db: AsyncSession) -> PlatformBranding | None:
+        stmt = select(PlatformBranding).limit(1)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def upsert_platform_branding(updates: dict, db: AsyncSession) -> PlatformBranding:
+        from datetime import datetime, timezone
+        stmt = select(PlatformBranding).limit(1)
+        result = await db.execute(stmt)
+        branding = result.scalar_one_or_none()
+        if branding is None:
+            branding = PlatformBranding()
+            db.add(branding)
+        for key, value in updates.items():
+            setattr(branding, key, value)
+        branding.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+        await db.refresh(branding)
+        return branding
+
+    @staticmethod
     async def delete_index_entries_for_user(
         user_id: UUID,
         schema_name: str | None,
@@ -264,6 +300,11 @@ class TenantRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def get_program_by_id(program_id: UUID, db: AsyncSession) -> AcadProgram | None:
+        result = await db.execute(select(AcadProgram).where(AcadProgram.id == program_id))
+        return result.scalar_one_or_none()
+
+    @staticmethod
     async def create_user(
         email: str,
         password_hash: str,
@@ -271,6 +312,7 @@ class TenantRepository:
         full_name: str,
         identifier: str | None,
         db: AsyncSession,
+        acad_program_id: UUID | None = None,
     ):
         user = User(
             email=email,
@@ -278,6 +320,7 @@ class TenantRepository:
             role=role,
             full_name=full_name,
             identifier=identifier,
+            acad_program_id=acad_program_id,
         )
         db.add(user)
         await db.flush()
@@ -298,10 +341,56 @@ class TenantRepository:
         return user
 
     @staticmethod
-    async def list_users(db: AsyncSession):
-        stmt = select(User).order_by(User.created_at.desc())
+    async def list_users(db: AsyncSession, acad_program_id: UUID | None = None):
+        stmt = (
+            select(User, AcadProgram.name.label("program_name"))
+            .outerjoin(AcadProgram, User.acad_program_id == AcadProgram.id)
+            .order_by(User.created_at.desc())
+        )
+        if acad_program_id is not None:
+            stmt = stmt.where(User.acad_program_id == acad_program_id)
         result = await db.execute(stmt)
-        return result.scalars().all()
+        rows = result.all()
+        # Attach program_name as a transient attribute so service can read it
+        users = []
+        for user, program_name in rows:
+            user._program_name = program_name
+            users.append(user)
+        return users
+
+    @staticmethod
+    async def get_academic_overview(db: AsyncSession) -> list[dict]:
+        """Return per-program summary: student_count, faculty_count, section_count."""
+        rows = await db.execute(
+            text(
+                """
+                SELECT
+                    p.id            AS program_id,
+                    p.name          AS program_name,
+                    p.code          AS program_code,
+                    p.degree_type   AS degree_type,
+                    p.is_active     AS is_active,
+                    COUNT(DISTINCT u.id) FILTER (WHERE u.role = 'STUDENT' AND u.is_active = true) AS student_count,
+                    COUNT(DISTINCT sa.faculty_user_id) FILTER (WHERE sa.is_active = true)          AS faculty_count,
+                    COUNT(DISTINCT sec.id) FILTER (WHERE sec.is_active = true)                     AS section_count
+                FROM acad_programs p
+                LEFT JOIN users u
+                    ON u.acad_program_id = p.id
+                LEFT JOIN acad_batches bat
+                    ON bat.program_id = p.id AND bat.is_active = true
+                LEFT JOIN acad_semesters sem
+                    ON sem.batch_id = bat.id AND sem.is_active = true
+                LEFT JOIN acad_sections sec
+                    ON sec.semester_id = sem.id AND sec.is_active = true
+                LEFT JOIN subject_assignments sa
+                    ON sa.semester_id = sem.id AND sa.is_active = true
+                WHERE p.is_active = true
+                GROUP BY p.id, p.name, p.code, p.degree_type, p.is_active
+                ORDER BY p.name
+                """
+            )
+        )
+        return [dict(r._mapping) for r in rows.fetchall()]
 
     @staticmethod
     async def list_active_guides(db: AsyncSession):

@@ -23,12 +23,13 @@ import type { Tenant, TenantStatus } from '@/lib/api/tenants'
 // ---------------------------------------------------------------------------
 
 const STATUS_CFG: Record<TenantStatus, { bg: string; color: string; border: string }> = {
-  ACTIVE:       { bg: 'rgba(16,185,129,0.12)',  color: '#34d399', border: 'rgba(16,185,129,0.25)' },
-  PROVISIONING: { bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
-  FAILED:       { bg: 'rgba(239,68,68,0.12)',   color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
-  INACTIVE:     { bg: 'rgba(100,116,139,0.14)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
-  ARCHIVED:     { bg: 'rgba(120,113,108,0.14)', color: '#a8a29e', border: 'rgba(120,113,108,0.25)' },
-  DELETED:      { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)'  },
+  ACTIVE:               { bg: 'rgba(16,185,129,0.12)',  color: '#34d399', border: 'rgba(16,185,129,0.25)' },
+  PROVISIONING:         { bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
+  FAILED:               { bg: 'rgba(239,68,68,0.12)',   color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
+  INACTIVE:             { bg: 'rgba(100,116,139,0.14)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
+  ARCHIVED:             { bg: 'rgba(120,113,108,0.14)', color: '#a8a29e', border: 'rgba(120,113,108,0.25)' },
+  DELETED:              { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)'  },
+  PERMANENTLY_DELETED:  { bg: 'rgba(100,116,139,0.06)', color: '#475569', border: 'rgba(100,116,139,0.12)' },
 }
 
 function StatusBadge({ status }: { status: TenantStatus }) {

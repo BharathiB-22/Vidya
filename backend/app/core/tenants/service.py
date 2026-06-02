@@ -262,7 +262,7 @@ class TenantService:
                 409,
             )
 
-        tenant = await TenantRepository.delete_tenant(tenant_id, db)
+        tenant = await TenantRepository.delete_tenant(tenant_id, actor_user_id, db)
         await db.commit()
 
         await AuditService.log(
@@ -274,6 +274,90 @@ class TenantService:
             target_entity="Tenant",
             target_id=str(tenant_id),
             metadata={"name": tenant.name, "slug": tenant.slug},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+        return TenantResponse.model_validate(tenant)
+
+    @staticmethod
+    async def restore_tenant(
+        tenant_id: UUID,
+        db: AsyncSession,
+        actor_user_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> TenantResponse:
+        tenant = await TenantRepository.get_tenant_by_id(tenant_id, db)
+        if tenant is None:
+            raise TenantError("NOT_FOUND", "Tenant not found", 404)
+        if tenant.status == TenantStatus.PERMANENTLY_DELETED:
+            raise TenantError(
+                "INVALID_STATE",
+                "Permanently deleted tenants cannot be restored. The compliance record is preserved but access cannot be reinstated.",
+                409,
+            )
+        if tenant.status != TenantStatus.DELETED:
+            raise TenantError("INVALID_STATE", "Only DELETED tenants can be restored", 409)
+
+        tenant = await TenantRepository.restore_tenant(tenant_id, db)
+        await db.commit()
+
+        await AuditService.log(
+            AuditEventType.TENANT_RESTORED,
+            actor_user_id=actor_user_id,
+            actor_role="SUPER_ADMIN",
+            tenant_id=tenant.id,
+            schema_name=tenant.schema_name,
+            target_entity="Tenant",
+            target_id=str(tenant_id),
+            metadata={"name": tenant.name, "slug": tenant.slug},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+        return TenantResponse.model_validate(tenant)
+
+    @staticmethod
+    async def permanently_delete_tenant(
+        tenant_id: UUID,
+        confirm_slug: str,
+        db: AsyncSession,
+        actor_user_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> TenantResponse:
+        tenant = await TenantRepository.get_tenant_by_id(tenant_id, db)
+        if tenant is None:
+            raise TenantError("NOT_FOUND", "Tenant not found", 404)
+        if tenant.status == TenantStatus.PERMANENTLY_DELETED:
+            raise TenantError("INVALID_STATE", "Tenant is already permanently deleted", 409)
+        if tenant.status != TenantStatus.DELETED:
+            raise TenantError(
+                "INVALID_STATE",
+                "Only soft-deleted tenants can be permanently deleted. "
+                "Use the Soft Delete action first.",
+                409,
+            )
+        if tenant.slug != confirm_slug:
+            raise TenantError(
+                "SLUG_MISMATCH",
+                "Confirmation slug does not match. Type the exact slug to confirm.",
+                409,
+            )
+
+        tenant = await TenantRepository.permanently_delete_tenant(tenant_id, db)
+        await db.commit()
+
+        await AuditService.log(
+            AuditEventType.TENANT_PERMANENTLY_DELETED,
+            actor_user_id=actor_user_id,
+            actor_role="SUPER_ADMIN",
+            tenant_id=tenant.id,
+            schema_name=tenant.schema_name,
+            target_entity="Tenant",
+            target_id=str(tenant_id),
+            metadata={"name": tenant.name, "slug": tenant.slug, "schema_name": tenant.schema_name},
             ip_address=ip_address,
             user_agent=user_agent,
         )

@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import {
   Building2, PlusCircle, ScrollText, Activity, BarChart2,
   Settings, LogOut, X, Shield, LayoutDashboard, Bell, Search, ChevronRight,
+  User, Palette, Trash2,
 } from 'lucide-react'
 import { useAdminAuth } from '@/lib/adminAuth'
 
@@ -23,9 +24,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Platform',
     items: [
-      { label: 'Dashboard',     to: '/admin/dashboard',   icon: LayoutDashboard, end: true },
-      { label: 'Tenants',       to: '/admin/tenants',     icon: Building2,       end: true },
-      { label: 'Create Tenant', to: '/admin/tenants/new', icon: PlusCircle },
+      { label: 'Dashboard',       to: '/admin/dashboard',        icon: LayoutDashboard, end: true },
+      { label: 'Tenants',         to: '/admin/tenants',          icon: Building2,       end: true },
+      { label: 'Deleted Tenants', to: '/admin/deleted-tenants',  icon: Trash2 },
+      { label: 'Create Tenant',   to: '/admin/tenants/new',      icon: PlusCircle },
     ],
   },
   {
@@ -33,25 +35,30 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Monitoring', to: '/admin/monitoring',  icon: BarChart2  },
       { label: 'Audit Logs', to: '/admin/audit-logs', icon: ScrollText },
-      { label: 'Health',     to: '/admin/health', icon: Activity },
+      { label: 'Health',     to: '/admin/health',      icon: Activity },
     ],
   },
   {
     heading: 'Account',
     items: [
-      { label: 'Settings', to: '/admin/settings', icon: Settings },
+      { label: 'My Profile', to: '/admin/profile',   icon: User },
+      { label: 'Branding',   to: '/admin/branding',  icon: Palette },
+      { label: 'Settings',   to: '/admin/settings',  icon: Settings },
     ],
   },
 ]
 
 const BREADCRUMB_MAP: Record<string, string> = {
-  '/admin/dashboard':   'Dashboard',
-  '/admin/tenants':     'Tenants',
-  '/admin/tenants/new': 'New University',
-  '/admin/monitoring':  'Monitoring',
-  '/admin/audit-logs':  'Audit Logs',
-  '/admin/settings':    'Settings',
-  '/admin/health':      'Health',
+  '/admin/dashboard':       'Dashboard',
+  '/admin/tenants':         'Tenants',
+  '/admin/tenants/new':     'New University',
+  '/admin/deleted-tenants': 'Deleted Tenants',
+  '/admin/monitoring':      'Monitoring',
+  '/admin/audit-logs':      'Audit Logs',
+  '/admin/settings':        'Settings',
+  '/admin/health':          'Health',
+  '/admin/profile':         'My Profile',
+  '/admin/branding':        'Platform Branding',
 }
 
 function getBreadcrumb(pathname: string): string {
