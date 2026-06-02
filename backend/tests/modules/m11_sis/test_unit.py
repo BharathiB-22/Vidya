@@ -307,7 +307,7 @@ def _load_migration():
 def test_migration_revision():
     mod = _load_migration()
     assert mod.revision == "0028"
-    assert mod.down_revision == "0027"
+    assert mod.down_revision == "0027ten"
 
 
 def test_migration_has_upgrade_and_downgrade():

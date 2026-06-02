@@ -235,6 +235,22 @@ export default function SchoolsPage() {
 
   if (loading) return <PageLoading />
 
+  if (err) return (
+    <PageShell>
+      <PageHeader icon={School2} title="Schools" subtitle="Could not load schools" />
+      <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-start gap-3">
+        <span className="shrink-0 mt-0.5">⚠</span>
+        <div>
+          <p className="font-medium">Failed to load schools</p>
+          <p className="mt-0.5 text-red-600">{err}</p>
+          <button onClick={load} className="mt-2 text-red-700 underline font-medium hover:text-red-900">
+            Try again
+          </button>
+        </div>
+      </div>
+    </PageShell>
+  )
+
   return (
     <PageShell>
       <PageHeader
@@ -243,8 +259,6 @@ export default function SchoolsPage() {
         subtitle={`${schools.length} school${schools.length !== 1 ? 's' : ''}`}
         action={canWrite ? <Button onClick={() => setShowCreate(true)}>Add school</Button> : undefined}
       />
-
-      {err && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{err}</p>}
 
       <div className="flex gap-2 flex-wrap items-center">
         <Input
