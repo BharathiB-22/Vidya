@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { School2 } from 'lucide-react'
+import { School2, Plus } from 'lucide-react'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -277,10 +278,22 @@ export default function SchoolsPage() {
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={canWrite ? 5 : 4} className="px-4 py-12 text-center text-gray-400">
-                  {schools.length === 0
-                    ? 'No schools yet. Add your first school to get started.'
-                    : 'No schools match your search.'}
+                <td colSpan={canWrite ? 5 : 4} className="py-2">
+                  {schools.length === 0 ? (
+                    <PageEmpty
+                      icon={School2}
+                      title="No schools added yet"
+                      message="Schools are the top level of your academic hierarchy."
+                      description="Create your first school to begin organising departments, programs, and faculty."
+                      action={canWrite ? (
+                        <Button size="sm" onClick={() => setShowCreate(true)}>
+                          <Plus className="h-3.5 w-3.5 mr-1.5" />Add School
+                        </Button>
+                      ) : undefined}
+                    />
+                  ) : (
+                    <PageEmpty message="No schools match your search." />
+                  )}
                 </td>
               </tr>
             ) : filtered.map(s => (

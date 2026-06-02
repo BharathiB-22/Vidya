@@ -109,7 +109,7 @@ export default function DeanReviewPage() {
     <PageShell>
       <PageHeader
         icon={ClipboardCheck}
-        title="Dean Review Dashboard"
+        title="Syllabus Review"
         subtitle="Overview of all syllabus activity across the institution."
       />
 

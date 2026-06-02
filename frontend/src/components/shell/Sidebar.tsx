@@ -17,6 +17,7 @@ interface NavItem {
   to: string
   icon: LucideIconType
   roles: string[]
+  exact?: boolean
 }
 
 interface NavSection {
@@ -27,88 +28,143 @@ interface NavSection {
 const ALL_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE', 'EVALUATOR']
 
 const NAV_SECTIONS: NavSection[] = [
+
+  // ── Root — every role ──────────────────────────────────────────────────────
   {
     heading: '',
     items: [
-      { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, roles: ALL_ROLES },
+      { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, roles: ALL_ROLES, exact: true },
     ],
   },
+
+  // ── FACULTY: My Teaching ───────────────────────────────────────────────────
   {
-    heading: 'Teach & Prepare',
+    heading: 'My Teaching',
     items: [
-      { label: 'Program Advisor',   to: '/programs',          icon: BookOpen,       roles: ['FACULTY', 'DEAN', 'ADMIN'] },
-      { label: 'Syllabuses',        to: '/syllabuses',        icon: GraduationCap,  roles: ['FACULTY', 'DEAN', 'ADMIN'] },
-      { label: 'Course Kits',       to: '/course-kits',       icon: Layers,         roles: ['FACULTY', 'DEAN', 'ADMIN'] },
-      { label: 'Learning Packages', to: '/learning-packages', icon: Package,        roles: ['FACULTY', 'DEAN', 'ADMIN'] },
+      { label: 'My Courses',         to: '/my-courses',        icon: BookOpen,      roles: ['FACULTY'] },
+      { label: 'Syllabuses',         to: '/syllabuses',        icon: GraduationCap, roles: ['FACULTY'] },
+      { label: 'Course Kits',        to: '/course-kits',       icon: Layers,        roles: ['FACULTY'] },
+      { label: 'Learning Materials', to: '/learning-packages', icon: Package,       roles: ['FACULTY'] },
     ],
   },
+
+  // ── FACULTY: Assess & Research ─────────────────────────────────────────────
   {
     heading: 'Assess & Research',
     items: [
-      { label: 'Lab Assignments', to: '/labs',                icon: FlaskConical,   roles: ['FACULTY', 'DEAN', 'ADMIN'] },
-      { label: 'Research',        to: '/research/problems',   icon: Microscope,     roles: ['FACULTY', 'ADMIN', 'GUIDE'] },
-      { label: 'Exam Papers',     to: '/exams',                  icon: FileText,       roles: ['FACULTY', 'ADMIN', 'BOARD'] },
-      { label: 'Internal Marks',  to: '/exams/internal-marks',   icon: BookMarked,     roles: ['FACULTY', 'DEAN', 'ADMIN'] },
-      { label: 'Pending Review',  to: '/exams/board/pending',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
-      { label: 'Scripts',             to: '/scripts',          icon: ClipboardList,  roles: ['ADMIN', 'BOARD'] },
-      { label: 'Board Script Review', to: '/scripts/board',    icon: ClipboardCheck, roles: ['BOARD', 'ADMIN'] },
-      { label: 'Score Ledger',        to: '/scripts/ledger',   icon: BookLock,       roles: ['ADMIN', 'BOARD'] },
-      { label: 'My Scripts',          to: '/scripts/evaluator',icon: ClipboardList,  roles: ['FACULTY'] },
+      { label: 'Lab Assignments',      to: '/labs',                 icon: FlaskConical,  roles: ['FACULTY'] },
+      { label: 'Research Supervision', to: '/research/problems',    icon: Microscope,    roles: ['FACULTY'] },
+      { label: 'Exam Papers',          to: '/exams',                icon: FileText,      roles: ['FACULTY'] },
+      { label: 'Internal Marks',       to: '/exams/internal-marks', icon: BookMarked,    roles: ['FACULTY'] },
+      { label: 'My Evaluations',       to: '/scripts/evaluator',    icon: ClipboardList, roles: ['FACULTY'] },
     ],
   },
+
+  // ── DEAN: Governance ───────────────────────────────────────────────────────
+  {
+    heading: 'Governance',
+    items: [
+      { label: 'Syllabus Review',    to: '/dean-review',           icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'Course Assignments', to: '/course-assignments',    icon: UserCheck,      roles: ['DEAN'] },
+      { label: 'Internal Marks',     to: '/exams/internal-marks',  icon: BookMarked,     roles: ['DEAN'] },
+      { label: 'Grade Analytics',    to: '/bell-curve',            icon: BarChart2,      roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Academic View ────────────────────────────────────────────────────
+  {
+    heading: 'Academic View',
+    items: [
+      { label: 'Academic Programs', to: '/programs',   icon: BookOpen,      roles: ['DEAN'] },
+      { label: 'Syllabuses',        to: '/syllabuses', icon: GraduationCap, roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Student Information System ──────────────────────────────────────
+  {
+    heading: 'Student Information System',
+    items: [
+      { label: 'Enrollment Overview', to: '/sis',        icon: LayoutDashboard, roles: ['DEAN'], exact: true },
+      { label: 'Enrollment Roster',   to: '/sis/roster', icon: UsersRound,      roles: ['DEAN'] },
+    ],
+  },
+
+  // ── ADMIN: Academic Structure (single source of truth) ────────────────────
+  {
+    heading: 'Academic Structure',
+    items: [
+      { label: 'Schools',          to: '/sis/schools',          icon: School2,       roles: ['ADMIN'] },
+      { label: 'Departments',      to: '/sis/departments',      icon: Building2,     roles: ['ADMIN'] },
+      { label: 'Degree Programs',  to: '/academics/programs',   icon: GraduationCap, roles: ['ADMIN'] },
+      { label: 'Batches',          to: '/academics/batches',    icon: CalendarRange, roles: ['ADMIN'] },
+      { label: 'Semesters',        to: '/academics/semesters',  icon: Calendar,      roles: ['ADMIN'] },
+      { label: 'Sections',         to: '/academics/sections',   icon: LayoutList,    roles: ['ADMIN'] },
+    ],
+  },
+
+  // ── ADMIN: People & Enrollment ─────────────────────────────────────────────
+  {
+    heading: 'People & Enrollment',
+    items: [
+      { label: 'Users',              to: '/users',                 icon: Users,      roles: ['ADMIN'] },
+      { label: 'Import Users',       to: '/users/bulk-onboarding', icon: UserPlus,   roles: ['ADMIN'] },
+      { label: 'Enrollment Roster',  to: '/sis/roster',            icon: UsersRound, roles: ['ADMIN'] },
+      { label: 'Course Assignments', to: '/course-assignments',    icon: UserCheck,  roles: ['ADMIN'] },
+    ],
+  },
+
+  // ── ADMIN: Analytics ──────────────────────────────────────────────────────
   {
     heading: 'Analytics',
     items: [
-      { label: 'Bell Curve', to: '/bell-curve', icon: BarChart2, roles: ['DEAN', 'ADMIN', 'BOARD'] },
+      { label: 'Enrollment Overview', to: '/sis',        icon: LayoutDashboard, roles: ['ADMIN'], exact: true },
+      { label: 'Grade Analytics',     to: '/bell-curve', icon: BarChart2,       roles: ['ADMIN'] },
     ],
   },
+
+  // ── ADMIN: Administration ─────────────────────────────────────────────────
   {
-    heading: 'SIS',
+    heading: 'Administration',
     items: [
-      { label: 'Dashboard',          to: '/sis',              icon: LayoutDashboard, roles: ['ADMIN', 'DEAN'] },
-      { label: 'Enrollment Roster',  to: '/sis/roster',       icon: UsersRound,      roles: ['ADMIN', 'DEAN'] },
-      { label: 'Schools',            to: '/sis/schools',      icon: School2,         roles: ['ADMIN', 'DEAN'] },
-      { label: 'Departments',        to: '/sis/departments',  icon: Layers,          roles: ['ADMIN', 'DEAN'] },
+      { label: 'Branding',  to: '/settings/branding', icon: Palette,  roles: ['ADMIN'] },
+      { label: 'Settings',  to: '/settings',           icon: Settings, roles: ['ADMIN'] },
     ],
   },
+
+  // ── BOARD: Examination ────────────────────────────────────────────────────
   {
-    heading: 'Student',
+    heading: 'Examination',
+    items: [
+      { label: 'Exam Paper Review', to: '/exams/board/pending', icon: ClipboardCheck, roles: ['BOARD'] },
+      { label: 'Answer Scripts',    to: '/scripts',              icon: ClipboardList,  roles: ['BOARD'] },
+      { label: 'Script Evaluation', to: '/scripts/board',        icon: FileText,       roles: ['BOARD'] },
+      { label: 'Mark Sheet',        to: '/scripts/ledger',       icon: BookLock,       roles: ['BOARD'] },
+      { label: 'Grade Analytics',   to: '/bell-curve',           icon: BarChart2,      roles: ['BOARD'] },
+    ],
+  },
+
+  // ── STUDENT: My Work ──────────────────────────────────────────────────────
+  {
+    heading: 'My Work',
     items: [
       { label: 'My Labs',     to: '/student/labs',     icon: FlaskConical, roles: ['STUDENT'] },
       { label: 'My Research', to: '/student/research', icon: Microscope,   roles: ['STUDENT'] },
     ],
   },
+
+  // ── EVALUATOR: Evaluate ───────────────────────────────────────────────────
   {
     heading: 'Evaluate',
     items: [
       { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'] },
     ],
   },
+
+  // ── GUIDE: Research ───────────────────────────────────────────────────────
   {
-    heading: 'Academic Structure',
+    heading: 'Research',
     items: [
-      { label: 'Departments',        to: '/academics/departments', icon: Building2,     roles: ['ADMIN'] },
-      { label: 'Programs',           to: '/academics/programs',    icon: GraduationCap, roles: ['ADMIN'] },
-      { label: 'Batches',            to: '/academics/batches',     icon: CalendarRange, roles: ['ADMIN'] },
-      { label: 'Semesters',          to: '/academics/semesters',   icon: Calendar,      roles: ['ADMIN'] },
-      { label: 'Sections',           to: '/academics/sections',    icon: LayoutList,    roles: ['ADMIN'] },
-      { label: 'Course Assignments', to: '/course-assignments', icon: UserCheck,     roles: ['DEAN', 'ADMIN'] },
-      { label: 'Review Dashboard',   to: '/dean-review',        icon: ClipboardCheck, roles: ['DEAN', 'ADMIN'] },
-    ],
-  },
-  {
-    heading: 'My Teaching',
-    items: [
-      { label: 'My Courses', to: '/my-courses', icon: BookOpen, roles: ['FACULTY'] },
-    ],
-  },
-  {
-    heading: 'Administration',
-    items: [
-      { label: 'Users',                to: '/users',                 icon: Users,    roles: ['ADMIN'] },
-      { label: 'Bulk Onboarding',      to: '/users/bulk-onboarding', icon: UserPlus, roles: ['ADMIN'] },
-      { label: 'Institution Branding', to: '/settings/branding',     icon: Palette,  roles: ['ADMIN'] },
-      { label: 'Settings',             to: '/settings',              icon: Settings, roles: ['ADMIN'] },
+      { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['GUIDE'] },
     ],
   },
 ]
@@ -153,16 +209,19 @@ export function Sidebar({ onClose }: SidebarProps) {
   const { user: authUser } = useAuth()
   const { branding } = useBranding()
   const role = user?.role ?? ''
-  const institution = prettifySlug(user?.tenantSlug ?? '')
+
+  // Use the registered institution name from branding; fall back to slug-derived label
+  const institution = branding.name || prettifySlug(user?.tenantSlug ?? '')
+
   const setupIncomplete = role === 'ADMIN' && authUser?.firstLogin === true
   const displayName = user?.fullName || user?.email || ''
   const initials = displayName ? getInitials(displayName) : role?.slice(0, 2) || '??'
 
-  const savedLogo = branding.logoUrl
+  const savedLogo    = branding.logoUrl
   const primaryColor = branding.primaryColor
 
-  function isActive(to: string): boolean {
-    if (to === '/dashboard') return location.pathname === '/dashboard'
+  function isActive(to: string, exact?: boolean): boolean {
+    if (exact) return location.pathname === to
     return location.pathname.startsWith(to)
   }
 
@@ -171,7 +230,6 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* ── Brand header ─────────────────────────────────────────── */}
       <div className="relative px-4 py-4 border-b border-white/10 flex items-center justify-between gap-2 overflow-hidden bg-white/[0.02] backdrop-blur">
-        {/* Subtle gradient glow behind logo */}
         <div className="absolute top-0 left-0 w-32 h-full bg-sv-primary/15 blur-2xl pointer-events-none" />
         <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-emerald-400/10 blur-3xl pointer-events-none" />
 
@@ -234,9 +292,9 @@ export function Sidebar({ onClose }: SidebarProps) {
               )}
               <ul className="space-y-0.5">
                 {visibleItems.map((item) => {
-                  const active = isActive(item.to)
+                  const active = isActive(item.to, item.exact)
                   return (
-                    <li key={item.to} className="relative">
+                    <li key={item.to + item.label} className="relative">
                       {active && (
                         <div className="absolute -left-2 top-1.5 bottom-1.5 w-[3px] bg-sv-accent rounded-r-full" />
                       )}

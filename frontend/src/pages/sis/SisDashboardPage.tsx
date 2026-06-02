@@ -85,8 +85,8 @@ export default function SisDashboardPage() {
     <PageShell>
       <PageHeader
         icon={School2}
-        title="SIS Dashboard"
-        subtitle="Overview of your institution's academic structure and student enrollment"
+        title="Enrollment Overview"
+        subtitle="Your institution's academic structure and student enrollment at a glance"
       />
 
       {isLoading ? (

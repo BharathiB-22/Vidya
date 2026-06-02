@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { GraduationCap } from 'lucide-react'
+import { GraduationCap, Plus } from 'lucide-react'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -258,7 +259,7 @@ export default function ProgramsPage() {
     <PageShell>
       <PageHeader
         icon={GraduationCap}
-        title="Programs"
+        title="Degree Programs"
         subtitle={`${programs.length} program${programs.length !== 1 ? 's' : ''}`}
         action={<Button onClick={() => setShowCreate(true)}>Add program</Button>}
       />
@@ -296,7 +297,21 @@ export default function ProgramsPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {programs.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No programs yet.</td></tr>
+              <tr>
+                <td colSpan={7} className="py-2">
+                  <PageEmpty
+                    icon={GraduationCap}
+                    title="No degree programs yet"
+                    message="Programs define the academic offerings under each department."
+                    description="Create your first degree program to start building course structures and enrolling students."
+                    action={
+                      <Button size="sm" onClick={() => setShowCreate(true)}>
+                        <Plus className="h-3.5 w-3.5 mr-1.5" />Create Program
+                      </Button>
+                    }
+                  />
+                </td>
+              </tr>
             ) : programs.map(p => (
               <tr key={p.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{p.name}</td>

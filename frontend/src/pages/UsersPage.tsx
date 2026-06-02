@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Users } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Users, UserPlus } from 'lucide-react'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { usersApi, UserRecord, CreateUserPayload, UpdateUserPayload } from '@/lib/api/users'
+import { academicsApi, AcadProgram } from '@/lib/api/academics'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
 import { Button } from '@/components/ui/button'
@@ -37,7 +40,7 @@ const ROLE_COLORS: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
-// UUID copy button (used in table row and edit dialog for GUIDE users)
+// UUID copy button
 // ---------------------------------------------------------------------------
 
 function CopyUuidButton({ uuid }: { uuid: string }) {
@@ -64,6 +67,39 @@ function CopyUuidButton({ uuid }: { uuid: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Program dropdown (shared by Create and Edit dialogs)
+// ---------------------------------------------------------------------------
+
+interface ProgramSelectProps {
+  value: string
+  onChange: (v: string) => void
+  programs: AcadProgram[]
+  required?: boolean
+}
+
+function ProgramSelect({ value, onChange, programs, required }: ProgramSelectProps) {
+  return (
+    <div className="space-y-1">
+      <label className="text-sm font-medium text-gray-700">
+        Program {required && <span className="text-red-500">*</span>}
+      </label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder="Select program…" />
+        </SelectTrigger>
+        <SelectContent>
+          {programs.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {p.name} <span className="text-gray-400 text-xs">({p.code})</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Create dialog
 // ---------------------------------------------------------------------------
 
@@ -71,25 +107,31 @@ interface CreateDialogProps {
   open: boolean
   onClose: () => void
   onCreated: (user: UserRecord) => void
+  programs: AcadProgram[]
 }
 
-function CreateUserDialog({ open, onClose, onCreated }: CreateDialogProps) {
+function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogProps) {
   const [email,      setEmail]      = useState('')
   const [fullName,   setFullName]   = useState('')
   const [password,   setPassword]   = useState('')
   const [role,       setRole]       = useState<Role>('FACULTY')
   const [identifier, setIdentifier] = useState('')
+  const [programId,  setProgramId]  = useState('')
   const [error,      setError]      = useState('')
   const [loading,    setLoading]    = useState(false)
 
   function reset() {
     setEmail(''); setFullName(''); setPassword(''); setRole('FACULTY')
-    setIdentifier(''); setError('')
+    setIdentifier(''); setProgramId(''); setError('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    if (role === 'STUDENT' && !programId) {
+      setError('Program is required for students.')
+      return
+    }
     setLoading(true)
     try {
       const payload: CreateUserPayload = {
@@ -98,6 +140,7 @@ function CreateUserDialog({ open, onClose, onCreated }: CreateDialogProps) {
         password,
         role,
         ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
+        ...(programId ? { acad_program_id: programId } : {}),
       }
       const user = await usersApi.create(payload)
       addToast(`${payload.full_name} added successfully.`, 'success')
@@ -132,13 +175,21 @@ function CreateUserDialog({ open, onClose, onCreated }: CreateDialogProps) {
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Role</label>
-            <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+            <Select value={role} onValueChange={(v) => { setRole(v as Role); if (v !== 'STUDENT') setProgramId('') }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
+          {role === 'STUDENT' && (
+            <ProgramSelect
+              value={programId}
+              onChange={setProgramId}
+              programs={programs}
+              required
+            />
+          )}
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">
               Identifier <span className="text-gray-400 font-normal">(optional — student ID, staff no.)</span>
@@ -164,14 +215,16 @@ interface EditDialogProps {
   user: UserRecord | null
   onClose: () => void
   onUpdated: (user: UserRecord) => void
+  programs: AcadProgram[]
 }
 
-function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
+function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps) {
   const [fullName,   setFullName]   = useState('')
   const [email,      setEmail]      = useState('')
   const [role,       setRole]       = useState<Role>('FACULTY')
   const [isActive,   setIsActive]   = useState(true)
   const [identifier, setIdentifier] = useState('')
+  const [programId,  setProgramId]  = useState('')
   const [error,      setError]      = useState('')
   const [loading,    setLoading]    = useState(false)
 
@@ -182,6 +235,7 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
       setRole(user.role as Role)
       setIsActive(user.is_active)
       setIdentifier(user.identifier ?? '')
+      setProgramId(user.acad_program_id ?? '')
       setError('')
     }
   }, [user])
@@ -189,6 +243,10 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
+    if (role === 'STUDENT' && !programId) {
+      setError('Program is required for students.')
+      return
+    }
     setError('')
     setLoading(true)
     try {
@@ -198,6 +256,7 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
       if (role !== user.role) payload.role = role
       if (isActive !== user.is_active) payload.is_active = isActive
       if (identifier.trim() !== (user.identifier ?? '')) payload.identifier = identifier.trim() || undefined
+      if (programId !== (user.acad_program_id ?? '')) payload.acad_program_id = programId || undefined
       const updated = await usersApi.update(user.id, payload)
       addToast('User updated successfully.', 'success')
       onUpdated(updated)
@@ -244,13 +303,21 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Role</label>
-              <Select value={role} onValueChange={(v) => setRole(v as Role)}>
+              <Select value={role} onValueChange={(v) => { setRole(v as Role); if (v !== 'STUDENT') setProgramId('') }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+            {role === 'STUDENT' && (
+              <ProgramSelect
+                value={programId}
+                onChange={setProgramId}
+                programs={programs}
+                required
+              />
+            )}
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">
                 Identifier <span className="text-gray-400 font-normal">(optional — staff ID, employee no.)</span>
@@ -290,30 +357,38 @@ function EditUserDialog({ user, onClose, onUpdated }: EditDialogProps) {
 // ---------------------------------------------------------------------------
 
 export default function UsersPage() {
+  const [searchParams] = useSearchParams()
   const [users,        setUsers]        = useState<UserRecord[]>([])
+  const [programs,     setPrograms]     = useState<AcadProgram[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState('')
   const [showCreate,   setShowCreate]   = useState(false)
   const [editingUser,  setEditingUser]  = useState<UserRecord | null>(null)
   const [filterRole,   setFilterRole]   = useState<string>('ALL')
+  const [filterProgram,setFilterProgram]= useState<string>(searchParams.get('program_id') ?? 'ALL')
   const [search,       setSearch]       = useState('')
 
   useEffect(() => {
     localStorage.setItem('vidya_onboarding_users', '1')
-    usersApi.list()
-      .then(setUsers)
+    Promise.all([
+      usersApi.list(),
+      academicsApi.listPrograms(),
+    ])
+      .then(([u, p]) => { setUsers(u); setPrograms(p) })
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false))
   }, [])
 
   const filtered = users.filter((u) => {
-    const matchRole = filterRole === 'ALL' || u.role === filterRole
+    const matchRole    = filterRole    === 'ALL' || u.role === filterRole
+    const matchProgram = filterProgram === 'ALL' || u.acad_program_id === filterProgram
     const q = search.toLowerCase()
     const matchSearch = !q ||
       u.full_name.toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
-      (u.identifier ?? '').toLowerCase().includes(q)
-    return matchRole && matchSearch
+      (u.identifier ?? '').toLowerCase().includes(q) ||
+      (u.acad_program_name ?? '').toLowerCase().includes(q)
+    return matchRole && matchProgram && matchSearch
   })
 
   function handleCreated(user: UserRecord) {
@@ -356,6 +431,15 @@ export default function UsersPage() {
             {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={filterProgram} onValueChange={setFilterProgram}>
+          <SelectTrigger className="w-44"><SelectValue placeholder="All programs" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All programs</SelectItem>
+            {programs.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
@@ -366,6 +450,7 @@ export default function UsersPage() {
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Program</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Identifier</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
               <th className="px-4 py-2.5" />
@@ -374,8 +459,22 @@ export default function UsersPage() {
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                  {users.length === 0 ? 'No users yet. Add the first one.' : 'No users match your filter.'}
+                <td colSpan={7} className="py-2">
+                  {users.length === 0 ? (
+                    <PageEmpty
+                      icon={Users}
+                      title="No users added yet"
+                      message="Add faculty, students, and staff to your institution."
+                      description="You can add users individually or import them in bulk via CSV."
+                      action={
+                        <Button size="sm" onClick={() => setShowCreate(true)}>
+                          <UserPlus className="h-3.5 w-3.5 mr-1.5" />Add User
+                        </Button>
+                      }
+                    />
+                  ) : (
+                    <PageEmpty message="No users match your filter." />
+                  )}
                 </td>
               </tr>
             ) : (
@@ -387,6 +486,9 @@ export default function UsersPage() {
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[u.role] ?? 'bg-gray-100 text-gray-700'}`}>
                       {u.role}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">
+                    {u.acad_program_name ?? '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-500">
                     {u.identifier ?? '—'}
@@ -416,8 +518,18 @@ export default function UsersPage() {
         </table>
       </div>
 
-      <CreateUserDialog open={showCreate} onClose={() => setShowCreate(false)} onCreated={handleCreated} />
-      <EditUserDialog user={editingUser} onClose={() => setEditingUser(null)} onUpdated={handleUpdated} />
+      <CreateUserDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={handleCreated}
+        programs={programs}
+      />
+      <EditUserDialog
+        user={editingUser}
+        onClose={() => setEditingUser(null)}
+        onUpdated={handleUpdated}
+        programs={programs}
+      />
     </PageShell>
   )
 }

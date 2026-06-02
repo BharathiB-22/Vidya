@@ -1,14 +1,17 @@
 import { useNavigate, Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import {
   BookOpen, Layers, FlaskConical, Microscope, FileText, ClipboardList,
   BarChart2, ChevronRight, CheckCircle, Circle, GraduationCap, Package,
-  ClipboardCheck, Cpu, ShieldCheck, Building2,
+  ClipboardCheck, Cpu, ShieldCheck, Building2, Users,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
+import { useBranding } from '@/lib/branding'
 import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
+import { usersApi, AcademicOverviewEntry } from '@/lib/api/users'
 
 type IconComponent = React.FC<{ className?: string }>
 
@@ -24,13 +27,13 @@ interface ModuleCard {
 }
 
 const CARDS: ModuleCard[] = [
-  // ── Teach & Prepare ──────────────────────────────────────────────────────
+  // ── Teach & Prepare — FACULTY primary; DEAN for governance visibility ──────
   {
-    title: 'Programs',
-    description: 'Design academic programs, add courses, and manage learning outcomes.',
+    title: 'Academic Programs',
+    description: 'Design degree programs, add courses, and manage learning outcomes.',
     to: '/programs',
     icon: BookOpen,
-    roles: ['FACULTY', 'DEAN', 'ADMIN'],
+    roles: ['FACULTY', 'DEAN'],
     badge: 'bg-blue-50 text-blue-600 border-blue-100',
     bar:   'bg-blue-500',
     section: 'teach',
@@ -40,7 +43,7 @@ const CARDS: ModuleCard[] = [
     description: 'Generate AI-assisted syllabuses with CO-PO matrices and compliance checks.',
     to: '/syllabuses',
     icon: GraduationCap,
-    roles: ['FACULTY', 'DEAN', 'ADMIN'],
+    roles: ['FACULTY', 'DEAN'],
     badge: 'bg-violet-50 text-violet-600 border-violet-100',
     bar:   'bg-violet-500',
     section: 'teach',
@@ -50,29 +53,29 @@ const CARDS: ModuleCard[] = [
     description: 'Generate lecture slides, quizlets, and assignments for your courses.',
     to: '/course-kits',
     icon: Layers,
-    roles: ['FACULTY', 'DEAN', 'ADMIN'],
+    roles: ['FACULTY'],
     badge: 'bg-indigo-50 text-indigo-600 border-indigo-100',
     bar:   'bg-indigo-500',
     section: 'teach',
   },
   {
-    title: 'Learning Packages',
+    title: 'Learning Materials',
     description: 'Build and curate multimedia learning packages for your students.',
     to: '/learning-packages',
     icon: Package,
-    roles: ['FACULTY', 'DEAN', 'ADMIN'],
+    roles: ['FACULTY'],
     badge: 'bg-pink-50 text-pink-600 border-pink-100',
     bar:   'bg-pink-500',
     section: 'teach',
   },
 
-  // ── Assess & Research ─────────────────────────────────────────────────────
+  // ── Assess & Research — FACULTY and GUIDE ─────────────────────────────────
   {
     title: 'Lab Assignments',
     description: 'Create, publish, and evaluate written and code lab submissions.',
     to: '/labs',
     icon: FlaskConical,
-    roles: ['FACULTY', 'ADMIN'],
+    roles: ['FACULTY'],
     badge: 'bg-emerald-50 text-emerald-600 border-emerald-100',
     bar:   'bg-emerald-500',
     section: 'assess',
@@ -82,7 +85,7 @@ const CARDS: ModuleCard[] = [
     description: 'Review student proposals, supervise documents, and ratify viva reports.',
     to: '/research/problems',
     icon: Microscope,
-    roles: ['FACULTY', 'ADMIN', 'GUIDE'],
+    roles: ['FACULTY', 'GUIDE'],
     badge: 'bg-purple-50 text-purple-600 border-purple-100',
     bar:   'bg-purple-500',
     section: 'assess',
@@ -92,17 +95,29 @@ const CARDS: ModuleCard[] = [
     description: 'Set AI-assisted exam papers, submit for board review, and seal for release.',
     to: '/exams',
     icon: FileText,
-    roles: ['FACULTY', 'ADMIN', 'BOARD'],
+    roles: ['FACULTY'],
+    badge: 'bg-amber-50 text-amber-600 border-amber-100',
+    bar:   'bg-amber-500',
+    section: 'assess',
+  },
+
+  // ── Board — examination governance ────────────────────────────────────────
+  {
+    title: 'Exam Paper Review',
+    description: 'Review and approve submitted exam papers before they are sealed.',
+    to: '/exams/board/pending',
+    icon: ClipboardCheck,
+    roles: ['BOARD'],
     badge: 'bg-amber-50 text-amber-600 border-amber-100',
     bar:   'bg-amber-500',
     section: 'assess',
   },
   {
-    title: 'Scanned Scripts',
+    title: 'Answer Scripts',
     description: 'Upload, evaluate, and finalise student answer scripts with identity masking.',
     to: '/scripts',
     icon: ClipboardList,
-    roles: ['ADMIN', 'BOARD'],
+    roles: ['BOARD'],
     badge: 'bg-orange-50 text-orange-600 border-orange-100',
     bar:   'bg-orange-500',
     section: 'assess',
@@ -110,7 +125,7 @@ const CARDS: ModuleCard[] = [
 
   // ── Analytics ─────────────────────────────────────────────────────────────
   {
-    title: 'Bell Curve',
+    title: 'Grade Analytics',
     description: 'Analyse score distributions and advise on normalisation. Advisory only.',
     to: '/bell-curve',
     icon: BarChart2,
@@ -165,8 +180,8 @@ const MODULE_SECTIONS = [
 ]
 
 const ROLE_SUBTITLE: Record<string, string> = {
-  ADMIN:     'Manage programs, users, and platform settings for your institution.',
-  DEAN:      'Review academic programs and analytics across your institution.',
+  ADMIN:     'Manage your institution\'s academic structure, users, and enrollment.',
+  DEAN:      'Oversee academic programs, approve syllabuses, and monitor grade outcomes.',
   FACULTY:   'Build courses, set exams, evaluate labs, and supervise research.',
   BOARD:     'Review exam papers, evaluate scripts, and advise on grade distributions.',
   GUIDE:     'Review research proposals assigned to you and supervise student projects.',
@@ -351,6 +366,72 @@ function prettifySlug(slug: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Academic Overview (ADMIN only)
+// ---------------------------------------------------------------------------
+
+function AcademicOverview() {
+  const navigate = useNavigate()
+  const [entries, setEntries] = useState<AcademicOverviewEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    usersApi.academicOverview()
+      .then(setEntries)
+      .catch(() => {/* non-fatal: overview is supplemental */})
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading || entries.length === 0) return null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+          Academic Overview
+        </h2>
+        <div className="flex-1 h-px bg-gray-100" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {entries.map((e) => (
+          <div
+            key={e.program_id}
+            className="rounded-xl border border-gray-200 bg-white p-4 space-y-3"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 leading-snug">{e.program_name}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{e.program_code} · {e.degree_type}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-lg bg-green-50 px-2 py-2">
+                <p className="text-lg font-bold text-green-700">{e.student_count}</p>
+                <p className="text-[10px] text-green-600 font-medium uppercase tracking-wide">Students</p>
+              </div>
+              <div className="rounded-lg bg-blue-50 px-2 py-2">
+                <p className="text-lg font-bold text-blue-700">{e.faculty_count}</p>
+                <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wide">Faculty</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 px-2 py-2">
+                <p className="text-lg font-bold text-gray-700">{e.section_count}</p>
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Sections</p>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate(`/users?program_id=${e.program_id}`)}
+              className="w-full text-center text-xs font-medium text-sv-primary hover:underline flex items-center justify-center gap-1"
+            >
+              <Users className="h-3 w-3" />
+              View Students
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -358,13 +439,15 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const user     = useCurrentUser()
   const { user: authUser } = useAuth()
+  const { branding } = useBranding()
   const role = user?.role ?? ''
 
   const visibleCards = CARDS.filter((c) => c.roles.includes(role))
   const displayFirstName = user?.fullName ? getDisplayFirstName(user.fullName) : null
   const subtitle     = ROLE_SUBTITLE[role] ?? 'Select a module below to get started.'
   const roleContext  = ROLE_CONTEXT[role]
-  const institution  = prettifySlug(user?.tenantSlug ?? '')
+  // Use the registered institution name from branding; fall back to slug-derived label
+  const institution  = branding.name || prettifySlug(user?.tenantSlug ?? '')
 
   return (
     <PageShell>
@@ -373,7 +456,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold text-sv-primary uppercase tracking-[0.18em] mb-1.5">
-            VIDYA AI · Academic Workspace
+            {institution} · VIDYA AI Workspace
           </p>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">
             {getGreeting()}{displayFirstName ? `, ${displayFirstName}` : ''}
@@ -386,25 +469,28 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Stats strip — hidden for narrow single-purpose roles ── */}
+      {/* ── Stats strip — role-aware, hidden for narrow single-purpose roles ── */}
       {!['STUDENT', 'GUIDE'].includes(role) && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <StatCard
-            label="Modules available"
-            value={String(visibleCards.length)}
-            icon={Cpu}
-            accent
-          />
-          <StatCard
-            label="Access level"
-            value={role || '—'}
-            icon={ShieldCheck}
-          />
-          <StatCard
-            label="Workspace"
-            value={institution}
-            icon={Building2}
-          />
+          {role === 'ADMIN' ? (
+            <>
+              <StatCard label="Institution"   value={institution}     icon={Building2}  accent />
+              <StatCard label="Access level"  value="Administrator"   icon={ShieldCheck} />
+              <StatCard label="Modules"       value={String(visibleCards.length)} icon={Cpu} />
+            </>
+          ) : role === 'DEAN' ? (
+            <>
+              <StatCard label="Institution"       value={institution}  icon={Building2}  accent />
+              <StatCard label="Role"              value="Dean"         icon={ShieldCheck} />
+              <StatCard label="Grade Analytics"   value="Available"   icon={BarChart2} />
+            </>
+          ) : (
+            <>
+              <StatCard label="Modules available" value={String(visibleCards.length)} icon={Cpu} accent />
+              <StatCard label="Access level"      value={role || '—'}  icon={ShieldCheck} />
+              <StatCard label="Workspace"         value={institution}  icon={Building2} />
+            </>
+          )}
         </div>
       )}
 
@@ -412,6 +498,9 @@ export default function DashboardPage() {
       {role === 'ADMIN' && authUser && (
         <AdminOnboarding passwordChanged={!authUser.firstLogin} />
       )}
+
+      {/* ── Academic Overview (ADMIN) ──────────────────────────── */}
+      {role === 'ADMIN' && <AcademicOverview />}
 
       {/* ── My Courses — FACULTY only (H-31) ──────────────────── */}
       {role === 'FACULTY' && <MyCoursesBanner />}

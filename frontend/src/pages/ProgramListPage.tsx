@@ -71,10 +71,12 @@ export default function ProgramListPage() {
       {!isLoading && !isError && programs.length === 0 && (
         <PageEmpty
           icon={BookOpen}
-          message="No programs found."
+          title="No academic programs yet"
+          message="Programs define the degree offerings of your institution."
+          description="Create your first program to begin designing syllabuses, course kits, and learning materials."
           action={canCreate ? (
-            <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
-              Create your first program
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />Create Program
             </Button>
           ) : undefined}
         />

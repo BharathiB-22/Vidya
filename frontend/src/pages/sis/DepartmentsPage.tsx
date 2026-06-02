@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Layers } from 'lucide-react'
+import { Layers, Plus } from 'lucide-react'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -283,10 +284,22 @@ export default function SisDepartmentsPage() {
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={canWrite ? 5 : 4} className="px-4 py-12 text-center text-gray-400">
-                  {depts.length === 0
-                    ? 'No departments yet.'
-                    : 'No departments match your filter.'}
+                <td colSpan={canWrite ? 5 : 4} className="py-2">
+                  {depts.length === 0 ? (
+                    <PageEmpty
+                      icon={Layers}
+                      title="No departments added yet"
+                      message="Departments sit under a school and contain your degree programs."
+                      description="Create your first department to begin building the academic structure."
+                      action={canWrite ? (
+                        <Button size="sm" onClick={() => setShowCreate(true)}>
+                          <Plus className="h-3.5 w-3.5 mr-1.5" />Add Department
+                        </Button>
+                      ) : undefined}
+                    />
+                  ) : (
+                    <PageEmpty message="No departments match your filter." />
+                  )}
                 </td>
               </tr>
             ) : filtered.map(d => {

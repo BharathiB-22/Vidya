@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LayoutList } from 'lucide-react'
+import { LayoutList, Plus } from 'lucide-react'
+import { PageEmpty } from '@/components/shared/PageEmpty'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -304,9 +305,21 @@ export default function SectionsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {sections.length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">
-                    No sections yet. Add the first one.
-                  </td></tr>
+                  <tr>
+                    <td colSpan={4} className="py-2">
+                      <PageEmpty
+                        icon={LayoutList}
+                        title="No sections yet"
+                        message="Sections define the class groups within a semester."
+                        description="Add a section to start assigning students and faculty."
+                        action={
+                          <Button size="sm" onClick={() => setShowCreate(true)}>
+                            <Plus className="h-3.5 w-3.5 mr-1.5" />Add Section
+                          </Button>
+                        }
+                      />
+                    </td>
+                  </tr>
                 ) : sections.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-semibold text-gray-900">Section {s.name}</td>

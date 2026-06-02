@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Calendar, Wand2 } from 'lucide-react'
+import { PageEmpty } from '@/components/shared/PageEmpty'
+import { Calendar, Wand2, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -219,7 +220,7 @@ export default function BatchesPage() {
     <PageShell>
       <PageHeader
         icon={Calendar}
-        title="Batches"
+        title="Academic Batches"
         subtitle={`${batches.length} batch${batches.length !== 1 ? 'es' : ''}`}
         action={<Button onClick={() => setShowCreate(true)}>Add batch</Button>}
       />
@@ -255,7 +256,21 @@ export default function BatchesPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {batches.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No batches yet.</td></tr>
+              <tr>
+                <td colSpan={5} className="py-2">
+                  <PageEmpty
+                    icon={Calendar}
+                    title="No intake batches yet"
+                    message="Batches represent an academic year intake for a degree program."
+                    description="Create a batch to start assigning semesters and enrolling students."
+                    action={
+                      <Button size="sm" onClick={() => setShowCreate(true)}>
+                        <Plus className="h-3.5 w-3.5 mr-1.5" />Add Batch
+                      </Button>
+                    }
+                  />
+                </td>
+              </tr>
             ) : batches.map(b => (
               <tr key={b.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{b.name}</td>

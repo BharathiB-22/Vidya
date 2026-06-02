@@ -246,18 +246,21 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col justify-between gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-xs">
+                <div className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 text-xs">
                   <div>
-                    <p className="font-semibold text-slate-800">Tenant logo & theme</p>
+                    <p className="font-semibold text-slate-800">Institution logo & theme</p>
                     <p className="mt-1 text-slate-500">
-                      Logo upload and per-tenant theme customization will appear here once enabled
-                      for your institution.
+                      Upload your institution logo and set your brand colors. Changes apply to the
+                      login page and workspace sidebar.
                     </p>
                   </div>
-                  <div className="inline-flex w-fit items-center gap-2 rounded-full bg-slate-900 text-[11px] font-semibold text-slate-100 px-3 py-1.5">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                    Coming soon · Requires backend support
-                  </div>
+                  <a
+                    href="/settings/branding"
+                    className="inline-flex w-fit items-center gap-2 rounded-full bg-sv-primary text-[11px] font-semibold text-white px-3 py-1.5 hover:bg-blue-700 transition-colors"
+                  >
+                    <Palette className="h-3.5 w-3.5" />
+                    Manage Branding
+                  </a>
                 </div>
               </div>
             </section>
