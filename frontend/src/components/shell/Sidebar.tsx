@@ -43,6 +43,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Courses',         to: '/my-courses',              icon: BookOpen,      roles: ['FACULTY'] },
       { label: 'Mark Attendance',    to: '/sis/attendance/mark',     icon: CalendarCheck, roles: ['FACULTY'] },
+      { label: 'Shortage Report',    to: '/sis/attendance/shortage', icon: AlertTriangle, roles: ['FACULTY'] },
       { label: 'Syllabuses',         to: '/syllabuses',              icon: GraduationCap, roles: ['FACULTY'] },
       { label: 'Course Kits',        to: '/course-kits',             icon: Layers,        roles: ['FACULTY'] },
       { label: 'Learning Materials', to: '/learning-packages',       icon: Package,       roles: ['FACULTY'] },

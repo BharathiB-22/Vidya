@@ -237,7 +237,61 @@ class ShortageStudentOut(BaseModel):
 class ShortageReportOut(BaseModel):
     threshold_pct:  float
     total_at_risk:  int
+    finalized_only: bool = False
     students:       list[ShortageStudentOut]
+
+
+# ---------------------------------------------------------------------------
+# Faculty-scoped shortage report (H56)
+# ---------------------------------------------------------------------------
+
+class FacultyCourseShortage(BaseModel):
+    course_id:       UUID
+    course_code:     str
+    course_title:    str
+    section_id:      UUID
+    section_name:    str
+    semester_number: int
+    at_risk_count:   int
+    total_enrolled:  int
+    students:        list[ShortageStudentOut]
+
+
+class FacultyShortageReportOut(BaseModel):
+    faculty_id:     UUID
+    threshold_pct:  float
+    finalized_only: bool
+    total_at_risk:  int
+    courses:        list[FacultyCourseShortage]
+
+
+# ---------------------------------------------------------------------------
+# Grouped shortage report — Dean / Admin (H56)
+# ---------------------------------------------------------------------------
+
+class ShortageSectionGroup(BaseModel):
+    section_id:      UUID
+    section_name:    str
+    semester_number: int
+    at_risk_count:   int
+    avg_pct:         Optional[float]
+    students:        list[ShortageStudentOut]
+
+
+class ShortageCourseGroup(BaseModel):
+    course_id:    UUID
+    course_code:  str
+    course_title: str
+    total_at_risk: int
+    sections:     list[ShortageSectionGroup]
+
+
+class ShortageGroupedOut(BaseModel):
+    threshold_pct:               float
+    finalized_only:              bool
+    total_courses_with_shortage: int
+    total_students_at_risk:      int
+    courses:                     list[ShortageCourseGroup]
 
 
 # ---------------------------------------------------------------------------

@@ -39,10 +39,12 @@ from app.modules.m11_sis.attendance_repository import (
 )
 from app.modules.m11_sis.attendance_schemas import (
     AttendanceDashboardOut, AttendanceMarkIn, AttendanceMarkResult, AttendanceRecordOut,
-    CourseAttendanceSummary, MyCourseAttendanceDetail, MyAttendanceSummary,
+    CourseAttendanceSummary, FacultyCourseShortage, FacultyShortageReportOut,
+    MyCourseAttendanceDetail, MyAttendanceSummary,
     RecordEditIn, ReopenSessionIn, SectionAttendanceOut, SectionStudentAttendance,
     SessionCreateIn, SessionOut, SessionRecordForStudent,
-    SessionUpdateIn, ShortageReportOut, ShortageStudentOut,
+    SessionUpdateIn, ShortageGroupedOut, ShortageCourseGroup, ShortageSectionGroup,
+    ShortageReportOut, ShortageStudentOut,
 )
 from app.modules.m_academics.models import AcadSection, SubjectAssignment
 
@@ -92,6 +94,28 @@ def _compute_pct(attended: int, total_countable: int) -> Optional[float]:
 
 def _is_at_risk(pct: Optional[float], threshold: float) -> bool:
     return pct is not None and pct < threshold
+
+
+# ---------------------------------------------------------------------------
+# Helper: build ShortageStudentOut from a raw shortage row dict
+# ---------------------------------------------------------------------------
+
+def _shortage_student_from_row(r: dict) -> ShortageStudentOut:
+    return ShortageStudentOut(
+        student_id=UUID(str(r["student_id"])),
+        student_name=r["student_name"],
+        usn=r.get("usn"),
+        email=r["email"],
+        section_id=UUID(str(r["section_id"])),
+        section_name=r["section_name"],
+        course_id=UUID(str(r["course_id"])),
+        course_code=r["course_code"],
+        course_title=r["course_title"],
+        total_sessions=int(r["total_sessions"]),
+        attended_sessions=int(r["attended_sessions"]),
+        total_countable=int(r["total_countable"]),
+        attendance_pct=float(r["attendance_pct"]) if r["attendance_pct"] is not None else 0.0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -821,42 +845,170 @@ class AttendanceService:
         )
 
     # ------------------------------------------------------------------
-    # Analytics: shortage report
+    # Analytics: shortage report (flat list)
     # ------------------------------------------------------------------
 
     @staticmethod
     async def get_shortage_report(
         threshold: float,
-        semester_id: Optional[UUID],
-        section_id:  Optional[UUID],
-        course_id:   Optional[UUID],
+        semester_id:    Optional[UUID],
+        section_id:     Optional[UUID],
+        course_id:      Optional[UUID],
         db: AsyncSession,
+        *,
+        program_id:     Optional[UUID] = None,
+        batch_id:       Optional[UUID] = None,
+        finalized_only: bool = False,
     ) -> ShortageReportOut:
         rows = await AttendanceRepository.get_shortage_raw(
-            threshold, semester_id, section_id, course_id, db
+            threshold, semester_id, section_id, course_id, db,
+            program_id=program_id, batch_id=batch_id, finalized_only=finalized_only,
         )
-        students = [
-            ShortageStudentOut(
-                student_id=UUID(str(r["student_id"])),
-                student_name=r["student_name"],
-                usn=r.get("usn"),
-                email=r["email"],
-                section_id=UUID(str(r["section_id"])),
-                section_name=r["section_name"],
-                course_id=UUID(str(r["course_id"])),
-                course_code=r["course_code"],
-                course_title=r["course_title"],
-                total_sessions=int(r["total_sessions"]),
-                attended_sessions=int(r["attended_sessions"]),
-                total_countable=int(r["total_countable"]),
-                attendance_pct=float(r["attendance_pct"]) if r["attendance_pct"] is not None else 0.0,
-            )
-            for r in rows
-        ]
+        students = [_shortage_student_from_row(r) for r in rows]
         return ShortageReportOut(
             threshold_pct=threshold,
+            finalized_only=finalized_only,
             total_at_risk=len(students),
             students=students,
+        )
+
+    # ------------------------------------------------------------------
+    # Analytics: grouped shortage report — Dean / Admin (H56)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_shortage_grouped(
+        threshold: float,
+        semester_id:    Optional[UUID],
+        db: AsyncSession,
+        *,
+        program_id:     Optional[UUID] = None,
+        batch_id:       Optional[UUID] = None,
+        finalized_only: bool = False,
+    ) -> ShortageGroupedOut:
+        rows = await AttendanceRepository.get_shortage_raw(
+            threshold, semester_id, None, None, db,
+            program_id=program_id, batch_id=batch_id, finalized_only=finalized_only,
+        )
+
+        # Group: course_id → section_id → students
+        course_map: dict[str, dict] = {}
+        for row in rows:
+            cid = str(row["course_id"])
+            sid = str(row["section_id"])
+
+            if cid not in course_map:
+                course_map[cid] = {
+                    "course_id":   UUID(cid),
+                    "course_code": row["course_code"],
+                    "course_title": row["course_title"],
+                    "sections":    {},
+                }
+            if sid not in course_map[cid]["sections"]:
+                course_map[cid]["sections"][sid] = {
+                    "section_id":      UUID(sid),
+                    "section_name":    row["section_name"],
+                    "semester_number": int(row.get("semester_number") or 0),
+                    "students":        [],
+                }
+            course_map[cid]["sections"][sid]["students"].append(
+                _shortage_student_from_row(row)
+            )
+
+        all_student_ids: set[str] = set()
+        course_groups: list[ShortageCourseGroup] = []
+        for cd in course_map.values():
+            section_groups: list[ShortageSectionGroup] = []
+            for sd in cd["sections"].values():
+                sts = sd["students"]
+                pcts = [s.attendance_pct for s in sts if s.attendance_pct is not None]
+                avg_pct = round(sum(pcts) / len(pcts), 2) if pcts else None
+                for s in sts:
+                    all_student_ids.add(str(s.student_id))
+                section_groups.append(ShortageSectionGroup(
+                    section_id=sd["section_id"],
+                    section_name=sd["section_name"],
+                    semester_number=sd["semester_number"],
+                    at_risk_count=len(sts),
+                    avg_pct=avg_pct,
+                    students=sts,
+                ))
+            course_groups.append(ShortageCourseGroup(
+                course_id=cd["course_id"],
+                course_code=cd["course_code"],
+                course_title=cd["course_title"],
+                total_at_risk=sum(sg.at_risk_count for sg in section_groups),
+                sections=section_groups,
+            ))
+
+        course_groups.sort(key=lambda c: c.total_at_risk, reverse=True)
+
+        return ShortageGroupedOut(
+            threshold_pct=threshold,
+            finalized_only=finalized_only,
+            total_courses_with_shortage=len(course_groups),
+            total_students_at_risk=len(all_student_ids),
+            courses=course_groups,
+        )
+
+    # ------------------------------------------------------------------
+    # Analytics: faculty-scoped shortage report (H56)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_faculty_shortage_report(
+        faculty_id: UUID,
+        threshold: float,
+        db: AsyncSession,
+        *,
+        course_id:      Optional[UUID] = None,
+        section_id:     Optional[UUID] = None,
+        finalized_only: bool = False,
+    ) -> FacultyShortageReportOut:
+        rows = await AttendanceRepository.get_faculty_shortage_raw(
+            faculty_id, threshold, db,
+            course_id=course_id, section_id=section_id, finalized_only=finalized_only,
+        )
+
+        # Group by (course_id, section_id) — each combination is one card
+        group_map: dict[tuple, dict] = {}
+        for row in rows:
+            key = (str(row["course_id"]), str(row["section_id"]))
+            if key not in group_map:
+                group_map[key] = {
+                    "course_id":      UUID(str(row["course_id"])),
+                    "course_code":    row["course_code"],
+                    "course_title":   row["course_title"],
+                    "section_id":     UUID(str(row["section_id"])),
+                    "section_name":   row["section_name"],
+                    "semester_number": int(row.get("semester_number") or 0),
+                    "total_enrolled": int(row.get("total_enrolled") or 0),
+                    "students":       [],
+                }
+            group_map[key]["students"].append(_shortage_student_from_row(row))
+
+        courses: list[FacultyCourseShortage] = [
+            FacultyCourseShortage(
+                course_id=gd["course_id"],
+                course_code=gd["course_code"],
+                course_title=gd["course_title"],
+                section_id=gd["section_id"],
+                section_name=gd["section_name"],
+                semester_number=gd["semester_number"],
+                at_risk_count=len(gd["students"]),
+                total_enrolled=gd["total_enrolled"],
+                students=gd["students"],
+            )
+            for gd in group_map.values()
+        ]
+        courses.sort(key=lambda c: (c.course_code, c.section_name))
+
+        return FacultyShortageReportOut(
+            faculty_id=faculty_id,
+            threshold_pct=threshold,
+            finalized_only=finalized_only,
+            total_at_risk=sum(c.at_risk_count for c in courses),
+            courses=courses,
         )
 
     # ------------------------------------------------------------------

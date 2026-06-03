@@ -368,8 +368,8 @@ def test_sis_router_includes_attendance_router():
 
 def test_sis_router_total_route_count():
     from app.modules.m11_sis.router import router
-    # 5 schools + 7 enrollment + 11 directory + 4 me + 2 rollover + 13 attendance = 42
-    assert len(router.routes) == 42
+    # 5 schools + 7 enrollment + 11 directory + 4 me + 2 rollover + 15 attendance = 44
+    assert len(router.routes) == 44
 
 
 # ---------------------------------------------------------------------------
@@ -397,3 +397,333 @@ def test_attendance_shortage_threshold_is_configurable():
     import inspect
     sig = inspect.signature(AttendanceService.get_shortage_report)
     assert "threshold" in sig.parameters
+
+
+# ---------------------------------------------------------------------------
+# H56 — 56–90. Shortage detection enhancements
+# ---------------------------------------------------------------------------
+
+# --- Repository: method signatures ------------------------------------------
+
+def test_get_shortage_raw_has_finalized_only_param():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    sig = inspect.signature(AttendanceRepository.get_shortage_raw)
+    assert "finalized_only" in sig.parameters
+
+
+def test_get_shortage_raw_has_program_id_param():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    sig = inspect.signature(AttendanceRepository.get_shortage_raw)
+    assert "program_id" in sig.parameters
+
+
+def test_get_shortage_raw_has_batch_id_param():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    sig = inspect.signature(AttendanceRepository.get_shortage_raw)
+    assert "batch_id" in sig.parameters
+
+
+def test_get_faculty_shortage_raw_importable():
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    assert hasattr(AttendanceRepository, "get_faculty_shortage_raw")
+    assert callable(AttendanceRepository.get_faculty_shortage_raw)
+
+
+def test_get_faculty_shortage_raw_has_required_params():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    sig = inspect.signature(AttendanceRepository.get_faculty_shortage_raw)
+    assert "faculty_user_id" in sig.parameters
+    assert "threshold" in sig.parameters
+    assert "finalized_only" in sig.parameters
+    assert "course_id" in sig.parameters
+    assert "section_id" in sig.parameters
+
+
+def test_get_faculty_shortage_raw_is_static():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    assert isinstance(
+        inspect.getattr_static(AttendanceRepository, "get_faculty_shortage_raw"),
+        staticmethod,
+    )
+
+
+# --- New schemas ------------------------------------------------------------
+
+def test_faculty_shortage_report_out_importable():
+    from app.modules.m11_sis.attendance_schemas import FacultyShortageReportOut
+    schema = FacultyShortageReportOut
+    assert "faculty_id"    in schema.model_fields
+    assert "threshold_pct" in schema.model_fields
+    assert "total_at_risk" in schema.model_fields
+    assert "courses"       in schema.model_fields
+    assert "finalized_only" in schema.model_fields
+
+
+def test_faculty_course_shortage_importable():
+    from app.modules.m11_sis.attendance_schemas import FacultyCourseShortage
+    assert "course_id"       in FacultyCourseShortage.model_fields
+    assert "section_id"      in FacultyCourseShortage.model_fields
+    assert "semester_number" in FacultyCourseShortage.model_fields
+    assert "at_risk_count"   in FacultyCourseShortage.model_fields
+    assert "total_enrolled"  in FacultyCourseShortage.model_fields
+    assert "students"        in FacultyCourseShortage.model_fields
+
+
+def test_shortage_grouped_out_importable():
+    from app.modules.m11_sis.attendance_schemas import ShortageGroupedOut
+    assert "threshold_pct"               in ShortageGroupedOut.model_fields
+    assert "total_courses_with_shortage" in ShortageGroupedOut.model_fields
+    assert "total_students_at_risk"      in ShortageGroupedOut.model_fields
+    assert "courses"                     in ShortageGroupedOut.model_fields
+    assert "finalized_only"              in ShortageGroupedOut.model_fields
+
+
+def test_shortage_section_group_importable():
+    from app.modules.m11_sis.attendance_schemas import ShortageSectionGroup
+    assert "section_id"      in ShortageSectionGroup.model_fields
+    assert "section_name"    in ShortageSectionGroup.model_fields
+    assert "semester_number" in ShortageSectionGroup.model_fields
+    assert "at_risk_count"   in ShortageSectionGroup.model_fields
+    assert "avg_pct"         in ShortageSectionGroup.model_fields
+    assert "students"        in ShortageSectionGroup.model_fields
+
+
+def test_shortage_course_group_importable():
+    from app.modules.m11_sis.attendance_schemas import ShortageCourseGroup
+    assert "course_id"     in ShortageCourseGroup.model_fields
+    assert "total_at_risk" in ShortageCourseGroup.model_fields
+    assert "sections"      in ShortageCourseGroup.model_fields
+
+
+def test_shortage_report_out_has_finalized_only():
+    from app.modules.m11_sis.attendance_schemas import ShortageReportOut
+    assert "finalized_only" in ShortageReportOut.model_fields
+
+
+# --- Calculation boundary rules --------------------------------------------
+
+def test_compute_pct_boundary_exactly_75():
+    from app.modules.m11_sis.attendance_service import _compute_pct, _is_at_risk
+    pct = _compute_pct(3, 4)   # 75.00%
+    assert pct == 75.0
+    assert _is_at_risk(pct, 75.0) is False   # exactly threshold = OK
+
+
+def test_compute_pct_boundary_below_75():
+    from app.modules.m11_sis.attendance_service import _compute_pct, _is_at_risk
+    pct = _compute_pct(2, 4)   # 50.00%
+    assert pct == 50.0
+    assert _is_at_risk(pct, 75.0) is True
+
+
+def test_compute_pct_no_sessions_is_none():
+    from app.modules.m11_sis.attendance_service import _compute_pct, _is_at_risk
+    pct = _compute_pct(0, 0)
+    assert pct is None
+    assert _is_at_risk(pct, 75.0) is False   # NULL pct ≠ shortage
+
+
+def test_is_at_risk_74_99():
+    from app.modules.m11_sis.attendance_service import _is_at_risk
+    assert _is_at_risk(74.99, 75.0) is True
+
+
+def test_is_at_risk_75_00():
+    from app.modules.m11_sis.attendance_service import _is_at_risk
+    assert _is_at_risk(75.00, 75.0) is False
+
+
+def test_is_at_risk_custom_threshold_60():
+    from app.modules.m11_sis.attendance_service import _is_at_risk
+    assert _is_at_risk(60.0, 60.0) is False
+    assert _is_at_risk(59.99, 60.0) is True
+
+
+# --- Service: new method signatures ----------------------------------------
+
+def test_get_faculty_shortage_report_exists():
+    from app.modules.m11_sis.attendance_service import AttendanceService
+    assert hasattr(AttendanceService, "get_faculty_shortage_report")
+    assert callable(AttendanceService.get_faculty_shortage_report)
+
+
+def test_get_faculty_shortage_report_params():
+    import inspect
+    from app.modules.m11_sis.attendance_service import AttendanceService
+    sig = inspect.signature(AttendanceService.get_faculty_shortage_report)
+    assert "faculty_id"     in sig.parameters
+    assert "threshold"      in sig.parameters
+    assert "finalized_only" in sig.parameters
+    assert "course_id"      in sig.parameters
+    assert "section_id"     in sig.parameters
+
+
+def test_get_shortage_grouped_exists():
+    from app.modules.m11_sis.attendance_service import AttendanceService
+    assert hasattr(AttendanceService, "get_shortage_grouped")
+    assert callable(AttendanceService.get_shortage_grouped)
+
+
+def test_get_shortage_grouped_params():
+    import inspect
+    from app.modules.m11_sis.attendance_service import AttendanceService
+    sig = inspect.signature(AttendanceService.get_shortage_grouped)
+    assert "threshold"      in sig.parameters
+    assert "semester_id"    in sig.parameters
+    assert "program_id"     in sig.parameters
+    assert "batch_id"       in sig.parameters
+    assert "finalized_only" in sig.parameters
+
+
+def test_get_shortage_report_has_new_params():
+    import inspect
+    from app.modules.m11_sis.attendance_service import AttendanceService
+    sig = inspect.signature(AttendanceService.get_shortage_report)
+    assert "program_id"     in sig.parameters
+    assert "batch_id"       in sig.parameters
+    assert "finalized_only" in sig.parameters
+
+
+def test_shortage_student_from_row_helper():
+    from app.modules.m11_sis.attendance_service import _shortage_student_from_row
+    import uuid
+    sid = str(uuid.uuid4())
+    cid = str(uuid.uuid4())
+    stid = str(uuid.uuid4())
+    row = {
+        "student_id": stid, "student_name": "Test Student", "usn": "1RV20CS001",
+        "email": "s@test.com", "section_id": sid, "section_name": "A",
+        "course_id": cid, "course_code": "CS101", "course_title": "Intro CS",
+        "total_sessions": 10, "attended_sessions": 7, "total_countable": 10,
+        "attendance_pct": 70.0,
+    }
+    out = _shortage_student_from_row(row)
+    assert out.attendance_pct == 70.0
+    assert out.course_code == "CS101"
+    assert out.usn == "1RV20CS001"
+
+
+# --- Router: new routes registered ------------------------------------------
+
+def test_route_faculty_shortage_my_courses():
+    from app.modules.m11_sis.attendance_router import attendance_router
+    routes = _get_routes(attendance_router)
+    assert any("my-courses" in p and "GET" in m for p, m in routes)
+
+
+def test_route_shortage_grouped():
+    from app.modules.m11_sis.attendance_router import attendance_router
+    routes = _get_routes(attendance_router)
+    assert any("shortage/grouped" in p and "GET" in m for p, m in routes)
+
+
+def test_route_shortage_flat_still_exists():
+    from app.modules.m11_sis.attendance_router import attendance_router
+    routes = _get_routes(attendance_router)
+    assert any("analytics/shortage" in p and "GET" in m for p, m in routes)
+
+
+def test_attendance_router_route_count():
+    from app.modules.m11_sis.attendance_router import attendance_router
+    # H55: 13 routes; H56: +2 new routes = 15
+    assert len(attendance_router.routes) == 15
+
+
+# --- Router: RBAC on new routes --------------------------------------------
+
+def test_faculty_shortage_route_requires_faculty_role():
+    from app.core.auth.models import TenantRole
+    from app.modules.m11_sis.attendance_router import _FACULTY_WRITE
+    # Faculty shortage endpoint uses _FACULTY_WRITE constant
+    assert TenantRole.FACULTY in _FACULTY_WRITE
+    assert TenantRole.ADMIN not in _FACULTY_WRITE
+    assert TenantRole.DEAN  not in _FACULTY_WRITE
+
+
+def test_shortage_grouped_route_requires_manager_role():
+    from app.core.auth.models import TenantRole
+    from app.modules.m11_sis.attendance_router import _MANAGERS
+    assert TenantRole.ADMIN in _MANAGERS
+    assert TenantRole.DEAN  in _MANAGERS
+    assert TenantRole.FACULTY not in _MANAGERS
+
+
+# --- Finalized-only behaviour (logic tests) ---------------------------------
+
+def test_finalized_only_flag_defaults_false():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    sig = inspect.signature(AttendanceRepository.get_shortage_raw)
+    default = sig.parameters["finalized_only"].default
+    assert default is False
+
+
+def test_finalized_only_in_faculty_shortage_defaults_false():
+    import inspect
+    from app.modules.m11_sis.attendance_repository import AttendanceRepository
+    sig = inspect.signature(AttendanceRepository.get_faculty_shortage_raw)
+    default = sig.parameters["finalized_only"].default
+    assert default is False
+
+
+def test_shortage_helper_null_pct_maps_to_zero():
+    from app.modules.m11_sis.attendance_service import _shortage_student_from_row
+    import uuid
+    row = {
+        "student_id": str(uuid.uuid4()), "student_name": "No Sessions", "usn": None,
+        "email": "x@test.com", "section_id": str(uuid.uuid4()), "section_name": "B",
+        "course_id": str(uuid.uuid4()), "course_code": "CS200", "course_title": "DS",
+        "total_sessions": 0, "attended_sessions": 0, "total_countable": 0,
+        "attendance_pct": None,
+    }
+    out = _shortage_student_from_row(row)
+    assert out.attendance_pct == 0.0
+
+
+def test_is_editable_open_session_within_window():
+    from datetime import datetime, timedelta, timezone
+    from app.modules.m11_sis.attendance_service import is_editable
+    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
+    session = SisAttendanceSession()
+    session.status = SessionStatus.OPEN
+    session.first_marked_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    session.reopened_at = None
+    assert is_editable(session) is True
+
+
+def test_is_editable_locked_session_returns_false():
+    from app.modules.m11_sis.attendance_service import is_editable
+    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
+    session = SisAttendanceSession()
+    session.status = SessionStatus.LOCKED
+    session.first_marked_at = None
+    session.reopened_at = None
+    assert is_editable(session) is False
+
+
+def test_is_editable_open_session_past_48h_window():
+    from datetime import datetime, timedelta, timezone
+    from app.modules.m11_sis.attendance_service import is_editable
+    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
+    session = SisAttendanceSession()
+    session.status = SessionStatus.OPEN
+    session.first_marked_at = datetime.now(timezone.utc) - timedelta(hours=49)
+    session.reopened_at = None
+    assert is_editable(session) is False
+
+
+def test_is_editable_reopened_session_uses_reopened_at():
+    from datetime import datetime, timedelta, timezone
+    from app.modules.m11_sis.attendance_service import is_editable
+    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
+    session = SisAttendanceSession()
+    session.status = SessionStatus.OPEN
+    session.first_marked_at = datetime.now(timezone.utc) - timedelta(hours=50)
+    # Reopened 1 hour ago — should be editable again
+    session.reopened_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    assert is_editable(session) is True

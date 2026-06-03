@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { BarChart2, AlertTriangle, Clock, CheckCircle2, Users, Info } from 'lucide-react'
+import { BarChart2, AlertTriangle, Clock, CheckCircle2, Users, Info, Lock, ChevronDown, ChevronRight } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { Button } from '@/components/ui/button'
 import { sisApi } from '@/lib/api/sis'
-import type { ShortageStudentOut } from '@/lib/api/sis'
-import { useQuery as useAcadQuery } from '@tanstack/react-query'
+import type { ShortageStudentOut, ShortageCourseGroup } from '@/lib/api/sis'
 import { academicsApi } from '@/lib/api/academics'
 
 // ---------------------------------------------------------------------------
@@ -30,10 +29,16 @@ function DashCard({ label, value, color, icon: Icon }: {
 }
 
 // ---------------------------------------------------------------------------
-// Shortage table
+// Flat shortage table
 // ---------------------------------------------------------------------------
 
-function ShortageTable({ students }: { students: ShortageStudentOut[] }) {
+function pctColor(p: number) {
+  if (p < 50) return '#f87171'
+  if (p < 65) return '#fb923c'
+  return '#fbbf24'
+}
+
+function FlatShortageTable({ students }: { students: ShortageStudentOut[] }) {
   if (students.length === 0) {
     return (
       <div className="rounded-xl py-10 text-center text-slate-500 text-sm"
@@ -44,18 +49,12 @@ function ShortageTable({ students }: { students: ShortageStudentOut[] }) {
     )
   }
 
-  function pctColor(p: number) {
-    if (p < 50) return '#f87171'
-    if (p < 65) return '#fb923c'
-    return '#fbbf24'
-  }
-
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
       <table className="w-full text-sm">
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            {['USN', 'Student', 'Course', 'Section', 'Attended', '%'].map(h => (
+            {['USN', 'Student', 'Course', 'Section', 'Sem', 'Attended', '%'].map(h => (
               <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400">{h}</th>
             ))}
           </tr>
@@ -71,6 +70,7 @@ function ShortageTable({ students }: { students: ShortageStudentOut[] }) {
               </td>
               <td className="px-4 py-3 text-xs text-slate-300">{s.course_code} – {s.course_title}</td>
               <td className="px-4 py-3 text-xs text-slate-400">{s.section_name}</td>
+              <td className="px-4 py-3 text-xs text-slate-400">{s.semester_number ?? '—'}</td>
               <td className="px-4 py-3 text-xs text-slate-400">
                 {s.attended_sessions}/{s.total_countable}
               </td>
@@ -88,6 +88,108 @@ function ShortageTable({ students }: { students: ShortageStudentOut[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Grouped shortage view
+// ---------------------------------------------------------------------------
+
+function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/[0.02] transition-colors"
+        style={{ background: 'rgba(255,255,255,0.03)' }}
+      >
+        <div className="flex items-center gap-3 text-left">
+          <div>
+            <p className="text-sm font-semibold text-slate-200">{c.course_code} — {c.course_title}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{c.sections.length} section(s)</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-xs px-2.5 py-1 rounded font-semibold"
+            style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+            {c.total_at_risk} at risk
+          </span>
+          {expanded
+            ? <ChevronDown size={16} className="text-slate-400" />
+            : <ChevronRight size={16} className="text-slate-400" />
+          }
+        </div>
+      </button>
+
+      {expanded && (
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+          {c.sections.map(sec => (
+            <div key={sec.section_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div className="px-5 py-2.5 flex items-center justify-between"
+                style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-xs font-semibold text-slate-300">
+                  Section {sec.section_name} · Sem {sec.semester_number}
+                </p>
+                <div className="flex items-center gap-3 text-xs text-slate-400">
+                  {sec.avg_pct !== null && (
+                    <span>Avg: <span style={{ color: pctColor(sec.avg_pct) }}>{sec.avg_pct.toFixed(1)}%</span></span>
+                  )}
+                  <span>{sec.at_risk_count} students</span>
+                </div>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    {['USN', 'Student', 'Attended / Countable', '%'].map(h => (
+                      <th key={h} className="px-4 py-2 text-left text-xs font-medium text-slate-500">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sec.students.map((s, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                      className="hover:bg-white/[0.02]">
+                      <td className="px-4 py-2 text-xs font-mono text-slate-400">{s.usn ?? '—'}</td>
+                      <td className="px-4 py-2">
+                        <p className="text-xs text-slate-200">{s.student_name}</p>
+                        <p className="text-xs text-slate-500">{s.email}</p>
+                      </td>
+                      <td className="px-4 py-2 text-xs text-slate-400">
+                        {s.attended_sessions}/{s.total_countable}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className="text-sm font-bold" style={{ color: pctColor(s.attendance_pct) }}>
+                          {s.attendance_pct.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GroupedShortageView({ courses }: { courses: ShortageCourseGroup[] }) {
+  if (courses.length === 0) {
+    return (
+      <div className="rounded-xl py-10 text-center text-slate-500 text-sm"
+        style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+        <CheckCircle2 size={28} className="mx-auto mb-2 text-green-400 opacity-60" />
+        No students below threshold.
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      {courses.map(c => <GroupedCourseRow key={c.course_id} c={c} />)}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -95,10 +197,24 @@ export default function AttendanceAnalyticsPage() {
   const [threshold, setThreshold] = useState(75)
   const [thresholdInput, setThresholdInput] = useState('75')
   const [semesterId, setSemesterId] = useState('')
+  const [programId, setProgramId] = useState('')
+  const [batchId, setBatchId] = useState('')
+  const [finalizedOnly, setFinalizedOnly] = useState(false)
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat')
 
-  const { data: semesters = [] } = useAcadQuery({
+  const { data: semesters = [] } = useQuery({
     queryKey: ['semesters-for-analytics'],
     queryFn: () => academicsApi.listSemesters(),
+  })
+
+  const { data: programs = [] } = useQuery({
+    queryKey: ['programs-for-analytics'],
+    queryFn: () => academicsApi.listPrograms(),
+  })
+
+  const { data: batches = [] } = useQuery({
+    queryKey: ['batches-for-analytics', programId],
+    queryFn: () => academicsApi.listBatches(programId || undefined),
   })
 
   const { data: dashboard, isLoading: dashLoading } = useQuery({
@@ -110,11 +226,27 @@ export default function AttendanceAnalyticsPage() {
   })
 
   const { data: shortage, isLoading: shortageLoading } = useQuery({
-    queryKey: ['shortage-report', semesterId, threshold],
+    queryKey: ['shortage-report', semesterId, threshold, programId, batchId, finalizedOnly],
     queryFn: () => sisApi.getShortageReport({
       threshold,
       semester_id: semesterId || undefined,
+      program_id: programId || undefined,
+      batch_id: batchId || undefined,
+      finalized_only: finalizedOnly,
     }),
+    enabled: viewMode === 'flat',
+  })
+
+  const { data: grouped, isLoading: groupedLoading } = useQuery({
+    queryKey: ['shortage-grouped', semesterId, threshold, programId, batchId, finalizedOnly],
+    queryFn: () => sisApi.getShortageGrouped({
+      threshold,
+      semester_id: semesterId || undefined,
+      program_id: programId || undefined,
+      batch_id: batchId || undefined,
+      finalized_only: finalizedOnly,
+    }),
+    enabled: viewMode === 'grouped',
   })
 
   function applyThreshold() {
@@ -124,6 +256,10 @@ export default function AttendanceAnalyticsPage() {
 
   const selectClass = "rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
   const selectStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }
+
+  const atRisk = viewMode === 'flat'
+    ? (shortage?.total_at_risk ?? 0)
+    : (grouped?.total_students_at_risk ?? 0)
 
   return (
     <PageShell>
@@ -143,6 +279,26 @@ export default function AttendanceAnalyticsPage() {
           </select>
         </div>
         <div>
+          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Program</label>
+          <select value={programId} onChange={e => { setProgramId(e.target.value); setBatchId('') }}
+            className={selectClass} style={selectStyle}>
+            <option value="">All Programs</option>
+            {programs.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Batch</label>
+          <select value={batchId} onChange={e => setBatchId(e.target.value)}
+            className={selectClass} style={selectStyle} disabled={!programId}>
+            <option value="">All Batches</option>
+            {batches.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Shortage Threshold (%)</label>
           <div className="flex gap-2">
             <input type="number" min={0} max={100} value={thresholdInput}
@@ -153,6 +309,19 @@ export default function AttendanceAnalyticsPage() {
               Apply
             </Button>
           </div>
+        </div>
+        <div className="flex items-center gap-2 pb-1">
+          <input
+            type="checkbox"
+            id="finalized-only-analytics"
+            checked={finalizedOnly}
+            onChange={e => setFinalizedOnly(e.target.checked)}
+            className="accent-indigo-500"
+          />
+          <label htmlFor="finalized-only-analytics" className="text-xs text-slate-400 flex items-center gap-1.5 cursor-pointer">
+            <Lock size={11} className="text-slate-500" />
+            Finalized only
+          </label>
         </div>
       </div>
 
@@ -166,39 +335,87 @@ export default function AttendanceAnalyticsPage() {
         </div>
       ) : null}
 
-      {/* Pending warning */}
+      {/* Pending sessions warning */}
       {dashboard && dashboard.pending_sessions > 0 && (
         <div className="mb-5 rounded-lg p-3 flex gap-2 text-xs text-orange-300"
           style={{ background: 'rgba(251,146,60,0.07)', border: '1px solid rgba(251,146,60,0.25)' }}>
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
           {dashboard.pending_sessions} session{dashboard.pending_sessions > 1 ? 's' : ''} have not been marked yet.
-          Faculty should be reminded to submit attendance.
+          Enable "Finalized only" to see shortage based on locked sessions only.
         </div>
       )}
 
-      {/* Shortage report */}
+      {/* Shortage report section */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <h2 className="text-sm font-semibold text-slate-200">
             Shortage Report
             <span className="text-slate-400 font-normal ml-2">— students below {threshold}%</span>
           </h2>
-          {shortage && (
-            <span className="text-xs text-slate-400">{shortage.total_at_risk} students</span>
-          )}
+          <div className="flex items-center gap-3">
+            {atRisk > 0 && (
+              <span className="text-xs text-slate-400">{atRisk} students</span>
+            )}
+            {/* View mode toggle */}
+            <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
+              {(['flat', 'grouped'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className="px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{
+                    background: viewMode === mode ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.03)',
+                    color: viewMode === mode ? '#a5b4fc' : '#94a3b8',
+                    borderRight: mode === 'flat' ? '1px solid rgba(255,255,255,0.08)' : undefined,
+                  }}
+                >
+                  {mode === 'flat' ? 'Flat List' : 'By Course'}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Advisory disclaimer — always visible */}
+        {/* Finalized-only indicator */}
+        {finalizedOnly && (
+          <div className="rounded-lg p-2.5 flex gap-2 text-xs text-slate-400"
+            style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)' }}>
+            <Lock size={11} className="shrink-0 mt-0.5 text-indigo-400" />
+            Showing data from LOCKED sessions only. Open/pending sessions are excluded.
+          </div>
+        )}
+
+        {/* Advisory disclaimer */}
         <div className="rounded-lg p-3 flex gap-2 text-xs text-slate-400"
           style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
           <Info size={13} className="shrink-0 mt-0.5 text-indigo-400" />
-          This report is <strong>advisory only</strong>. Attendance action (e.g., detainment, counselling)
-          requires explicit DEAN or ADMIN decision. No automatic action is taken by the system.
+          This report is <strong className="text-slate-300 mx-1">advisory only</strong>.
+          Attendance action (e.g., detainment, counselling) requires explicit DEAN or ADMIN decision.
+          No automatic action is taken by the system.
         </div>
 
-        {shortageLoading ? <PageLoading /> : shortage ? (
-          <ShortageTable students={shortage.students} />
-        ) : null}
+        {/* Flat view */}
+        {viewMode === 'flat' && (
+          shortageLoading ? <PageLoading /> : shortage ? (
+            <FlatShortageTable students={shortage.students} />
+          ) : null
+        )}
+
+        {/* Grouped view */}
+        {viewMode === 'grouped' && (
+          groupedLoading ? <PageLoading /> : grouped ? (
+            <>
+              {grouped.total_courses_with_shortage > 0 && (
+                <div className="flex gap-3 text-xs text-slate-400 mb-1">
+                  <span>{grouped.total_courses_with_shortage} course(s) with shortage</span>
+                  <span>·</span>
+                  <span>{grouped.total_students_at_risk} unique student(s)</span>
+                </div>
+              )}
+              <GroupedShortageView courses={grouped.courses} />
+            </>
+          ) : null
+        )}
       </div>
     </PageShell>
   )

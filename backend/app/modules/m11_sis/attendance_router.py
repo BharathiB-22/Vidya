@@ -23,10 +23,10 @@ from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.attendance_repository import DEFAULT_SHORTAGE_THRESHOLD
 from app.modules.m11_sis.attendance_schemas import (
     AttendanceDashboardOut, AttendanceMarkIn, AttendanceMarkResult, AttendanceRecordOut,
-    MyCourseAttendanceDetail, MyAttendanceSummary,
+    FacultyShortageReportOut, MyCourseAttendanceDetail, MyAttendanceSummary,
     RecordEditIn, ReopenSessionIn,
     SectionAttendanceOut, SessionCreateIn, SessionOut, SessionUpdateIn,
-    ShortageReportOut,
+    ShortageGroupedOut, ShortageReportOut,
 )
 from app.modules.m11_sis.attendance_service import AttendanceService, AttendanceServiceError
 
@@ -244,12 +244,15 @@ async def get_dashboard(
 
 @attendance_router.get("/attendance/analytics/shortage", response_model=ShortageReportOut)
 async def get_shortage_report(
-    threshold:   float          = Query(DEFAULT_SHORTAGE_THRESHOLD),
-    semester_id: Optional[UUID] = Query(None),
-    section_id:  Optional[UUID] = Query(None),
-    course_id:   Optional[UUID] = Query(None),
-    current_user: CurrentUser   = Depends(require_roles(*_MANAGERS)),
-    db: AsyncSession            = Depends(get_tenant_db_dep),
+    threshold:      float          = Query(DEFAULT_SHORTAGE_THRESHOLD),
+    semester_id:    Optional[UUID] = Query(None),
+    section_id:     Optional[UUID] = Query(None),
+    course_id:      Optional[UUID] = Query(None),
+    program_id:     Optional[UUID] = Query(None),
+    batch_id:       Optional[UUID] = Query(None),
+    finalized_only: bool           = Query(False, description="Only count LOCKED (finalized) sessions"),
+    current_user: CurrentUser      = Depends(require_roles(*_MANAGERS)),
+    db: AsyncSession               = Depends(get_tenant_db_dep),
 ) -> ShortageReportOut:
     try:
         return await AttendanceService.get_shortage_report(
@@ -258,6 +261,54 @@ async def get_shortage_report(
             section_id=section_id,
             course_id=course_id,
             db=db,
+            program_id=program_id,
+            batch_id=batch_id,
+            finalized_only=finalized_only,
+        )
+    except AttendanceServiceError as e:
+        raise _err(e)
+
+
+@attendance_router.get("/attendance/analytics/shortage/grouped", response_model=ShortageGroupedOut)
+async def get_shortage_grouped(
+    threshold:      float          = Query(DEFAULT_SHORTAGE_THRESHOLD),
+    semester_id:    Optional[UUID] = Query(None),
+    program_id:     Optional[UUID] = Query(None),
+    batch_id:       Optional[UUID] = Query(None),
+    finalized_only: bool           = Query(False, description="Only count LOCKED (finalized) sessions"),
+    current_user: CurrentUser      = Depends(require_roles(*_MANAGERS)),
+    db: AsyncSession               = Depends(get_tenant_db_dep),
+) -> ShortageGroupedOut:
+    try:
+        return await AttendanceService.get_shortage_grouped(
+            threshold=threshold,
+            semester_id=semester_id,
+            db=db,
+            program_id=program_id,
+            batch_id=batch_id,
+            finalized_only=finalized_only,
+        )
+    except AttendanceServiceError as e:
+        raise _err(e)
+
+
+@attendance_router.get("/attendance/shortage/my-courses", response_model=FacultyShortageReportOut)
+async def get_faculty_shortage(
+    threshold:      float          = Query(DEFAULT_SHORTAGE_THRESHOLD),
+    course_id:      Optional[UUID] = Query(None),
+    section_id:     Optional[UUID] = Query(None),
+    finalized_only: bool           = Query(False, description="Only count LOCKED (finalized) sessions"),
+    current_user: CurrentUser      = Depends(require_roles(*_FACULTY_WRITE)),
+    db: AsyncSession               = Depends(get_tenant_db_dep),
+) -> FacultyShortageReportOut:
+    try:
+        return await AttendanceService.get_faculty_shortage_report(
+            faculty_id=current_user.user_id,
+            threshold=threshold,
+            db=db,
+            course_id=course_id,
+            section_id=section_id,
+            finalized_only=finalized_only,
         )
     except AttendanceServiceError as e:
         raise _err(e)

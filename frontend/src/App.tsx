@@ -85,6 +85,7 @@ import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
 import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
 import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
+import FacultyShortageReportPage from '@/pages/sis/FacultyShortageReportPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -170,9 +171,10 @@ export default function App() {
             <Route path="/sis/rollover" element={<SemesterRolloverPage />} />
           </Route>
 
-          {/* Attendance — Faculty mark */}
+          {/* Attendance — Faculty mark + shortage report */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/sis/attendance/mark" element={<AttendanceMarkPage />} />
+            <Route path="/sis/attendance/shortage" element={<FacultyShortageReportPage />} />
           </Route>
 
           {/* Attendance — Dean/Admin analytics */}

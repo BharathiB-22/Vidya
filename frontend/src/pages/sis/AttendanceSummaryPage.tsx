@@ -28,10 +28,26 @@ function AttBar({ pct, isAtRisk }: { pct: number | null; isAtRisk: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions-needed calculator
+// ---------------------------------------------------------------------------
+
+function sessionsNeeded(attended: number, countable: number, threshold = 75): number | null {
+  // How many more consecutive attended sessions to cross above `threshold`%
+  const denom = 1 - threshold / 100
+  if (denom <= 0) return null
+  const need = Math.ceil((threshold / 100 * countable - attended) / denom)
+  return need > 0 && isFinite(need) ? need : null
+}
+
+// ---------------------------------------------------------------------------
 // Course card
 // ---------------------------------------------------------------------------
 
 function CourseCard({ c, onClick }: { c: CourseAttendanceSummary; onClick: () => void }) {
+  const needed = c.is_at_risk
+    ? sessionsNeeded(c.attended_sessions, c.total_countable)
+    : null
+
   return (
     <button onClick={onClick} className="w-full text-left rounded-xl p-4 transition-all hover:scale-[1.01]"
       style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${c.is_at_risk ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.08)'}` }}>
@@ -57,6 +73,11 @@ function CourseCard({ c, onClick }: { c: CourseAttendanceSummary; onClick: () =>
       </div>
       {c.excused_sessions > 0 && (
         <p className="text-xs text-slate-600 mt-1">{c.excused_sessions} excused (excluded from %)</p>
+      )}
+      {needed !== null && (
+        <p className="text-xs mt-2 font-medium" style={{ color: '#fbbf24' }}>
+          Attend {needed} more consecutive session{needed !== 1 ? 's' : ''} to reach 75%
+        </p>
       )}
     </button>
   )

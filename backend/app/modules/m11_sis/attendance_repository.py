@@ -496,8 +496,24 @@ class AttendanceRepository:
         section_id:  Optional[UUID],
         course_id:   Optional[UUID],
         db: AsyncSession,
+        *,
+        program_id:     Optional[UUID] = None,
+        batch_id:       Optional[UUID] = None,
+        finalized_only: bool = False,
     ) -> list[dict]:
-        extra_filters = []
+        """
+        Returns per-student, per-course shortage rows.
+
+        New keyword-only params (H56):
+          program_id     — restrict to one academic program
+          batch_id       — restrict to one batch
+          finalized_only — when True, count only LOCKED sessions (finalized data)
+
+        Adds sem.number to the raw dict so callers can build grouped views
+        without secondary lookups.
+        """
+        extra_filters: list[str] = []
+        extra_joins:   list[str] = []
         params: dict = {"threshold": threshold}
 
         if semester_id:
@@ -509,8 +525,24 @@ class AttendanceRepository:
         if course_id:
             extra_filters.append("AND s.course_id = :course_id")
             params["course_id"] = str(course_id)
+        if finalized_only:
+            # Only sessions whose status is LOCKED are included; OPEN / REOPENED
+            # sessions may still be edited so they are excluded from finalized reports.
+            extra_filters.append("AND s.status = 'LOCKED'")
+        if batch_id or program_id:
+            extra_joins.append("JOIN acad_semesters _sem ON _sem.id = sect.semester_id")
+            extra_joins.append("JOIN acad_batches   _bat ON _bat.id = _sem.batch_id")
+            if batch_id:
+                extra_filters.append("AND _bat.id = :batch_id")
+                params["batch_id"] = str(batch_id)
+            if program_id:
+                extra_joins.append("JOIN acad_programs _prog ON _prog.id = _bat.program_id")
+                extra_filters.append("AND _prog.id = :program_id")
+                params["program_id"] = str(program_id)
 
-        extra = " ".join(extra_filters)
+        joins_sql = "\n                    ".join(extra_joins)
+        where_sql  = "\n                    ".join(extra_filters)
+
         rows = await db.execute(
             text(f"""
                 WITH stats AS (
@@ -524,7 +556,9 @@ class AttendanceRepository:
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
                     JOIN acad_sections sect        ON sect.id = s.section_id
-                    WHERE 1=1 {extra}
+                    {joins_sql}
+                    WHERE 1=1
+                    {where_sql}
                     GROUP BY r.student_id, s.course_id, s.section_id
                 ),
                 with_pct AS (
@@ -545,6 +579,7 @@ class AttendanceRepository:
                     u.email,
                     wp.section_id::text,
                     sect.name     AS section_name,
+                    sem.number    AS semester_number,
                     wp.course_id::text,
                     c.code        AS course_code,
                     c.title       AS course_title,
@@ -556,9 +591,117 @@ class AttendanceRepository:
                 JOIN users u            ON u.id    = wp.student_id
                 JOIN courses c          ON c.id    = wp.course_id
                 JOIN acad_sections sect ON sect.id = wp.section_id
+                JOIN acad_semesters sem ON sem.id  = sect.semester_id
                 LEFT JOIN sis_student_profiles sp ON sp.user_id = wp.student_id
                 WHERE wp.attendance_pct < :threshold
                 ORDER BY wp.attendance_pct ASC NULLS LAST, u.full_name
+            """),
+            params,
+        )
+        return [dict(r._mapping) for r in rows.all()]
+
+    @staticmethod
+    async def get_faculty_shortage_raw(
+        faculty_user_id: UUID,
+        threshold: float,
+        db: AsyncSession,
+        *,
+        course_id:      Optional[UUID] = None,
+        section_id:     Optional[UUID] = None,
+        finalized_only: bool = False,
+    ) -> list[dict]:
+        """
+        Shortage rows scoped to courses where the faculty holds an active
+        PRIMARY or CO_FACULTY subject assignment.
+
+        Returns the same row shape as get_shortage_raw(), plus:
+          semester_number  — for grouping
+          total_enrolled   — enrolled students in that section (for context ratio)
+        """
+        extra_filters: list[str] = []
+        params: dict = {
+            "threshold":       threshold,
+            "faculty_user_id": str(faculty_user_id),
+        }
+
+        if course_id:
+            extra_filters.append("AND s.course_id = :course_id")
+            params["course_id"] = str(course_id)
+        if section_id:
+            extra_filters.append("AND s.section_id = :section_id")
+            params["section_id"] = str(section_id)
+        if finalized_only:
+            extra_filters.append("AND s.status = 'LOCKED'")
+
+        where = "\n                    ".join(extra_filters)
+
+        rows = await db.execute(
+            text(f"""
+                WITH faculty_courses AS (
+                    SELECT DISTINCT course_id, semester_id
+                    FROM subject_assignments
+                    WHERE faculty_user_id = :faculty_user_id
+                      AND is_active = TRUE
+                      AND role_in_course IN ('PRIMARY', 'CO_FACULTY')
+                ),
+                stats AS (
+                    SELECT
+                        r.student_id,
+                        s.course_id,
+                        s.section_id,
+                        COUNT(*)                                               AS total_sessions,
+                        COUNT(*) FILTER (WHERE r.status = 'EXCUSED')          AS excused_count,
+                        COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE')) AS attended_count
+                    FROM sis_attendance_records r
+                    JOIN sis_attendance_sessions s ON s.id = r.session_id
+                    JOIN acad_sections sect        ON sect.id = s.section_id
+                    JOIN faculty_courses fc        ON fc.course_id   = s.course_id
+                                                 AND fc.semester_id  = sect.semester_id
+                    WHERE 1=1
+                    {where}
+                    GROUP BY r.student_id, s.course_id, s.section_id
+                ),
+                with_pct AS (
+                    SELECT *,
+                        total_sessions - excused_count AS total_countable,
+                        CASE WHEN (total_sessions - excused_count) > 0
+                             THEN ROUND(
+                                 (attended_count::numeric / (total_sessions - excused_count)) * 100,
+                                 2)
+                             ELSE NULL
+                        END AS attendance_pct
+                    FROM stats
+                )
+                SELECT
+                    wp.student_id::text,
+                    u.full_name   AS student_name,
+                    sp.usn,
+                    u.email,
+                    wp.section_id::text,
+                    sect.name     AS section_name,
+                    sem.number    AS semester_number,
+                    wp.course_id::text,
+                    c.code        AS course_code,
+                    c.title       AS course_title,
+                    wp.total_sessions,
+                    wp.attended_count AS attended_sessions,
+                    wp.total_countable,
+                    wp.attendance_pct,
+                    COALESCE(enroll_counts.total_enrolled, 0) AS total_enrolled
+                FROM with_pct wp
+                JOIN users u            ON u.id    = wp.student_id
+                JOIN courses c          ON c.id    = wp.course_id
+                JOIN acad_sections sect ON sect.id = wp.section_id
+                JOIN acad_semesters sem ON sem.id  = sect.semester_id
+                LEFT JOIN sis_student_profiles sp ON sp.user_id = wp.student_id
+                LEFT JOIN (
+                    SELECT section_id, COUNT(*) AS total_enrolled
+                    FROM acad_enrollments
+                    WHERE is_active = TRUE
+                    GROUP BY section_id
+                ) enroll_counts ON enroll_counts.section_id = wp.section_id
+                WHERE wp.attendance_pct < :threshold
+                ORDER BY c.code, sect.name, wp.attendance_pct ASC NULLS LAST
             """),
             params,
         )

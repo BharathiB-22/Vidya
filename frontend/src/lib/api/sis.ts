@@ -401,6 +401,7 @@ export interface ShortageStudentOut {
   email:             string
   section_id:        string
   section_name:      string
+  semester_number?:  number
   course_id:         string
   course_code:       string
   course_title:      string
@@ -413,7 +414,55 @@ export interface ShortageStudentOut {
 export interface ShortageReportOut {
   threshold_pct:  number
   total_at_risk:  number
+  finalized_only: boolean
   students:       ShortageStudentOut[]
+}
+
+// H56 — Faculty-scoped shortage
+export interface FacultyCourseShortage {
+  course_id:       string
+  course_code:     string
+  course_title:    string
+  section_id:      string
+  section_name:    string
+  semester_number: number
+  at_risk_count:   number
+  total_enrolled:  number
+  students:        ShortageStudentOut[]
+}
+
+export interface FacultyShortageReportOut {
+  faculty_id:     string
+  threshold_pct:  number
+  finalized_only: boolean
+  total_at_risk:  number
+  courses:        FacultyCourseShortage[]
+}
+
+// H56 — Grouped shortage (Dean/Admin)
+export interface ShortageSectionGroup {
+  section_id:      string
+  section_name:    string
+  semester_number: number
+  at_risk_count:   number
+  avg_pct:         number | null
+  students:        ShortageStudentOut[]
+}
+
+export interface ShortageCourseGroup {
+  course_id:     string
+  course_code:   string
+  course_title:  string
+  total_at_risk: number
+  sections:      ShortageSectionGroup[]
+}
+
+export interface ShortageGroupedOut {
+  threshold_pct:               number
+  finalized_only:              boolean
+  total_courses_with_shortage: number
+  total_students_at_risk:      number
+  courses:                     ShortageCourseGroup[]
 }
 
 export interface AttendanceDashboardOut {
@@ -681,8 +730,20 @@ export const sisApi = {
 
   getShortageReport: (params: {
     threshold?: number; semester_id?: string; section_id?: string; course_id?: string
+    program_id?: string; batch_id?: string; finalized_only?: boolean
   } = {}): Promise<ShortageReportOut> =>
     api.get<ShortageReportOut>('/sis/attendance/analytics/shortage', { params }).then(r => r.data),
+
+  getShortageGrouped: (params: {
+    threshold?: number; semester_id?: string
+    program_id?: string; batch_id?: string; finalized_only?: boolean
+  } = {}): Promise<ShortageGroupedOut> =>
+    api.get<ShortageGroupedOut>('/sis/attendance/analytics/shortage/grouped', { params }).then(r => r.data),
+
+  getFacultyShortage: (params: {
+    threshold?: number; course_id?: string; section_id?: string; finalized_only?: boolean
+  } = {}): Promise<FacultyShortageReportOut> =>
+    api.get<FacultyShortageReportOut>('/sis/attendance/shortage/my-courses', { params }).then(r => r.data),
 
   getSectionAttendance: (sectionId: string, threshold?: number): Promise<SectionAttendanceOut> =>
     api.get<SectionAttendanceOut>(`/sis/attendance/analytics/section/${sectionId}`, {
