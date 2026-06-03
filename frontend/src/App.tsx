@@ -151,15 +151,19 @@ export default function App() {
 
           {/* SIS — ADMIN and DEAN */}
           <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
-            <Route path="/sis"                                    element={<SisDashboardPage />} />
-            <Route path="/sis/roster"                          element={<RosterPage />} />
-            <Route path="/sis/students/:student_id"            element={<StudentProfilePage />} />
-            <Route path="/sis/schools"                         element={<SchoolsPage />} />
-            <Route path="/sis/departments"                     element={<SisDepartmentsPage />} />
-            <Route path="/sis/directory/students"                 element={<StudentDirectoryPage />} />
-            <Route path="/sis/directory/students/:student_id"  element={<StudentProfilePage />} />
-            <Route path="/sis/directory/faculty"               element={<FacultyDirectoryPage />} />
-            <Route path="/sis/directory/faculty/:user_id"      element={<FacultyProfilePage />} />
+            <Route path="/sis"                                   element={<SisDashboardPage />} />
+            <Route path="/sis/roster"                            element={<RosterPage />} />
+            <Route path="/sis/students/:student_id"              element={<StudentProfilePage />} />
+            <Route path="/sis/schools"                           element={<SchoolsPage />} />
+            <Route path="/sis/departments"                       element={<SisDepartmentsPage />} />
+            <Route path="/sis/directory/students"                element={<StudentDirectoryPage />} />
+            <Route path="/sis/directory/students/:student_id"    element={<StudentProfilePage />} />
+          </Route>
+
+          {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN', 'FACULTY']} />}>
+            <Route path="/sis/directory/faculty"                 element={<FacultyDirectoryPage />} />
+            <Route path="/sis/directory/faculty/:user_id"        element={<FacultyProfilePage />} />
           </Route>
 
           {/* User management & settings — ADMIN only */}
