@@ -82,6 +82,9 @@ import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
+import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
+import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
+import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -165,6 +168,21 @@ export default function App() {
           {/* SIS Semester Rollover — ADMIN only */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
             <Route path="/sis/rollover" element={<SemesterRolloverPage />} />
+          </Route>
+
+          {/* Attendance — Faculty mark */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
+            <Route path="/sis/attendance/mark" element={<AttendanceMarkPage />} />
+          </Route>
+
+          {/* Attendance — Dean/Admin analytics */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/attendance/analytics" element={<AttendanceAnalyticsPage />} />
+          </Route>
+
+          {/* Attendance — Student self-view */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
+            <Route path="/sis/attendance/me" element={<AttendanceSummaryPage />} />
           </Route>
 
           {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}

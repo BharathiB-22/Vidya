@@ -241,6 +241,190 @@ export interface ProfileImportCommitResult {
 }
 
 // ---------------------------------------------------------------------------
+// Attendance (H55)
+// ---------------------------------------------------------------------------
+
+export interface AttendanceSessionCreateIn {
+  course_id:         string
+  section_id:        string
+  session_date:      string  // YYYY-MM-DD
+  period_number?:    number
+  duration_minutes?: number
+  topic_covered?:    string
+}
+
+export interface AttendanceSessionUpdateIn {
+  topic_covered?:    string
+  period_number?:    number
+  duration_minutes?: number
+}
+
+export interface AttendanceMarkEntry {
+  student_id: string
+  status:     'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  remarks?:   string
+}
+
+export interface AttendanceMarkIn {
+  records:      AttendanceMarkEntry[]
+  edit_reason?: string
+}
+
+export interface AttendanceRecordEditIn {
+  status:       'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  remarks?:     string
+  edit_reason?: string
+}
+
+export interface ReopenSessionIn {
+  reason: string
+}
+
+export interface AttendanceSessionOut {
+  id:                 string
+  course_id:          string
+  course_code:        string
+  course_title:       string
+  section_id:         string
+  section_name:       string
+  semester_number:    number
+  faculty_user_id:    string
+  faculty_name:       string
+  session_date:       string
+  period_number:      number | null
+  duration_minutes:   number | null
+  topic_covered:      string | null
+  status:             'OPEN' | 'LOCKED'
+  is_editable:        boolean
+  minutes_until_lock: number | null
+  first_marked_at:    string | null
+  locked_at:          string | null
+  reopened_by:        string | null
+  reopened_at:        string | null
+  reopen_reason:      string | null
+  total_enrolled:     number
+  present_count:      number
+  absent_count:       number
+  late_count:         number
+  excused_count:      number
+  attendance_pct:     number | null
+  created_at:         string
+  updated_at:         string | null
+}
+
+export interface AttendanceRecordOut {
+  id:            string
+  session_id:    string
+  student_id:    string
+  student_name:  string
+  student_email: string
+  usn:           string | null
+  status:        'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  remarks:       string | null
+  marked_by:     string | null
+  marked_at:     string | null
+  edited_by:     string | null
+  edited_at:     string | null
+  edit_reason:   string | null
+}
+
+export interface AttendanceMarkResult {
+  session_id:  string
+  saved:       number
+  first_marks: number
+  edits:       number
+}
+
+export interface CourseAttendanceSummary {
+  course_id:         string
+  course_code:       string
+  course_title:      string
+  total_sessions:    number
+  attended_sessions: number
+  excused_sessions:  number
+  total_countable:   number
+  attendance_pct:    number | null
+  is_at_risk:        boolean
+}
+
+export interface MyAttendanceSummary {
+  student_id:   string
+  student_name: string
+  usn:          string | null
+  overall_pct:  number | null
+  courses:      CourseAttendanceSummary[]
+}
+
+export interface SessionRecordForStudent {
+  session_id:     string
+  session_date:   string
+  period_number:  number | null
+  topic_covered:  string | null
+  status:         'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  remarks:        string | null
+}
+
+export interface MyCourseAttendanceDetail {
+  course_id:    string
+  course_code:  string
+  course_title: string
+  summary:      CourseAttendanceSummary
+  sessions:     SessionRecordForStudent[]
+}
+
+export interface SectionStudentAttendance {
+  student_id:        string
+  student_name:      string
+  usn:               string | null
+  total_sessions:    number
+  attended_sessions: number
+  total_countable:   number
+  attendance_pct:    number | null
+  is_at_risk:        boolean
+}
+
+export interface SectionAttendanceOut {
+  section_id:         string
+  section_name:       string
+  semester_number:    number
+  batch_name:         string
+  program_name:       string
+  total_sessions:     number
+  avg_attendance_pct: number | null
+  students:           SectionStudentAttendance[]
+}
+
+export interface ShortageStudentOut {
+  student_id:        string
+  student_name:      string
+  usn:               string | null
+  email:             string
+  section_id:        string
+  section_name:      string
+  course_id:         string
+  course_code:       string
+  course_title:      string
+  total_sessions:    number
+  attended_sessions: number
+  total_countable:   number
+  attendance_pct:    number
+}
+
+export interface ShortageReportOut {
+  threshold_pct:  number
+  total_at_risk:  number
+  students:       ShortageStudentOut[]
+}
+
+export interface AttendanceDashboardOut {
+  today_sessions:           number
+  marked_today:             number
+  pending_sessions:         number
+  students_below_threshold: number
+  threshold_pct:            number
+}
+
+// ---------------------------------------------------------------------------
 // Semester rollover (H54)
 // ---------------------------------------------------------------------------
 
@@ -460,6 +644,60 @@ export const sisApi = {
 
   rolloverCommit: (body: RolloverScopeIn): Promise<RolloverCommitResult> =>
     api.post<RolloverCommitResult>('/sis/rollover/commit', body).then(r => r.data),
+
+  // ---------------------------------------------------------------------------
+  // Attendance (H55)
+  // ---------------------------------------------------------------------------
+
+  createAttendanceSession: (body: AttendanceSessionCreateIn): Promise<AttendanceSessionOut> =>
+    api.post<AttendanceSessionOut>('/sis/attendance/sessions', body).then(r => r.data),
+
+  listAttendanceSessions: (params: {
+    course_id?: string; section_id?: string
+    date_from?: string; date_to?: string; status?: string
+  } = {}): Promise<AttendanceSessionOut[]> =>
+    api.get<AttendanceSessionOut[]>('/sis/attendance/sessions', { params }).then(r => r.data),
+
+  getAttendanceSession: (sessionId: string): Promise<AttendanceSessionOut> =>
+    api.get<AttendanceSessionOut>(`/sis/attendance/sessions/${sessionId}`).then(r => r.data),
+
+  updateAttendanceSession: (sessionId: string, body: AttendanceSessionUpdateIn): Promise<AttendanceSessionOut> =>
+    api.put<AttendanceSessionOut>(`/sis/attendance/sessions/${sessionId}`, body).then(r => r.data),
+
+  getSessionRecords: (sessionId: string): Promise<AttendanceRecordOut[]> =>
+    api.get<AttendanceRecordOut[]>(`/sis/attendance/sessions/${sessionId}/records`).then(r => r.data),
+
+  markAttendance: (sessionId: string, body: AttendanceMarkIn): Promise<AttendanceMarkResult> =>
+    api.post<AttendanceMarkResult>(`/sis/attendance/sessions/${sessionId}/mark`, body).then(r => r.data),
+
+  editAttendanceRecord: (sessionId: string, recordId: string, body: AttendanceRecordEditIn): Promise<AttendanceRecordOut> =>
+    api.patch<AttendanceRecordOut>(`/sis/attendance/sessions/${sessionId}/records/${recordId}`, body).then(r => r.data),
+
+  reopenAttendanceSession: (sessionId: string, body: ReopenSessionIn): Promise<AttendanceSessionOut> =>
+    api.post<AttendanceSessionOut>(`/sis/attendance/sessions/${sessionId}/reopen`, body).then(r => r.data),
+
+  getAttendanceDashboard: (params: { semester_id?: string; threshold?: number } = {}): Promise<AttendanceDashboardOut> =>
+    api.get<AttendanceDashboardOut>('/sis/attendance/analytics/dashboard', { params }).then(r => r.data),
+
+  getShortageReport: (params: {
+    threshold?: number; semester_id?: string; section_id?: string; course_id?: string
+  } = {}): Promise<ShortageReportOut> =>
+    api.get<ShortageReportOut>('/sis/attendance/analytics/shortage', { params }).then(r => r.data),
+
+  getSectionAttendance: (sectionId: string, threshold?: number): Promise<SectionAttendanceOut> =>
+    api.get<SectionAttendanceOut>(`/sis/attendance/analytics/section/${sectionId}`, {
+      params: threshold !== undefined ? { threshold } : {},
+    }).then(r => r.data),
+
+  getMyAttendance: (threshold?: number): Promise<MyAttendanceSummary> =>
+    api.get<MyAttendanceSummary>('/sis/attendance/me', {
+      params: threshold !== undefined ? { threshold } : {},
+    }).then(r => r.data),
+
+  getMyCourseAttendance: (courseId: string, threshold?: number): Promise<MyCourseAttendanceDetail> =>
+    api.get<MyCourseAttendanceDetail>(`/sis/attendance/me/course/${courseId}`, {
+      params: threshold !== undefined ? { threshold } : {},
+    }).then(r => r.data),
 }
 
 function _triggerSisDownload(data: Blob, filename: string, mime: string) {

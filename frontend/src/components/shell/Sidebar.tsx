@@ -4,7 +4,7 @@ import {
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
-  BookLock, School2, UsersRound, UserCircle2, RefreshCw,
+  BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -41,10 +41,11 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Teaching',
     items: [
-      { label: 'My Courses',         to: '/my-courses',        icon: BookOpen,      roles: ['FACULTY'] },
-      { label: 'Syllabuses',         to: '/syllabuses',        icon: GraduationCap, roles: ['FACULTY'] },
-      { label: 'Course Kits',        to: '/course-kits',       icon: Layers,        roles: ['FACULTY'] },
-      { label: 'Learning Materials', to: '/learning-packages', icon: Package,       roles: ['FACULTY'] },
+      { label: 'My Courses',         to: '/my-courses',              icon: BookOpen,      roles: ['FACULTY'] },
+      { label: 'Mark Attendance',    to: '/sis/attendance/mark',     icon: CalendarCheck, roles: ['FACULTY'] },
+      { label: 'Syllabuses',         to: '/syllabuses',              icon: GraduationCap, roles: ['FACULTY'] },
+      { label: 'Course Kits',        to: '/course-kits',             icon: Layers,        roles: ['FACULTY'] },
+      { label: 'Learning Materials', to: '/learning-packages',       icon: Package,       roles: ['FACULTY'] },
     ],
   },
 
@@ -84,10 +85,11 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Student Information System',
     items: [
-      { label: 'Enrollment Overview', to: '/sis',                     icon: LayoutDashboard, roles: ['DEAN'], exact: true },
-      { label: 'Enrollment Roster',   to: '/sis/roster',              icon: UsersRound,      roles: ['DEAN'] },
-      { label: 'Student Directory',   to: '/sis/directory/students',  icon: GraduationCap,   roles: ['DEAN'] },
-      { label: 'Faculty Directory',   to: '/sis/directory/faculty',   icon: UserCheck,       roles: ['DEAN', 'FACULTY'] },
+      { label: 'Enrollment Overview',   to: '/sis',                         icon: LayoutDashboard, roles: ['DEAN'], exact: true },
+      { label: 'Enrollment Roster',     to: '/sis/roster',                  icon: UsersRound,      roles: ['DEAN'] },
+      { label: 'Student Directory',     to: '/sis/directory/students',      icon: GraduationCap,   roles: ['DEAN'] },
+      { label: 'Faculty Directory',     to: '/sis/directory/faculty',       icon: UserCheck,       roles: ['DEAN', 'FACULTY'] },
+      { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',    icon: CalendarCheck,   roles: ['DEAN'] },
     ],
   },
 
@@ -113,8 +115,9 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Enrollment Roster',  to: '/sis/roster',                   icon: UsersRound,   roles: ['ADMIN'] },
       { label: 'Student Directory',  to: '/sis/directory/students',       icon: GraduationCap,roles: ['ADMIN'] },
       { label: 'Faculty Directory',  to: '/sis/directory/faculty',        icon: UserCheck,    roles: ['ADMIN'] },
-      { label: 'Course Assignments', to: '/course-assignments',           icon: ClipboardCheck, roles: ['ADMIN'] },
-      { label: 'Semester Rollover',  to: '/sis/rollover',                 icon: RefreshCw,      roles: ['ADMIN'] },
+      { label: 'Course Assignments',    to: '/course-assignments',        icon: ClipboardCheck, roles: ['ADMIN'] },
+      { label: 'Semester Rollover',     to: '/sis/rollover',              icon: RefreshCw,      roles: ['ADMIN'] },
+      { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',  icon: CalendarCheck,  roles: ['ADMIN'] },
     ],
   },
 
@@ -152,9 +155,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Work',
     items: [
-      { label: 'My Labs',     to: '/student/labs',     icon: FlaskConical,  roles: ['STUDENT'] },
-      { label: 'My Research', to: '/student/research', icon: Microscope,    roles: ['STUDENT'] },
-      { label: 'My Profile',  to: '/sis/me/profile',   icon: UserCircle2,   roles: ['STUDENT'] },
+      { label: 'My Labs',       to: '/student/labs',         icon: FlaskConical,  roles: ['STUDENT'] },
+      { label: 'My Research',   to: '/student/research',     icon: Microscope,    roles: ['STUDENT'] },
+      { label: 'My Attendance', to: '/sis/attendance/me',    icon: CalendarCheck, roles: ['STUDENT'] },
+      { label: 'My Profile',    to: '/sis/me/profile',       icon: UserCircle2,   roles: ['STUDENT'] },
     ],
   },
 

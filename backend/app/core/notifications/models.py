@@ -24,6 +24,9 @@ class NotificationType(str, enum.Enum):
     COURSE_ASSIGNED             = "COURSE_ASSIGNED"
     COURSE_ASSIGNMENT_REVOKED   = "COURSE_ASSIGNMENT_REVOKED"
 
+    # SIS Attendance — H55
+    ATTENDANCE_SHORTAGE_WARNING = "ATTENDANCE_SHORTAGE_WARNING"
+
 
 class Notification(Base):
     __tablename__ = "notifications"
