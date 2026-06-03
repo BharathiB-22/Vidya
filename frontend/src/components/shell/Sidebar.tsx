@@ -4,7 +4,7 @@ import {
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
-  BookLock, School2, UsersRound,
+  BookLock, School2, UsersRound, UserCircle2,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -151,8 +151,17 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Work',
     items: [
-      { label: 'My Labs',     to: '/student/labs',     icon: FlaskConical, roles: ['STUDENT'] },
-      { label: 'My Research', to: '/student/research', icon: Microscope,   roles: ['STUDENT'] },
+      { label: 'My Labs',     to: '/student/labs',     icon: FlaskConical,  roles: ['STUDENT'] },
+      { label: 'My Research', to: '/student/research', icon: Microscope,    roles: ['STUDENT'] },
+      { label: 'My Profile',  to: '/sis/me/profile',   icon: UserCircle2,   roles: ['STUDENT'] },
+    ],
+  },
+
+  // ── FACULTY: My Account ───────────────────────────────────────────────────
+  {
+    heading: 'My Account',
+    items: [
+      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
     ],
   },
 

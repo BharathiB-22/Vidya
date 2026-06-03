@@ -28,11 +28,13 @@ from app.modules.m11_sis.directory_schemas import (
     FacultyDetailOut,
     FacultyDirectoryItem,
     FacultyProfileUpsert,
+    FacultySelfServiceUpdate,
     ProgramMini,
     SectionMini,
     StudentDetailOut,
     StudentDirectoryItem,
     StudentProfileUpsert,
+    StudentSelfServiceUpdate,
 )
 from app.modules.m11_sis.models import SisFacultyProfile, SisStudentProfile
 
@@ -205,6 +207,31 @@ class StudentDirectoryService:
         )
         return await StudentDirectoryService.get_detail(user_id, db)
 
+    @staticmethod
+    async def upsert_own_profile(
+        current_user_id: UUID,
+        body: StudentSelfServiceUpdate,
+        actor_role: str,
+        tenant_id: UUID,
+        schema_name: str,
+        db: AsyncSession,
+    ) -> StudentDetailOut:
+        """Self-service update: student edits only their own contact fields."""
+        updates = body.model_dump(exclude_none=True)
+        await StudentDirectoryRepository.upsert_profile(current_user_id, updates, db)
+        await db.commit()
+        await AuditService.log(
+            AuditEventType.STUDENT_PROFILE_UPDATED,
+            actor_user_id=current_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id,
+            schema_name=schema_name,
+            target_entity="sis_student_profile",
+            target_id=str(current_user_id),
+            metadata={"fields_updated": list(updates.keys()), "self_service": True},
+        )
+        return await StudentDirectoryService.get_detail(current_user_id, db)
+
 
 # ---------------------------------------------------------------------------
 # Faculty directory
@@ -317,6 +344,31 @@ class FacultyDirectoryService:
             metadata={"fields_updated": list(updates.keys())},
         )
         return await FacultyDirectoryService.get_detail(user_id, db)
+
+    @staticmethod
+    async def upsert_own_profile(
+        current_user_id: UUID,
+        body: FacultySelfServiceUpdate,
+        actor_role: str,
+        tenant_id: UUID,
+        schema_name: str,
+        db: AsyncSession,
+    ) -> FacultyDetailOut:
+        """Self-service update: faculty edits only their own contact/bio fields."""
+        updates = body.model_dump(exclude_none=True)
+        await FacultyDirectoryRepository.upsert_profile(current_user_id, updates, db)
+        await db.commit()
+        await AuditService.log(
+            AuditEventType.FACULTY_PROFILE_UPDATED,
+            actor_user_id=current_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id,
+            schema_name=schema_name,
+            target_entity="sis_faculty_profile",
+            target_id=str(current_user_id),
+            metadata={"fields_updated": list(updates.keys()), "self_service": True},
+        )
+        return await FacultyDirectoryService.get_detail(current_user_id, db)
 
     @staticmethod
     async def list_by_department(

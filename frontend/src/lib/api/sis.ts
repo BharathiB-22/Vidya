@@ -86,6 +86,8 @@ export interface StudentProfile {
   full_name: string
   email: string
   identifier: string | null
+  usn: string | null
+  admission_year: number | null
   program: ProgramSummary | null
   department: DeptSummary | null
   batch: BatchSummary | null
@@ -199,6 +201,25 @@ export interface FacultyProfileUpsert {
   photo_url?: string
 }
 
+// Self-service schemas (H51) — narrower than admin upsert; excludes admin-only fields
+export interface StudentSelfServiceUpdate {
+  phone?: string
+  address_line1?: string
+  address_city?: string
+  address_state?: string
+  emergency_contact_name?: string
+  emergency_contact_phone?: string
+  photo_url?: string
+}
+
+export interface FacultySelfServiceUpdate {
+  phone?: string
+  office_location?: string
+  bio?: string
+  specialization?: string
+  photo_url?: string
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -278,4 +299,20 @@ export const sisApi = {
 
   listDepartmentFaculty: (deptId: string) =>
     api.get<DirectoryPage<FacultyDirectoryItem>>(`/sis/departments/${deptId}/faculty`).then(r => r.data),
+
+  // ---------------------------------------------------------------------------
+  // Self-service (H51) — user edits own profile
+  // ---------------------------------------------------------------------------
+
+  getMyStudentProfile: () =>
+    api.get<StudentDetailOut>('/sis/me/student-profile').then(r => r.data),
+
+  updateMyStudentProfile: (body: StudentSelfServiceUpdate) =>
+    api.put<StudentDetailOut>('/sis/me/student-profile', body).then(r => r.data),
+
+  getMyFacultyProfile: () =>
+    api.get<FacultyDetailOut>('/sis/me/faculty-profile').then(r => r.data),
+
+  updateMyFacultyProfile: (body: FacultySelfServiceUpdate) =>
+    api.put<FacultyDetailOut>('/sis/me/faculty-profile', body).then(r => r.data),
 }

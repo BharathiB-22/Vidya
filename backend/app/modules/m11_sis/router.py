@@ -10,12 +10,14 @@ from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.directory_router import directory_router
 from app.modules.m11_sis.enrollment_router import enrollment_router
+from app.modules.m11_sis.me_router import me_router
 from app.modules.m11_sis.schemas import SchoolCreate, SchoolOut, SchoolUpdate
 from app.modules.m11_sis.service import SchoolService, SchoolServiceError
 
 router = APIRouter(tags=["M11 SIS"])
 router.include_router(enrollment_router)
 router.include_router(directory_router)
+router.include_router(me_router)
 
 _WRITE = (TenantRole.ADMIN, TenantRole.DEAN)
 _READ  = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.STUDENT)

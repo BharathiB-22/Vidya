@@ -80,6 +80,7 @@ import StudentProfilePage from '@/pages/sis/StudentProfilePage'
 import StudentDirectoryPage from '@/pages/sis/StudentDirectoryPage'
 import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
+import MyProfilePage from '@/pages/sis/MyProfilePage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -209,6 +210,11 @@ export default function App() {
             <Route path="/student/research" element={<StudentResearchPage />} />
             <Route path="/student/research/:id" element={<StudentResearchDetailPage />} />
             <Route path="/student/viva/:token" element={<StudentVivaPage />} />
+          </Route>
+
+          {/* Self-service profile — STUDENT and FACULTY */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT', 'FACULTY']} />}>
+            <Route path="/sis/me/profile" element={<MyProfilePage />} />
           </Route>
 
           {/* Research Supervision — FACULTY, ADMIN, GUIDE */}

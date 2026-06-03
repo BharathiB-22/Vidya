@@ -216,3 +216,28 @@ class FacultyProfileUpsert(BaseModel):
         if not v:
             raise ValueError("employee_id must not be empty")
         return v
+
+
+# ---------------------------------------------------------------------------
+# H51: Self-service schemas — students and faculty editing own contact details
+# Fields NOT present here cannot be changed by the user themselves.
+# ---------------------------------------------------------------------------
+
+class StudentSelfServiceUpdate(BaseModel):
+    """Fields a STUDENT is allowed to update on their own profile."""
+    phone:                   Optional[str] = None
+    address_line1:           Optional[str] = None
+    address_city:            Optional[str] = None
+    address_state:           Optional[str] = None
+    emergency_contact_name:  Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    photo_url:               Optional[str] = None
+
+
+class FacultySelfServiceUpdate(BaseModel):
+    """Fields a FACULTY member is allowed to update on their own profile."""
+    phone:           Optional[str] = None
+    office_location: Optional[str] = None
+    bio:             Optional[str] = None
+    specialization:  Optional[str] = None
+    photo_url:       Optional[str] = None
