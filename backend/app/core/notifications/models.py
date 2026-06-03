@@ -15,6 +15,15 @@ class NotificationType(str, enum.Enum):
     OUTCOME_PUBLISHED   = "OUTCOME_PUBLISHED"
     GENERAL             = "GENERAL"
 
+    # SIS — H52
+    ENROLLMENT_CREATED          = "ENROLLMENT_CREATED"
+    ENROLLMENT_MOVED            = "ENROLLMENT_MOVED"
+    ENROLLMENT_UNENROLLED       = "ENROLLMENT_UNENROLLED"
+    USN_ASSIGNED                = "USN_ASSIGNED"
+    ADMISSION_YEAR_ASSIGNED     = "ADMISSION_YEAR_ASSIGNED"
+    COURSE_ASSIGNED             = "COURSE_ASSIGNED"
+    COURSE_ASSIGNMENT_REVOKED   = "COURSE_ASSIGNMENT_REVOKED"
+
 
 class Notification(Base):
     __tablename__ = "notifications"

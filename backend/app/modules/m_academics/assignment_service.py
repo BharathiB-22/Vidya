@@ -10,10 +10,13 @@ Business rules:
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger("vidya.academics.assignment")
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
@@ -35,6 +38,39 @@ class AssignmentServiceError(Exception):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+async def _notify_safe(
+    *,
+    notification_type,
+    recipient_user_id: UUID,
+    recipient_email: str | None,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: str,
+    db: AsyncSession,
+) -> None:
+    """Fire-and-forget notification. Never raises — a failure is logged only."""
+    try:
+        from app.core.notifications.service import NotificationService
+        await NotificationService.send(
+            notification_type,
+            recipient_user_id=recipient_user_id,
+            recipient_email=recipient_email,
+            title=title,
+            body=body,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            db=db,
+        )
+    except Exception:
+        logger.warning(
+            "notification_failed type=%s recipient=%s",
+            notification_type,
+            recipient_user_id,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +264,18 @@ class AssignmentService:
             },
         )
 
+        from app.core.notifications.models import NotificationType
+        await _notify_safe(
+            notification_type=NotificationType.COURSE_ASSIGNED,
+            recipient_user_id=faculty.id,
+            recipient_email=faculty.email,
+            title="Course Assignment",
+            body=f"You have been assigned to course \"{course.code} – {course.title}\" as {body.role_in_course.value}.",
+            entity_type="SubjectAssignment",
+            entity_id=str(row.id),
+            db=db,
+        )
+
         return AssignmentOut(
             id=row.id,
             course_id=row.course_id,
@@ -284,7 +332,26 @@ class AssignmentService:
         )
 
         rows = await _enrich([revoked], db)
-        return rows[0]
+        enriched = rows[0]
+
+        from app.core.notifications.models import NotificationType
+        course_label = (
+            f"{enriched.course.code} – {enriched.course.title}"
+            if enriched.course else str(row.course_id)
+        )
+        faculty_email = enriched.faculty.email if enriched.faculty else None
+        await _notify_safe(
+            notification_type=NotificationType.COURSE_ASSIGNMENT_REVOKED,
+            recipient_user_id=row.faculty_user_id,
+            recipient_email=faculty_email,
+            title="Course Assignment Removed",
+            body=f"Your assignment for course \"{course_label}\" has been removed.",
+            entity_type="SubjectAssignment",
+            entity_id=str(assignment_id),
+            db=db,
+        )
+
+        return enriched
 
     @staticmethod
     async def list_all(

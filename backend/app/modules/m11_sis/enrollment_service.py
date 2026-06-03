@@ -11,6 +11,7 @@ Business rules:
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from sqlalchemy import select
@@ -31,6 +32,8 @@ from app.modules.m11_sis.enrollment_schemas import (
     StudentSummaryOut,
 )
 
+logger = logging.getLogger("vidya.sis.enrollment")
+
 
 class EnrollmentServiceError(Exception):
     def __init__(self, code: str, message: str, status_code: int = 400) -> None:
@@ -38,6 +41,44 @@ class EnrollmentServiceError(Exception):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+async def _notify_safe(
+    *,
+    notification_type,
+    recipient_user_id: UUID,
+    recipient_email: str | None,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: str,
+    db: AsyncSession,
+) -> None:
+    """Fire-and-forget notification. Never raises — a failure is logged only."""
+    try:
+        from app.core.notifications.service import NotificationService
+        await NotificationService.send(
+            notification_type,
+            recipient_user_id=recipient_user_id,
+            recipient_email=recipient_email,
+            title=title,
+            body=body,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            db=db,
+        )
+    except Exception:
+        logger.warning(
+            "notification_failed type=%s recipient=%s entity_id=%s",
+            notification_type,
+            recipient_user_id,
+            entity_id,
+            exc_info=True,
+        )
 
 
 class EnrollmentService:
@@ -114,6 +155,19 @@ class EnrollmentService:
                 "section_id": str(body.section_id),
             },
         )
+
+        from app.core.notifications.models import NotificationType
+        await _notify_safe(
+            notification_type=NotificationType.ENROLLMENT_CREATED,
+            recipient_user_id=user.id,
+            recipient_email=user.email,
+            title="Enrollment Confirmed",
+            body=f"You have been enrolled in section \"{section.name}\".",
+            entity_type="acad_enrollment",
+            entity_id=str(enrollment.id),
+            db=db,
+        )
+
         return EnrollmentOut.model_validate(enrollment)
 
     @staticmethod
@@ -134,6 +188,12 @@ class EnrollmentService:
             )
 
         student_id = enrollment.student_id
+
+        # Fetch student email before unenroll so we can notify after commit
+        student = (
+            await db.execute(select(User).where(User.id == student_id))
+        ).scalar_one_or_none()
+
         await EnrollmentRepository.unenroll(enrollment, db)
         await db.commit()
 
@@ -147,6 +207,19 @@ class EnrollmentService:
             target_id=str(enrollment_id),
             metadata={"student_id": str(student_id)},
         )
+
+        if student is not None:
+            from app.core.notifications.models import NotificationType
+            await _notify_safe(
+                notification_type=NotificationType.ENROLLMENT_UNENROLLED,
+                recipient_user_id=student.id,
+                recipient_email=student.email,
+                title="Enrollment Removed",
+                body="Your section enrollment has been removed.",
+                entity_type="acad_enrollment",
+                entity_id=str(enrollment_id),
+                db=db,
+            )
 
     @staticmethod
     async def move_student(
@@ -181,6 +254,11 @@ class EnrollmentService:
         if not target.is_active:
             raise EnrollmentServiceError("SECTION_INACTIVE", "Target section is not active.", 409)
 
+        # Fetch student email before the move for post-commit notification
+        student = (
+            await db.execute(select(User).where(User.id == enrollment.student_id))
+        ).scalar_one_or_none()
+
         from_section_id = enrollment.section_id
         enrollment = await EnrollmentRepository.move(enrollment, body.target_section_id, db)
         await db.commit()
@@ -199,6 +277,20 @@ class EnrollmentService:
                 "to_section_id": str(body.target_section_id),
             },
         )
+
+        if student is not None:
+            from app.core.notifications.models import NotificationType
+            await _notify_safe(
+                notification_type=NotificationType.ENROLLMENT_MOVED,
+                recipient_user_id=student.id,
+                recipient_email=student.email,
+                title="Section Transfer",
+                body=f"You have been moved to section \"{target.name}\".",
+                entity_type="acad_enrollment",
+                entity_id=str(enrollment_id),
+                db=db,
+            )
+
         return EnrollmentOut.model_validate(enrollment)
 
     @staticmethod

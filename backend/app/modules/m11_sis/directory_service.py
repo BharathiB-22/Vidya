@@ -6,11 +6,14 @@ All profile mutations are audit-logged.
 """
 from __future__ import annotations
 
+import logging
 import math
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger("vidya.sis.directory")
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
@@ -45,6 +48,39 @@ class DirectoryServiceError(Exception):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+async def _notify_safe(
+    *,
+    notification_type,
+    recipient_user_id: UUID,
+    recipient_email: str | None,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: str,
+    db,
+) -> None:
+    """Fire-and-forget notification. Never raises — a failure is logged only."""
+    try:
+        from app.core.notifications.service import NotificationService
+        await NotificationService.send(
+            notification_type,
+            recipient_user_id=recipient_user_id,
+            recipient_email=recipient_email,
+            title=title,
+            body=body,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            db=db,
+        )
+    except Exception:
+        logger.warning(
+            "notification_failed type=%s recipient=%s",
+            notification_type,
+            recipient_user_id,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +241,31 @@ class StudentDirectoryService:
             target_id=str(user_id),
             metadata={"fields_updated": list(updates.keys())},
         )
+
+        from app.core.notifications.models import NotificationType
+        if "usn" in updates:
+            await _notify_safe(
+                notification_type=NotificationType.USN_ASSIGNED,
+                recipient_user_id=target.id,
+                recipient_email=target.email,
+                title="USN Assigned",
+                body=f"Your University Serial Number (USN) has been set to \"{updates['usn']}\".",
+                entity_type="sis_student_profile",
+                entity_id=str(user_id),
+                db=db,
+            )
+        if "admission_year" in updates:
+            await _notify_safe(
+                notification_type=NotificationType.ADMISSION_YEAR_ASSIGNED,
+                recipient_user_id=target.id,
+                recipient_email=target.email,
+                title="Admission Year Assigned",
+                body=f"Your admission year has been set to {updates['admission_year']}.",
+                entity_type="sis_student_profile",
+                entity_id=str(user_id),
+                db=db,
+            )
+
         return await StudentDirectoryService.get_detail(user_id, db)
 
     @staticmethod
