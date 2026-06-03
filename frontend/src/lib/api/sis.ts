@@ -201,6 +201,45 @@ export interface FacultyProfileUpsert {
   photo_url?: string
 }
 
+// ---------------------------------------------------------------------------
+// Bulk profile import (H53)
+// ---------------------------------------------------------------------------
+
+export interface ProfileImportRowResult {
+  row_number:              number
+  email:                   string
+  student_name:            string | null
+  student_id:              string | null
+  usn:                     string | null
+  admission_year:          number | null
+  phone:                   string | null
+  address_line1:           string | null
+  address_city:            string | null
+  address_state:           string | null
+  emergency_contact_name:  string | null
+  emergency_contact_phone: string | null
+  is_valid:                boolean
+  errors:                  string[]
+}
+
+export interface ProfileImportPreviewResponse {
+  total_rows:               number
+  valid_rows:               number
+  invalid_rows:             number
+  not_found_in_db:          number
+  duplicate_email_in_file:  number
+  duplicate_usn_in_file:    number
+  duplicate_usn_in_db:      number
+  rows:                     ProfileImportRowResult[]
+}
+
+export interface ProfileImportCommitResult {
+  total:   number
+  updated: number
+  skipped: number
+  errors:  string[]
+}
+
 // Self-service schemas (H51) — narrower than admin upsert; excludes admin-only fields
 export interface StudentSelfServiceUpdate {
   phone?: string
@@ -315,4 +354,51 @@ export const sisApi = {
 
   updateMyFacultyProfile: (body: FacultySelfServiceUpdate) =>
     api.put<FacultyDetailOut>('/sis/me/faculty-profile', body).then(r => r.data),
+
+  // ---------------------------------------------------------------------------
+  // Bulk profile import (H53)
+  // ---------------------------------------------------------------------------
+
+  previewBulkProfileImport: (file: File): Promise<ProfileImportPreviewResponse> => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<ProfileImportPreviewResponse>(
+      '/sis/directory/students/import/preview',
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ).then(r => r.data)
+  },
+
+  commitBulkProfileImport: (file: File): Promise<ProfileImportCommitResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<ProfileImportCommitResult>(
+      '/sis/directory/students/import/commit',
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ).then(r => r.data)
+  },
+
+  downloadBulkProfileTemplateCsv: (): Promise<void> =>
+    api.get('/sis/directory/students/import/template.csv', { responseType: 'blob' }).then(r => {
+      _triggerSisDownload(r.data, 'student_profiles_template.csv', 'text/csv')
+    }),
+
+  downloadBulkProfileTemplateXlsx: (): Promise<void> =>
+    api.get('/sis/directory/students/import/template.xlsx', { responseType: 'blob' }).then(r => {
+      _triggerSisDownload(
+        r.data,
+        'student_profiles_template.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+    }),
+}
+
+function _triggerSisDownload(data: Blob, filename: string, mime: string) {
+  const url = URL.createObjectURL(new Blob([data], { type: mime }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }

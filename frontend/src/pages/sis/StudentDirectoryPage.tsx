@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Search, Users, GraduationCap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Search, Users, GraduationCap, ChevronLeft, ChevronRight, Upload } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
+import { Button } from '@/components/ui/button'
 import { sisApi } from '@/lib/api/sis'
 import type { StudentDirectoryItem } from '@/lib/api/sis'
 import { useQuery as useAcadQuery } from '@tanstack/react-query'
 import { academicsApi } from '@/lib/api/academics'
+import { useAuth } from '@/lib/auth'
+import { BulkProfileImportModal } from '@/components/sis/BulkProfileImportModal'
 
 function InitialsAvatar({ name }: { name: string }) {
   const initials = name.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase()
@@ -76,13 +79,19 @@ function StudentCard({ student, onClick }: { student: StudentDirectoryItem; onCl
 }
 
 export default function StudentDirectoryPage() {
-  const navigate = useNavigate()
+  const navigate    = useNavigate()
+  const { user }    = useAuth()
+  const queryClient = useQueryClient()
+
   const [search, setSearch]           = useState('')
   const [debouncedSearch, setDebounced] = useState('')
   const [page, setPage]               = useState(1)
   const [programId, setProgramId]     = useState<string>('')
   const [batchId, setBatchId]         = useState<string>('')
+  const [importOpen, setImportOpen]   = useState(false)
   const PAGE_SIZE = 24
+
+  const canImport = user?.role === 'ADMIN' || user?.role === 'DEAN'
 
   // Debounce search input
   function handleSearch(v: string) {
@@ -124,6 +133,17 @@ export default function StudentDirectoryPage() {
         icon={Users}
         title="Student Directory"
         subtitle={`${total} student${total !== 1 ? 's' : ''} in your institution`}
+        action={canImport ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setImportOpen(true)}
+            className="flex items-center gap-1.5"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Import Profiles
+          </Button>
+        ) : undefined}
       />
 
       {/* Filters */}
@@ -202,6 +222,17 @@ export default function StudentDirectoryPage() {
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
+      )}
+
+      {canImport && (
+        <BulkProfileImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['sis-student-directory'] })
+            setImportOpen(false)
+          }}
+        />
       )}
     </PageShell>
   )
