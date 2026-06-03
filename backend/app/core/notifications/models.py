@@ -27,6 +27,9 @@ class NotificationType(str, enum.Enum):
     # SIS Attendance — H55
     ATTENDANCE_SHORTAGE_WARNING = "ATTENDANCE_SHORTAGE_WARNING"
 
+    # SIS Internal Marks — H57
+    INTERNAL_MARKS_PUBLISHED = "INTERNAL_MARKS_PUBLISHED"
+
 
 class Notification(Base):
     __tablename__ = "notifications"

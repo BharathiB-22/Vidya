@@ -368,8 +368,8 @@ def test_sis_router_includes_attendance_router():
 
 def test_sis_router_total_route_count():
     from app.modules.m11_sis.router import router
-    # 5 schools + 7 enrollment + 11 directory + 4 me + 2 rollover + 15 attendance = 44
-    assert len(router.routes) == 44
+    # 5 schools + 7 enrollment + 11 directory + 4 me + 2 rollover + 15 attendance + 19 marks = 63
+    assert len(router.routes) == 63
 
 
 # ---------------------------------------------------------------------------

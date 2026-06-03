@@ -759,6 +759,302 @@ export const sisApi = {
     api.get<MyCourseAttendanceDetail>(`/sis/attendance/me/course/${courseId}`, {
       params: threshold !== undefined ? { threshold } : {},
     }).then(r => r.data),
+
+  // ---------------------------------------------------------------------------
+  // Internal Marks (H57)
+  // ---------------------------------------------------------------------------
+
+  listComponentTemplates: (): Promise<ComponentTemplate[]> =>
+    api.get<ComponentTemplate[]>('/sis/marks/component-templates').then(r => r.data),
+
+  createMarksComponent: (body: ComponentCreateIn): Promise<MarksComponent> =>
+    api.post<MarksComponent>('/sis/marks/components', body).then(r => r.data),
+
+  listMarksComponents: (params: {
+    course_id?: string; section_id?: string; semester_id?: string; status?: string
+  } = {}): Promise<MarksComponent[]> =>
+    api.get<MarksComponent[]>('/sis/marks/components', { params }).then(r => r.data),
+
+  getMarksComponent: (componentId: string): Promise<MarksComponent> =>
+    api.get<MarksComponent>(`/sis/marks/components/${componentId}`).then(r => r.data),
+
+  updateMarksComponent: (componentId: string, body: Partial<ComponentCreateIn>): Promise<MarksComponent> =>
+    api.put<MarksComponent>(`/sis/marks/components/${componentId}`, body).then(r => r.data),
+
+  deleteMarksComponent: (componentId: string): Promise<void> =>
+    api.delete(`/sis/marks/components/${componentId}`).then(r => r.data),
+
+  publishMarksComponent: (componentId: string): Promise<MarksComponent> =>
+    api.post<MarksComponent>(`/sis/marks/components/${componentId}/publish`).then(r => r.data),
+
+  lockMarksComponent: (componentId: string): Promise<MarksComponent> =>
+    api.post<MarksComponent>(`/sis/marks/components/${componentId}/lock`).then(r => r.data),
+
+  reopenMarksComponent: (componentId: string, reason: string): Promise<MarksComponent> =>
+    api.post<MarksComponent>(`/sis/marks/components/${componentId}/reopen`, { reason }).then(r => r.data),
+
+  getMarksEntries: (componentId: string): Promise<MarkEntryOut[]> =>
+    api.get<MarkEntryOut[]>(`/sis/marks/components/${componentId}/entries`).then(r => r.data),
+
+  bulkEnterMarks: (componentId: string, body: BulkMarkEntryIn): Promise<BulkMarkEntryResult> =>
+    api.post<BulkMarkEntryResult>(`/sis/marks/components/${componentId}/entries/bulk`, body).then(r => r.data),
+
+  editMarkEntry: (componentId: string, entryId: string, body: SingleMarkEditIn): Promise<MarkEntryOut> =>
+    api.patch<MarkEntryOut>(`/sis/marks/components/${componentId}/entries/${entryId}`, body).then(r => r.data),
+
+  downloadMarksTemplate: (componentId: string): Promise<void> =>
+    api.get(`/sis/marks/components/${componentId}/entries/template.xlsx`, { responseType: 'blob' }).then(r => {
+      _triggerSisDownload(
+        r.data,
+        `marks_template.xlsx`,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      )
+    }),
+
+  previewMarksImport: (componentId: string, file: File): Promise<MarksImportPreviewOut> => {
+    const form = new FormData()
+    form.append('file', file)
+    return api.post<MarksImportPreviewOut>(
+      `/sis/marks/components/${componentId}/entries/import/preview`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ).then(r => r.data)
+  },
+
+  commitMarksImport: (componentId: string, file: File, editReason?: string): Promise<MarksImportCommitResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    const params: Record<string, string> = {}
+    if (editReason) params.edit_reason = editReason
+    return api.post<MarksImportCommitResult>(
+      `/sis/marks/components/${componentId}/entries/import/commit`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' }, params },
+    ).then(r => r.data)
+  },
+
+  getSectionMarksReport: (sectionId: string, courseId?: string): Promise<SectionMarksReportOut> =>
+    api.get<SectionMarksReportOut>(`/sis/marks/analytics/section/${sectionId}`, {
+      params: courseId ? { course_id: courseId } : {},
+    }).then(r => r.data),
+
+  getSectionReadiness: (sectionId: string, threshold?: number): Promise<SectionReadinessOut> =>
+    api.get<SectionReadinessOut>(`/sis/marks/readiness/section/${sectionId}`, {
+      params: threshold !== undefined ? { threshold } : {},
+    }).then(r => r.data),
+
+  getMyCoursesOverview: (): Promise<FacultyCourseComponentSummary[]> =>
+    api.get<FacultyCourseComponentSummary[]>('/sis/marks/my-courses').then(r => r.data),
+
+  getMyMarks: (): Promise<MyMarksOut> =>
+    api.get<MyMarksOut>('/sis/marks/me').then(r => r.data),
+}
+
+// ---------------------------------------------------------------------------
+// H57 Internal Marks types
+// ---------------------------------------------------------------------------
+
+export interface ComponentTemplate {
+  template_key: string
+  component_type: string
+  name: string
+  max_marks: number
+  display_order: number
+}
+
+export interface MarksComponent {
+  id: string
+  course_id: string
+  course_code: string | null
+  course_title: string | null
+  section_id: string
+  section_name: string | null
+  semester_id: string
+  created_by: string
+  component_type: string
+  name: string
+  max_marks: number
+  weightage: number | null
+  due_date: string | null
+  display_order: number | null
+  status: 'DRAFT' | 'PUBLISHED' | 'LOCKED'
+  published_at: string | null
+  locked_at: string | null
+  locked_by: string | null
+  reopened_by: string | null
+  reopened_at: string | null
+  reopen_reason: string | null
+  is_active: boolean
+  entries_count: number
+  filled_count: number
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ComponentCreateIn {
+  course_id: string
+  section_id: string
+  semester_id: string
+  component_type: string
+  name: string
+  max_marks: number
+  weightage?: number
+  due_date?: string
+  display_order?: number
+}
+
+export interface MarkEntryItem {
+  student_id: string
+  marks_obtained: number | null
+  remarks?: string
+}
+
+export interface BulkMarkEntryIn {
+  entries: MarkEntryItem[]
+  edit_reason?: string
+}
+
+export interface SingleMarkEditIn {
+  marks_obtained?: number | null
+  remarks?: string
+  edit_reason?: string
+}
+
+export interface MarkEntryOut {
+  id: string
+  component_id: string
+  student_id: string
+  student_name: string | null
+  usn: string | null
+  marks_obtained: number | null
+  remarks: string | null
+  marked_by: string | null
+  marked_at: string | null
+  edited_by: string | null
+  edited_at: string | null
+  edit_reason: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+export interface BulkMarkEntryResult {
+  component_id: string
+  saved: number
+  first_marks: number
+  edits: number
+}
+
+export interface MarksImportRowResult {
+  row_number: number
+  student_name: string | null
+  student_id: string | null
+  usn: string | null
+  email: string | null
+  marks_obtained: number | null
+  remarks: string | null
+  is_valid: boolean
+  errors: string[]
+}
+
+export interface MarksImportPreviewOut {
+  component_id: string
+  component_name: string
+  max_marks: number
+  total_rows: number
+  valid_rows: number
+  invalid_rows: number
+  rows: MarksImportRowResult[]
+}
+
+export interface MarksImportCommitResult {
+  component_id: string
+  total: number
+  saved: number
+  skipped: number
+  errors: string[]
+}
+
+export interface StudentComponentView {
+  component_id: string
+  component_type: string
+  name: string
+  max_marks: number
+  weightage: number | null
+  due_date: string | null
+  display_order: number | null
+  status: 'PUBLISHED' | 'LOCKED'
+  marks_obtained: number | null
+  remarks: string | null
+}
+
+export interface StudentCourseMarks {
+  course_id: string
+  course_code: string
+  course_title: string
+  section_id: string
+  section_name: string
+  total_marks_obtained: number | null
+  total_max_marks: number | null
+  components: StudentComponentView[]
+}
+
+export interface MyMarksOut {
+  student_id: string
+  student_name: string
+  usn: string | null
+  courses: StudentCourseMarks[]
+}
+
+export interface SectionStudentMarks {
+  student_id: string
+  student_name: string
+  usn: string | null
+  total_marks: number | null
+  total_max: number | null
+  fill_pct: number | null
+}
+
+export interface SectionMarksReportOut {
+  section_id: string
+  section_name: string
+  course_id: string
+  course_code: string
+  course_title: string
+  components: MarksComponent[]
+  students: SectionStudentMarks[]
+}
+
+export interface FacultyCourseComponentSummary {
+  course_id: string
+  course_code: string
+  course_title: string
+  section_id: string
+  section_name: string
+  total_students: number
+  components: MarksComponent[]
+}
+
+export interface StudentReadiness {
+  student_id: string
+  student_name: string
+  usn: string | null
+  attendance_ready: boolean
+  internal_marks_ready: boolean
+  attendance_pct: number | null
+  marks_fill_pct: number | null
+  notes: string[]
+}
+
+export interface SectionReadinessOut {
+  section_id: string
+  section_name: string
+  course_id: string | null
+  course_code: string | null
+  total_students: number
+  attendance_ready_count: number
+  internal_marks_ready_count: number
+  fully_ready_count: number
+  students: StudentReadiness[]
 }
 
 function _triggerSisDownload(data: Blob, filename: string, mime: string) {

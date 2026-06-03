@@ -86,6 +86,10 @@ import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
 import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
 import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
 import FacultyShortageReportPage from '@/pages/sis/FacultyShortageReportPage'
+import InternalMarksSetupPage from '@/pages/sis/InternalMarksSetupPage'
+import InternalMarkEntryPage from '@/pages/sis/InternalMarkEntryPage'
+import InternalMarksReportPage from '@/pages/sis/InternalMarksReportPage'
+import MyMarksPage from '@/pages/sis/MyMarksPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -185,6 +189,22 @@ export default function App() {
           {/* Attendance — Student self-view */}
           <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
             <Route path="/sis/attendance/me" element={<AttendanceSummaryPage />} />
+          </Route>
+
+          {/* Internal Marks — Faculty */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
+            <Route path="/sis/marks/setup"          element={<InternalMarksSetupPage />} />
+            <Route path="/sis/marks/entry/:componentId" element={<InternalMarkEntryPage />} />
+          </Route>
+
+          {/* Internal Marks — Dean/Admin */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/marks/report" element={<InternalMarksReportPage />} />
+          </Route>
+
+          {/* Internal Marks — Student self-view */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
+            <Route path="/sis/marks/me" element={<MyMarksPage />} />
           </Route>
 
           {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}

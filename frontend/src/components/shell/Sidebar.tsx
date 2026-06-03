@@ -57,7 +57,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Lab Assignments',      to: '/labs',                 icon: FlaskConical,  roles: ['FACULTY'] },
       { label: 'Research Supervision', to: '/research/problems',    icon: Microscope,    roles: ['FACULTY'] },
       { label: 'Exam Papers',          to: '/exams',                icon: FileText,      roles: ['FACULTY'] },
-      { label: 'Internal Marks',       to: '/exams/internal-marks', icon: BookMarked,    roles: ['FACULTY'] },
+      { label: 'Internal Marks',       to: '/sis/marks/setup',      icon: BookMarked,    roles: ['FACULTY'] },
       { label: 'My Evaluations',       to: '/scripts/evaluator',    icon: ClipboardList, roles: ['FACULTY'] },
     ],
   },
@@ -68,7 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Syllabus Review',    to: '/dean-review',           icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'Course Assignments', to: '/course-assignments',    icon: UserCheck,      roles: ['DEAN'] },
-      { label: 'Internal Marks',     to: '/exams/internal-marks',  icon: BookMarked,     roles: ['DEAN'] },
+      { label: 'Internal Marks Report', to: '/sis/marks/report',    icon: BookMarked,     roles: ['DEAN'] },
       { label: 'Grade Analytics',    to: '/bell-curve',            icon: BarChart2,      roles: ['DEAN'] },
     ],
   },
@@ -91,6 +91,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Student Directory',     to: '/sis/directory/students',      icon: GraduationCap,   roles: ['DEAN'] },
       { label: 'Faculty Directory',     to: '/sis/directory/faculty',       icon: UserCheck,       roles: ['DEAN', 'FACULTY'] },
       { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',    icon: CalendarCheck,   roles: ['DEAN'] },
+      { label: 'Internal Marks Report', to: '/sis/marks/report',             icon: BookMarked,      roles: ['DEAN'] },
     ],
   },
 
@@ -119,6 +120,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Course Assignments',    to: '/course-assignments',        icon: ClipboardCheck, roles: ['ADMIN'] },
       { label: 'Semester Rollover',     to: '/sis/rollover',              icon: RefreshCw,      roles: ['ADMIN'] },
       { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',  icon: CalendarCheck,  roles: ['ADMIN'] },
+      { label: 'Internal Marks Report', to: '/sis/marks/report',           icon: BookMarked,     roles: ['ADMIN'] },
     ],
   },
 
@@ -159,6 +161,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'My Labs',       to: '/student/labs',         icon: FlaskConical,  roles: ['STUDENT'] },
       { label: 'My Research',   to: '/student/research',     icon: Microscope,    roles: ['STUDENT'] },
       { label: 'My Attendance', to: '/sis/attendance/me',    icon: CalendarCheck, roles: ['STUDENT'] },
+      { label: 'My Marks',      to: '/sis/marks/me',         icon: BookMarked,    roles: ['STUDENT'] },
       { label: 'My Profile',    to: '/sis/me/profile',       icon: UserCircle2,   roles: ['STUDENT'] },
     ],
   },
