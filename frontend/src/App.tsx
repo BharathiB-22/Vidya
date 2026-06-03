@@ -77,6 +77,9 @@ import SisDepartmentsPage from '@/pages/sis/DepartmentsPage'
 import SisDashboardPage from '@/pages/sis/SisDashboardPage'
 import RosterPage from '@/pages/sis/RosterPage'
 import StudentProfilePage from '@/pages/sis/StudentProfilePage'
+import StudentDirectoryPage from '@/pages/sis/StudentDirectoryPage'
+import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
+import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -148,11 +151,15 @@ export default function App() {
 
           {/* SIS — ADMIN and DEAN */}
           <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
-            <Route path="/sis"                            element={<SisDashboardPage />} />
-            <Route path="/sis/roster"                     element={<RosterPage />} />
-            <Route path="/sis/students/:student_id"       element={<StudentProfilePage />} />
-            <Route path="/sis/schools"                    element={<SchoolsPage />} />
-            <Route path="/sis/departments"                element={<SisDepartmentsPage />} />
+            <Route path="/sis"                                    element={<SisDashboardPage />} />
+            <Route path="/sis/roster"                          element={<RosterPage />} />
+            <Route path="/sis/students/:student_id"            element={<StudentProfilePage />} />
+            <Route path="/sis/schools"                         element={<SchoolsPage />} />
+            <Route path="/sis/departments"                     element={<SisDepartmentsPage />} />
+            <Route path="/sis/directory/students"                 element={<StudentDirectoryPage />} />
+            <Route path="/sis/directory/students/:student_id"  element={<StudentProfilePage />} />
+            <Route path="/sis/directory/faculty"               element={<FacultyDirectoryPage />} />
+            <Route path="/sis/directory/faculty/:user_id"      element={<FacultyProfilePage />} />
           </Route>
 
           {/* User management & settings — ADMIN only */}

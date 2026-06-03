@@ -113,6 +113,8 @@ class StudentProfileOut(BaseModel):
     full_name: str
     email: str
     identifier: Optional[str]
+    usn: Optional[str]
+    admission_year: Optional[int]
     program: Optional[ProgramSummary]
     department: Optional[DeptSummary]
     batch: Optional[BatchSummary]
@@ -131,3 +133,5 @@ class DashboardCountsOut(BaseModel):
     semesters: int
     sections: int
     enrolled_students: int
+    total_students: int
+    total_faculty: int

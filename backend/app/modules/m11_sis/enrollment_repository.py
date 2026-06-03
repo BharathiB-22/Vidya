@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.models import TenantRole, User
-from app.modules.m11_sis.models import SisSchool
+from app.modules.m11_sis.models import SisSchool, SisStudentProfile
 from app.modules.m_academics.models import (
     AcadBatch, AcadDepartment, AcadEnrollment,
     AcadProgram, AcadSection, AcadSemester,
@@ -205,6 +205,13 @@ class EnrollmentRepository:
         if user is None:
             return None
 
+        # 1b. Extended student profile (USN, admission year)
+        sis_profile = (
+            await db.execute(
+                select(SisStudentProfile).where(SisStudentProfile.user_id == student_id)
+            )
+        ).scalar_one_or_none()
+
         # 2. Program + Department + Batch (via users.acad_program_id)
         program_out: Optional[ProgramSummary] = None
         dept_out: Optional[DeptSummary] = None
@@ -274,6 +281,8 @@ class EnrollmentRepository:
             full_name=user.full_name,
             email=user.email,
             identifier=user.identifier,
+            usn=sis_profile.usn if sis_profile else None,
+            admission_year=sis_profile.admission_year if sis_profile else None,
             program=program_out,
             department=dept_out,
             batch=batch_out,
@@ -292,6 +301,15 @@ class EnrollmentRepository:
                 stmt = stmt.where(model.is_active.is_(True))
             return (await db.execute(stmt)).scalar() or 0
 
+        async def _count_role(role: TenantRole) -> int:
+            stmt = (
+                select(func.count())
+                .select_from(User)
+                .where(User.role == role)
+                .where(User.is_active.is_(True))
+            )
+            return (await db.execute(stmt)).scalar() or 0
+
         return DashboardCountsOut(
             schools=await _count(SisSchool),
             departments=await _count(AcadDepartment),
@@ -300,4 +318,6 @@ class EnrollmentRepository:
             semesters=await _count(AcadSemester),
             sections=await _count(AcadSection),
             enrolled_students=await _count(AcadEnrollment),
+            total_students=await _count_role(TenantRole.STUDENT),
+            total_faculty=await _count_role(TenantRole.FACULTY),
         )

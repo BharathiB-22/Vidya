@@ -320,6 +320,10 @@ class AuditEventType(str, enum.Enum):
     ENROLLMENT_UNENROLLED = "ENROLLMENT_UNENROLLED"
     ENROLLMENT_MOVED      = "ENROLLMENT_MOVED"
 
+    # SIS Directory — H50
+    STUDENT_PROFILE_UPDATED = "STUDENT_PROFILE_UPDATED"
+    FACULTY_PROFILE_UPDATED = "FACULTY_PROFILE_UPDATED"
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

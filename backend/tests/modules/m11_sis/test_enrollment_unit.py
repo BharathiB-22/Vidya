@@ -232,5 +232,5 @@ def test_sis_router_includes_enrollment_routes():
 
 def test_sis_router_total_routes():
     from app.modules.m11_sis.router import router
-    # 5 school routes + 7 enrollment routes = 12
-    assert len(router.routes) == 12
+    # 5 school + 7 enrollment + 7 directory = 19
+    assert len(router.routes) == 19

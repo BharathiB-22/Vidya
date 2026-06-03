@@ -84,8 +84,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Student Information System',
     items: [
-      { label: 'Enrollment Overview', to: '/sis',        icon: LayoutDashboard, roles: ['DEAN'], exact: true },
-      { label: 'Enrollment Roster',   to: '/sis/roster', icon: UsersRound,      roles: ['DEAN'] },
+      { label: 'Enrollment Overview', to: '/sis',                     icon: LayoutDashboard, roles: ['DEAN'], exact: true },
+      { label: 'Enrollment Roster',   to: '/sis/roster',              icon: UsersRound,      roles: ['DEAN'] },
+      { label: 'Student Directory',   to: '/sis/directory/students',  icon: GraduationCap,   roles: ['DEAN'] },
+      { label: 'Faculty Directory',   to: '/sis/directory/faculty',   icon: UserCheck,       roles: ['DEAN', 'FACULTY'] },
     ],
   },
 
@@ -106,10 +108,12 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'People & Enrollment',
     items: [
-      { label: 'Users',              to: '/users',                 icon: Users,      roles: ['ADMIN'] },
-      { label: 'Import Users',       to: '/users/bulk-onboarding', icon: UserPlus,   roles: ['ADMIN'] },
-      { label: 'Enrollment Roster',  to: '/sis/roster',            icon: UsersRound, roles: ['ADMIN'] },
-      { label: 'Course Assignments', to: '/course-assignments',    icon: UserCheck,  roles: ['ADMIN'] },
+      { label: 'Users',              to: '/users',                        icon: Users,        roles: ['ADMIN'] },
+      { label: 'Import Users',       to: '/users/bulk-onboarding',        icon: UserPlus,     roles: ['ADMIN'] },
+      { label: 'Enrollment Roster',  to: '/sis/roster',                   icon: UsersRound,   roles: ['ADMIN'] },
+      { label: 'Student Directory',  to: '/sis/directory/students',       icon: GraduationCap,roles: ['ADMIN'] },
+      { label: 'Faculty Directory',  to: '/sis/directory/faculty',        icon: UserCheck,    roles: ['ADMIN'] },
+      { label: 'Course Assignments', to: '/course-assignments',           icon: ClipboardCheck, roles: ['ADMIN'] },
     ],
   },
 

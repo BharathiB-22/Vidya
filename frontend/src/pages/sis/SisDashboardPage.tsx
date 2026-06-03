@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  School2, Building2, GraduationCap, CalendarRange, LayoutList, Calendar, Users,
+  School2, Building2, GraduationCap, CalendarRange, LayoutList, Calendar, Users, UserCheck,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
@@ -78,6 +78,14 @@ export default function SisDashboardPage() {
     {
       key: 'enrolled', label: 'Enrolled Students', icon: Users, to: '/sis/roster',
       value: counts?.enrolled_students ?? '–', accentColor: '#34d399',
+    },
+    {
+      key: 'students', label: 'Total Students', icon: GraduationCap, to: '/sis/directory/students',
+      value: counts?.total_students ?? '–', accentColor: '#6366f1',
+    },
+    {
+      key: 'faculty', label: 'Faculty Members', icon: UserCheck, to: '/sis/directory/faculty',
+      value: counts?.total_faculty ?? '–', accentColor: '#10b981',
     },
   ]
 

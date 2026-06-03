@@ -170,9 +170,17 @@ export default function StudentProfilePage() {
 
       {/* Student info */}
       <Card title="Student" icon={UserCircle2}>
-        <InfoRow label="Full name"   value={profile.full_name} />
-        <InfoRow label="Email"       value={profile.email} />
-        <InfoRow label="Identifier"  value={profile.identifier ?? '—'} />
+        <InfoRow label="Full name"      value={profile.full_name} />
+        <InfoRow label="Email"          value={profile.email} />
+        <InfoRow label="Identifier"     value={profile.identifier ?? '—'} />
+        {profile.usn && (
+          <InfoRow label="USN" value={
+            <span className="font-mono text-indigo-300">{profile.usn}</span>
+          } />
+        )}
+        {profile.admission_year && (
+          <InfoRow label="Admission year" value={String(profile.admission_year)} />
+        )}
       </Card>
 
       {/* Academic path */}
