@@ -169,8 +169,8 @@ def test_me_router_faculty_rbac():
 
 def test_sis_router_includes_me_routes():
     from app.modules.m11_sis.router import router
-    # 5 school + 7 enrollment + 11 directory + 4 me = 27
-    assert len(router.routes) == 27
+    # 5 school + 7 enrollment + 11 directory + 4 me + 2 rollover = 29
+    assert len(router.routes) == 29
 
 
 # ---------------------------------------------------------------------------

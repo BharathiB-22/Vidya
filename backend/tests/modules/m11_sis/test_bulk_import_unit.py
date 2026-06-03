@@ -182,8 +182,8 @@ def test_preview_has_at_least_one_field_check():
 
 def test_sis_router_total_route_count():
     from app.modules.m11_sis.router import router
-    # 5 school + 7 enrollment + 11 directory + 4 me = 27
-    assert len(router.routes) == 27
+    # 5 school + 7 enrollment + 11 directory + 4 me + 2 rollover = 29
+    assert len(router.routes) == 29
 
 
 # ---------------------------------------------------------------------------

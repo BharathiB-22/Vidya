@@ -4,7 +4,7 @@ import {
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
-  BookLock, School2, UsersRound, UserCircle2,
+  BookLock, School2, UsersRound, UserCircle2, RefreshCw,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -114,6 +114,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Student Directory',  to: '/sis/directory/students',       icon: GraduationCap,roles: ['ADMIN'] },
       { label: 'Faculty Directory',  to: '/sis/directory/faculty',        icon: UserCheck,    roles: ['ADMIN'] },
       { label: 'Course Assignments', to: '/course-assignments',           icon: ClipboardCheck, roles: ['ADMIN'] },
+      { label: 'Semester Rollover',  to: '/sis/rollover',                 icon: RefreshCw,      roles: ['ADMIN'] },
     ],
   },
 

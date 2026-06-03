@@ -81,6 +81,7 @@ import StudentDirectoryPage from '@/pages/sis/StudentDirectoryPage'
 import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
+import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -159,6 +160,11 @@ export default function App() {
             <Route path="/sis/departments"                       element={<SisDepartmentsPage />} />
             <Route path="/sis/directory/students"                element={<StudentDirectoryPage />} />
             <Route path="/sis/directory/students/:student_id"    element={<StudentProfilePage />} />
+          </Route>
+
+          {/* SIS Semester Rollover — ADMIN only */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
+            <Route path="/sis/rollover" element={<SemesterRolloverPage />} />
           </Route>
 
           {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}

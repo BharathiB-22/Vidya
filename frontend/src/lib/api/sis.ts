@@ -240,6 +240,64 @@ export interface ProfileImportCommitResult {
   errors:  string[]
 }
 
+// ---------------------------------------------------------------------------
+// Semester rollover (H54)
+// ---------------------------------------------------------------------------
+
+export type RolloverScope = 'all_programs' | 'program' | 'batch' | 'semester'
+
+export interface RolloverScopeIn {
+  scope: RolloverScope
+  program_id?:         string
+  batch_id?:           string
+  source_semester_id?: string
+}
+
+export interface RolloverRowOut {
+  enrollment_id:           string
+  student_id:              string
+  student_name:            string
+  student_email:           string
+  current_section_id:      string
+  current_section_name:    string
+  current_semester_number: number
+  batch_name:              string
+  program_name:            string
+  target_semester_number:  number | null
+  target_section_id:       string | null
+  target_section_name:     string | null
+  status:                  'ready' | 'blocked'
+  reason:                  string | null
+}
+
+export interface RolloverSummary {
+  total:   number
+  ready:   number
+  blocked: number
+}
+
+export interface RolloverPreviewResponse {
+  scope:   string
+  summary: RolloverSummary
+  rows:    RolloverRowOut[]
+}
+
+export interface RolloverCommitRowResult {
+  enrollment_id:     string
+  student_id:        string
+  student_name:      string
+  target_section_id: string | null
+  outcome:           'moved' | 'skipped' | 'error'
+  reason:            string | null
+}
+
+export interface RolloverCommitResult {
+  moved:   number
+  skipped: number
+  errors:  number
+  rows:    RolloverCommitRowResult[]
+}
+
 // Self-service schemas (H51) — narrower than admin upsert; excludes admin-only fields
 export interface StudentSelfServiceUpdate {
   phone?: string
@@ -392,6 +450,16 @@ export const sisApi = {
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       )
     }),
+
+  // ---------------------------------------------------------------------------
+  // Semester rollover (H54)
+  // ---------------------------------------------------------------------------
+
+  rolloverPreview: (body: RolloverScopeIn): Promise<RolloverPreviewResponse> =>
+    api.post<RolloverPreviewResponse>('/sis/rollover/preview', body).then(r => r.data),
+
+  rolloverCommit: (body: RolloverScopeIn): Promise<RolloverCommitResult> =>
+    api.post<RolloverCommitResult>('/sis/rollover/commit', body).then(r => r.data),
 }
 
 function _triggerSisDownload(data: Blob, filename: string, mime: string) {
