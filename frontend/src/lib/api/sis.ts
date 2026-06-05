@@ -848,6 +848,82 @@ export const sisApi = {
 
   getMyMarks: (): Promise<MyMarksOut> =>
     api.get<MyMarksOut>('/sis/marks/me').then(r => r.data),
+
+  // ── H60 Results Management ──────────────────────────────────────────────────
+
+  createDeclaration: (body: {
+    exam_session_id: string
+    semester_id: string
+    grading_policy_id: string
+    declaration_type?: string
+    title?: string
+    notes?: string
+    internal_marks_required?: boolean
+  }): Promise<ResultDeclarationOut> =>
+    api.post<ResultDeclarationOut>('/sis/results/declarations', body).then(r => r.data),
+
+  listGradingPolicies: (): Promise<GradingPolicyListOut[]> =>
+    api.get<GradingPolicyListOut[]>('/sis/results/grading-policies').then(r => r.data),
+
+  listDeclarations: (params?: { semester_id?: string; status?: string; declaration_type?: string }): Promise<ResultDeclarationListOut[]> =>
+    api.get<ResultDeclarationListOut[]>('/sis/results/declarations', { params }).then(r => r.data),
+
+  getDeclaration: (id: string): Promise<ResultDeclarationOut> =>
+    api.get<ResultDeclarationOut>(`/sis/results/declarations/${id}`).then(r => r.data),
+
+  getComputationStatus: (id: string): Promise<ComputationStatusOut> =>
+    api.get<ComputationStatusOut>(`/sis/results/declarations/${id}/computation-status`).then(r => r.data),
+
+  computeResults: (id: string, force = false): Promise<ComputeResultOut> =>
+    api.post<ComputeResultOut>(`/sis/results/declarations/${id}/compute`, { force }).then(r => r.data),
+
+  computeSgpaCgpa: (id: string): Promise<SemesterResultOut[]> =>
+    api.post<SemesterResultOut[]>(`/sis/results/declarations/${id}/compute-sgpa-cgpa`).then(r => r.data),
+
+  computeRanks: (id: string): Promise<SemesterResultOut[]> =>
+    api.post<SemesterResultOut[]>(`/sis/results/declarations/${id}/compute-ranks`).then(r => r.data),
+
+  verifyDeclaration: (id: string): Promise<ResultDeclarationOut> =>
+    api.post<ResultDeclarationOut>(`/sis/results/declarations/${id}/verify`).then(r => r.data),
+
+  publishDeclaration: (id: string): Promise<ResultDeclarationOut> =>
+    api.post<ResultDeclarationOut>(`/sis/results/declarations/${id}/publish`).then(r => r.data),
+
+  lockDeclaration: (id: string): Promise<ResultDeclarationOut> =>
+    api.post<ResultDeclarationOut>(`/sis/results/declarations/${id}/lock`).then(r => r.data),
+
+  revertToDraft: (id: string, reason: string): Promise<ResultDeclarationOut> =>
+    api.post<ResultDeclarationOut>(`/sis/results/declarations/${id}/revert-to-draft`, { reason }).then(r => r.data),
+
+  listGradeCards: (id: string, params?: { section_id?: string }): Promise<GradeCardOut[]> =>
+    api.get<GradeCardOut[]>(`/sis/results/declarations/${id}/grade-cards`, { params }).then(r => r.data),
+
+  getGradeCard: (declId: string, studentId: string): Promise<GradeCardOut> =>
+    api.get<GradeCardOut>(`/sis/results/declarations/${declId}/grade-cards/${studentId}`).then(r => r.data),
+
+  getRankList: (id: string, scope = 'program'): Promise<RankListOut> =>
+    api.get<RankListOut>(`/sis/results/declarations/${id}/rank-list`, { params: { scope } }).then(r => r.data),
+
+  listGraceMarks: (id: string): Promise<GraceMarkLogOut[]> =>
+    api.get<GraceMarkLogOut[]>(`/sis/results/declarations/${id}/grace-marks`).then(r => r.data),
+
+  applyGraceMark: (id: string, body: { student_id: string; course_id: string; grace_marks_applied: number; reason: string }): Promise<GraceMarkLogOut> =>
+    api.post<GraceMarkLogOut>(`/sis/results/declarations/${id}/grace-marks`, body).then(r => r.data),
+
+  revokeGraceMark: (declId: string, logId: string, revoke_reason: string): Promise<void> =>
+    api.delete(`/sis/results/declarations/${declId}/grace-marks/${logId}`, { data: { revoke_reason } }).then(() => {}),
+
+  getMyResults: (): Promise<SemesterResultOut[]> =>
+    api.get<SemesterResultOut[]>('/sis/results/my-results').then(r => r.data),
+
+  getMyGradeCard: (declId: string): Promise<GradeCardOut> =>
+    api.get<GradeCardOut>(`/sis/results/my-grade-card/${declId}`).then(r => r.data),
+
+  getMyTranscript: (): Promise<TranscriptOut> =>
+    api.get<TranscriptOut>('/sis/results/my-transcript').then(r => r.data),
+
+  getStudentTranscript: (studentId: string): Promise<TranscriptOut> =>
+    api.get<TranscriptOut>(`/sis/results/students/${studentId}/transcript`).then(r => r.data),
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,6 +1131,183 @@ export interface SectionReadinessOut {
   internal_marks_ready_count: number
   fully_ready_count: number
   students: StudentReadiness[]
+}
+
+// ---------------------------------------------------------------------------
+// H60 Results Management types
+// ---------------------------------------------------------------------------
+
+export interface GradingPolicyListOut {
+  id: string
+  name: string
+  program_id: string | null
+  pass_percentage: number
+  is_default: boolean
+  is_active: boolean
+  band_count: number
+}
+
+export interface ResultDeclarationListOut {
+  id: string
+  semester_id: string
+  snapshot_academic_year: string
+  snapshot_semester_name: string
+  snapshot_grading_policy_name: string
+  declaration_type: string
+  title: string | null
+  status: string
+  published_at: string | null
+  created_at: string
+}
+
+export interface ResultDeclarationOut {
+  id: string
+  exam_session_id: string
+  semester_id: string
+  snapshot_academic_year: string
+  snapshot_semester_name: string
+  snapshot_grading_policy_name: string
+  declaration_type: string
+  source_declaration_id: string | null
+  grading_policy_id: string
+  title: string | null
+  notes: string | null
+  internal_marks_required: boolean
+  status: string
+  verified_by: string | null
+  verified_at: string | null
+  published_by: string | null
+  published_at: string | null
+  locked_by: string | null
+  locked_at: string | null
+  created_by: string
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ComputationStatusOut {
+  declaration_id: string
+  total_expected: number
+  external_marks_entered: number
+  external_marks_pending: number
+  internal_marks_locked: boolean
+  ready_to_compute: boolean
+  blocking_reasons: string[]
+}
+
+export interface ComputeResultOut {
+  declaration_id: string
+  computed_count: number
+  pass_count: number
+  fail_count: number
+  absent_count: number
+  pending_count: number
+  message: string
+}
+
+export interface GraceMarkLogOut {
+  id: string
+  declaration_id: string
+  subject_result_id: string
+  student_id: string
+  course_id: string
+  grace_marks_applied: number
+  reason: string
+  authorized_by: string
+  authorized_at: string
+  revoked_by: string | null
+  revoked_at: string | null
+  revoke_reason: string | null
+  created_at: string
+}
+
+export interface GradeCardSubjectRow {
+  course_id: string
+  course_name: string
+  course_code: string
+  credits: number | null
+  internal_marks: number | null
+  external_marks: number | null
+  grace_marks: number | null
+  total_marks: number | null
+  max_marks: number
+  percentage: number | null
+  grade_letter: string | null
+  grade_point: number | null
+  result_status: string
+}
+
+export interface GradeCardOut {
+  student_id: string
+  declaration_id: string
+  snapshot_academic_year: string
+  snapshot_semester_name: string
+  snapshot_grading_policy_name: string
+  declaration_type: string
+  published_at: string | null
+  sgpa: number | null
+  cgpa: number | null
+  total_credits_attempted: number | null
+  total_credits_earned: number | null
+  overall_result_status: string | null
+  section_rank: number | null
+  program_rank: number | null
+  subjects: GradeCardSubjectRow[]
+}
+
+export interface RankEntryOut {
+  rank: number
+  student_id: string
+  sgpa: number | null
+  cgpa: number | null
+  total_credits_earned: number | null
+  overall_result_status: string | null
+  section_rank: number | null
+  program_rank: number | null
+}
+
+export interface RankListOut {
+  declaration_id: string
+  scope: string
+  scope_ref_id: string | null
+  total_students: number
+  entries: RankEntryOut[]
+}
+
+export interface SemesterResultOut {
+  id: string
+  declaration_id: string
+  student_id: string
+  semester_id: string
+  sgpa: number | null
+  cgpa: number | null
+  total_credits_attempted: number | null
+  total_credits_earned: number | null
+  overall_result_status: string | null
+  section_rank: number | null
+  program_rank: number | null
+  computed_at: string | null
+}
+
+export interface TranscriptSemesterOut {
+  declaration_id: string
+  snapshot_academic_year: string
+  snapshot_semester_name: string
+  declaration_type: string
+  published_at: string | null
+  sgpa: number | null
+  cgpa: number | null
+  overall_result_status: string | null
+  total_credits_attempted: number | null
+  total_credits_earned: number | null
+  subjects: GradeCardSubjectRow[]
+}
+
+export interface TranscriptOut {
+  student_id: string
+  cgpa: number | null
+  total_credits: number | null
+  semesters: TranscriptSemesterOut[]
 }
 
 function _triggerSisDownload(data: Blob, filename: string, mime: string) {

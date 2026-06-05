@@ -5,6 +5,7 @@ import {
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
+  Award,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -69,6 +70,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Syllabus Review',    to: '/dean-review',           icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'Course Assignments', to: '/course-assignments',    icon: UserCheck,      roles: ['DEAN'] },
       { label: 'Internal Marks Report', to: '/sis/marks/report',    icon: BookMarked,     roles: ['DEAN'] },
+      { label: 'Result Declarations', to: '/sis/results',          icon: ClipboardList,  roles: ['DEAN'] },
       { label: 'Grade Analytics',    to: '/bell-curve',            icon: BarChart2,      roles: ['DEAN'] },
     ],
   },
@@ -121,6 +123,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Semester Rollover',     to: '/sis/rollover',              icon: RefreshCw,      roles: ['ADMIN'] },
       { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',  icon: CalendarCheck,  roles: ['ADMIN'] },
       { label: 'Internal Marks Report', to: '/sis/marks/report',           icon: BookMarked,     roles: ['ADMIN'] },
+      { label: 'Result Declarations',   to: '/sis/results',               icon: ClipboardList,  roles: ['ADMIN'] },
     ],
   },
 
@@ -158,10 +161,11 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Work',
     items: [
-      { label: 'My Labs',       to: '/student/labs',         icon: FlaskConical,  roles: ['STUDENT'] },
+      { label: 'My Labs',        to: '/student/labs',         icon: FlaskConical,  roles: ['STUDENT'] },
       { label: 'My Research',   to: '/student/research',     icon: Microscope,    roles: ['STUDENT'] },
       { label: 'My Attendance', to: '/sis/attendance/me',    icon: CalendarCheck, roles: ['STUDENT'] },
       { label: 'My Marks',      to: '/sis/marks/me',         icon: BookMarked,    roles: ['STUDENT'] },
+      { label: 'My Transcript', to: '/sis/my-transcript',    icon: Award,         roles: ['STUDENT'] },
       { label: 'My Profile',    to: '/sis/me/profile',       icon: UserCircle2,   roles: ['STUDENT'] },
     ],
   },

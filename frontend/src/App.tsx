@@ -90,6 +90,13 @@ import InternalMarksSetupPage from '@/pages/sis/InternalMarksSetupPage'
 import InternalMarkEntryPage from '@/pages/sis/InternalMarkEntryPage'
 import InternalMarksReportPage from '@/pages/sis/InternalMarksReportPage'
 import MyMarksPage from '@/pages/sis/MyMarksPage'
+import ResultDeclarationsListPage from '@/pages/sis/ResultDeclarationsListPage'
+import ResultDeclarationDetailPage from '@/pages/sis/ResultDeclarationDetailPage'
+import ResultVerifyPage from '@/pages/sis/ResultVerifyPage'
+import GradeCardPage from '@/pages/sis/GradeCardPage'
+import RankListPage from '@/pages/sis/RankListPage'
+import MyGradeCardPage from '@/pages/sis/MyGradeCardPage'
+import MyTranscriptPage from '@/pages/sis/MyTranscriptPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -205,6 +212,29 @@ export default function App() {
           {/* Internal Marks — Student self-view */}
           <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
             <Route path="/sis/marks/me" element={<MyMarksPage />} />
+          </Route>
+
+          {/* Results Management — ADMIN, DEAN */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/results"                     element={<ResultDeclarationsListPage />} />
+            <Route path="/sis/results/:id"                 element={<ResultDeclarationDetailPage />} />
+            <Route path="/sis/results/:id/grade-cards"     element={<GradeCardPage />} />
+          </Route>
+
+          {/* Results Verify — DEAN only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
+            <Route path="/sis/results/:id/verify"          element={<ResultVerifyPage />} />
+          </Route>
+
+          {/* Rank List — ADMIN, DEAN, FACULTY */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN', 'FACULTY']} />}>
+            <Route path="/sis/results/:id/ranks"           element={<RankListPage />} />
+          </Route>
+
+          {/* Student Results — STUDENT only */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
+            <Route path="/sis/my-grade-card/:declId"       element={<MyGradeCardPage />} />
+            <Route path="/sis/my-transcript"               element={<MyTranscriptPage />} />
           </Route>
 
           {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}
