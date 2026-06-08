@@ -346,6 +346,11 @@ class TenantService:
                 409,
             )
 
+        # Capture originals before the repository mangles slug/schema_name.
+        # The audit log must record what was deleted, not the compliance suffix.
+        original_slug = tenant.slug
+        original_schema = tenant.schema_name
+
         tenant = await TenantRepository.permanently_delete_tenant(tenant_id, db)
         await db.commit()
 
@@ -354,10 +359,10 @@ class TenantService:
             actor_user_id=actor_user_id,
             actor_role="SUPER_ADMIN",
             tenant_id=tenant.id,
-            schema_name=tenant.schema_name,
+            schema_name=original_schema,
             target_entity="Tenant",
             target_id=str(tenant_id),
-            metadata={"name": tenant.name, "slug": tenant.slug, "schema_name": tenant.schema_name},
+            metadata={"name": tenant.name, "slug": original_slug, "schema_name": original_schema},
             ip_address=ip_address,
             user_agent=user_agent,
         )

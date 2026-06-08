@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.models import Tenant, TenantStatus
@@ -111,11 +111,38 @@ class TenantRepository:
 
     @staticmethod
     async def permanently_delete_tenant(tenant_id: UUID, db: AsyncSession) -> Tenant | None:
-        # Compliance-safe: update status to PERMANENTLY_DELETED rather than issuing
-        # a SQL DELETE, which would cascade an UPDATE onto audit_logs (blocked by
-        # the append-only trigger on that table).
-        return await TenantRepository.update_tenant(
-            tenant_id,
-            {"status": TenantStatus.PERMANENTLY_DELETED, "is_active": False},
-            db,
+        stmt = select(Tenant).where(Tenant.id == tenant_id)
+        result = await db.execute(stmt)
+        tenant = result.scalar_one_or_none()
+        if tenant is None:
+            return None
+
+        # Suffix releases the unique constraints on slug and schema_name so the
+        # institution can be re-provisioned under the same name in the future.
+        # Format: __deleted_YYYYMMDD_HHMMSS (UTC)
+        suffix = datetime.now(timezone.utc).strftime("__deleted_%Y%m%d_%H%M%S")
+        old_schema = tenant.schema_name
+        new_schema = f"{old_schema}{suffix}"
+
+        # Rename the PostgreSQL schema — all data (transcripts, results, graduation
+        # records) stays intact under the new name. PostgreSQL DDL is transactional:
+        # the rename rolls back automatically if db.commit() fails.
+        # We skip the rename if the schema was never created (FAILED provisioning).
+        schema_exists = await db.execute(
+            text("SELECT 1 FROM information_schema.schemata WHERE schema_name = :s"),
+            {"s": old_schema},
         )
+        if schema_exists.scalar_one_or_none() is not None:
+            await db.execute(text(f'ALTER SCHEMA "{old_schema}" RENAME TO "{new_schema}"'))
+
+        for key, value in {
+            "status": TenantStatus.PERMANENTLY_DELETED,
+            "is_active": False,
+            "slug": f"{tenant.slug}{suffix}",
+            "schema_name": new_schema,
+        }.items():
+            setattr(tenant, key, value)
+
+        await db.flush()
+        await db.refresh(tenant)
+        return tenant

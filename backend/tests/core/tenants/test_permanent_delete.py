@@ -47,12 +47,17 @@ def _make_tenant(
     )
 
 
-def _purged_tenant(base: SimpleNamespace) -> SimpleNamespace:
-    """Simulate the tenant row after permanently_delete_tenant sets status."""
+_FIXED_SUFFIX = "__deleted_20260608_120000"
+
+
+def _purged_tenant(base: SimpleNamespace, suffix: str = _FIXED_SUFFIX) -> SimpleNamespace:
+    """Simulate the tenant row after permanently_delete_tenant mangles slug/schema."""
     import copy
     t = copy.copy(base)
     t.status = TenantStatus.PERMANENTLY_DELETED
     t.is_active = False
+    t.slug = f"{base.slug}{suffix}"
+    t.schema_name = f"{base.schema_name}{suffix}"
     return t
 
 
@@ -258,3 +263,259 @@ async def test_list_tenants_excludes_permanently_deleted():
         "list_tenants query must filter out PERMANENTLY_DELETED"
     )
     assert normal in result
+
+
+# ---------------------------------------------------------------------------
+# Slug and schema_name mangling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_permanent_delete_result_slug_is_mangled():
+    """After permanent delete the result slug must contain the __deleted_ suffix."""
+    tenant = _make_tenant(status=TenantStatus.DELETED, slug="abs-university")
+    tenant.schema_name = "tenant_abs_university"
+    purged = _purged_tenant(tenant)
+    db = _make_db()
+
+    with (
+        patch(
+            "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+            new=AsyncMock(return_value=tenant),
+        ),
+        patch(
+            "app.core.tenants.service.TenantRepository.permanently_delete_tenant",
+            new=AsyncMock(return_value=purged),
+        ),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()),
+    ):
+        result = await TenantService.permanently_delete_tenant(
+            tenant.id, tenant.slug, db
+        )
+
+    assert result.slug.startswith("abs-university")
+    assert "__deleted_" in result.slug
+    assert result.schema_name.startswith("tenant_abs_university")
+    assert "__deleted_" in result.schema_name
+
+
+@pytest.mark.asyncio
+async def test_permanent_delete_audit_records_original_slug():
+    """AuditService.log must receive the ORIGINAL slug and schema_name, not mangled."""
+    original_slug = "abs-university"
+    original_schema = "tenant_abs_university"
+    tenant = _make_tenant(
+        status=TenantStatus.DELETED,
+        slug=original_slug,
+    )
+    tenant.schema_name = original_schema
+    purged = _purged_tenant(tenant)   # has mangled slug/schema
+    db = _make_db()
+    actor_id = uuid.uuid4()
+
+    with (
+        patch(
+            "app.core.tenants.service.TenantRepository.get_tenant_by_id",
+            new=AsyncMock(return_value=tenant),
+        ),
+        patch(
+            "app.core.tenants.service.TenantRepository.permanently_delete_tenant",
+            new=AsyncMock(return_value=purged),
+        ),
+        patch(
+            "app.core.tenants.service.AuditService.log",
+            new=AsyncMock(),
+        ) as mock_log,
+    ):
+        await TenantService.permanently_delete_tenant(
+            tenant.id, original_slug, db, actor_user_id=actor_id
+        )
+
+    call_kwargs = mock_log.call_args[1]
+    # schema_name arg to AuditService.log must be the original
+    assert call_kwargs["schema_name"] == original_schema
+    # metadata must record original values — not the compliance suffix
+    assert call_kwargs["metadata"]["slug"] == original_slug
+    assert call_kwargs["metadata"]["schema_name"] == original_schema
+    assert "__deleted_" not in call_kwargs["metadata"]["slug"]
+    assert "__deleted_" not in call_kwargs["metadata"]["schema_name"]
+
+
+# ---------------------------------------------------------------------------
+# Recreation — slug released after permanent delete
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_tenant_succeeds_when_slug_released_by_permanent_delete():
+    """
+    After permanent delete, get_tenant_by_slug returns None (slug is mangled).
+    Creating a new tenant with the same institution name must succeed.
+    """
+    from app.core.tenants.schemas import CreateTenantRequest
+
+    provisioned = _make_tenant(status=TenantStatus.ACTIVE, slug="abs-university")
+    provisioned.status = TenantStatus.ACTIVE
+    db = _make_db()
+
+    with (
+        patch(
+            "app.core.tenants.service.TenantRepository.get_tenant_by_slug",
+            new=AsyncMock(return_value=None),   # slug released — not found
+        ),
+        patch(
+            "app.core.tenants.service.TenantRepository.create_tenant",
+            new=AsyncMock(return_value=provisioned),
+        ),
+        patch(
+            "app.core.tenants.service.run_tenant_migrations",
+            new=AsyncMock(),
+        ),
+        patch(
+            "app.core.tenants.service.seed_admin_user",
+            new=AsyncMock(),
+        ),
+        patch(
+            "app.core.tenants.service.TenantRepository.update_tenant",
+            new=AsyncMock(return_value=provisioned),
+        ),
+        patch("app.core.tenants.service.AuditService.log", new=AsyncMock()),
+        patch("app.core.tenants.service._dispatch_welcome_email"),
+    ):
+        result = await TenantService.create_tenant(
+            CreateTenantRequest(
+                name="ABS University",
+                admin_email="admin@abs.edu",
+                admin_password="Admin1234!",
+                admin_full_name="Admin",
+            ),
+            db,
+        )
+
+    assert result.status == TenantStatus.ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_create_tenant_still_blocked_when_active_tenant_exists():
+    """Recreation must still be rejected if a non-deleted tenant with the slug exists."""
+    from app.core.tenants.schemas import CreateTenantRequest
+
+    existing = _make_tenant(status=TenantStatus.ACTIVE, slug="abs-university")
+    db = _make_db()
+
+    with patch(
+        "app.core.tenants.service.TenantRepository.get_tenant_by_slug",
+        new=AsyncMock(return_value=existing),  # slug still occupied
+    ):
+        with pytest.raises(TenantError) as exc:
+            await TenantService.create_tenant(
+                CreateTenantRequest(
+                    name="ABS University",
+                    admin_email="admin@abs.edu",
+                    admin_password="Admin1234!",
+                    admin_full_name="Admin",
+                ),
+                db,
+            )
+
+    assert exc.value.code == "SLUG_CONFLICT"
+    assert exc.value.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Repository — schema rename SQL verification (integration-level unit test)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_repository_permanently_delete_renames_schema():
+    """
+    TenantRepository.permanently_delete_tenant must:
+    - check whether the schema exists via information_schema
+    - issue ALTER SCHEMA ... RENAME TO ... with the __deleted_ suffix
+    - mangle slug and schema_name on the tenant row
+    """
+    from app.core.tenants.repository import TenantRepository
+    import copy
+
+    original_slug = "abs-university"
+    original_schema = "tenant_abs_university"
+    tenant = _make_tenant(status=TenantStatus.DELETED, slug=original_slug)
+    tenant.schema_name = original_schema
+
+    # Track every db.execute call
+    execute_calls: list[str] = []
+
+    async def _fake_execute(stmt, params=None):
+        sql = str(stmt) if hasattr(stmt, "__clause_element__") else str(stmt)
+        execute_calls.append(sql)
+        # First call: information_schema check → schema exists
+        if "information_schema" in sql:
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = 1
+            return mock_result
+        # Second call: ALTER SCHEMA → no return value needed
+        if "ALTER SCHEMA" in sql:
+            return MagicMock()
+        # SELECT Tenant query
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = copy.copy(tenant)
+        return mock_result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_fake_execute)
+    db.flush = AsyncMock()
+    db.refresh = AsyncMock()
+
+    result = await TenantRepository.permanently_delete_tenant(tenant.id, db)
+
+    # Schema rename SQL must have been issued
+    rename_calls = [c for c in execute_calls if "ALTER SCHEMA" in c]
+    assert len(rename_calls) == 1, "Expected exactly one ALTER SCHEMA statement"
+    rename_sql = rename_calls[0]
+    assert f'"{original_schema}"' in rename_sql
+    assert "__deleted_" in rename_sql
+
+    # Tenant row must have mangled values
+    assert result.status == TenantStatus.PERMANENTLY_DELETED
+    assert result.slug.startswith(original_slug)
+    assert "__deleted_" in result.slug
+    assert result.schema_name.startswith(original_schema)
+    assert "__deleted_" in result.schema_name
+
+
+@pytest.mark.asyncio
+async def test_repository_permanently_delete_skips_rename_when_schema_absent():
+    """
+    If the schema never existed (FAILED provisioning), permanent delete must
+    succeed without issuing ALTER SCHEMA.
+    """
+    from app.core.tenants.repository import TenantRepository
+    import copy
+
+    tenant = _make_tenant(status=TenantStatus.DELETED, slug="ghost-university")
+    tenant.schema_name = "tenant_ghost_university"
+    execute_calls: list[str] = []
+
+    async def _fake_execute(stmt, params=None):
+        sql = str(stmt) if hasattr(stmt, "__clause_element__") else str(stmt)
+        execute_calls.append(sql)
+        if "information_schema" in sql:
+            # Schema does not exist
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = None
+            return mock_result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = copy.copy(tenant)
+        return mock_result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_fake_execute)
+    db.flush = AsyncMock()
+    db.refresh = AsyncMock()
+
+    result = await TenantRepository.permanently_delete_tenant(tenant.id, db)
+
+    rename_calls = [c for c in execute_calls if "ALTER SCHEMA" in c]
+    assert len(rename_calls) == 0, "ALTER SCHEMA must not be issued when schema is absent"
+    assert result.status == TenantStatus.PERMANENTLY_DELETED
