@@ -17,6 +17,7 @@ from app.modules.m11_sis.marks_router import marks_router
 from app.modules.m11_sis.me_router import me_router
 from app.modules.m11_sis.results_router import results_router
 from app.modules.m11_sis.rollover_router import rollover_router
+from app.modules.m11_sis.transcript_router import transcript_router
 from app.modules.m11_sis.schemas import SchoolCreate, SchoolOut, SchoolUpdate
 from app.modules.m11_sis.service import SchoolService, SchoolServiceError
 
@@ -30,6 +31,7 @@ router.include_router(marks_router)
 router.include_router(hallticket_router)
 router.include_router(exam_router)
 router.include_router(results_router)
+router.include_router(transcript_router)
 
 _WRITE = (TenantRole.ADMIN, TenantRole.DEAN)
 _READ  = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.STUDENT)

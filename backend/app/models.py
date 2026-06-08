@@ -42,3 +42,12 @@ import app.modules.m07_research_supervision.models  # noqa: F401
 import app.modules.m08_exam_setter.models  # noqa: F401
 import app.modules.m09_paper_admin.models  # noqa: F401
 import app.modules.m10_bell_curve.models  # noqa: F401
+
+# m11 SIS — tenant-scoped; ordered by FK dependency
+import app.modules.m11_sis.models              # noqa: F401
+import app.modules.m11_sis.attendance_models   # noqa: F401
+import app.modules.m11_sis.marks_models        # noqa: F401
+import app.modules.m11_sis.hallticket_models   # noqa: F401
+import app.modules.m11_sis.exam_models         # noqa: F401
+import app.modules.m11_sis.results_models      # noqa: F401
+import app.modules.m11_sis.transcript_models   # noqa: F401
