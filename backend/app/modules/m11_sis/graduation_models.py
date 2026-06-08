@@ -32,7 +32,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, Index, Numeric,
+    Boolean, Column, Date, DateTime, ForeignKey, Index, Numeric,
     SmallInteger, String, Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -146,7 +146,7 @@ class SisGraduationCandidate(Base):
     )
 
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    audit_id   = Column(UUID(as_uuid=True), nullable=False)
+    audit_id   = Column(UUID(as_uuid=True), ForeignKey("sis_graduation_audits.id", ondelete="CASCADE"), nullable=False)
     student_id = Column(UUID(as_uuid=True), nullable=False)
 
     # Student snapshot
@@ -207,7 +207,7 @@ class SisGraduationOverride(Base):
     )
 
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    candidate_id  = Column(UUID(as_uuid=True), nullable=False)
+    candidate_id  = Column(UUID(as_uuid=True), ForeignKey("sis_graduation_candidates.id", ondelete="CASCADE"), nullable=False)
     actor_user_id = Column(UUID(as_uuid=True), nullable=False)
     actor_role    = Column(String(30), nullable=False)
     previous_status = Column(String(20), nullable=False)
@@ -233,8 +233,8 @@ class SisGraduationCertificate(Base):
     )
 
     id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    candidate_id = Column(UUID(as_uuid=True), nullable=False)
-    audit_id     = Column(UUID(as_uuid=True), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("sis_graduation_candidates.id", ondelete="RESTRICT"), nullable=False)
+    audit_id     = Column(UUID(as_uuid=True), ForeignKey("sis_graduation_audits.id", ondelete="RESTRICT"), nullable=False)
     student_id   = Column(UUID(as_uuid=True), nullable=False)
 
     # Snapshot — frozen at issuance

@@ -15,6 +15,12 @@ infra/k8s/*.secret.yaml
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
+*.egg-info/
+
+# Session temp files — commit messages written by PowerShell git workflow
+commit_msg_*.txt
+commitmsg_*.txt
 
 # Local backup files — never commit these (may contain DB dumps)
 infra/backups/

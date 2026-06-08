@@ -127,7 +127,7 @@ def test_degree_status_provisional():
 def test_degree_status_graduated():
     from app.modules.m11_sis.transcript_models import DegreeStatus
     assert DegreeStatus.GRADUATED == "GRADUATED"
-    assert len(DegreeStatus) == 4
+    assert len(DegreeStatus) == 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────

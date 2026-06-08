@@ -25,7 +25,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Index, Numeric, SmallInteger, String,
+    Boolean, Column, DateTime, ForeignKey, Index, Numeric, SmallInteger, String,
     Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -154,7 +154,7 @@ class SisTranscriptSemesterLine(Base):
     )
 
     id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    transcript_id  = Column(UUID(as_uuid=True), nullable=False)
+    transcript_id  = Column(UUID(as_uuid=True), ForeignKey("sis_transcripts.id", ondelete="CASCADE"), nullable=False)
 
     # Non-FK references (snapshot is independent)
     semester_id    = Column(UUID(as_uuid=True), nullable=True)
@@ -193,8 +193,8 @@ class SisTranscriptSubjectLine(Base):
     )
 
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    transcript_id   = Column(UUID(as_uuid=True), nullable=False)
-    semester_line_id = Column(UUID(as_uuid=True), nullable=False)
+    transcript_id   = Column(UUID(as_uuid=True), ForeignKey("sis_transcripts.id", ondelete="CASCADE"), nullable=False)
+    semester_line_id = Column(UUID(as_uuid=True), ForeignKey("sis_transcript_semester_lines.id", ondelete="CASCADE"), nullable=False)
 
     # Reference
     course_id = Column(UUID(as_uuid=True), nullable=True)
@@ -236,7 +236,7 @@ class SisTranscriptVerificationLog(Base):
     )
 
     id                   = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    transcript_id        = Column(UUID(as_uuid=True), nullable=True)
+    transcript_id        = Column(UUID(as_uuid=True), ForeignKey("sis_transcripts.id", ondelete="SET NULL"), nullable=True)
     verification_code    = Column(String(50),  nullable=False)
     verified_at          = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     requester_ip_hash    = Column(String(64),  nullable=True)
