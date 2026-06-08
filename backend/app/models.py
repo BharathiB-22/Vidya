@@ -51,3 +51,4 @@ import app.modules.m11_sis.hallticket_models   # noqa: F401
 import app.modules.m11_sis.exam_models         # noqa: F401
 import app.modules.m11_sis.results_models      # noqa: F401
 import app.modules.m11_sis.transcript_models   # noqa: F401
+import app.modules.m11_sis.graduation_models   # noqa: F401

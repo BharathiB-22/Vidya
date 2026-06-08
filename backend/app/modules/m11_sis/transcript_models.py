@@ -54,10 +54,11 @@ class TranscriptType(str, enum.Enum):
 
 
 class DegreeStatus(str, enum.Enum):
-    ELIGIBLE     = "ELIGIBLE"
-    NOT_ELIGIBLE = "NOT_ELIGIBLE"
-    PROVISIONAL  = "PROVISIONAL"
-    GRADUATED    = "GRADUATED"
+    ELIGIBLE            = "ELIGIBLE"
+    NOT_ELIGIBLE        = "NOT_ELIGIBLE"
+    PROVISIONAL         = "PROVISIONAL"
+    GRADUATED           = "GRADUATED"
+    GRADUATION_REVOKED  = "GRADUATION_REVOKED"   # H62: certificate revoked after issuance
 
 
 class VerificationResult(str, enum.Enum):

@@ -34,6 +34,8 @@ celery_app = Celery(
         "app.workers.heavy.stale_task_cleanup",
         "app.workers.heavy.analyse_score_distribution",
         "app.workers.heavy.generate_transcript_pdf",
+        "app.workers.heavy.generate_graduation_report",
+        "app.workers.heavy.generate_graduation_certificate",
     ],
 )
 
