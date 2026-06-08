@@ -97,6 +97,15 @@ import GradeCardPage from '@/pages/sis/GradeCardPage'
 import RankListPage from '@/pages/sis/RankListPage'
 import MyGradeCardPage from '@/pages/sis/MyGradeCardPage'
 import MyTranscriptPage from '@/pages/sis/MyTranscriptPage'
+import HallTicketDashboardPage from '@/pages/sis/HallTicketDashboardPage'
+import EligibilityDetailPage from '@/pages/sis/EligibilityDetailPage'
+import MyHallTicketPage from '@/pages/sis/MyHallTicketPage'
+import ExamCentersPage from '@/pages/sis/ExamCentersPage'
+import ExamSessionsPage from '@/pages/sis/ExamSessionsPage'
+import ExamSessionDetailPage from '@/pages/sis/ExamSessionDetailPage'
+import ExamInvigilationPage from '@/pages/sis/ExamInvigilationPage'
+import ExamSeatAllocationPage from '@/pages/sis/ExamSeatAllocationPage'
+import MyExamTimetablePage from '@/pages/sis/MyExamTimetablePage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -235,6 +244,31 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
             <Route path="/sis/my-grade-card/:declId"       element={<MyGradeCardPage />} />
             <Route path="/sis/my-transcript"               element={<MyTranscriptPage />} />
+          </Route>
+
+          {/* Hall Ticket Management — ADMIN, DEAN */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/hall-tickets"                element={<HallTicketDashboardPage />} />
+            <Route path="/sis/hall-tickets/:id"            element={<EligibilityDetailPage />} />
+          </Route>
+
+          {/* Hall Ticket — STUDENT self-service */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
+            <Route path="/sis/hall-tickets/me"             element={<MyHallTicketPage />} />
+          </Route>
+
+          {/* Exam Management — ADMIN, DEAN */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/exam/centers"                       element={<ExamCentersPage />} />
+            <Route path="/sis/exam/sessions"                      element={<ExamSessionsPage />} />
+            <Route path="/sis/exam/sessions/:id"                  element={<ExamSessionDetailPage />} />
+            <Route path="/sis/exam/sessions/:id/invigilation"     element={<ExamInvigilationPage />} />
+            <Route path="/sis/exam/sessions/:id/seats"            element={<ExamSeatAllocationPage />} />
+          </Route>
+
+          {/* Student Exam Timetable — STUDENT */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
+            <Route path="/sis/exam/my-timetable"           element={<MyExamTimetablePage />} />
           </Route>
 
           {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}

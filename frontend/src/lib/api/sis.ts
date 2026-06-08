@@ -924,6 +924,115 @@ export const sisApi = {
 
   getStudentTranscript: (studentId: string): Promise<TranscriptOut> =>
     api.get<TranscriptOut>(`/sis/results/students/${studentId}/transcript`).then(r => r.data),
+
+  // ── H58 Hall Tickets ────────────────────────────────────────────────────────
+
+  computeEligibility: (body: { semester_id: string; section_id?: string; threshold_pct?: number }): Promise<EligibilityComputeResult> =>
+    api.post<EligibilityComputeResult>('/sis/hall-tickets/eligibility/compute', body).then(r => r.data),
+
+  publishEligibility: (body: { semester_id: string; section_id?: string }): Promise<EligibilityPublishResult> =>
+    api.post<EligibilityPublishResult>('/sis/hall-tickets/eligibility/publish', body).then(r => r.data),
+
+  getEligibilityDashboard: (params: {
+    semester_id: string
+    section_id?: string
+    status?: string
+    publish_status?: string
+    has_shortage?: boolean
+  }): Promise<EligibilityDashboardOut> =>
+    api.get<EligibilityDashboardOut>('/sis/hall-tickets/eligibility', { params }).then(r => r.data),
+
+  getEligibility: (eligibilityId: string): Promise<EligibilityOut> =>
+    api.get<EligibilityOut>(`/sis/hall-tickets/eligibility/${eligibilityId}`).then(r => r.data),
+
+  overrideEligibility: (eligibilityId: string, body: { status: string; reason: string }): Promise<EligibilityOut> =>
+    api.post<EligibilityOut>(`/sis/hall-tickets/eligibility/${eligibilityId}/override`, body).then(r => r.data),
+
+  generateHallTicketBatch: (body: { semester_id: string; section_id?: string; notes?: string }): Promise<HallTicketBatchOut> =>
+    api.post<HallTicketBatchOut>('/sis/hall-tickets/batches', body).then(r => r.data),
+
+  listHallTicketBatches: (semester_id?: string): Promise<HallTicketBatchOut[]> =>
+    api.get<HallTicketBatchOut[]>('/sis/hall-tickets/batches', { params: semester_id ? { semester_id } : {} }).then(r => r.data),
+
+  getHallTicket: (eligibilityId: string): Promise<HallTicketOut> =>
+    api.get<HallTicketOut>(`/sis/hall-tickets/ticket/${eligibilityId}`).then(r => r.data),
+
+  getMyEligibility: (semester_id: string): Promise<MyEligibilityOut> =>
+    api.get<MyEligibilityOut>('/sis/hall-tickets/my-eligibility', { params: { semester_id } }).then(r => r.data),
+
+  getMyHallTicket: (session_id: string): Promise<MyHallTicketExamOut> =>
+    api.get<MyHallTicketExamOut>('/sis/exam/my-hall-ticket', { params: { session_id } }).then(r => r.data),
+
+  // ── H59 Exam Management ─────────────────────────────────────────────────────
+
+  listExamCenters: (include_inactive = false): Promise<ExamCenterOut[]> =>
+    api.get<ExamCenterOut[]>('/sis/exam/centers', { params: { include_inactive } }).then(r => r.data),
+
+  createExamCenter: (body: { center_code: string; center_name: string; address?: string; capacity?: number; is_internal?: boolean }): Promise<ExamCenterOut> =>
+    api.post<ExamCenterOut>('/sis/exam/centers', body).then(r => r.data),
+
+  updateExamCenter: (centerId: string, body: Partial<{ center_name: string; address: string; capacity: number; is_internal: boolean; is_active: boolean }>): Promise<ExamCenterOut> =>
+    api.put<ExamCenterOut>(`/sis/exam/centers/${centerId}`, body).then(r => r.data),
+
+  listExamSessions: (params: { semester_id?: string; status?: string; session_type?: string } = {}): Promise<ExamSessionOut[]> =>
+    api.get<ExamSessionOut[]>('/sis/exam/sessions', { params }).then(r => r.data),
+
+  createExamSession: (body: {
+    semester_id: string; session_type: string; session_name: string
+    academic_year: string; start_date: string; end_date: string; notes?: string
+  }): Promise<ExamSessionOut> =>
+    api.post<ExamSessionOut>('/sis/exam/sessions', body).then(r => r.data),
+
+  getExamSession: (sessionId: string): Promise<ExamSessionOut> =>
+    api.get<ExamSessionOut>(`/sis/exam/sessions/${sessionId}`).then(r => r.data),
+
+  updateExamSession: (sessionId: string, body: { session_name?: string; academic_year?: string; start_date?: string; end_date?: string; notes?: string }): Promise<ExamSessionOut> =>
+    api.put<ExamSessionOut>(`/sis/exam/sessions/${sessionId}`, body).then(r => r.data),
+
+  deleteExamSession: (sessionId: string): Promise<void> =>
+    api.delete(`/sis/exam/sessions/${sessionId}`).then(() => {}),
+
+  publishExamSession: (sessionId: string): Promise<ExamSessionOut> =>
+    api.post<ExamSessionOut>(`/sis/exam/sessions/${sessionId}/publish`).then(r => r.data),
+
+  lockExamSession: (sessionId: string): Promise<ExamSessionOut> =>
+    api.post<ExamSessionOut>(`/sis/exam/sessions/${sessionId}/lock`).then(r => r.data),
+
+  completeExamSession: (sessionId: string): Promise<ExamSessionOut> =>
+    api.post<ExamSessionOut>(`/sis/exam/sessions/${sessionId}/complete`).then(r => r.data),
+
+  listExamSchedules: (sessionId: string, section_id?: string): Promise<ExamScheduleOut[]> =>
+    api.get<ExamScheduleOut[]>(`/sis/exam/sessions/${sessionId}/schedules`, { params: section_id ? { section_id } : {} }).then(r => r.data),
+
+  createExamSchedule: (sessionId: string, body: {
+    course_id: string; section_id: string; exam_date: string
+    start_time: string; end_time: string; center_id?: string; room_number?: string; notes?: string
+  }): Promise<ExamScheduleOut> =>
+    api.post<ExamScheduleOut>(`/sis/exam/sessions/${sessionId}/schedules`, body).then(r => r.data),
+
+  updateExamSchedule: (scheduleId: string, body: { exam_date?: string; start_time?: string; end_time?: string; center_id?: string; room_number?: string; notes?: string }): Promise<ExamScheduleOut> =>
+    api.put<ExamScheduleOut>(`/sis/exam/schedules/${scheduleId}`, body).then(r => r.data),
+
+  deleteExamSchedule: (scheduleId: string): Promise<void> =>
+    api.delete(`/sis/exam/schedules/${scheduleId}`).then(() => {}),
+
+  listInvigilation: (sessionId: string): Promise<InvigilationOut[]> =>
+    api.get<InvigilationOut[]>(`/sis/exam/sessions/${sessionId}/invigilation`).then(r => r.data),
+
+  assignInvigilation: (sessionId: string, body: { faculty_user_id: string; schedule_id?: string; center_id?: string; room_number?: string; notes?: string }): Promise<InvigilationOut> =>
+    api.post<InvigilationOut>(`/sis/exam/sessions/${sessionId}/invigilation`, body).then(r => r.data),
+
+  deleteInvigilation: (invigilationId: string): Promise<void> =>
+    api.delete(`/sis/exam/invigilation/${invigilationId}`).then(() => {}),
+
+  allocateSeats: (sessionId: string, body: { center_id: string; rooms: { room_number: string; capacity: number }[]; section_id?: string }): Promise<SeatingAllocationResult> =>
+    api.post<SeatingAllocationResult>(`/sis/exam/sessions/${sessionId}/allocate-seats`, body).then(r => r.data),
+
+  listSeating: (sessionId: string, section_id?: string): Promise<StudentSeatOut[]> =>
+    api.get<StudentSeatOut[]>(`/sis/exam/sessions/${sessionId}/seating`, { params: section_id ? { section_id } : {} }).then(r => r.data),
+
+  getMyTimetable: (session_id: string): Promise<StudentTimetableOut> =>
+    api.get<StudentTimetableOut>('/sis/exam/my-timetable', { params: { session_id } }).then(r => r.data),
 }
 
 // ---------------------------------------------------------------------------
@@ -1317,4 +1426,241 @@ function _triggerSisDownload(data: Blob, filename: string, mime: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ── H58 Hall Ticket types ────────────────────────────────────────────────────
+
+export interface EligibilityOut {
+  id: string
+  student_id: string
+  student_name: string
+  usn: string | null
+  email: string
+  semester_id: string
+  publish_status: 'DRAFT' | 'PUBLISHED'
+  status: 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'CONDITIONAL'
+  computed_at: string | null
+  attendance_threshold_used: number
+  computed_academic_year: string
+  computed_semester_name: string
+  attendance_pct: number | null
+  has_shortage: boolean
+  marks_all_locked: boolean
+  marks_all_filled: boolean
+  failure_reasons: string[]
+  is_overridden: boolean
+  override_by: string | null
+  override_at: string | null
+  override_reason: string | null
+  override_status: string | null
+  hall_ticket_number: string | null
+  batch_id: string | null
+  exam_session_id: string | null
+  exam_schedule_id: string | null
+  exam_center_id: string | null
+  room_number: string | null
+  seat_number: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+export interface EligibilityDashboardOut {
+  semester_id: string
+  semester_name: string
+  total_students: number
+  eligible_count: number
+  not_eligible_count: number
+  conditional_count: number
+  draft_count: number
+  published_count: number
+  rows: EligibilityOut[]
+}
+
+export interface EligibilityComputeResult {
+  semester_id: string
+  section_id: string | null
+  threshold_pct: number
+  processed: number
+  eligible_count: number
+  not_eligible_count: number
+  skipped_overridden: number
+}
+
+export interface EligibilityPublishResult {
+  semester_id: string
+  published: number
+  already_published: number
+}
+
+export interface HallTicketBatchOut {
+  id: string
+  semester_id: string
+  semester_name: string | null
+  scope: string
+  scope_ref_id: string | null
+  generated_by: string
+  generated_at: string
+  ticket_count: number
+  ticket_prefix: string
+  notes: string | null
+  created_at: string
+}
+
+export interface HallTicketOut {
+  hall_ticket_number: string
+  student_id: string
+  student_name: string
+  usn: string | null
+  semester_id: string
+  semester_name: string
+  academic_year: string
+  status: string
+  batch_id: string
+  issued_at: string
+  exam_session_id: string | null
+  exam_schedule_id: string | null
+  exam_center_id: string | null
+  room_number: string | null
+  seat_number: string | null
+}
+
+export interface MyEligibilityOut {
+  student_id: string
+  student_name: string
+  usn: string | null
+  semester_id: string
+  semester_name: string
+  status: 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'CONDITIONAL'
+  checklist: { check_name: string; passed: boolean; detail: string }[]
+  failure_reasons: string[]
+  hall_ticket_number: string | null
+  is_ticket_available: boolean
+}
+
+// ── H59 Exam Management types ────────────────────────────────────────────────
+
+export type ExamSessionStatus = 'DRAFT' | 'PUBLISHED' | 'SEATING_ALLOCATED' | 'LOCKED' | 'COMPLETED'
+export type ExamSessionType = 'REGULAR' | 'SUPPLEMENTARY' | 'REVALUATION' | 'IMPROVEMENT'
+
+export interface ExamCenterOut {
+  id: string
+  center_code: string
+  center_name: string
+  address: string | null
+  capacity: number | null
+  is_internal: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ExamSessionOut {
+  id: string
+  semester_id: string
+  session_type: ExamSessionType
+  session_name: string
+  academic_year: string
+  start_date: string
+  end_date: string
+  status: ExamSessionStatus
+  notes: string | null
+  source_exam_session_id: string | null
+  attempt_number: number | null
+  hall_ticket_generated_at: string | null
+  hall_ticket_generated_by: string | null
+  created_by: string
+  created_at: string
+  updated_at: string | null
+  schedule_count: number
+}
+
+export interface ExamScheduleOut {
+  id: string
+  session_id: string
+  course_id: string
+  course_code: string
+  course_title: string
+  section_id: string
+  section_name: string
+  center_id: string | null
+  center_name: string | null
+  exam_date: string
+  start_time: string
+  end_time: string
+  room_number: string | null
+  notes: string | null
+  created_by: string
+  created_at: string
+  updated_at: string | null
+}
+
+export interface InvigilationOut {
+  id: string
+  session_id: string
+  schedule_id: string | null
+  center_id: string | null
+  center_name: string | null
+  room_number: string | null
+  faculty_user_id: string
+  faculty_name: string | null
+  assigned_by: string
+  notes: string | null
+  created_at: string
+  exam_date: string | null
+  start_time: string | null
+  end_time: string | null
+}
+
+export interface SeatingAllocationResult {
+  session_id: string
+  allocated: number
+  rooms_used: number
+  total_capacity: number
+  details: { room_number: string; capacity: number; assigned: number }[]
+}
+
+export interface StudentSeatOut {
+  student_id: string
+  student_name: string | null
+  usn: string | null
+  hall_ticket_number: string | null
+  section_name: string | null
+  center_name: string | null
+  room_number: string | null
+  seat_number: string | null
+}
+
+export interface CourseScheduleRow {
+  course_id: string
+  course_code: string
+  course_title: string
+  exam_date: string | null
+  start_time: string | null
+  end_time: string | null
+  center_name: string | null
+  room_number: string | null
+  is_scheduled: boolean
+}
+
+export interface StudentTimetableOut {
+  session_id: string
+  session_name: string
+  session_type: string
+  semester_name: string
+  seat: { center_name: string; address: string | null; room_number: string; seat_number: string } | null
+  courses: CourseScheduleRow[]
+}
+
+export interface MyHallTicketExamOut {
+  hall_ticket_number: string
+  student_id: string
+  student_name: string | null
+  usn: string | null
+  semester_name: string
+  academic_year: string
+  status: string
+  seat: { center_name: string; address: string | null; room_number: string; seat_number: string } | null
+  timetable: CourseScheduleRow[]
+  issued_at: string | null
+  exam_session_id: string | null
 }

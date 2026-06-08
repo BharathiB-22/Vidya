@@ -1,9 +1,10 @@
 import { useNavigate, Link } from 'react-router-dom'
-import { useEffect, useState } from 'react'
 import {
   BookOpen, Layers, FlaskConical, Microscope, FileText, ClipboardList,
   BarChart2, ChevronRight, CheckCircle, Circle, GraduationCap, Package,
   ClipboardCheck, Cpu, ShieldCheck, Building2, Users,
+  School2, CalendarRange, Calendar, LayoutList, UserCheck, UsersRound,
+  CalendarCheck, BookMarked, Award, ScrollText,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -11,7 +12,6 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
-import { usersApi, AcademicOverviewEntry } from '@/lib/api/users'
 
 type IconComponent = React.FC<{ className?: string }>
 
@@ -21,9 +21,9 @@ interface ModuleCard {
   to: string
   icon: IconComponent
   roles: string[]
-  badge: string   // icon badge colors (bg/text/border)
-  bar: string     // top accent bar bg color
-  section: string // grouping key
+  badge: string
+  bar: string
+  section: string
 }
 
 const CARDS: ModuleCard[] = [
@@ -129,7 +129,7 @@ const CARDS: ModuleCard[] = [
     description: 'Analyse score distributions and advise on normalisation. Advisory only.',
     to: '/bell-curve',
     icon: BarChart2,
-    roles: ['DEAN', 'ADMIN', 'BOARD'],
+    roles: ['DEAN', 'BOARD'],
     badge: 'bg-teal-50 text-teal-600 border-teal-100',
     bar:   'bg-teal-500',
     section: 'analytics',
@@ -170,7 +170,6 @@ const CARDS: ModuleCard[] = [
   },
 ]
 
-// Module sections define the grouping order and labels
 const MODULE_SECTIONS = [
   { key: 'teach',    label: 'Teach & Prepare' },
   { key: 'assess',   label: 'Assess & Research' },
@@ -236,7 +235,7 @@ function StatCard({ label, value, icon: Icon, accent }: StatCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Module card
+// Module card (non-admin roles)
 // ---------------------------------------------------------------------------
 
 function ModuleCardItem({ card, onClick }: { card: ModuleCard; onClick: () => void }) {
@@ -245,9 +244,7 @@ function ModuleCardItem({ card, onClick }: { card: ModuleCard; onClick: () => vo
       onClick={onClick}
       className="text-left w-full rounded-xl border border-gray-200 bg-white hover:border-sv-primary/30 hover:shadow-lg hover:shadow-sv-primary/5 transition-all duration-200 group relative overflow-hidden"
     >
-      {/* Top accent bar */}
       <div className={`absolute inset-x-0 top-0 h-[3px] ${card.bar}`} />
-
       <div className="p-5 pt-6">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className={`p-2 rounded-lg border ${card.badge}`}>
@@ -341,6 +338,235 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
+// Admin ERP workspace sections
+// ---------------------------------------------------------------------------
+
+interface AdminCard {
+  title: string
+  description: string
+  to?: string
+  icon: IconComponent
+  bar: string
+  badge: string
+}
+
+interface AdminSection {
+  heading: string
+  cards: AdminCard[]
+}
+
+const ADMIN_SECTIONS: AdminSection[] = [
+  {
+    heading: 'Academic Setup',
+    cards: [
+      {
+        title: 'Schools',
+        description: 'Manage schools and faculties within the institution.',
+        to: '/sis/schools',
+        icon: School2,
+        bar: 'bg-indigo-500',
+        badge: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+      },
+      {
+        title: 'Departments',
+        description: 'Configure departments under each school.',
+        to: '/sis/departments',
+        icon: Building2,
+        bar: 'bg-blue-500',
+        badge: 'bg-blue-50 text-blue-600 border-blue-100',
+      },
+      {
+        title: 'Programs',
+        description: 'Define degree programs, courses, and learning outcomes.',
+        to: '/academics/programs',
+        icon: GraduationCap,
+        bar: 'bg-violet-500',
+        badge: 'bg-violet-50 text-violet-600 border-violet-100',
+      },
+      {
+        title: 'Batches',
+        description: 'Set up academic batches and manage intake years.',
+        to: '/academics/batches',
+        icon: CalendarRange,
+        bar: 'bg-sky-500',
+        badge: 'bg-sky-50 text-sky-600 border-sky-100',
+      },
+      {
+        title: 'Semesters',
+        description: 'Configure semesters and manage the academic calendar.',
+        to: '/academics/semesters',
+        icon: Calendar,
+        bar: 'bg-cyan-500',
+        badge: 'bg-cyan-50 text-cyan-600 border-cyan-100',
+      },
+      {
+        title: 'Sections',
+        description: 'Create and organise class sections for batches.',
+        to: '/academics/sections',
+        icon: LayoutList,
+        bar: 'bg-teal-500',
+        badge: 'bg-teal-50 text-teal-600 border-teal-100',
+      },
+    ],
+  },
+  {
+    heading: 'People',
+    cards: [
+      {
+        title: 'Faculty',
+        description: 'Browse faculty profiles, assignments, and contact details.',
+        to: '/sis/directory/faculty',
+        icon: UserCheck,
+        bar: 'bg-emerald-500',
+        badge: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+      },
+      {
+        title: 'Students',
+        description: 'Search the student directory and view profiles and USNs.',
+        to: '/sis/directory/students',
+        icon: Users,
+        bar: 'bg-green-500',
+        badge: 'bg-green-50 text-green-600 border-green-100',
+      },
+      {
+        title: 'Enrollment',
+        description: 'Manage course enrollments, moves, and withdrawals.',
+        to: '/sis/roster',
+        icon: UsersRound,
+        bar: 'bg-lime-500',
+        badge: 'bg-lime-50 text-lime-600 border-lime-100',
+      },
+    ],
+  },
+  {
+    heading: 'Academic Operations',
+    cards: [
+      {
+        title: 'Attendance',
+        description: 'Review attendance records and shortage alerts across sections.',
+        to: '/sis/attendance/analytics',
+        icon: CalendarCheck,
+        bar: 'bg-amber-500',
+        badge: 'bg-amber-50 text-amber-600 border-amber-100',
+      },
+      {
+        title: 'Internal Marks',
+        description: 'Review and monitor internal assessment marks by program.',
+        to: '/sis/marks/report',
+        icon: BookMarked,
+        bar: 'bg-orange-500',
+        badge: 'bg-orange-50 text-orange-600 border-orange-100',
+      },
+      {
+        title: 'Hall Tickets',
+        description: 'Manage eligibility rules and publish hall tickets for examinations.',
+        to: '/sis/hall-tickets',
+        icon: ClipboardCheck,
+        bar: 'bg-yellow-500',
+        badge: 'bg-yellow-50 text-yellow-600 border-yellow-100',
+      },
+      {
+        title: 'Examinations',
+        description: 'Schedule exam sessions, allocate seating, and manage invigilation.',
+        to: '/sis/exam/sessions',
+        icon: FileText,
+        bar: 'bg-red-500',
+        badge: 'bg-red-50 text-red-600 border-red-100',
+      },
+      {
+        title: 'Results',
+        description: 'Declare results, issue grade cards, and publish rank lists.',
+        to: '/sis/results',
+        icon: ClipboardList,
+        bar: 'bg-rose-500',
+        badge: 'bg-rose-50 text-rose-600 border-rose-100',
+      },
+      {
+        title: 'Transcripts',
+        description: 'Generate and verify official student academic transcripts.',
+        icon: ScrollText,
+        bar: 'bg-pink-500',
+        badge: 'bg-pink-50 text-pink-600 border-pink-100',
+      },
+      {
+        title: 'Graduation',
+        description: 'Audit graduation eligibility and issue degree certificates.',
+        icon: Award,
+        bar: 'bg-purple-500',
+        badge: 'bg-purple-50 text-purple-600 border-purple-100',
+      },
+    ],
+  },
+  {
+    heading: 'Reports',
+    cards: [
+      {
+        title: 'Attendance Analytics',
+        description: 'Analyse attendance patterns across sections, subjects, and batches.',
+        to: '/sis/attendance/analytics',
+        icon: CalendarCheck,
+        bar: 'bg-teal-600',
+        badge: 'bg-teal-50 text-teal-700 border-teal-100',
+      },
+      {
+        title: 'Internal Marks Reports',
+        description: 'View aggregated marks data across programs, batches, and components.',
+        to: '/sis/marks/report',
+        icon: BookMarked,
+        bar: 'bg-blue-600',
+        badge: 'bg-blue-50 text-blue-700 border-blue-100',
+      },
+      {
+        title: 'Result Analytics',
+        description: 'Grade distribution analysis and bell curve advisory. Advisory only.',
+        to: '/bell-curve',
+        icon: BarChart2,
+        bar: 'bg-violet-600',
+        badge: 'bg-violet-50 text-violet-700 border-violet-100',
+      },
+      {
+        title: 'Audit Logs',
+        description: 'Review system activity, user actions, and change history.',
+        icon: ScrollText,
+        bar: 'bg-slate-600',
+        badge: 'bg-slate-50 text-slate-600 border-slate-200',
+      },
+    ],
+  },
+]
+
+function AdminActionCard({ card, onClick }: { card: AdminCard; onClick?: () => void }) {
+  const soon = !card.to
+  return (
+    <button
+      onClick={soon ? undefined : onClick}
+      disabled={soon}
+      className={`text-left w-full rounded-xl border border-gray-200 bg-white transition-all duration-200 group relative overflow-hidden disabled:opacity-40 disabled:cursor-not-allowed ${
+        soon ? '' : 'hover:border-sv-primary/30 hover:shadow-lg hover:shadow-sv-primary/5'
+      }`}
+    >
+      <div className={`absolute inset-x-0 top-0 h-[3px] ${card.bar}`} />
+      <div className="p-5 pt-6">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className={`p-2 rounded-lg border ${card.badge}`}>
+            <card.icon className="h-4 w-4" />
+          </div>
+          {soon ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-gray-100 text-gray-400 border border-gray-200 self-start mt-0.5 flex-shrink-0">
+              Soon
+            </span>
+          ) : (
+            <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200 flex-shrink-0" />
+          )}
+        </div>
+        <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
+        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
+      </div>
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Greeting
 // ---------------------------------------------------------------------------
 
@@ -366,72 +592,6 @@ function prettifySlug(slug: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Academic Overview (ADMIN only)
-// ---------------------------------------------------------------------------
-
-function AcademicOverview() {
-  const navigate = useNavigate()
-  const [entries, setEntries] = useState<AcademicOverviewEntry[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    usersApi.academicOverview()
-      .then(setEntries)
-      .catch(() => {/* non-fatal: overview is supplemental */})
-      .finally(() => setLoading(false))
-  }, [])
-
-  if (loading || entries.length === 0) return null
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
-          Academic Overview
-        </h2>
-        <div className="flex-1 h-px bg-gray-100" />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {entries.map((e) => (
-          <div
-            key={e.program_id}
-            className="rounded-xl border border-gray-200 bg-white p-4 space-y-3"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-gray-900 leading-snug">{e.program_name}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{e.program_code} · {e.degree_type}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-lg bg-green-50 px-2 py-2">
-                <p className="text-lg font-bold text-green-700">{e.student_count}</p>
-                <p className="text-[10px] text-green-600 font-medium uppercase tracking-wide">Students</p>
-              </div>
-              <div className="rounded-lg bg-blue-50 px-2 py-2">
-                <p className="text-lg font-bold text-blue-700">{e.faculty_count}</p>
-                <p className="text-[10px] text-blue-600 font-medium uppercase tracking-wide">Faculty</p>
-              </div>
-              <div className="rounded-lg bg-gray-50 px-2 py-2">
-                <p className="text-lg font-bold text-gray-700">{e.section_count}</p>
-                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Sections</p>
-              </div>
-            </div>
-            <button
-              onClick={() => navigate(`/users?program_id=${e.program_id}`)}
-              className="w-full text-center text-xs font-medium text-sv-primary hover:underline flex items-center justify-center gap-1"
-            >
-              <Users className="h-3 w-3" />
-              View Students
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -446,7 +606,6 @@ export default function DashboardPage() {
   const displayFirstName = user?.fullName ? getDisplayFirstName(user.fullName) : null
   const subtitle     = ROLE_SUBTITLE[role] ?? 'Select a module below to get started.'
   const roleContext  = ROLE_CONTEXT[role]
-  // Use the registered institution name from branding; fall back to slug-derived label
   const institution  = branding.name || prettifySlug(user?.tenantSlug ?? '')
 
   return (
@@ -499,14 +658,36 @@ export default function DashboardPage() {
         <AdminOnboarding passwordChanged={!authUser.firstLogin} />
       )}
 
-      {/* ── Academic Overview (ADMIN) ──────────────────────────── */}
-      {role === 'ADMIN' && <AcademicOverview />}
+      {/* ── Admin ERP workspace ────────────────────────────────── */}
+      {role === 'ADMIN' && (
+        <div className="space-y-8">
+          {ADMIN_SECTIONS.map((section) => (
+            <div key={section.heading}>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                  {section.heading}
+                </h2>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {section.cards.map((card) => (
+                  <AdminActionCard
+                    key={card.title}
+                    card={card}
+                    onClick={() => card.to && navigate(card.to)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* ── My Courses — FACULTY only (H-31) ──────────────────── */}
+      {/* ── My Courses — FACULTY only ──────────────────────────── */}
       {role === 'FACULTY' && <MyCoursesBanner />}
 
-      {/* ── Module sections ────────────────────────────────────── */}
-      {visibleCards.length > 0 && (
+      {/* ── Module sections — all non-admin roles ──────────────── */}
+      {role !== 'ADMIN' && visibleCards.length > 0 && (
         <div className="space-y-8">
           {MODULE_SECTIONS.map((section) => {
             const sectionCards = visibleCards.filter((c) => c.section === section.key)
@@ -544,7 +725,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Empty state ────────────────────────────────────────── */}
-      {visibleCards.length === 0 && (
+      {role !== 'ADMIN' && visibleCards.length === 0 && (
         <PageEmpty message="No modules are available for your role. Contact your administrator." />
       )}
 
