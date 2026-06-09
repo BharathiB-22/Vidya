@@ -63,17 +63,49 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── DEAN: Governance ───────────────────────────────────────────────────────
+  // ── FACULTY: My Account ───────────────────────────────────────────────────
   {
-    heading: 'Governance',
+    heading: 'My Account',
     items: [
-      { label: 'Syllabus Review',       to: '/dean-review',           icon: ClipboardCheck, roles: ['DEAN'] },
-      { label: 'Course Assignments',    to: '/course-assignments',    icon: UserCheck,      roles: ['DEAN'] },
-      { label: 'Internal Marks Report', to: '/sis/marks/report',      icon: BookMarked,     roles: ['DEAN'] },
-      { label: 'Result Declarations',   to: '/sis/results',           icon: ClipboardList,  roles: ['DEAN'] },
-      { label: 'Hall Tickets',          to: '/sis/hall-tickets',      icon: Ticket,         roles: ['DEAN'] },
-      { label: 'Exam Sessions',         to: '/sis/exam/sessions',     icon: CalendarDays,   roles: ['DEAN'] },
-      { label: 'Grade Analytics',       to: '/bell-curve',            icon: BarChart2,      roles: ['DEAN'] },
+      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
+      { label: 'Faculty Directory', to: '/sis/directory/faculty', icon: UserCheck, roles: ['FACULTY'] },
+    ],
+  },
+
+  // ── DEAN: Academic Operations ──────────────────────────────────────────────
+  {
+    heading: 'Academic Operations',
+    items: [
+      { label: 'Attendance Analytics', to: '/sis/attendance/analytics', icon: CalendarCheck, roles: ['DEAN'] },
+      { label: 'Internal Marks',       to: '/sis/marks/report',         icon: BookMarked,    roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Examinations ────────────────────────────────────────────────────
+  {
+    heading: 'Examinations',
+    items: [
+      { label: 'Hall Tickets',  to: '/sis/hall-tickets',   icon: Ticket,      roles: ['DEAN'] },
+      { label: 'Exam Sessions', to: '/sis/exam/sessions',  icon: CalendarDays, roles: ['DEAN'] },
+      { label: 'Exam Centers',  to: '/sis/exam/centers',   icon: MapPin,       roles: ['DEAN'] },
+      { label: 'Results',       to: '/sis/results',        icon: ClipboardList, roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Analytics ───────────────────────────────────────────────────────
+  {
+    heading: 'Analytics',
+    items: [
+      { label: 'Grade Analytics', to: '/bell-curve', icon: BarChart2, roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Faculty Oversight ────────────────────────────────────────────────
+  {
+    heading: 'Faculty Oversight',
+    items: [
+      { label: 'Faculty Directory',   to: '/sis/directory/faculty', icon: UserCheck,      roles: ['DEAN'] },
+      { label: 'Course Assignments',  to: '/course-assignments',    icon: ClipboardCheck, roles: ['DEAN'] },
     ],
   },
 
@@ -81,63 +113,34 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Academic View',
     items: [
-      { label: 'Academic Programs', to: '/programs',   icon: BookOpen,      roles: ['DEAN'] },
-      { label: 'Syllabuses',        to: '/syllabuses', icon: GraduationCap, roles: ['DEAN'] },
+      { label: 'Syllabus Review', to: '/dean-review',  icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'Syllabuses',      to: '/syllabuses',   icon: GraduationCap,  roles: ['DEAN'] },
     ],
   },
 
-  // ── DEAN: Student Information System ──────────────────────────────────────
-  {
-    heading: 'Student Information System',
-    items: [
-      { label: 'Enrollment Overview',   to: '/sis',                         icon: LayoutDashboard, roles: ['DEAN'], exact: true },
-      { label: 'Enrollment Roster',     to: '/sis/roster',                  icon: UsersRound,      roles: ['DEAN'] },
-      { label: 'Student Directory',     to: '/sis/directory/students',      icon: GraduationCap,   roles: ['DEAN'] },
-      { label: 'Faculty Directory',     to: '/sis/directory/faculty',       icon: UserCheck,       roles: ['DEAN', 'FACULTY'] },
-      { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',    icon: CalendarCheck,   roles: ['DEAN'] },
-      { label: 'Internal Marks Report', to: '/sis/marks/report',             icon: BookMarked,      roles: ['DEAN'] },
-    ],
-  },
-
-  // ── ADMIN: Academic Structure (single source of truth) ────────────────────
+  // ── ADMIN: Academic Structure ─────────────────────────────────────────────
   {
     heading: 'Academic Structure',
     items: [
-      { label: 'Schools',          to: '/sis/schools',          icon: School2,       roles: ['ADMIN'] },
-      { label: 'Departments',      to: '/sis/departments',      icon: Building2,     roles: ['ADMIN'] },
-      { label: 'Degree Programs',  to: '/academics/programs',   icon: GraduationCap, roles: ['ADMIN'] },
-      { label: 'Batches',          to: '/academics/batches',    icon: CalendarRange, roles: ['ADMIN'] },
-      { label: 'Semesters',        to: '/academics/semesters',  icon: Calendar,      roles: ['ADMIN'] },
-      { label: 'Sections',         to: '/academics/sections',   icon: LayoutList,    roles: ['ADMIN'] },
+      { label: 'Schools',         to: '/sis/schools',         icon: School2,       roles: ['ADMIN'] },
+      { label: 'Departments',     to: '/sis/departments',     icon: Building2,     roles: ['ADMIN'] },
+      { label: 'Degree Programs', to: '/academics/programs',  icon: GraduationCap, roles: ['ADMIN'] },
+      { label: 'Batches',         to: '/academics/batches',   icon: CalendarRange, roles: ['ADMIN'] },
+      { label: 'Semesters',       to: '/academics/semesters', icon: Calendar,      roles: ['ADMIN'] },
+      { label: 'Sections',        to: '/academics/sections',  icon: LayoutList,    roles: ['ADMIN'] },
     ],
   },
 
-  // ── ADMIN: People & Enrollment ─────────────────────────────────────────────
+  // ── ADMIN: People ─────────────────────────────────────────────────────────
   {
-    heading: 'People & Enrollment',
+    heading: 'People',
     items: [
-      { label: 'Users',              to: '/users',                        icon: Users,        roles: ['ADMIN'] },
-      { label: 'Import Users',       to: '/users/bulk-onboarding',        icon: UserPlus,     roles: ['ADMIN'] },
-      { label: 'Enrollment Roster',  to: '/sis/roster',                   icon: UsersRound,   roles: ['ADMIN'] },
-      { label: 'Student Directory',  to: '/sis/directory/students',       icon: GraduationCap,roles: ['ADMIN'] },
-      { label: 'Faculty Directory',  to: '/sis/directory/faculty',        icon: UserCheck,    roles: ['ADMIN'] },
-      { label: 'Course Assignments',    to: '/course-assignments',        icon: ClipboardCheck, roles: ['ADMIN'] },
-      { label: 'Semester Rollover',     to: '/sis/rollover',              icon: RefreshCw,      roles: ['ADMIN'] },
-      { label: 'Attendance Analytics',  to: '/sis/attendance/analytics',  icon: CalendarCheck,  roles: ['ADMIN'] },
-      { label: 'Internal Marks Report', to: '/sis/marks/report',           icon: BookMarked,     roles: ['ADMIN'] },
-      { label: 'Result Declarations',   to: '/sis/results',               icon: ClipboardList,  roles: ['ADMIN'] },
-      { label: 'Hall Tickets',          to: '/sis/hall-tickets',          icon: Ticket,         roles: ['ADMIN'] },
-      { label: 'Exam Centers',          to: '/sis/exam/centers',          icon: MapPin,         roles: ['ADMIN'] },
-      { label: 'Exam Sessions',         to: '/sis/exam/sessions',         icon: CalendarDays,   roles: ['ADMIN'] },
-    ],
-  },
-
-  // ── ADMIN: Analytics ──────────────────────────────────────────────────────
-  {
-    heading: 'Analytics',
-    items: [
-      { label: 'Enrollment Overview', to: '/sis',        icon: LayoutDashboard, roles: ['ADMIN'], exact: true },
-      { label: 'Grade Analytics',     to: '/bell-curve', icon: BarChart2,       roles: ['ADMIN'] },
+      { label: 'Users',             to: '/users',                   icon: Users,         roles: ['ADMIN'] },
+      { label: 'Student Directory', to: '/sis/directory/students',  icon: GraduationCap, roles: ['ADMIN'] },
+      { label: 'Faculty Directory', to: '/sis/directory/faculty',   icon: UserCheck,     roles: ['ADMIN'] },
+      { label: 'Enrollment Roster', to: '/sis/roster',              icon: UsersRound,    roles: ['ADMIN'] },
+      { label: 'Import Users',      to: '/users/bulk-onboarding',   icon: UserPlus,      roles: ['ADMIN'] },
+      { label: 'Semester Rollover', to: '/sis/rollover',            icon: RefreshCw,     roles: ['ADMIN'] },
     ],
   },
 
@@ -145,8 +148,16 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Administration',
     items: [
-      { label: 'Branding',  to: '/settings/branding', icon: Palette,  roles: ['ADMIN'] },
-      { label: 'Settings',  to: '/settings',           icon: Settings, roles: ['ADMIN'] },
+      { label: 'Branding', to: '/settings/branding', icon: Palette,  roles: ['ADMIN'] },
+      { label: 'Settings', to: '/settings',           icon: Settings, roles: ['ADMIN'] },
+    ],
+  },
+
+  // ── ADMIN: Reports ────────────────────────────────────────────────────────
+  {
+    heading: 'Reports',
+    items: [
+      { label: 'Enrollment Overview', to: '/sis', icon: LayoutDashboard, roles: ['ADMIN'], exact: true },
     ],
   },
 
@@ -166,22 +177,14 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Work',
     items: [
-      { label: 'My Labs',            to: '/student/labs',              icon: FlaskConical,  roles: ['STUDENT'] },
-      { label: 'My Research',       to: '/student/research',          icon: Microscope,    roles: ['STUDENT'] },
-      { label: 'My Attendance',     to: '/sis/attendance/me',         icon: CalendarCheck, roles: ['STUDENT'] },
-      { label: 'My Marks',          to: '/sis/marks/me',              icon: BookMarked,    roles: ['STUDENT'] },
-      { label: 'My Hall Ticket',    to: '/sis/hall-tickets/me',       icon: Ticket,        roles: ['STUDENT'] },
-      { label: 'My Exam Timetable', to: '/sis/exam/my-timetable',     icon: CalendarDays,  roles: ['STUDENT'] },
-      { label: 'My Transcript',     to: '/sis/my-transcript',         icon: Award,         roles: ['STUDENT'] },
-      { label: 'My Profile',        to: '/sis/me/profile',            icon: UserCircle2,   roles: ['STUDENT'] },
-    ],
-  },
-
-  // ── FACULTY: My Account ───────────────────────────────────────────────────
-  {
-    heading: 'My Account',
-    items: [
-      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
+      { label: 'My Labs',           to: '/student/labs',          icon: FlaskConical,  roles: ['STUDENT'] },
+      { label: 'My Research',       to: '/student/research',      icon: Microscope,    roles: ['STUDENT'] },
+      { label: 'My Attendance',     to: '/sis/attendance/me',     icon: CalendarCheck, roles: ['STUDENT'] },
+      { label: 'My Marks',          to: '/sis/marks/me',          icon: BookMarked,    roles: ['STUDENT'] },
+      { label: 'My Hall Ticket',    to: '/sis/hall-tickets/me',   icon: Ticket,        roles: ['STUDENT'] },
+      { label: 'My Exam Timetable', to: '/sis/exam/my-timetable', icon: CalendarDays,  roles: ['STUDENT'] },
+      { label: 'My Transcript',     to: '/sis/my-transcript',     icon: Award,         roles: ['STUDENT'] },
+      { label: 'My Profile',        to: '/sis/me/profile',        icon: UserCircle2,   roles: ['STUDENT'] },
     ],
   },
 

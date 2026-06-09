@@ -4,7 +4,8 @@ import {
   BarChart2, ChevronRight, CheckCircle, Circle, GraduationCap, Package,
   ClipboardCheck, Cpu, ShieldCheck, Building2, Users,
   School2, CalendarRange, Calendar, LayoutList, UserCheck, UsersRound,
-  CalendarCheck, BookMarked, Award, ScrollText,
+  CalendarCheck, BookMarked, Ticket, CalendarDays, MapPin,
+  Palette, Settings,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -179,8 +180,8 @@ const MODULE_SECTIONS = [
 ]
 
 const ROLE_SUBTITLE: Record<string, string> = {
-  ADMIN:     'Manage your institution\'s academic structure, users, and enrollment.',
-  DEAN:      'Oversee academic programs, approve syllabuses, and monitor grade outcomes.',
+  ADMIN:     'Manage your institution\'s academic structure, people, and settings.',
+  DEAN:      'Oversee academic operations, examinations, results, and institutional analytics.',
   FACULTY:   'Build courses, set exams, evaluate labs, and supervise research.',
   BOARD:     'Review exam papers, evaluate scripts, and advise on grade distributions.',
   GUIDE:     'Review research proposals assigned to you and supervise student projects.',
@@ -413,6 +414,14 @@ const ADMIN_SECTIONS: AdminSection[] = [
     heading: 'People',
     cards: [
       {
+        title: 'Users',
+        description: 'Create and manage user accounts for faculty and students.',
+        to: '/users',
+        icon: Users,
+        bar: 'bg-slate-500',
+        badge: 'bg-slate-50 text-slate-600 border-slate-100',
+      },
+      {
         title: 'Faculty',
         description: 'Browse faculty profiles, assignments, and contact details.',
         to: '/sis/directory/faculty',
@@ -439,11 +448,35 @@ const ADMIN_SECTIONS: AdminSection[] = [
     ],
   },
   {
+    heading: 'Administration',
+    cards: [
+      {
+        title: 'Branding',
+        description: 'Customise institution name, logo, and colour scheme.',
+        to: '/settings/branding',
+        icon: Palette,
+        bar: 'bg-pink-500',
+        badge: 'bg-pink-50 text-pink-600 border-pink-100',
+      },
+      {
+        title: 'Settings',
+        description: 'Review and update institution account and security settings.',
+        to: '/settings',
+        icon: Settings,
+        bar: 'bg-gray-500',
+        badge: 'bg-gray-50 text-gray-600 border-gray-100',
+      },
+    ],
+  },
+]
+
+const DEAN_SECTIONS: AdminSection[] = [
+  {
     heading: 'Academic Operations',
     cards: [
       {
         title: 'Attendance',
-        description: 'Review attendance records and shortage alerts across sections.',
+        description: 'Monitor attendance across sections, flag shortages, and view analytics.',
         to: '/sis/attendance/analytics',
         icon: CalendarCheck,
         bar: 'bg-amber-500',
@@ -451,85 +484,82 @@ const ADMIN_SECTIONS: AdminSection[] = [
       },
       {
         title: 'Internal Marks',
-        description: 'Review and monitor internal assessment marks by program.',
+        description: 'Review internal assessment marks submitted by faculty across programs.',
         to: '/sis/marks/report',
         icon: BookMarked,
         bar: 'bg-orange-500',
         badge: 'bg-orange-50 text-orange-600 border-orange-100',
       },
+    ],
+  },
+  {
+    heading: 'Examinations',
+    cards: [
       {
         title: 'Hall Tickets',
         description: 'Manage eligibility rules and publish hall tickets for examinations.',
         to: '/sis/hall-tickets',
-        icon: ClipboardCheck,
+        icon: Ticket,
         bar: 'bg-yellow-500',
         badge: 'bg-yellow-50 text-yellow-600 border-yellow-100',
       },
       {
-        title: 'Examinations',
-        description: 'Schedule exam sessions, allocate seating, and manage invigilation.',
+        title: 'Exam Sessions',
+        description: 'Schedule sessions, allocate seating, and manage invigilation.',
         to: '/sis/exam/sessions',
-        icon: FileText,
+        icon: CalendarDays,
         bar: 'bg-red-500',
         badge: 'bg-red-50 text-red-600 border-red-100',
+      },
+      {
+        title: 'Exam Centers',
+        description: 'Configure examination venues and room capacity.',
+        to: '/sis/exam/centers',
+        icon: MapPin,
+        bar: 'bg-rose-500',
+        badge: 'bg-rose-50 text-rose-600 border-rose-100',
       },
       {
         title: 'Results',
         description: 'Declare results, issue grade cards, and publish rank lists.',
         to: '/sis/results',
         icon: ClipboardList,
-        bar: 'bg-rose-500',
-        badge: 'bg-rose-50 text-rose-600 border-rose-100',
-      },
-      {
-        title: 'Transcripts',
-        description: 'Generate and verify official student academic transcripts.',
-        icon: ScrollText,
         bar: 'bg-pink-500',
         badge: 'bg-pink-50 text-pink-600 border-pink-100',
-      },
-      {
-        title: 'Graduation',
-        description: 'Audit graduation eligibility and issue degree certificates.',
-        icon: Award,
-        bar: 'bg-purple-500',
-        badge: 'bg-purple-50 text-purple-600 border-purple-100',
       },
     ],
   },
   {
-    heading: 'Reports',
+    heading: 'Analytics',
     cards: [
       {
-        title: 'Attendance Analytics',
-        description: 'Analyse attendance patterns across sections, subjects, and batches.',
-        to: '/sis/attendance/analytics',
-        icon: CalendarCheck,
-        bar: 'bg-teal-600',
-        badge: 'bg-teal-50 text-teal-700 border-teal-100',
-      },
-      {
-        title: 'Internal Marks Reports',
-        description: 'View aggregated marks data across programs, batches, and components.',
-        to: '/sis/marks/report',
-        icon: BookMarked,
-        bar: 'bg-blue-600',
-        badge: 'bg-blue-50 text-blue-700 border-blue-100',
-      },
-      {
-        title: 'Result Analytics',
-        description: 'Grade distribution analysis and bell curve advisory. Advisory only.',
+        title: 'Grade Analytics',
+        description: 'Analyse score distributions and advise on normalisation. Advisory only.',
         to: '/bell-curve',
         icon: BarChart2,
-        bar: 'bg-violet-600',
-        badge: 'bg-violet-50 text-violet-700 border-violet-100',
+        bar: 'bg-teal-500',
+        badge: 'bg-teal-50 text-teal-600 border-teal-100',
+      },
+    ],
+  },
+  {
+    heading: 'Faculty Oversight',
+    cards: [
+      {
+        title: 'Faculty Directory',
+        description: 'Browse faculty profiles, department assignments, and contact details.',
+        to: '/sis/directory/faculty',
+        icon: UserCheck,
+        bar: 'bg-emerald-500',
+        badge: 'bg-emerald-50 text-emerald-600 border-emerald-100',
       },
       {
-        title: 'Audit Logs',
-        description: 'Review system activity, user actions, and change history.',
-        icon: ScrollText,
-        bar: 'bg-slate-600',
-        badge: 'bg-slate-50 text-slate-600 border-slate-200',
+        title: 'Course Assignments',
+        description: 'Assign faculty to courses and sections for the current semester.',
+        to: '/course-assignments',
+        icon: ClipboardCheck,
+        bar: 'bg-green-500',
+        badge: 'bg-green-50 text-green-600 border-green-100',
       },
     ],
   },
@@ -639,9 +669,9 @@ export default function DashboardPage() {
             </>
           ) : role === 'DEAN' ? (
             <>
-              <StatCard label="Institution"       value={institution}  icon={Building2}  accent />
-              <StatCard label="Role"              value="Dean"         icon={ShieldCheck} />
-              <StatCard label="Grade Analytics"   value="Available"   icon={BarChart2} />
+              <StatCard label="Institution"  value={institution}  icon={Building2}  accent />
+              <StatCard label="Role"         value="Dean"         icon={ShieldCheck} />
+              <StatCard label="Operations"   value="Active"       icon={CalendarCheck} />
             </>
           ) : (
             <>
@@ -683,11 +713,36 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* ── Dean operational workspace ─────────────────────────── */}
+      {role === 'DEAN' && (
+        <div className="space-y-8">
+          {DEAN_SECTIONS.map((section) => (
+            <div key={section.heading}>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                  {section.heading}
+                </h2>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {section.cards.map((card) => (
+                  <AdminActionCard
+                    key={card.title}
+                    card={card}
+                    onClick={() => card.to && navigate(card.to)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── My Courses — FACULTY only ──────────────────────────── */}
       {role === 'FACULTY' && <MyCoursesBanner />}
 
-      {/* ── Module sections — all non-admin roles ──────────────── */}
-      {role !== 'ADMIN' && visibleCards.length > 0 && (
+      {/* ── Module sections — Faculty, Student, Board, Guide, Evaluator ── */}
+      {!['ADMIN', 'DEAN'].includes(role) && visibleCards.length > 0 && (
         <div className="space-y-8">
           {MODULE_SECTIONS.map((section) => {
             const sectionCards = visibleCards.filter((c) => c.section === section.key)
@@ -725,7 +780,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Empty state ────────────────────────────────────────── */}
-      {role !== 'ADMIN' && visibleCards.length === 0 && (
+      {!['ADMIN', 'DEAN'].includes(role) && visibleCards.length === 0 && (
         <PageEmpty message="No modules are available for your role. Contact your administrator." />
       )}
 

@@ -288,8 +288,8 @@ export default function AdminDashboardPage() {
             <div className="space-y-2">
               <QuickAction label="Create University" icon={PlusCircle} onClick={() => navigate('/admin/tenants/new')} />
               <QuickAction label="View All Tenants"  icon={Building2}  onClick={() => navigate('/admin/tenants')} />
-              <QuickAction label="Platform Health"   icon={Activity}   soon />
-              <QuickAction label="Audit Logs"        icon={ScrollText} soon />
+              <QuickAction label="Platform Health"   icon={Activity}   onClick={() => navigate('/admin/health')} />
+              <QuickAction label="Audit Logs"        icon={ScrollText} onClick={() => navigate('/admin/audit-logs')} />
             </div>
           </div>
 

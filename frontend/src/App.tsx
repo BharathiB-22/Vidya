@@ -198,8 +198,8 @@ export default function App() {
             <Route path="/sis/attendance/shortage" element={<FacultyShortageReportPage />} />
           </Route>
 
-          {/* Attendance — Dean/Admin analytics */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+          {/* Attendance analytics — Dean only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/sis/attendance/analytics" element={<AttendanceAnalyticsPage />} />
           </Route>
 
@@ -214,8 +214,8 @@ export default function App() {
             <Route path="/sis/marks/entry/:componentId" element={<InternalMarkEntryPage />} />
           </Route>
 
-          {/* Internal Marks — Dean/Admin */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+          {/* Internal Marks report — Dean only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/sis/marks/report" element={<InternalMarksReportPage />} />
           </Route>
 
@@ -224,8 +224,8 @@ export default function App() {
             <Route path="/sis/marks/me" element={<MyMarksPage />} />
           </Route>
 
-          {/* Results Management — ADMIN, DEAN */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+          {/* Results Management — Dean only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/sis/results"                     element={<ResultDeclarationsListPage />} />
             <Route path="/sis/results/:id"                 element={<ResultDeclarationDetailPage />} />
             <Route path="/sis/results/:id/grade-cards"     element={<GradeCardPage />} />
@@ -236,8 +236,8 @@ export default function App() {
             <Route path="/sis/results/:id/verify"          element={<ResultVerifyPage />} />
           </Route>
 
-          {/* Rank List — ADMIN, DEAN, FACULTY */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN', 'FACULTY']} />}>
+          {/* Rank List — Dean, Faculty */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'FACULTY']} />}>
             <Route path="/sis/results/:id/ranks"           element={<RankListPage />} />
           </Route>
 
@@ -247,8 +247,8 @@ export default function App() {
             <Route path="/sis/my-transcript"               element={<MyTranscriptPage />} />
           </Route>
 
-          {/* Hall Ticket Management — ADMIN, DEAN */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+          {/* Hall Ticket Management — Dean only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/sis/hall-tickets"                element={<HallTicketDashboardPage />} />
             <Route path="/sis/hall-tickets/:id"            element={<EligibilityDetailPage />} />
           </Route>
@@ -258,8 +258,8 @@ export default function App() {
             <Route path="/sis/hall-tickets/me"             element={<MyHallTicketPage />} />
           </Route>
 
-          {/* Exam Management — ADMIN, DEAN */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+          {/* Exam Management — Dean only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/sis/exam/centers"                       element={<ExamCentersPage />} />
             <Route path="/sis/exam/sessions"                      element={<ExamSessionsPage />} />
             <Route path="/sis/exam/sessions/:id"                  element={<ExamSessionDetailPage />} />

@@ -33,17 +33,17 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Operations',
     items: [
-      { label: 'Monitoring', to: '/admin/monitoring',  icon: BarChart2  },
-      { label: 'Audit Logs', to: '/admin/audit-logs', icon: ScrollText },
-      { label: 'Health',     to: '/admin/health',      icon: Activity },
+      { label: 'Monitoring',      to: '/admin/monitoring',  icon: BarChart2  },
+      { label: 'Platform Health', to: '/admin/health',      icon: Activity   },
+      { label: 'Audit Logs',      to: '/admin/audit-logs',  icon: ScrollText },
     ],
   },
   {
-    heading: 'Account',
+    heading: 'Administration',
     items: [
-      { label: 'My Profile', to: '/admin/profile',   icon: User },
-      { label: 'Branding',   to: '/admin/branding',  icon: Palette },
+      { label: 'Branding',   to: '/admin/branding',  icon: Palette  },
       { label: 'Settings',   to: '/admin/settings',  icon: Settings },
+      { label: 'My Profile', to: '/admin/profile',   icon: User     },
     ],
   },
 ]
@@ -56,7 +56,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/admin/monitoring':      'Monitoring',
   '/admin/audit-logs':      'Audit Logs',
   '/admin/settings':        'Settings',
-  '/admin/health':          'Health',
+  '/admin/health':          'Platform Health',
   '/admin/profile':         'My Profile',
   '/admin/branding':        'Platform Branding',
 }
