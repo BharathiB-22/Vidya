@@ -241,4 +241,4 @@ def test_sis_router_total_routes_h646():
     # 5 school + 7 enrollment + 11 directory + 4 me + 2 rollover + 15 attendance
     # + 19 marks + 10 hallticket + 24 exam + 36 results + 2 import_batches
     # + 3 transcript + 13 graduation + 4 lifecycle + 2 bulk_ops + 3 capacity (H64.6) = 176
-    assert len(router.routes) == 176
+    assert len(router.routes) == 177

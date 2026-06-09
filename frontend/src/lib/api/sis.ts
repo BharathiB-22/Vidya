@@ -319,6 +319,22 @@ export interface BulkOpResult {
 }
 
 // ---------------------------------------------------------------------------
+// Global Search (H64.7)
+// ---------------------------------------------------------------------------
+
+export interface StudentHit  { id: string; full_name: string; email: string; usn: string | null; is_active: boolean }
+export interface FacultyHit  { id: string; full_name: string; email: string; employee_id: string | null; is_active: boolean }
+export interface SectionHit  { id: string; name: string; is_active: boolean }
+export interface CourseHit   { id: string; code: string; title: string }
+export interface SearchResultsOut {
+  query:    string
+  students: StudentHit[]
+  faculty:  FacultyHit[]
+  sections: SectionHit[]
+  courses:  CourseHit[]
+}
+
+// ---------------------------------------------------------------------------
 // Enrollment Capacity (H64.6)
 // ---------------------------------------------------------------------------
 
@@ -802,6 +818,10 @@ export const sisApi = {
 
   setSectionCapacity: (sectionId: string, maxStrength: number | null): Promise<SectionCapacityOut> =>
     api.put<SectionCapacityOut>(`/sis/sections/${sectionId}/capacity`, { max_strength: maxStrength }).then(r => r.data),
+
+  // Global search (H64.7)
+  search: (q: string): Promise<SearchResultsOut> =>
+    api.get<SearchResultsOut>('/sis/search', { params: { q } }).then(r => r.data),
 
   // Faculty lifecycle (H64.4)
   getFacultyLifecycle: (facultyId: string): Promise<FacultyLifecycleStatusOut> =>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Menu, LogOut, ChevronDown, Bell, Search, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -7,6 +7,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { listNotifications } from '@/lib/api/notifications'
 import { Breadcrumbs } from './Breadcrumbs'
 import { NotificationsDrawer } from './NotificationsDrawer'
+import { SearchPalette } from './SearchPalette'
 
 interface TopbarProps {
   onMenuClick: () => void
@@ -49,7 +50,10 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const user = useCurrentUser()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [notifOpen, setNotifOpen]       = useState(false)
+  const [searchOpen, setSearchOpen]     = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const openSearch = useCallback(() => setSearchOpen(true), [])
 
   useEffect(() => {
     function onOutsideClick(e: MouseEvent) {
@@ -59,6 +63,17 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     }
     document.addEventListener('mousedown', onOutsideClick)
     return () => document.removeEventListener('mousedown', onOutsideClick)
+  }, [])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen(v => !v)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
   const { data: notifData } = useQuery({
@@ -98,11 +113,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         {/* Mobile spacer */}
         <div className="flex-1 sm:hidden" />
 
-        {/* ── Global search placeholder ──────────────────────── */}
+        {/* ── Global search ──────────────────────────────────── */}
         <button
+          onClick={openSearch}
           className="hidden md:flex items-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-3 py-[7px] text-sm text-gray-400 transition-colors w-52 lg:w-64 flex-shrink-0"
-          aria-label="Search"
-          tabIndex={0}
+          aria-label="Search (⌘K)"
         >
           <Search className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
           <span className="flex-1 text-left text-[13px] text-gray-400">Search...</span>
@@ -216,6 +231,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       </header>
 
       <NotificationsDrawer open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </>
   )
 }
