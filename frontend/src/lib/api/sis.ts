@@ -319,6 +319,21 @@ export interface BulkOpResult {
 }
 
 // ---------------------------------------------------------------------------
+// Enrollment Capacity (H64.6)
+// ---------------------------------------------------------------------------
+
+export interface SectionCapacityOut {
+  section_id:   string
+  section_name: string
+  semester_id:  string
+  max_strength: number | null
+  enrolled:     number
+  available:    number | null
+  is_full:      boolean
+  fill_pct:     number | null
+}
+
+// ---------------------------------------------------------------------------
 // Attendance (H55)
 // ---------------------------------------------------------------------------
 
@@ -777,6 +792,16 @@ export const sisApi = {
 
   bulkFacultyAction: (facultyIds: string[], action: 'DEACTIVATE' | 'ARCHIVE', reason?: string): Promise<BulkOpResult> =>
     api.post<BulkOpResult>('/sis/faculty/bulk', { faculty_ids: facultyIds, action, reason: reason ?? null }).then(r => r.data),
+
+  // Enrollment capacity (H64.6)
+  listSectionsCapacity: (semesterId?: string): Promise<SectionCapacityOut[]> =>
+    api.get<SectionCapacityOut[]>('/sis/capacity/sections', { params: semesterId ? { semester_id: semesterId } : {} }).then(r => r.data),
+
+  getSectionCapacity: (sectionId: string): Promise<SectionCapacityOut> =>
+    api.get<SectionCapacityOut>(`/sis/sections/${sectionId}/capacity`).then(r => r.data),
+
+  setSectionCapacity: (sectionId: string, maxStrength: number | null): Promise<SectionCapacityOut> =>
+    api.put<SectionCapacityOut>(`/sis/sections/${sectionId}/capacity`, { max_strength: maxStrength }).then(r => r.data),
 
   // Faculty lifecycle (H64.4)
   getFacultyLifecycle: (facultyId: string): Promise<FacultyLifecycleStatusOut> =>

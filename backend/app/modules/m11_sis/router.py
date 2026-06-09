@@ -10,6 +10,7 @@ from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.attendance_router import attendance_router
 from app.modules.m11_sis.bulk_ops_router import bulk_ops_router
+from app.modules.m11_sis.capacity_router import capacity_router
 from app.modules.m11_sis.import_batch_router import import_batch_router
 from app.modules.m11_sis.lifecycle_router import lifecycle_router
 from app.modules.m11_sis.directory_router import directory_router
@@ -27,6 +28,7 @@ from app.modules.m11_sis.service import SchoolService, SchoolServiceError
 
 router = APIRouter(tags=["M11 SIS"])
 router.include_router(bulk_ops_router)
+router.include_router(capacity_router)
 router.include_router(import_batch_router)
 router.include_router(lifecycle_router)
 router.include_router(enrollment_router)

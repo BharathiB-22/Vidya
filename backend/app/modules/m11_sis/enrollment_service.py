@@ -125,6 +125,13 @@ class EnrollmentService:
         if not section.is_active:
             raise EnrollmentServiceError("SECTION_INACTIVE", "Section is not active.", 409)
 
+        # Capacity gate
+        from app.modules.m11_sis.capacity_service import CapacityError, CapacityService
+        try:
+            await CapacityService.check_capacity(body.section_id, db=db)
+        except CapacityError as cap_err:
+            raise EnrollmentServiceError(cap_err.code, cap_err.message, cap_err.status_code)
+
         # Handle UNIQUE constraint: one enrollment record per student
         existing = await EnrollmentRepository.get_by_student(body.student_id, db)
         if existing:
@@ -253,6 +260,13 @@ class EnrollmentService:
             raise EnrollmentServiceError("SECTION_NOT_FOUND", "Target section not found.", 404)
         if not target.is_active:
             raise EnrollmentServiceError("SECTION_INACTIVE", "Target section is not active.", 409)
+
+        # Capacity gate on target section
+        from app.modules.m11_sis.capacity_service import CapacityError, CapacityService
+        try:
+            await CapacityService.check_capacity(body.target_section_id, db=db)
+        except CapacityError as cap_err:
+            raise EnrollmentServiceError(cap_err.code, cap_err.message, cap_err.status_code)
 
         # Fetch student email before the move for post-commit notification
         student = (

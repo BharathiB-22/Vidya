@@ -5,7 +5,7 @@ import {
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
-  Award, Ticket, MapPin, CalendarDays, History,
+  Award, Ticket, MapPin, CalendarDays, History, Gauge,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -141,6 +141,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Enrollment Roster', to: '/sis/roster',              icon: UsersRound,    roles: ['ADMIN'] },
       { label: 'Import Users',      to: '/users/bulk-onboarding',   icon: UserPlus,      roles: ['ADMIN'] },
       { label: 'Import History',    to: '/sis/imports',             icon: History,       roles: ['ADMIN'] },
+      { label: 'Section Capacity',  to: '/sis/capacity',            icon: Gauge,         roles: ['ADMIN'] },
       { label: 'Semester Rollover', to: '/sis/rollover',            icon: RefreshCw,     roles: ['ADMIN'] },
     ],
   },

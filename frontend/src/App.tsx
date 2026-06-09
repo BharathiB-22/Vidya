@@ -84,6 +84,7 @@ import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
+import CapacityPage from '@/pages/sis/CapacityPage'
 import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
 import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
 import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
@@ -192,6 +193,7 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
             <Route path="/sis/rollover" element={<SemesterRolloverPage />} />
             <Route path="/sis/imports" element={<ImportHistoryPage />} />
+            <Route path="/sis/capacity" element={<CapacityPage />} />
           </Route>
 
           {/* Attendance — Faculty mark + shortage report */}
