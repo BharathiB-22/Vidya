@@ -12,6 +12,9 @@ export type ScriptStatus =
   | 'QUALITY_CHECKING'
   | 'QUALITY_FAILED'
   | 'OCR_PROCESSING'
+  // M09.1 double-evaluation statuses
+  | 'WAITING_SECOND_EVALUATOR'
+  | 'SECONDARY_EVALUATED'
 
 export type EvaluationRound =
   | 'PRIMARY'
@@ -45,7 +48,11 @@ export interface ScriptEvaluation {
   evaluator_marks:     number | null
   evaluator_note:      string | null
 
-  // Final marks (set at Board finalisation only)
+  // Board adjusted marks (M09.1 — set by Board before finalisation)
+  board_adjusted_marks:  number | null
+  board_adjustment_note: string | null
+
+  // Final marks (set at Board finalisation only — COALESCE(board_adjusted, evaluator))
   final_marks:         number | null
 
   created_at:          string
@@ -89,6 +96,11 @@ export interface ScannedScript {
   evaluator_id:         string | null
   second_evaluator_id:  string | null
 
+  // Double evaluation (M09.1)
+  double_evaluation_enabled: boolean
+  primary_submitted_at:      string | null
+  secondary_submitted_at:    string | null
+
   // Gate 1
   submitted_by:         string | null
   submitted_at:         string | null
@@ -123,6 +135,8 @@ export interface ExamScoreLedger {
   student_roll_ref:  string | null
   total_marks:       number
   max_marks:         number
+  primary_total:     number | null
+  secondary_total:   number | null
   finalised_by:      string
   finalisation_note: string | null
   finalised_at:      string
@@ -237,17 +251,54 @@ export interface ScriptFileUrlResponse {
 // ---------------------------------------------------------------------------
 
 export interface PaperPipelineStats {
-  paper_id:         string
-  total:            number
-  pending:          number
-  quality_checking: number
-  quality_failed:   number
-  ocr_processing:   number
-  processing:       number
-  scored:           number
-  failed:           number
-  review_required:  number
-  marks_submitted:  number
-  board_finalised:  number
-  completion_pct:   number
+  paper_id:                  string
+  total:                     number
+  pending:                   number
+  quality_checking:          number
+  quality_failed:            number
+  ocr_processing:            number
+  processing:                number
+  scored:                    number
+  failed:                    number
+  review_required:           number
+  waiting_second_evaluator:  number
+  secondary_evaluated:       number
+  marks_submitted:           number
+  board_finalised:           number
+  completion_pct:            number
+}
+
+// ---------------------------------------------------------------------------
+// Board comparison view (M09.1 double evaluation)
+// ---------------------------------------------------------------------------
+
+export interface BoardComparisonResponse {
+  script_id:                 string
+  masked_id:                 string
+  exam_paper_id:             string
+  status:                    ScriptStatus
+  double_evaluation_enabled: boolean
+  ocr_text:                  string | null
+  page_image_keys:           { page: number; key: string }[] | null
+
+  primary_evaluations:       ScriptEvaluation[]
+  secondary_evaluations:     ScriptEvaluation[]
+
+  primary_total:             number
+  secondary_total:           number
+  max_marks_total:           number
+  board_adjustments_set:     boolean
+}
+
+// ---------------------------------------------------------------------------
+// Board adjust marks request (M09.1)
+// ---------------------------------------------------------------------------
+
+export interface BoardAdjustEntry {
+  board_adjusted_marks:  number
+  board_adjustment_note?: string
+}
+
+export interface BoardAdjustRequest {
+  adjustments: Record<string, BoardAdjustEntry>
 }

@@ -44,6 +44,7 @@ class ScriptRepository:
         student_roll_ref: str | None,
         upload_url: str | None,
         page_count: int | None,
+        double_evaluation_enabled: bool = False,
         db: AsyncSession,
     ) -> ScannedScript:
         script = ScannedScript(
@@ -54,6 +55,7 @@ class ScriptRepository:
             upload_url=upload_url,
             page_count=page_count,
             status=ScriptStatus.PENDING.value,
+            double_evaluation_enabled=double_evaluation_enabled,
         )
         db.add(script)
         await db.flush()
@@ -321,13 +323,58 @@ class ScriptRepository:
         )
 
     @staticmethod
+    async def set_waiting_second_evaluator(
+        script_id: UUID,
+        *,
+        submitted_by: UUID,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Double-eval Gate 1a: primary evaluator submitted.
+        Written ONLY by submit_marks service method on double-eval papers.
+        """
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                status=ScriptStatus.WAITING_SECOND_EVALUATOR.value,
+                submitted_by=submitted_by,
+                submitted_at=datetime.now(timezone.utc),
+                primary_submitted_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_secondary_evaluated(
+        script_id: UUID,
+        *,
+        submitted_by: UUID,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Double-eval Gate 1b: secondary evaluator submitted.
+        Written ONLY by submit_marks service method on double-eval papers.
+        M09.2 will insert moderation routing between this and MARKS_SUBMITTED.
+        """
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                status=ScriptStatus.SECONDARY_EVALUATED.value,
+                secondary_submitted_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def set_marks_submitted(
         script_id: UUID,
         *,
         submitted_by: UUID,
         db: AsyncSession,
     ) -> None:
-        """Gate 1: written ONLY by submit_marks service method."""
+        """Gate 1 final: written ONLY by submit_marks service method."""
         await db.execute(
             sa_update(ScannedScript)
             .where(ScannedScript.id == script_id)
@@ -487,12 +534,76 @@ class ScriptEvaluationRepository:
         updates: dict[UUID, dict],
         *,
         script_id: UUID,
+        evaluation_round: str = EvaluationRound.PRIMARY.value,
         db: AsyncSession,
     ) -> None:
         """
-        Bulk update evaluator marks by question_id.
+        Bulk update evaluator marks by question_id for a given round.
         updates: {question_id → {evaluator_marks, evaluator_note}}
-        Written ONLY by evaluator endpoints.
+        evaluation_round defaults to PRIMARY; pass SECONDARY for double-eval.
+        Written ONLY by evaluator endpoints — never by Celery.
+        """
+        for question_id, data in updates.items():
+            await db.execute(
+                sa_update(ScriptEvaluation)
+                .where(
+                    ScriptEvaluation.script_id == script_id,
+                    ScriptEvaluation.question_id == question_id,
+                    ScriptEvaluation.evaluation_round == evaluation_round,
+                )
+                .values(
+                    evaluator_marks=data["evaluator_marks"],
+                    evaluator_note=data.get("evaluator_note"),
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+
+    @staticmethod
+    async def bulk_create_secondary_evaluations(
+        primary_evals: list[ScriptEvaluation],
+        *,
+        script_id: UUID,
+        db: AsyncSession,
+    ) -> list[ScriptEvaluation]:
+        """
+        Create SECONDARY round evaluation rows by copying AI suggestions from PRIMARY.
+        Called ONLY when primary evaluator submits on a double-eval paper.
+        evaluator_marks is left NULL — the secondary evaluator fills it independently.
+        Primary evaluator_marks are NOT copied, preserving evaluation independence.
+        """
+        objs = []
+        for primary in primary_evals:
+            obj = ScriptEvaluation(
+                script_id=script_id,
+                question_id=primary.question_id,
+                question_type=primary.question_type,
+                max_marks=primary.max_marks,
+                evaluation_round=EvaluationRound.SECONDARY.value,
+                ai_suggested_marks=primary.ai_suggested_marks,
+                ai_justification=primary.ai_justification,
+                ai_model=primary.ai_model,
+                prompt_hash=primary.prompt_hash,
+                keyword_hits=primary.keyword_hits,
+                rubric_mapping=primary.rubric_mapping,
+                ai_confidence=primary.ai_confidence,
+                page_range=primary.page_range,
+            )
+            db.add(obj)
+            objs.append(obj)
+        await db.flush()
+        return objs
+
+    @staticmethod
+    async def bulk_update_board_adjusted_marks(
+        updates: dict[UUID, dict],
+        *,
+        script_id: UUID,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Board sets adjusted marks on PRIMARY evaluation rows.
+        updates: {question_id → {board_adjusted_marks, board_adjustment_note}}
+        Written ONLY by board_adjust service method — never by Celery.
         """
         for question_id, data in updates.items():
             await db.execute(
@@ -503,8 +614,8 @@ class ScriptEvaluationRepository:
                     ScriptEvaluation.evaluation_round == EvaluationRound.PRIMARY.value,
                 )
                 .values(
-                    evaluator_marks=data["evaluator_marks"],
-                    evaluator_note=data.get("evaluator_note"),
+                    board_adjusted_marks=data["board_adjusted_marks"],
+                    board_adjustment_note=data.get("board_adjustment_note"),
                     updated_at=datetime.now(timezone.utc),
                 )
             )
@@ -517,9 +628,13 @@ class ScriptEvaluationRepository:
         db: AsyncSession,
     ) -> None:
         """
-        Copies evaluator_marks → final_marks for all rows of a given round.
+        Copies COALESCE(board_adjusted_marks, evaluator_marks) → final_marks.
+        For single-eval papers: board_adjusted_marks is NULL → uses evaluator_marks.
+        For double-eval papers: board_adjusted_marks is required before finalise →
+        final_marks = board_adjusted_marks (Board's explicit decision).
         Called by board_finalise service method ONLY.
         """
+        from sqlalchemy import func as sa_func
         await db.execute(
             sa_update(ScriptEvaluation)
             .where(
@@ -527,10 +642,30 @@ class ScriptEvaluationRepository:
                 ScriptEvaluation.evaluation_round == evaluation_round,
             )
             .values(
-                final_marks=ScriptEvaluation.evaluator_marks,
+                final_marks=sa_func.coalesce(
+                    ScriptEvaluation.board_adjusted_marks,
+                    ScriptEvaluation.evaluator_marks,
+                ),
                 updated_at=datetime.now(timezone.utc),
             )
         )
+
+    @staticmethod
+    async def sum_final_marks(
+        script_id: UUID,
+        *,
+        evaluation_round: str,
+        db: AsyncSession,
+    ) -> float:
+        """Returns the sum of final_marks (NULL treated as 0). Call after set_final_marks."""
+        result = await db.execute(
+            select(func.coalesce(func.sum(ScriptEvaluation.final_marks), 0))
+            .where(
+                ScriptEvaluation.script_id == script_id,
+                ScriptEvaluation.evaluation_round == evaluation_round,
+            )
+        )
+        return float(result.scalar() or 0.0)
 
     @staticmethod
     async def sum_evaluator_marks(
@@ -582,6 +717,8 @@ class ExamScoreLedgerRepository:
         student_roll_ref: str | None,
         total_marks: float,
         max_marks: float,
+        primary_total: float | None,
+        secondary_total: float | None,
         finalised_by: UUID,
         finalisation_note: str | None,
         db: AsyncSession,
@@ -589,6 +726,7 @@ class ExamScoreLedgerRepository:
         """
         Append-only write. Called by board_finalise service ONLY.
         No UPDATE or DELETE on exam_score_ledger ever.
+        primary_total / secondary_total are None for single-evaluator papers.
         """
         entry = ExamScoreLedger(
             script_id=script_id,
@@ -597,6 +735,8 @@ class ExamScoreLedgerRepository:
             student_roll_ref=student_roll_ref,
             total_marks=total_marks,
             max_marks=max_marks,
+            primary_total=primary_total,
+            secondary_total=secondary_total,
             finalised_by=finalised_by,
             finalisation_note=finalisation_note,
         )

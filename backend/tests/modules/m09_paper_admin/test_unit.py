@@ -36,7 +36,7 @@ import pytest
 # ===========================================================================
 
 class TestScriptStatusEnum:
-    def test_all_ten_status_values(self):
+    def test_all_twelve_status_values(self):
         from app.modules.m09_paper_admin.models import ScriptStatus
         expected = {
             # original seven
@@ -44,6 +44,8 @@ class TestScriptStatusEnum:
             "REVIEW_REQUIRED", "MARKS_SUBMITTED", "BOARD_FINALISED",
             # H-36 STEP-01: three new pipeline statuses
             "QUALITY_CHECKING", "QUALITY_FAILED", "OCR_PROCESSING",
+            # M09.1 double-evaluation statuses
+            "WAITING_SECOND_EVALUATOR", "SECONDARY_EVALUATED",
         }
         actual = {s.value for s in ScriptStatus}
         assert expected == actual
@@ -748,6 +750,7 @@ class TestSubmitMarksGates:
         script.status = ScriptStatus.SCORED.value
         script.evaluator_id = evaluator_id
         script.second_evaluator_id = None
+        script.double_evaluation_enabled = False
 
         # Two evals, one missing marks
         ev1 = MagicMock(); ev1.evaluator_marks = 5.0; ev1.question_id = uuid4()
@@ -787,6 +790,7 @@ class TestSubmitMarksGates:
         script.status = ScriptStatus.SCORED.value
         script.evaluator_id = evaluator_id
         script.second_evaluator_id = None
+        script.double_evaluation_enabled = False
 
         with patch(
             "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
@@ -811,10 +815,10 @@ class TestSubmitMarksGates:
             assert exc_info.value.code == "NO_EVALUATIONS"
 
     @pytest.mark.asyncio
-    async def test_second_evaluator_can_submit(self):
-        """second_evaluator_id is also allowed to submit at Gate 1."""
+    async def test_second_evaluator_can_submit_single_eval_paper(self):
+        """On a single-eval paper, second_evaluator_id is also allowed to submit."""
         from uuid import uuid4
-        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.service import ScriptService
         from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
         from app.modules.m09_paper_admin.models import ScriptStatus
 
@@ -825,6 +829,7 @@ class TestSubmitMarksGates:
         script.status = ScriptStatus.SCORED.value
         script.evaluator_id = primary_id
         script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = False  # single-eval paper
 
         ev = MagicMock(); ev.evaluator_marks = 7.0; ev.question_id = uuid4()
 
@@ -847,7 +852,6 @@ class TestSubmitMarksGates:
             db = AsyncMock()
             db.commit = AsyncMock()
             db.refresh = AsyncMock()
-            # Should not raise — secondary evaluator is allowed
             result = await ScriptService.submit_marks(
                 script.id,
                 ScriptSubmitMarksRequest(marks={
@@ -945,6 +949,7 @@ class TestBoardFinaliseGate:
         script.exam_paper_id = uuid4()
         script.student_user_id = uid
         script.student_roll_ref = "ROLL123"
+        script.double_evaluation_enabled = False  # single-eval path
         ledger_mock = MagicMock()
 
         with patch(
@@ -954,7 +959,7 @@ class TestBoardFinaliseGate:
             "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.set_final_marks",
             new=AsyncMock(),
         ), patch(
-            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.sum_evaluator_marks",
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.sum_final_marks",
             new=AsyncMock(return_value=42.5),
         ), patch(
             "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.sum_max_marks",
@@ -2570,7 +2575,7 @@ class TestAcceptSuggestionsService:
 
         captured_updates: dict = {}
 
-        async def fake_bulk_update(updates, *, script_id, db):
+        async def fake_bulk_update(updates, *, script_id, db, evaluation_round="PRIMARY"):
             captured_updates.update(updates)
 
         with patch(
@@ -2612,7 +2617,7 @@ class TestAcceptSuggestionsService:
 
         captured_updates: dict = {}
 
-        async def fake_bulk_update(updates, *, script_id, db):
+        async def fake_bulk_update(updates, *, script_id, db, evaluation_round="PRIMARY"):
             captured_updates.update(updates)
 
         with patch(
@@ -2652,7 +2657,7 @@ class TestAcceptSuggestionsService:
 
         captured_updates: dict = {}
 
-        async def fake_bulk_update(updates, *, script_id, db):
+        async def fake_bulk_update(updates, *, script_id, db, evaluation_round="PRIMARY"):
             captured_updates.update(updates)
 
         with patch(
@@ -2689,7 +2694,7 @@ class TestAcceptSuggestionsService:
         ev1 = MagicMock(); ev1.question_id = uuid4(); ev1.ai_suggested_marks = 6.0
         captured_updates: dict = {}
 
-        async def fake_bulk_update(updates, *, script_id, db):
+        async def fake_bulk_update(updates, *, script_id, db, evaluation_round="PRIMARY"):
             captured_updates.update(updates)
 
         with patch(
@@ -2980,10 +2985,15 @@ class TestIngestPipelineRouting:
         ):
             from app.modules.m09_paper_admin.service import ScriptService
             from app.modules.m09_paper_admin.schemas import ScriptIngestRequest
+            from unittest.mock import MagicMock
 
             db = AsyncMock()
             db.commit = AsyncMock()
             db.refresh = AsyncMock()
+            # Mock the raw SQL execute for double_evaluation_enabled lookup
+            _exec_result = MagicMock()
+            _exec_result.fetchone.return_value = None  # paper not found → double_eval=False
+            db.execute = AsyncMock(return_value=_exec_result)
 
             # Use a fake public DB context
             with patch("app.database.AsyncSessionLocal") as mock_session:
@@ -3040,10 +3050,14 @@ class TestIngestPipelineRouting:
         ):
             from app.modules.m09_paper_admin.service import ScriptService
             from app.modules.m09_paper_admin.schemas import ScriptIngestRequest
+            from unittest.mock import MagicMock
 
             db = AsyncMock()
             db.commit = AsyncMock()
             db.refresh = AsyncMock()
+            _exec_result = MagicMock()
+            _exec_result.fetchone.return_value = None
+            db.execute = AsyncMock(return_value=_exec_result)
 
             with patch("app.database.AsyncSessionLocal") as mock_session:
                 mock_session.return_value.__aenter__ = AsyncMock(return_value=db)
@@ -3162,6 +3176,9 @@ class TestIngestPipelineRouting:
             db = AsyncMock()
             db.commit = AsyncMock()
             db.refresh = AsyncMock()
+            _exec_result = MagicMock()
+            _exec_result.fetchone.return_value = None
+            db.execute = AsyncMock(return_value=_exec_result)
 
             with patch("app.database.AsyncSessionLocal") as mock_session:
                 mock_session.return_value.__aenter__ = AsyncMock(return_value=db)
@@ -4003,3 +4020,575 @@ class TestH36M09ProductizationSmoke:
         }
         missing = required - paths
         assert not missing, f"H-36 router paths missing: {missing}"
+
+
+# ===========================================================================
+# 15 — M09.1 Double Evaluation workflow
+# ===========================================================================
+
+class TestDoubleEvalStatusValues:
+    def test_waiting_second_evaluator_present(self):
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        assert ScriptStatus.WAITING_SECOND_EVALUATOR.value == "WAITING_SECOND_EVALUATOR"
+
+    def test_secondary_evaluated_present(self):
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        assert ScriptStatus.SECONDARY_EVALUATED.value == "SECONDARY_EVALUATED"
+
+    def test_double_eval_model_fields_on_scanned_script(self):
+        from app.modules.m09_paper_admin.models import ScannedScript
+        assert hasattr(ScannedScript, "double_evaluation_enabled")
+        assert hasattr(ScannedScript, "primary_submitted_at")
+        assert hasattr(ScannedScript, "secondary_submitted_at")
+
+    def test_double_eval_ledger_fields_present(self):
+        from app.modules.m09_paper_admin.models import ExamScoreLedger
+        assert hasattr(ExamScoreLedger, "primary_total")
+        assert hasattr(ExamScoreLedger, "secondary_total")
+
+    def test_board_adjust_entry_schema_valid(self):
+        from app.modules.m09_paper_admin.schemas import BoardAdjustEntry
+        entry = BoardAdjustEntry(board_adjusted_marks=8.0)
+        assert entry.board_adjusted_marks == 8.0
+        assert entry.board_adjustment_note is None
+
+    def test_board_adjust_request_schema_empty_raises(self):
+        import pydantic
+        from app.modules.m09_paper_admin.schemas import BoardAdjustRequest
+        with pytest.raises(pydantic.ValidationError):
+            BoardAdjustRequest(adjustments={})
+
+    def test_board_adjust_request_schema_valid(self):
+        from uuid import uuid4
+        from app.modules.m09_paper_admin.schemas import BoardAdjustRequest, BoardAdjustEntry
+        req = BoardAdjustRequest(adjustments={
+            str(uuid4()): BoardAdjustEntry(board_adjusted_marks=5.0)
+        })
+        assert len(req.adjustments) == 1
+
+
+class TestGetEvaluationRoundHelper:
+    def test_returns_primary_for_single_eval_paper(self):
+        from app.modules.m09_paper_admin.service import _get_evaluation_round
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        uid = uuid4()
+        script = MagicMock()
+        script.double_evaluation_enabled = False
+        script.status = ScriptStatus.SCORED.value
+        script.second_evaluator_id = uid
+        assert _get_evaluation_round(script, uid) == "PRIMARY"
+
+    def test_returns_primary_when_not_waiting_second(self):
+        from app.modules.m09_paper_admin.service import _get_evaluation_round
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        uid = uuid4()
+        script = MagicMock()
+        script.double_evaluation_enabled = True
+        script.status = ScriptStatus.SCORED.value  # not WAITING_SECOND_EVALUATOR
+        script.second_evaluator_id = uid
+        assert _get_evaluation_round(script, uid) == "PRIMARY"
+
+    def test_returns_secondary_when_all_conditions_met(self):
+        from app.modules.m09_paper_admin.service import _get_evaluation_round
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        uid = uuid4()
+        script = MagicMock()
+        script.double_evaluation_enabled = True
+        script.status = ScriptStatus.WAITING_SECOND_EVALUATOR.value
+        script.second_evaluator_id = uid
+        assert _get_evaluation_round(script, uid) == "SECONDARY"
+
+    def test_returns_primary_for_primary_evaluator_on_double_eval(self):
+        from app.modules.m09_paper_admin.service import _get_evaluation_round
+        from app.modules.m09_paper_admin.models import ScriptStatus
+        primary_id  = uuid4()
+        secondary_id = uuid4()
+        script = MagicMock()
+        script.double_evaluation_enabled = True
+        script.status = ScriptStatus.WAITING_SECOND_EVALUATOR.value
+        script.second_evaluator_id = secondary_id
+        assert _get_evaluation_round(script, primary_id) == "PRIMARY"
+
+
+class TestDoubleEvalPrimarySubmit:
+    """Primary evaluator submission on a double-evaluation paper → WAITING_SECOND_EVALUATOR."""
+
+    @pytest.mark.asyncio
+    async def test_primary_submit_advances_to_waiting_second(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        primary_id   = uuid4()
+        secondary_id = uuid4()
+        script = MagicMock()
+        script.id    = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id      = primary_id
+        script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = True
+
+        ev = MagicMock(); ev.evaluator_marks = 8.0; ev.question_id = uuid4()
+
+        set_waiting_mock = AsyncMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_waiting_second_evaluator",
+            new=set_waiting_mock,
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_create_secondary_evaluations",
+            new=AsyncMock(),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+            await ScriptService.submit_marks(
+                script.id,
+                ScriptSubmitMarksRequest(marks={
+                    str(ev.question_id): EvaluatorMarkUpdate(evaluator_marks=8.0)
+                }),
+                evaluator_user_id=primary_id,
+                tenant_id=uuid4(),
+                db=db,
+            )
+
+        set_waiting_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_primary_submit_creates_secondary_evaluation_rows(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        primary_id   = uuid4()
+        secondary_id = uuid4()
+        script = MagicMock()
+        script.id    = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id      = primary_id
+        script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = True
+
+        ev = MagicMock(); ev.evaluator_marks = 5.0; ev.question_id = uuid4()
+        create_secondary_mock = AsyncMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_waiting_second_evaluator",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_create_secondary_evaluations",
+            new=create_secondary_mock,
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+            await ScriptService.submit_marks(
+                script.id,
+                ScriptSubmitMarksRequest(marks={
+                    str(ev.question_id): EvaluatorMarkUpdate(evaluator_marks=5.0)
+                }),
+                evaluator_user_id=primary_id,
+                tenant_id=uuid4(),
+                db=db,
+            )
+
+        create_secondary_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_primary_submit_does_not_call_set_marks_submitted(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        primary_id   = uuid4()
+        secondary_id = uuid4()
+        script = MagicMock()
+        script.id    = uuid4()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id      = primary_id
+        script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = True
+
+        ev = MagicMock(); ev.evaluator_marks = 9.0; ev.question_id = uuid4()
+        set_submitted_mock = AsyncMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_waiting_second_evaluator",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_create_secondary_evaluations",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_marks_submitted",
+            new=set_submitted_mock,
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+            await ScriptService.submit_marks(
+                script.id,
+                ScriptSubmitMarksRequest(marks={
+                    str(ev.question_id): EvaluatorMarkUpdate(evaluator_marks=9.0)
+                }),
+                evaluator_user_id=primary_id,
+                tenant_id=uuid4(),
+                db=db,
+            )
+
+        set_submitted_mock.assert_not_called()
+
+
+class TestDoubleEvalSecondarySubmit:
+    """Secondary evaluator submission on a double-evaluation paper → MARKS_SUBMITTED."""
+
+    @pytest.mark.asyncio
+    async def test_secondary_submit_advances_to_marks_submitted(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        primary_id   = uuid4()
+        secondary_id = uuid4()
+        script = MagicMock()
+        script.id    = uuid4()
+        script.status = ScriptStatus.WAITING_SECOND_EVALUATOR.value
+        script.evaluator_id      = primary_id
+        script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = True
+
+        ev = MagicMock(); ev.evaluator_marks = 7.0; ev.question_id = uuid4()
+        set_submitted_mock = AsyncMock()
+        set_secondary_mock = AsyncMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_evaluator_marks",
+            new=AsyncMock(),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev]),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_secondary_evaluated",
+            new=set_secondary_mock,
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.set_marks_submitted",
+            new=set_submitted_mock,
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            db.refresh = AsyncMock()
+            await ScriptService.submit_marks(
+                script.id,
+                ScriptSubmitMarksRequest(marks={
+                    str(ev.question_id): EvaluatorMarkUpdate(evaluator_marks=7.0)
+                }),
+                evaluator_user_id=secondary_id,
+                tenant_id=uuid4(),
+                db=db,
+            )
+
+        set_secondary_mock.assert_called_once()
+        set_submitted_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_secondary_submit_requires_waiting_second_status(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        primary_id   = uuid4()
+        secondary_id = uuid4()
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value  # wrong — should be WAITING_SECOND_EVALUATOR
+        script.evaluator_id      = primary_id
+        script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = True
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.submit_marks(
+                    uuid4(),
+                    ScriptSubmitMarksRequest(marks={
+                        str(uuid4()): EvaluatorMarkUpdate(evaluator_marks=5.0)
+                    }),
+                    evaluator_user_id=secondary_id,
+                    tenant_id=uuid4(),
+                    db=AsyncMock(),
+                )
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_stranger_forbidden_on_double_eval_paper(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.schemas import ScriptSubmitMarksRequest, EvaluatorMarkUpdate
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        primary_id   = uuid4()
+        secondary_id = uuid4()
+        stranger_id  = uuid4()
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value
+        script.evaluator_id      = primary_id
+        script.second_evaluator_id = secondary_id
+        script.double_evaluation_enabled = True
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.submit_marks(
+                    uuid4(),
+                    ScriptSubmitMarksRequest(marks={
+                        str(uuid4()): EvaluatorMarkUpdate(evaluator_marks=5.0)
+                    }),
+                    evaluator_user_id=stranger_id,  # not assigned
+                    tenant_id=uuid4(),
+                    db=AsyncMock(),
+                )
+            assert exc_info.value.status_code == 403
+
+
+class TestSetBoardAdjustedMarks:
+    @pytest.mark.asyncio
+    async def test_board_adjust_requires_marks_submitted(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.schemas import BoardAdjustRequest, BoardAdjustEntry
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value  # wrong status
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.set_board_adjusted_marks(
+                    uuid4(),
+                    BoardAdjustRequest(adjustments={
+                        str(uuid4()): BoardAdjustEntry(board_adjusted_marks=7.0)
+                    }),
+                    board_user_id=uuid4(),
+                    tenant_id=uuid4(),
+                    db=AsyncMock(),
+                )
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_board_adjust_calls_bulk_update(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.schemas import BoardAdjustRequest, BoardAdjustEntry
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        qid = uuid4()
+        script = MagicMock()
+        script.status = ScriptStatus.MARKS_SUBMITTED.value
+
+        ev = MagicMock(); ev.board_adjusted_marks = 8.0; ev.question_id = qid
+        bulk_adjust_mock = AsyncMock()
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.bulk_update_board_adjusted_marks",
+            new=bulk_adjust_mock,
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(return_value=[ev]),
+        ), patch(
+            "app.core.audit_log.service.AuditService.log",
+            new=AsyncMock(),
+        ):
+            db = AsyncMock()
+            db.commit = AsyncMock()
+            await ScriptService.set_board_adjusted_marks(
+                uuid4(),
+                BoardAdjustRequest(adjustments={
+                    str(qid): BoardAdjustEntry(board_adjusted_marks=8.0)
+                }),
+                board_user_id=uuid4(),
+                tenant_id=uuid4(),
+                db=db,
+            )
+
+        bulk_adjust_mock.assert_called_once()
+
+
+class TestGetBoardComparison:
+    @pytest.mark.asyncio
+    async def test_comparison_requires_marks_submitted(self):
+        from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        script = MagicMock()
+        script.status = ScriptStatus.SCORED.value  # wrong
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ):
+            with pytest.raises(ScriptServiceError) as exc_info:
+                await ScriptService.get_board_comparison(uuid4(), db=AsyncMock())
+            assert exc_info.value.code == "INVALID_STATUS"
+
+    @pytest.mark.asyncio
+    async def test_comparison_returns_correct_totals(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        from app.modules.m09_paper_admin.models import ScriptStatus
+
+        script_id = uuid4()
+        script = MagicMock()
+        script.id = script_id
+        script.status = ScriptStatus.MARKS_SUBMITTED.value
+        script.double_evaluation_enabled = True
+        script.masked_id = "SAAABBBCCC"
+        script.exam_paper_id = uuid4()
+        script.ocr_text = None
+        script.page_image_keys = None
+
+        q1 = uuid4(); q2 = uuid4()
+
+        def _make_eval(question_id, evaluator_marks, max_marks, ev_round):
+            e = MagicMock()
+            e.id = uuid4()
+            e.script_id = script_id
+            e.question_id = question_id
+            e.question_type = "SHORT_ANSWER"
+            e.evaluation_round = ev_round
+            e.evaluator_marks = evaluator_marks
+            e.max_marks = max_marks
+            e.ai_suggested_marks = None
+            e.ai_justification = ""
+            e.ai_model = "test"
+            e.page_range = {}
+            e.evaluator_note = ""
+            e.board_adjusted_marks = None
+            e.board_adjustment_note = None
+            from datetime import datetime, timezone
+            e.created_at = datetime.now(timezone.utc)
+            e.updated_at = datetime.now(timezone.utc)
+            return e
+
+        pev1 = _make_eval(q1, 8.0, 10.0, "PRIMARY")
+        pev2 = _make_eval(q2, 6.0, 10.0, "PRIMARY")
+        sev1 = _make_eval(q1, 7.0, 10.0, "SECONDARY")
+        sev2 = _make_eval(q2, 5.0, 10.0, "SECONDARY")
+
+        def list_by_script_side_effect(sid, evaluation_round, db):
+            if evaluation_round == "PRIMARY":
+                return [pev1, pev2]
+            return [sev1, sev2]
+
+        with patch(
+            "app.modules.m09_paper_admin.service.ScriptRepository.get_by_id",
+            new=AsyncMock(return_value=script),
+        ), patch(
+            "app.modules.m09_paper_admin.service.ScriptEvaluationRepository.list_by_script",
+            new=AsyncMock(side_effect=list_by_script_side_effect),
+        ):
+            result = await ScriptService.get_board_comparison(script_id, db=AsyncMock())
+
+        assert result.primary_total == 14.0    # 8 + 6
+        assert result.secondary_total == 12.0  # 7 + 5
+        assert result.max_marks_total == 20.0  # 10 + 10
+        assert result.board_adjustments_set is False
+
+
+class TestDoubleEvalRouterPaths:
+    def test_comparison_endpoint_present(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = {r.path for r in router.routes}
+        assert "/{script_id}/comparison" in paths
+
+    def test_board_adjust_endpoint_present(self):
+        from app.modules.m09_paper_admin.router import router
+        paths = {r.path for r in router.routes}
+        assert "/{script_id}/board-adjust" in paths
+
+    def test_double_eval_schemas_importable(self):
+        from app.modules.m09_paper_admin.schemas import (  # noqa: F401
+            BoardAdjustEntry, BoardAdjustRequest, BoardComparisonResponse,
+        )
+
+    def test_repository_has_set_waiting_second_evaluator(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_waiting_second_evaluator")
+
+    def test_repository_has_set_secondary_evaluated(self):
+        from app.modules.m09_paper_admin.repository import ScriptRepository
+        assert hasattr(ScriptRepository, "set_secondary_evaluated")
+
+    def test_repository_has_bulk_create_secondary_evaluations(self):
+        from app.modules.m09_paper_admin.repository import ScriptEvaluationRepository
+        assert hasattr(ScriptEvaluationRepository, "bulk_create_secondary_evaluations")
+
+    def test_repository_has_bulk_update_board_adjusted_marks(self):
+        from app.modules.m09_paper_admin.repository import ScriptEvaluationRepository
+        assert hasattr(ScriptEvaluationRepository, "bulk_update_board_adjusted_marks")
+
+    def test_service_has_set_board_adjusted_marks(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.set_board_adjusted_marks)
+
+    def test_service_has_get_board_comparison(self):
+        from app.modules.m09_paper_admin.service import ScriptService
+        assert callable(ScriptService.get_board_comparison)
+
+    def test_paper_pipeline_stats_has_double_eval_fields(self):
+        from app.modules.m09_paper_admin.schemas import PaperPipelineStats
+        from uuid import uuid4
+        stats = PaperPipelineStats(
+            paper_id=uuid4(),
+            total=10, pending=1, quality_checking=0, quality_failed=0,
+            ocr_processing=0, processing=1, scored=2, failed=0,
+            review_required=1, waiting_second_evaluator=2, secondary_evaluated=1,
+            marks_submitted=1, board_finalised=1, completion_pct=10.0,
+        )
+        assert stats.waiting_second_evaluator == 2
+        assert stats.secondary_evaluated == 1

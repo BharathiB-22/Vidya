@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ClipboardCheck, ChevronLeft, Loader2, AlertTriangle, CheckCircle2, Info,
+  GitCompareArrows,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -100,6 +101,7 @@ function BoardScriptCard({
   script:      ScannedScript
   onFinalised: (result: BoardFinaliseResponse) => void
 }) {
+  const navigate = useNavigate()
   const [expanded,         setExpanded]         = useState(false)
   const [note,             setNote]             = useState('')
   const [confirmVisible,   setConfirmVisible]   = useState(false)
@@ -131,6 +133,11 @@ function BoardScriptCard({
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
               MARKS SUBMITTED
             </span>
+            {script.double_evaluation_enabled && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                DOUBLE EVALUATION
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 truncate">
             Paper: <span className="font-mono">{script.exam_paper_id}</span>
@@ -147,6 +154,18 @@ function BoardScriptCard({
       {expanded && (
         <div className="border-t border-gray-100 p-4 space-y-4">
           <ScriptEvalSummary scriptId={script.id} />
+
+          {/* Double-evaluation: navigate to full comparison view */}
+          {script.double_evaluation_enabled && (
+            <Button
+              variant="outline"
+              className="w-full gap-2 border-purple-200 text-purple-700 hover:bg-purple-50"
+              onClick={(e) => { e.stopPropagation(); navigate(`/scripts/${script.id}/comparison`) }}
+            >
+              <GitCompareArrows className="w-4 h-4" />
+              View Double Evaluation Comparison
+            </Button>
+          )}
 
           {/* Identity reveal warning */}
           <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 flex gap-2 text-xs text-orange-800">

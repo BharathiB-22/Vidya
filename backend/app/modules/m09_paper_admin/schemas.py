@@ -153,6 +153,11 @@ class ScannedScriptResponse(BaseModel):
     evaluator_id:        UUID | None
     second_evaluator_id: UUID | None
 
+    # Double evaluation
+    double_evaluation_enabled: bool = False
+    primary_submitted_at:      datetime | None = None
+    secondary_submitted_at:    datetime | None = None
+
     submitted_by:        UUID | None
     submitted_at:        datetime | None
 
@@ -183,6 +188,7 @@ class ExamScoreLedgerResponse(BaseModel):
     """
     Board-finalised score record. Only accessible after BOARD_FINALISED.
     Includes student identity (revealed at finalisation time).
+    primary_total / secondary_total are None for single-evaluator papers.
     """
     id:                UUID
     script_id:         UUID
@@ -191,6 +197,8 @@ class ExamScoreLedgerResponse(BaseModel):
     student_roll_ref:  str | None
     total_marks:       float
     max_marks:         float
+    primary_total:     float | None = None
+    secondary_total:   float | None = None
     finalised_by:      UUID
     finalisation_note: str | None
     finalised_at:      datetime
@@ -286,16 +294,82 @@ class PaperPipelineStats(BaseModel):
     Aggregate pipeline-status counts for all scripts belonging to one exam paper.
     completion_pct = board_finalised / total * 100 (0.0 when total == 0).
     """
-    paper_id:         UUID
-    total:            int
-    pending:          int
-    quality_checking: int
-    quality_failed:   int
-    ocr_processing:   int
-    processing:       int
-    scored:           int
-    failed:           int
-    review_required:  int
-    marks_submitted:  int
-    board_finalised:  int
-    completion_pct:   float
+    paper_id:                  UUID
+    total:                     int
+    pending:                   int
+    quality_checking:          int
+    quality_failed:            int
+    ocr_processing:            int
+    processing:                int
+    scored:                    int
+    failed:                    int
+    review_required:           int
+    waiting_second_evaluator:  int = 0
+    secondary_evaluated:       int = 0
+    marks_submitted:           int
+    board_finalised:           int
+    completion_pct:            float
+
+
+# ---------------------------------------------------------------------------
+# Board adjusted marks — per-question Board correction (M09.1)
+# ---------------------------------------------------------------------------
+
+class BoardAdjustEntry(BaseModel):
+    """Board's adjusted mark for a single question."""
+    board_adjusted_marks: float = Field(..., ge=0)
+    board_adjustment_note: Optional[str] = None
+
+
+class BoardAdjustRequest(BaseModel):
+    """
+    Board sets adjusted marks for all questions on a MARKS_SUBMITTED script.
+    Required for double-evaluation papers before Board finalisation.
+    Optional for single-evaluator papers (board can still adjust if needed).
+    adjustments: {question_id (str UUID) → BoardAdjustEntry}
+    """
+    adjustments: dict[str, BoardAdjustEntry] = Field(
+        ...,
+        description="Mapping of question_id → Board adjusted mark.",
+    )
+
+    @model_validator(mode="after")
+    def at_least_one(self) -> "BoardAdjustRequest":
+        if not self.adjustments:
+            raise ValueError("adjustments dict must contain at least one entry.")
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Board comparison view — three evaluation rounds for one script (M09.1)
+# ---------------------------------------------------------------------------
+
+class BoardComparisonResponse(BaseModel):
+    """
+    Board Gate 2 comparison view for a double-evaluated script.
+
+    primary_evaluations:   PRIMARY round rows — evaluator marks + AI suggestions.
+    secondary_evaluations: SECONDARY round rows — independent evaluator marks.
+    primary_total:         Sum of primary evaluator_marks.
+    secondary_total:       Sum of secondary evaluator_marks.
+    max_marks_total:       Sum of max_marks across all questions.
+    board_adjustments_set: True when all PRIMARY rows have board_adjusted_marks set.
+
+    For single-evaluator papers secondary_evaluations is empty and
+    secondary_total is 0.0.
+    """
+    script_id:               UUID
+    masked_id:               str
+    exam_paper_id:           UUID
+    status:                  str
+    double_evaluation_enabled: bool
+    ocr_text:                str | None
+    page_image_keys:         list[dict] | None
+
+    primary_evaluations:     list[ScriptEvaluationResponse]
+    secondary_evaluations:   list[ScriptEvaluationResponse]
+
+    primary_total:           float
+    secondary_total:         float
+    max_marks_total:         float
+    board_adjustments_set:   bool

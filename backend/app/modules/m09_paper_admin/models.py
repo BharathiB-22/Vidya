@@ -57,16 +57,18 @@ from app.database import Base
 # ---------------------------------------------------------------------------
 
 class ScriptStatus(str, enum.Enum):
-    PENDING           = "PENDING"           # uploaded; queued for quality check
-    QUALITY_CHECKING  = "QUALITY_CHECKING"  # detect_scan_quality Celery task running
-    QUALITY_FAILED    = "QUALITY_FAILED"    # scan rejected (blank/duplicate/low-DPI); admin re-uploads
-    OCR_PROCESSING    = "OCR_PROCESSING"    # ocr_scanned_script Celery task running
-    PROCESSING        = "PROCESSING"        # score_scanned_script Celery task running
-    SCORED            = "SCORED"            # AI scoring complete; awaiting evaluator
-    FAILED            = "FAILED"            # unrecoverable Celery failure (Gemini error, bad PDF)
-    REVIEW_REQUIRED   = "REVIEW_REQUIRED"   # admin manual review needed (partial OCR, corrupted)
-    MARKS_SUBMITTED   = "MARKS_SUBMITTED"   # Gate 1: evaluator submitted marks
-    BOARD_FINALISED   = "BOARD_FINALISED"   # Gate 2: Board finalised; identity revealed; ledger written
+    PENDING                    = "PENDING"                    # uploaded; queued for quality check
+    QUALITY_CHECKING           = "QUALITY_CHECKING"           # detect_scan_quality Celery task running
+    QUALITY_FAILED             = "QUALITY_FAILED"             # scan rejected; admin re-uploads
+    OCR_PROCESSING             = "OCR_PROCESSING"             # ocr_scanned_script Celery task running
+    PROCESSING                 = "PROCESSING"                 # score_scanned_script Celery task running
+    SCORED                     = "SCORED"                     # AI scoring complete; awaiting evaluator
+    FAILED                     = "FAILED"                     # unrecoverable Celery failure
+    REVIEW_REQUIRED            = "REVIEW_REQUIRED"            # partial OCR; evaluator enters manually
+    WAITING_SECOND_EVALUATOR   = "WAITING_SECOND_EVALUATOR"   # primary submitted; awaiting secondary
+    SECONDARY_EVALUATED        = "SECONDARY_EVALUATED"        # secondary submitted; auto → MARKS_SUBMITTED
+    MARKS_SUBMITTED            = "MARKS_SUBMITTED"            # Gate 1 complete; awaiting Board
+    BOARD_FINALISED            = "BOARD_FINALISED"            # Gate 2: identity revealed; ledger written
 
 
 class EvaluationRound(str, enum.Enum):
@@ -193,6 +195,13 @@ class ScannedScript(Base):
     # Assigned evaluators
     evaluator_id        = Column(UUID(as_uuid=True), nullable=True)
     second_evaluator_id = Column(UUID(as_uuid=True), nullable=True)
+
+    # Double-evaluation — denormalized from exam_papers at ingest; never changed after ingest
+    double_evaluation_enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    # Double-evaluation timestamps — written ONLY by submit_marks service on double-eval papers
+    primary_submitted_at   = Column(DateTime(timezone=True), nullable=True)
+    secondary_submitted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Gate 1: evaluator submits — written ONLY by submit_marks endpoint
     submitted_by        = Column(UUID(as_uuid=True), nullable=True)
@@ -377,6 +386,10 @@ class ExamScoreLedger(Base):
     # Marks at finalisation time
     total_marks         = Column(Numeric(6, 2), nullable=False)
     max_marks           = Column(Numeric(6, 2), nullable=False)
+
+    # Double-evaluation snapshots — NULL for single-evaluator papers
+    primary_total       = Column(Numeric(6, 2), nullable=True)
+    secondary_total     = Column(Numeric(6, 2), nullable=True)
 
     # M09→M10 integration: True when any script_evaluation for this script had
     # board_adjusted_marks set. M10 BellCurveAnalysis reads this flag when computing

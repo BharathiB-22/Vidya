@@ -13,24 +13,27 @@ import { listMyScripts } from '@/lib/api/scripts'
 import type { ScannedScript, ScriptStatus } from '@/types/script'
 
 const STATUS_OPTS: Array<{ value: ScriptStatus | ''; label: string }> = [
-  { value: '',                label: 'All' },
-  { value: 'SCORED',          label: 'Ready to Evaluate' },
-  { value: 'REVIEW_REQUIRED', label: 'Review Required' },
-  { value: 'MARKS_SUBMITTED', label: 'Submitted' },
-  { value: 'BOARD_FINALISED', label: 'Finalised' },
+  { value: '',                         label: 'All' },
+  { value: 'SCORED',                   label: 'Ready to Evaluate' },
+  { value: 'REVIEW_REQUIRED',          label: 'Review Required' },
+  { value: 'WAITING_SECOND_EVALUATOR', label: 'Awaiting Secondary' },
+  { value: 'MARKS_SUBMITTED',          label: 'Submitted' },
+  { value: 'BOARD_FINALISED',          label: 'Finalised' },
 ]
 
 const STATUS_COLOR: Record<string, string> = {
-  PENDING:          'bg-gray-100 text-gray-600',
-  QUALITY_CHECKING: 'bg-amber-100 text-amber-700',
-  QUALITY_FAILED:   'bg-red-100 text-red-700',
-  OCR_PROCESSING:   'bg-sky-100 text-sky-700',
-  PROCESSING:       'bg-blue-100 text-blue-600',
-  SCORED:           'bg-indigo-100 text-indigo-700',
-  FAILED:           'bg-red-100 text-red-700',
-  REVIEW_REQUIRED:  'bg-orange-100 text-orange-700',
-  MARKS_SUBMITTED:  'bg-yellow-100 text-yellow-700',
-  BOARD_FINALISED:  'bg-emerald-100 text-emerald-700',
+  PENDING:                   'bg-gray-100 text-gray-600',
+  QUALITY_CHECKING:          'bg-amber-100 text-amber-700',
+  QUALITY_FAILED:            'bg-red-100 text-red-700',
+  OCR_PROCESSING:            'bg-sky-100 text-sky-700',
+  PROCESSING:                'bg-blue-100 text-blue-600',
+  SCORED:                    'bg-indigo-100 text-indigo-700',
+  FAILED:                    'bg-red-100 text-red-700',
+  REVIEW_REQUIRED:           'bg-orange-100 text-orange-700',
+  WAITING_SECOND_EVALUATOR:  'bg-purple-100 text-purple-700',
+  SECONDARY_EVALUATED:       'bg-violet-100 text-violet-700',
+  MARKS_SUBMITTED:           'bg-yellow-100 text-yellow-700',
+  BOARD_FINALISED:           'bg-emerald-100 text-emerald-700',
 }
 
 export default function MyScriptsPage() {

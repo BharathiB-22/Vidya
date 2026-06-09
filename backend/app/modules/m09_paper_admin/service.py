@@ -5,14 +5,19 @@ Architecture contract:
   - All business logic lives here; router is pure HTTP glue.
   - ScriptServiceError carries code, message, status_code for HTTP translation.
   - Celery dispatch via TaskJobPublicRepository (public schema session).
-  - Two human gates enforced here AND in the repository:
-      Gate 1: submit_marks()   → only way status reaches MARKS_SUBMITTED
-      Gate 2: board_finalise() → only way status reaches BOARD_FINALISED
+  - Human gates enforced here AND in the repository:
+      Gate 1a: submit_marks() for primary on double-eval → WAITING_SECOND_EVALUATOR
+      Gate 1b: submit_marks() for secondary on double-eval → SECONDARY_EVALUATED → MARKS_SUBMITTED
+      Gate 1:  submit_marks() on single-eval → MARKS_SUBMITTED
+      Gate 2:  board_finalise() → only way status reaches BOARD_FINALISED
   - exam_score_ledger is written ONLY inside board_finalise().
   - evaluator_marks are written ONLY by update_evaluator_marks() and submit_marks().
+  - board_adjusted_marks written ONLY by set_board_adjusted_marks().
   - student_user_id / student_roll_ref are masked (set to None in-memory) on every
     return path until status == BOARD_FINALISED.  Identity is never persisted as
     None — only the service layer strips it before handing objects to the router.
+  - double_evaluation_enabled is denormalized from exam_papers at ingest time;
+    never changed after that point.
 """
 from __future__ import annotations
 
@@ -37,10 +42,13 @@ from app.modules.m09_paper_admin.repository import (
     TaskJobPublicRepository,
 )
 from app.modules.m09_paper_admin.schemas import (
+    BoardAdjustRequest,
+    BoardComparisonResponse,
     BulkMarkUpdate,
     PaperPipelineStats,
     QualityOverrideRequest,
     ScriptAssignEvaluatorRequest,
+    ScriptEvaluationResponse,
     ScriptFinaliseRequest,
     ScriptIngestRequest,
     ScriptSubmitMarksRequest,
@@ -68,6 +76,24 @@ class ScriptServiceError(Exception):
 def _gen_masked_id() -> str:
     """Opaque 11-char token shown to evaluators in place of student identity."""
     return "S" + secrets.token_hex(5).upper()
+
+
+def _get_evaluation_round(script: ScannedScript, evaluator_user_id: UUID) -> str:
+    """
+    Determine which evaluation round an evaluator is working on.
+    Returns SECONDARY when:
+      - double_evaluation_enabled is True
+      - script status is WAITING_SECOND_EVALUATOR
+      - the caller is the assigned second evaluator
+    Returns PRIMARY in all other cases.
+    """
+    if (
+        script.double_evaluation_enabled
+        and script.status == ScriptStatus.WAITING_SECOND_EVALUATOR.value
+        and evaluator_user_id == script.second_evaluator_id
+    ):
+        return EvaluationRound.SECONDARY.value
+    return EvaluationRound.PRIMARY.value
 
 
 def _mask_identity(script: ScannedScript) -> ScannedScript:
@@ -147,6 +173,18 @@ class ScriptService:
         """
         masked_id = _gen_masked_id()
 
+        # Denormalize double_evaluation_enabled from exam_papers at ingest time.
+        # Raw SQL avoids an ORM dependency on M08 models.
+        from sqlalchemy import text as sa_text
+        paper_row = await db.execute(
+            sa_text(
+                "SELECT double_evaluation_enabled FROM exam_papers WHERE id = CAST(:pid AS uuid)"
+            ),
+            {"pid": str(payload.exam_paper_id)},
+        )
+        paper_rec = paper_row.fetchone()
+        double_eval = bool(paper_rec[0]) if paper_rec else False
+
         script = await ScriptRepository.create(
             exam_paper_id=payload.exam_paper_id,
             masked_id=masked_id,
@@ -154,6 +192,7 @@ class ScriptService:
             student_roll_ref=payload.student_roll_ref,
             upload_url=upload_url,
             page_count=page_count,
+            double_evaluation_enabled=double_eval,
             db=db,
         )
         await db.commit()
@@ -293,13 +332,16 @@ class ScriptService:
         updatable = (
             ScriptStatus.SCORED.value,
             ScriptStatus.REVIEW_REQUIRED.value,
+            ScriptStatus.WAITING_SECOND_EVALUATOR.value,
         )
         if script.status not in updatable:
             raise ScriptServiceError(
                 "INVALID_STATUS",
-                f"Marks can only be updated when status is SCORED or REVIEW_REQUIRED "
-                f"(current: {script.status!r}).",
+                f"Marks can only be updated when status is SCORED, REVIEW_REQUIRED, "
+                f"or WAITING_SECOND_EVALUATOR (current: {script.status!r}).",
             )
+
+        evaluation_round = _get_evaluation_round(script, evaluator_user_id)
 
         updates: dict[UUID, dict] = {
             UUID(qid): {
@@ -309,7 +351,7 @@ class ScriptService:
             for qid, m in payload.marks.items()
         }
         await ScriptEvaluationRepository.bulk_update_evaluator_marks(
-            updates, script_id=script_id, db=db
+            updates, script_id=script_id, evaluation_round=evaluation_round, db=db
         )
         await db.commit()
 
@@ -327,7 +369,7 @@ class ScriptService:
         )
 
         return await ScriptEvaluationRepository.list_by_script(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=evaluation_round, db=db
         )
 
     # -----------------------------------------------------------------------
@@ -345,13 +387,23 @@ class ScriptService:
     ) -> ScannedScript:
         """
         HUMAN GATE 1: Evaluator finalises and submits all marks.
-        Status transitions SCORED | REVIEW_REQUIRED → MARKS_SUBMITTED.
-        Requires ALL evaluations to have evaluator_marks set (no nulls).
+
+        Single-evaluation papers:
+          SCORED | REVIEW_REQUIRED → MARKS_SUBMITTED
+
+        Double-evaluation papers (double_evaluation_enabled=True):
+          Primary evaluator: SCORED | REVIEW_REQUIRED → WAITING_SECOND_EVALUATOR
+            Also initialises SECONDARY evaluation rows (AI suggestions copied from PRIMARY).
+            Primary evaluator_marks are NOT visible to the secondary evaluator.
+          Secondary evaluator: WAITING_SECOND_EVALUATOR → SECONDARY_EVALUATED → MARKS_SUBMITTED
+            M09.2 will insert moderation routing between SECONDARY_EVALUATED and MARKS_SUBMITTED.
+
         Only the assigned evaluator (primary or secondary) may submit.
+        All evaluations for the relevant round must have evaluator_marks set.
         """
         script = await _require_script(script_id, db=db)
 
-        # Evaluator identity check
+        # --- evaluator identity check ---
         allowed_evaluators = {script.evaluator_id, script.second_evaluator_id} - {None}
         if evaluator_user_id not in allowed_evaluators:
             raise ScriptServiceError(
@@ -360,18 +412,45 @@ class ScriptService:
                 403,
             )
 
-        submittable = (
-            ScriptStatus.SCORED.value,
-            ScriptStatus.REVIEW_REQUIRED.value,
-        )
-        if script.status not in submittable:
-            raise ScriptServiceError(
-                "INVALID_STATUS",
-                f"Marks can only be submitted when status is SCORED or REVIEW_REQUIRED "
-                f"(current: {script.status!r}).",
-            )
+        # --- determine which round this caller belongs to ---
+        is_primary   = (evaluator_user_id == script.evaluator_id)
+        is_secondary = (evaluator_user_id == script.second_evaluator_id)
 
-        # Apply payload marks first
+        if script.double_evaluation_enabled:
+            # --- DOUBLE-EVALUATION BRANCH ---
+            if is_primary and not is_secondary:
+                # Primary evaluator submitting on a double-eval paper
+                submittable = (ScriptStatus.SCORED.value, ScriptStatus.REVIEW_REQUIRED.value)
+                if script.status not in submittable:
+                    raise ScriptServiceError(
+                        "INVALID_STATUS",
+                        f"Primary evaluation requires status SCORED or REVIEW_REQUIRED "
+                        f"(current: {script.status!r}).",
+                    )
+                eval_round = EvaluationRound.PRIMARY.value
+            elif is_secondary:
+                # Secondary evaluator submitting on a double-eval paper
+                if script.status != ScriptStatus.WAITING_SECOND_EVALUATOR.value:
+                    raise ScriptServiceError(
+                        "INVALID_STATUS",
+                        f"Secondary evaluation requires status WAITING_SECOND_EVALUATOR "
+                        f"(current: {script.status!r}).",
+                    )
+                eval_round = EvaluationRound.SECONDARY.value
+            else:
+                raise ScriptServiceError("FORBIDDEN", "Evaluator assignment mismatch.", 403)
+        else:
+            # --- SINGLE-EVALUATION BRANCH ---
+            submittable = (ScriptStatus.SCORED.value, ScriptStatus.REVIEW_REQUIRED.value)
+            if script.status not in submittable:
+                raise ScriptServiceError(
+                    "INVALID_STATUS",
+                    f"Marks can only be submitted when status is SCORED or REVIEW_REQUIRED "
+                    f"(current: {script.status!r}).",
+                )
+            eval_round = EvaluationRound.PRIMARY.value
+
+        # --- apply payload marks to the correct round ---
         if payload.marks:
             updates: dict[UUID, dict] = {
                 UUID(qid): {
@@ -381,17 +460,19 @@ class ScriptService:
                 for qid, m in payload.marks.items()
             }
             await ScriptEvaluationRepository.bulk_update_evaluator_marks(
-                updates, script_id=script_id, db=db
+                updates, script_id=script_id, evaluation_round=eval_round, db=db
             )
 
-        # Verify all evaluations now have marks — Gate 1 completeness check
+        # --- completeness check for the relevant round ---
         evals = await ScriptEvaluationRepository.list_by_script(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=eval_round, db=db
         )
         if not evals:
             raise ScriptServiceError(
                 "NO_EVALUATIONS",
-                "No evaluation rows found. Run the scoring task first.",
+                "No evaluation rows found for this round. "
+                + ("Run the scoring task first." if eval_round == EvaluationRound.PRIMARY.value
+                   else "Secondary evaluation rows were not initialised — contact Admin."),
             )
         missing = [e for e in evals if e.evaluator_marks is None]
         if missing:
@@ -403,24 +484,104 @@ class ScriptService:
                 + ("..." if len(missing) > 5 else "."),
             )
 
-        await ScriptRepository.set_marks_submitted(
-            script_id, submitted_by=evaluator_user_id, db=db
-        )
-        await db.commit()
-        await db.refresh(script)
-
         from app.core.audit_log.models import AuditEventType
         from app.core.audit_log.service import AuditService
-        await AuditService.log(
-            AuditEventType.SCRIPT_MARKS_SUBMITTED,
-            actor_user_id=evaluator_user_id,
-            actor_role="EVALUATOR",
-            tenant_id=tenant_id,
-            schema_name=None,
-            target_entity="scanned_script",
-            target_id=str(script_id),
-            metadata={"question_count": len(evals)},
-        )
+
+        # --- advance status based on eval path ---
+        if script.double_evaluation_enabled and is_primary and not is_secondary:
+            # Primary submits on double-eval: → WAITING_SECOND_EVALUATOR
+            # Also create SECONDARY rows so secondary evaluator has questions to work with
+            await ScriptRepository.set_waiting_second_evaluator(
+                script_id, submitted_by=evaluator_user_id, db=db
+            )
+            primary_evals = evals
+            await ScriptEvaluationRepository.bulk_create_secondary_evaluations(
+                primary_evals, script_id=script_id, db=db
+            )
+            await db.commit()
+            await db.refresh(script)
+
+            await AuditService.log(
+                AuditEventType.SCRIPT_MARKS_SUBMITTED,
+                actor_user_id=evaluator_user_id,
+                actor_role="EVALUATOR",
+                tenant_id=tenant_id,
+                schema_name=None,
+                target_entity="scanned_script",
+                target_id=str(script_id),
+                metadata={
+                    "question_count": len(evals),
+                    "evaluation_round": "PRIMARY",
+                    "new_status": ScriptStatus.WAITING_SECOND_EVALUATOR.value,
+                },
+            )
+
+        elif script.double_evaluation_enabled and is_secondary:
+            # Secondary submits: → SECONDARY_EVALUATED → MARKS_SUBMITTED
+            await ScriptRepository.set_secondary_evaluated(
+                script_id, submitted_by=evaluator_user_id, db=db
+            )
+            await db.commit()
+
+            await AuditService.log(
+                AuditEventType.SCRIPT_MARKS_SUBMITTED,
+                actor_user_id=evaluator_user_id,
+                actor_role="EVALUATOR",
+                tenant_id=tenant_id,
+                schema_name=None,
+                target_entity="scanned_script",
+                target_id=str(script_id),
+                metadata={
+                    "question_count": len(evals),
+                    "evaluation_round": "SECONDARY",
+                    "new_status": ScriptStatus.SECONDARY_EVALUATED.value,
+                },
+            )
+
+            # M09.1: no moderation — advance directly to MARKS_SUBMITTED
+            # M09.2 will insert discrepancy check here before this transition
+            await ScriptRepository.set_marks_submitted(
+                script_id, submitted_by=evaluator_user_id, db=db
+            )
+            await db.commit()
+            await db.refresh(script)
+
+            await AuditService.log(
+                AuditEventType.SCRIPT_MARKS_SUBMITTED,
+                actor_user_id=evaluator_user_id,
+                actor_role="EVALUATOR",
+                tenant_id=tenant_id,
+                schema_name=None,
+                target_entity="scanned_script",
+                target_id=str(script_id),
+                metadata={
+                    "question_count": len(evals),
+                    "evaluation_round": "SECONDARY",
+                    "new_status": ScriptStatus.MARKS_SUBMITTED.value,
+                },
+            )
+
+        else:
+            # Single-eval path — existing behaviour
+            await ScriptRepository.set_marks_submitted(
+                script_id, submitted_by=evaluator_user_id, db=db
+            )
+            await db.commit()
+            await db.refresh(script)
+
+            await AuditService.log(
+                AuditEventType.SCRIPT_MARKS_SUBMITTED,
+                actor_user_id=evaluator_user_id,
+                actor_role="EVALUATOR",
+                tenant_id=tenant_id,
+                schema_name=None,
+                target_entity="scanned_script",
+                target_id=str(script_id),
+                metadata={
+                    "question_count": len(evals),
+                    "evaluation_round": "PRIMARY",
+                },
+            )
 
         return _mask_identity(script)
 
@@ -458,18 +619,29 @@ class ScriptService:
                 f"(current: {script.status!r}).",
             )
 
-        # Step 1: copy evaluator_marks → final_marks
+        # Step 1: copy COALESCE(board_adjusted_marks, evaluator_marks) → final_marks
         await ScriptEvaluationRepository.set_final_marks(
             script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
         )
 
-        # Step 2: compute totals
-        total_marks = await ScriptEvaluationRepository.sum_evaluator_marks(
+        # Step 2: compute official total using final_marks (respects board adjustments)
+        total_marks = await ScriptEvaluationRepository.sum_final_marks(
             script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
         )
         max_marks = await ScriptEvaluationRepository.sum_max_marks(
             script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
         )
+
+        # For double-evaluation papers: snapshot pre-adjustment totals per evaluator
+        primary_total:   float | None = None
+        secondary_total: float | None = None
+        if script.double_evaluation_enabled:
+            primary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+                script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            )
+            secondary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+                script_id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+            )
 
         # Step 3: write exam_score_ledger — append-only, never updated
         ledger = await ExamScoreLedgerRepository.create(
@@ -479,6 +651,8 @@ class ScriptService:
             student_roll_ref=script.student_roll_ref,
             total_marks=total_marks,
             max_marks=max_marks,
+            primary_total=primary_total,
+            secondary_total=secondary_total,
             finalised_by=board_user_id,
             finalisation_note=payload.finalisation_note,
             db=db,
@@ -654,6 +828,10 @@ class ScriptService:
 
         FACULTY callers are restricted to scripts they are assigned to.
         ADMIN / BOARD / DEAN bypass this check (oversight role).
+
+        Secondary evaluator independence: when the caller is the second_evaluator
+        and status is WAITING_SECOND_EVALUATOR, SECONDARY round rows are returned
+        (ai_suggested_marks visible; primary evaluator_marks are NOT included).
         """
         script = await _require_script(script_id, db=db)
 
@@ -666,8 +844,9 @@ class ScriptService:
                     403,
                 )
 
+        eval_round = _get_evaluation_round(script, requesting_user_id)
         evals = await ScriptEvaluationRepository.list_by_script(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=eval_round, db=db
         )
         _mask_identity(script)
         return script, evals
@@ -688,26 +867,31 @@ class ScriptService:
     ) -> list[ScriptEvaluation]:
         """
         Evaluator accepts AI-suggested marks — copies ai_suggested_marks →
-        evaluator_marks.  Allowed only when status is SCORED or REVIEW_REQUIRED.
+        evaluator_marks.  Allowed when status is SCORED, REVIEW_REQUIRED, or
+        WAITING_SECOND_EVALUATOR (secondary evaluator accepting on their round).
 
         Human-gate invariant: final_marks is NEVER written here.
         question_ids=None  → accept all questions.
         question_ids=[...] → accept only those specific questions.
-        Questions where ai_suggested_marks is None are silently skipped
-        (evaluator must enter those manually).
+        Questions where ai_suggested_marks is None are silently skipped.
         """
         script = await _require_script(script_id, db=db)
 
-        updatable = (ScriptStatus.SCORED.value, ScriptStatus.REVIEW_REQUIRED.value)
+        updatable = (
+            ScriptStatus.SCORED.value,
+            ScriptStatus.REVIEW_REQUIRED.value,
+            ScriptStatus.WAITING_SECOND_EVALUATOR.value,
+        )
         if script.status not in updatable:
             raise ScriptServiceError(
                 "INVALID_STATUS",
-                f"Suggestions can only be accepted when status is SCORED or "
-                f"REVIEW_REQUIRED (current: {script.status!r}).",
+                f"Suggestions can only be accepted when status is SCORED, "
+                f"REVIEW_REQUIRED, or WAITING_SECOND_EVALUATOR (current: {script.status!r}).",
             )
 
+        eval_round = _get_evaluation_round(script, evaluator_user_id)
         evals = await ScriptEvaluationRepository.list_by_script(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=eval_round, db=db
         )
 
         if question_ids is not None:
@@ -727,7 +911,7 @@ class ScriptService:
 
         if updates:
             await ScriptEvaluationRepository.bulk_update_evaluator_marks(
-                updates, script_id=script_id, db=db
+                updates, script_id=script_id, evaluation_round=eval_round, db=db
             )
             await db.commit()
 
@@ -743,12 +927,145 @@ class ScriptService:
             target_id=str(script_id),
             metadata={
                 "accepted_count": len(updates),
-                "accept_all": question_ids is None,
+                "accept_all":     question_ids is None,
+                "evaluation_round": eval_round,
+            },
+        )
+
+        return await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=eval_round, db=db
+        )
+
+    # -----------------------------------------------------------------------
+    # Board adjusted marks — per-question Board correction (M09.1)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def set_board_adjusted_marks(
+        script_id: UUID,
+        payload: BoardAdjustRequest,
+        *,
+        board_user_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> list[ScriptEvaluation]:
+        """
+        Board sets adjusted marks per question.  For double-evaluation papers this
+        is required before board_finalise(); for single-evaluator papers it is
+        optional (Board may adjust any question before finalising).
+
+        Only valid when status == MARKS_SUBMITTED.
+        Does NOT advance the status — board_finalise() is still required.
+        """
+        script = await _require_script(script_id, db=db)
+
+        if script.status != ScriptStatus.MARKS_SUBMITTED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Board adjustments require status MARKS_SUBMITTED "
+                f"(current: {script.status!r}).",
+            )
+
+        updates: dict[UUID, dict] = {
+            UUID(qid): {
+                "board_adjusted_marks": entry.board_adjusted_marks,
+                "board_adjustment_note": entry.board_adjustment_note,
+            }
+            for qid, entry in payload.adjustments.items()
+        }
+        await ScriptEvaluationRepository.bulk_update_board_adjusted_marks(
+            updates, script_id=script_id, db=db
+        )
+        await db.commit()
+
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+        await AuditService.log(
+            AuditEventType.SCRIPT_MARKS_UPDATED,
+            actor_user_id=board_user_id,
+            actor_role="BOARD",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="scanned_script",
+            target_id=str(script_id),
+            metadata={
+                "question_count": len(updates),
+                "action":         "board_adjust",
             },
         )
 
         return await ScriptEvaluationRepository.list_by_script(
             script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+
+    # -----------------------------------------------------------------------
+    # Board comparison view (M09.1)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def get_board_comparison(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> "BoardComparisonResponse":
+        """
+        Board Gate 2 comparison view.
+
+        Returns PRIMARY + SECONDARY evaluation rows side-by-side.
+        For single-evaluator papers secondary_evaluations is empty and secondary_total is 0.
+        Requires status == MARKS_SUBMITTED.
+        Identity is masked (student_user_id / student_roll_ref not exposed here).
+        """
+        from app.modules.m09_paper_admin.schemas import ScriptEvaluationResponse as EvalResp
+
+        script = await _require_script(script_id, db=db)
+
+        if script.status != ScriptStatus.MARKS_SUBMITTED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Board comparison view requires status MARKS_SUBMITTED "
+                f"(current: {script.status!r}).",
+            )
+
+        primary_evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        secondary_evals: list[ScriptEvaluation] = []
+        if script.double_evaluation_enabled:
+            secondary_evals = await ScriptEvaluationRepository.list_by_script(
+                script_id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+            )
+
+        primary_total = sum(
+            float(e.evaluator_marks) for e in primary_evals if e.evaluator_marks is not None
+        )
+        secondary_total = sum(
+            float(e.evaluator_marks) for e in secondary_evals if e.evaluator_marks is not None
+        )
+        max_marks_total = sum(float(e.max_marks) for e in primary_evals)
+
+        board_adjustments_set = bool(primary_evals) and all(
+            e.board_adjusted_marks is not None for e in primary_evals
+        )
+
+        _mask_identity(script)
+        ocr_text       = getattr(script, "ocr_text", None)
+        page_image_keys = getattr(script, "page_image_keys", None)
+
+        return BoardComparisonResponse(
+            script_id=script.id,
+            masked_id=script.masked_id,
+            exam_paper_id=script.exam_paper_id,
+            status=script.status,
+            double_evaluation_enabled=script.double_evaluation_enabled,
+            ocr_text=ocr_text,
+            page_image_keys=page_image_keys,
+            primary_evaluations=[EvalResp.model_validate(e) for e in primary_evals],
+            secondary_evaluations=[EvalResp.model_validate(e) for e in secondary_evals],
+            primary_total=primary_total,
+            secondary_total=secondary_total,
+            max_marks_total=max_marks_total,
+            board_adjustments_set=board_adjustments_set,
         )
 
     # -----------------------------------------------------------------------
@@ -949,6 +1266,8 @@ class ScriptService:
             scored=counts.get(ScriptStatus.SCORED.value, 0),
             failed=counts.get(ScriptStatus.FAILED.value, 0),
             review_required=counts.get(ScriptStatus.REVIEW_REQUIRED.value, 0),
+            waiting_second_evaluator=counts.get(ScriptStatus.WAITING_SECOND_EVALUATOR.value, 0),
+            secondary_evaluated=counts.get(ScriptStatus.SECONDARY_EVALUATED.value, 0),
             marks_submitted=counts.get(ScriptStatus.MARKS_SUBMITTED.value, 0),
             board_finalised=board,
             completion_pct=round(board / total * 100, 1) if total > 0 else 0.0,

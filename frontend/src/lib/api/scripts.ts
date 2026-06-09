@@ -2,6 +2,8 @@
 import api from '@/lib/api'
 import type {
   AcceptSuggestionsPayload,
+  BoardAdjustRequest,
+  BoardComparisonResponse,
   BoardFinaliseResponse,
   BulkMarkUpdatePayload,
   EvaluatorReviewResponse,
@@ -232,6 +234,29 @@ export async function getScriptFileUrl(scriptId: string): Promise<ScriptFileUrlR
   const { data } = await api.get(`${BASE}/${scriptId}/file-url`)
   return data
 }
+
+// ---------------------------------------------------------------------------
+// Board comparison view (M09.1 double evaluation)
+// ---------------------------------------------------------------------------
+
+/** Board: get PRIMARY + SECONDARY evaluations side-by-side for a MARKS_SUBMITTED script. */
+export async function getBoardComparison(scriptId: string): Promise<BoardComparisonResponse> {
+  const { data } = await api.get(`${BASE}/${scriptId}/comparison`)
+  return data
+}
+
+/** Board: set adjusted marks per question before finalisation. */
+export async function boardAdjustMarks(
+  scriptId: string,
+  payload:  BoardAdjustRequest,
+): Promise<ScriptEvaluation[]> {
+  const { data } = await api.post(`${BASE}/${scriptId}/board-adjust`, payload)
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Score ledger CSV export (H-36 STEP-11)
+// ---------------------------------------------------------------------------
 
 /** Board/Admin: fetch score ledger as CSV blob and trigger browser download. */
 export async function downloadLedgerCSV(paperId: string): Promise<void> {

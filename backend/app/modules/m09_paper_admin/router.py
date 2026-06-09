@@ -27,6 +27,8 @@ Route summary
   GET    /scripts/{script_id}/file-url         presigned URL for uploaded scan (H-36)
   GET    /scripts/{script_id}/evaluations      AI suggestions + evaluator marks
   GET    /scripts/{script_id}/ledger           Board-finalised score record
+  GET    /scripts/{script_id}/comparison       Board Gate 2 — PRIMARY+SECONDARY side-by-side (M09.1)
+  POST   /scripts/{script_id}/board-adjust     Board sets adjusted marks per question (M09.1)
   GET    /scripts/ledger/paper/{paper_id}      all finalised scores for a paper
   GET    /scripts/ledger/paper/{paper_id}/export  CSV download of score ledger (H-36)
 
@@ -46,6 +48,8 @@ from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m09_paper_admin.schemas import (
     AcceptSuggestionsRequest,
+    BoardAdjustRequest,
+    BoardComparisonResponse,
     BulkMarkUpdate,
     EvaluatorReviewResponse,
     ExamScoreLedgerListResponse,
@@ -656,3 +660,76 @@ async def export_ledger_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /{script_id}/comparison — Board comparison view (M09.1)
+# ---------------------------------------------------------------------------
+
+@router.get("/{script_id}/comparison", response_model=BoardComparisonResponse)
+async def get_board_comparison(
+    script_id: UUID,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Board Gate 2 double-evaluation comparison view.
+
+    Returns PRIMARY and SECONDARY evaluation rows side-by-side with per-evaluator
+    totals and a flag indicating whether Board adjustments have been set.
+    Requires status == MARKS_SUBMITTED.
+    Identity is masked (student_user_id / student_roll_ref not exposed here).
+
+    For single-evaluator papers secondary_evaluations is empty and
+    secondary_total is 0.0 — the Board can still use this view to inspect
+    the primary evaluation before calling /finalise.
+    """
+    db: AsyncSession = db_info["db"]
+
+    try:
+        result = await ScriptService.get_board_comparison(script_id, db=db)
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# POST /{script_id}/board-adjust — Board sets per-question adjusted marks (M09.1)
+# ---------------------------------------------------------------------------
+
+@router.post("/{script_id}/board-adjust", response_model=list[ScriptEvaluationResponse])
+async def board_adjust_marks(
+    script_id: UUID,
+    payload:   BoardAdjustRequest,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Board sets adjusted marks for specified questions.
+
+    For double-evaluation papers: required before /finalise so the Board can
+    explicitly decide the official mark for every question after reviewing both
+    evaluations.  NO automatic averaging — the Board must enter each mark.
+
+    For single-evaluator papers: optional correction mechanism before finalisation.
+
+    Requires status == MARKS_SUBMITTED.  Does NOT advance status.
+    Returns updated PRIMARY evaluation rows with board_adjusted_marks populated.
+
+    Human-gate invariant: only /finalise copies marks → final_marks and writes
+    the exam_score_ledger.  This endpoint only sets board_adjusted_marks.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+
+    try:
+        evals = await ScriptService.set_board_adjusted_marks(
+            script_id,
+            payload,
+            board_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return [ScriptEvaluationResponse.model_validate(e) for e in evals]
