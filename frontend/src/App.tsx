@@ -85,6 +85,7 @@ import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
 import CapacityPage from '@/pages/sis/CapacityPage'
+import ValidationReportPage from '@/pages/sis/ValidationReportPage'
 import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
 import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
 import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
@@ -194,6 +195,7 @@ export default function App() {
             <Route path="/sis/rollover" element={<SemesterRolloverPage />} />
             <Route path="/sis/imports" element={<ImportHistoryPage />} />
             <Route path="/sis/capacity" element={<CapacityPage />} />
+            <Route path="/sis/validation" element={<ValidationReportPage />} />
           </Route>
 
           {/* Attendance — Faculty mark + shortage report */}

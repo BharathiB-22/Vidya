@@ -319,6 +319,28 @@ export interface BulkOpResult {
 }
 
 // ---------------------------------------------------------------------------
+// Validation Report (H64.8)
+// ---------------------------------------------------------------------------
+
+export interface ValidationItem { id: string; detail: string }
+export type ValidationSeverity = 'ERROR' | 'WARNING' | 'INFO'
+
+export interface CheckResult {
+  check_id:    string
+  label:       string
+  description: string
+  severity:    ValidationSeverity
+  count:       number
+  items:       ValidationItem[]
+}
+
+export interface ValidationReportOut {
+  generated_at: string
+  total_issues: number
+  checks:       CheckResult[]
+}
+
+// ---------------------------------------------------------------------------
 // Global Search (H64.7)
 // ---------------------------------------------------------------------------
 
@@ -818,6 +840,10 @@ export const sisApi = {
 
   setSectionCapacity: (sectionId: string, maxStrength: number | null): Promise<SectionCapacityOut> =>
     api.put<SectionCapacityOut>(`/sis/sections/${sectionId}/capacity`, { max_strength: maxStrength }).then(r => r.data),
+
+  // Validation report (H64.8)
+  getValidationReport: (): Promise<ValidationReportOut> =>
+    api.get<ValidationReportOut>('/sis/validation/report').then(r => r.data),
 
   // Global search (H64.7)
   search: (q: string): Promise<SearchResultsOut> =>
