@@ -307,6 +307,18 @@ export interface FacultyLifecycleTransitionOut {
 }
 
 // ---------------------------------------------------------------------------
+// Bulk Operations (H64.5)
+// ---------------------------------------------------------------------------
+
+export interface BulkOpResult {
+  action:    string
+  requested: number
+  succeeded: number
+  failed:    number
+  errors:    string[]
+}
+
+// ---------------------------------------------------------------------------
 // Attendance (H55)
 // ---------------------------------------------------------------------------
 
@@ -758,6 +770,13 @@ export const sisApi = {
 
   transitionStudentLifecycle: (studentId: string, newStatus: string, reason?: string): Promise<LifecycleTransitionOut> =>
     api.post<LifecycleTransitionOut>(`/sis/students/${studentId}/lifecycle`, { new_status: newStatus, reason: reason ?? null }).then(r => r.data),
+
+  // Bulk operations (H64.5)
+  bulkStudentAction: (studentIds: string[], action: 'DEACTIVATE' | 'ARCHIVE', reason?: string): Promise<BulkOpResult> =>
+    api.post<BulkOpResult>('/sis/students/bulk', { student_ids: studentIds, action, reason: reason ?? null }).then(r => r.data),
+
+  bulkFacultyAction: (facultyIds: string[], action: 'DEACTIVATE' | 'ARCHIVE', reason?: string): Promise<BulkOpResult> =>
+    api.post<BulkOpResult>('/sis/faculty/bulk', { faculty_ids: facultyIds, action, reason: reason ?? null }).then(r => r.data),
 
   // Faculty lifecycle (H64.4)
   getFacultyLifecycle: (facultyId: string): Promise<FacultyLifecycleStatusOut> =>
