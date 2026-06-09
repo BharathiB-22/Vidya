@@ -106,9 +106,12 @@ class SisStudentProfile(Base):
     photo_url               = Column(String(500), nullable=True)
     notes                   = Column(Text, nullable=True)
     is_active               = Column(Boolean, nullable=False, default=True)
+    lifecycle_status        = Column(String(20), nullable=False, default="ACTIVE")
     import_batch_id         = Column(UUID(as_uuid=True), ForeignKey("sis_import_batches.id", ondelete="SET NULL"), nullable=True)
     created_at              = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at              = Column(DateTime(timezone=True), nullable=True)
+
+    lifecycle_history       = relationship("SisStudentLifecycleHistory", back_populates="student", lazy="select")
 
 
 # ---------------------------------------------------------------------------
@@ -139,3 +142,25 @@ class SisFacultyProfile(Base):
     import_batch_id       = Column(UUID(as_uuid=True), ForeignKey("sis_import_batches.id", ondelete="SET NULL"), nullable=True)
     created_at            = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at            = Column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# H64.3: Student lifecycle history — append-only audit trail
+# ---------------------------------------------------------------------------
+
+class SisStudentLifecycleHistory(Base):
+    __tablename__ = "sis_student_lifecycle_history"
+    __table_args__ = (
+        Index("ix_sis_slh_student_id", "student_id"),
+        Index("ix_sis_slh_changed_at",  "changed_at"),
+    )
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id  = Column(UUID(as_uuid=True), ForeignKey("sis_student_profiles.user_id", ondelete="CASCADE"), nullable=False)
+    from_status = Column(String(20), nullable=True)    # NULL for the initial creation entry
+    to_status   = Column(String(20), nullable=False)
+    reason      = Column(Text, nullable=True)
+    changed_by  = Column(UUID(as_uuid=True), nullable=False)
+    changed_at  = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    student = relationship("SisStudentProfile", back_populates="lifecycle_history")

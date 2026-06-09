@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, UserCircle2, MoveRight, UserMinus, GraduationCap, LayoutList } from 'lucide-react'
+import { ArrowLeft, UserCircle2, MoveRight, UserMinus, GraduationCap, LayoutList, Activity, ChevronDown } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
@@ -13,7 +13,172 @@ import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import { sisApi } from '@/lib/api/sis'
 import { academicsApi } from '@/lib/api/academics'
-import type { StudentProfile } from '@/lib/api/sis'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import type { StudentProfile, LifecycleStatusOut } from '@/lib/api/sis'
+
+// ---------------------------------------------------------------------------
+// Lifecycle helpers
+// ---------------------------------------------------------------------------
+
+const STATUS_COLORS: Record<string, { bg: string; color: string; border: string }> = {
+  APPLICANT: { bg: 'rgba(59,130,246,0.12)', color: '#93c5fd', border: 'rgba(59,130,246,0.25)' },
+  ENROLLED:  { bg: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: 'rgba(139,92,246,0.25)' },
+  ACTIVE:    { bg: 'rgba(34,197,94,0.12)',  color: '#4ade80', border: 'rgba(34,197,94,0.25)'  },
+  DETAINED:  { bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.25)' },
+  GRADUATED: { bg: 'rgba(99,102,241,0.12)', color: '#818cf8', border: 'rgba(99,102,241,0.25)' },
+  ALUMNI:    { bg: 'rgba(20,184,166,0.12)', color: '#2dd4bf', border: 'rgba(20,184,166,0.25)' },
+  WITHDRAWN: { bg: 'rgba(239,68,68,0.12)',  color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
+  ARCHIVED:  { bg: 'rgba(100,116,139,0.12)',color: '#94a3b8', border: 'rgba(100,116,139,0.25)'},
+}
+
+function LifecycleBadge({ status }: { status: string }) {
+  const c = STATUS_COLORS[status] ?? STATUS_COLORS.ACTIVE
+  return (
+    <span
+      className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded"
+      style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}
+    >
+      {status}
+    </span>
+  )
+}
+
+function formatDt(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle panel (shown to ADMIN / DEAN only)
+// ---------------------------------------------------------------------------
+
+function LifecyclePanel({
+  studentId,
+  canManage,
+}: {
+  studentId: string
+  canManage: boolean
+}) {
+  const qc = useQueryClient()
+  const [selectedStatus, setSelectedStatus] = useState('')
+  const [reason, setReason]                 = useState('')
+  const [showHistory, setShowHistory]       = useState(false)
+
+  const { data, isLoading } = useQuery<LifecycleStatusOut>({
+    queryKey: ['sis-lifecycle', studentId],
+    queryFn:  () => sisApi.getStudentLifecycle(studentId),
+    enabled:  canManage,
+  })
+
+  const transitionMut = useMutation({
+    mutationFn: () => sisApi.transitionStudentLifecycle(studentId, selectedStatus, reason || undefined),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['sis-lifecycle', studentId] })
+      qc.invalidateQueries({ queryKey: ['sis-student-profile', studentId] })
+      addToast(res.message, 'success')
+      setSelectedStatus('')
+      setReason('')
+    },
+    onError: (e) => addToast(getErrorMessage(e), 'error'),
+  })
+
+  if (!canManage) return null
+  if (isLoading || !data) return (
+    <div className="rounded-xl px-6 py-4" style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <p className="text-sm text-slate-500">Loading lifecycle…</p>
+    </div>
+  )
+
+  return (
+    <div className="rounded-xl px-6 py-4 space-y-3"
+      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
+
+      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <Activity className="h-4 w-4 text-slate-500" />
+        <h3 className="text-sm font-semibold text-slate-400">Lifecycle Status</h3>
+      </div>
+
+      {/* Current status */}
+      <div className="flex items-center justify-between py-1">
+        <span className="text-sm text-slate-500">Current status</span>
+        <LifecycleBadge status={data.current_status} />
+      </div>
+
+      {/* Transition picker */}
+      {data.allowed_next.length > 0 && (
+        <div className="space-y-2 pt-1">
+          <p className="text-xs text-slate-500">Change status (human ratification required):</p>
+          <select
+            value={selectedStatus}
+            onChange={e => setSelectedStatus(e.target.value)}
+            className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200"
+          >
+            <option value="">Select new status…</option>
+            {data.allowed_next.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          {selectedStatus && (
+            <>
+              <input
+                type="text"
+                placeholder="Reason (optional)"
+                value={reason}
+                onChange={e => setReason(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 placeholder:text-slate-600"
+              />
+              <Button
+                size="sm"
+                onClick={() => transitionMut.mutate()}
+                disabled={transitionMut.isPending}
+                className="w-full"
+              >
+                {transitionMut.isPending ? 'Applying…' : `Confirm → ${selectedStatus}`}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {data.current_status === 'ARCHIVED' && (
+        <p className="text-xs text-slate-500 py-1">This student is archived. No further transitions available.</p>
+      )}
+
+      {/* History toggle */}
+      {data.history.length > 0 && (
+        <div className="pt-2">
+          <button
+            onClick={() => setShowHistory(v => !v)}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <ChevronDown size={12} className={showHistory ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            {showHistory ? 'Hide' : 'Show'} history ({data.history.length})
+          </button>
+          {showHistory && (
+            <div className="mt-2 space-y-1">
+              {data.history.map(h => (
+                <div key={h.id} className="text-xs text-slate-400 flex items-start gap-2 py-1"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <span className="shrink-0 tabular-nums text-slate-600">{formatDt(h.changed_at)}</span>
+                  <span>
+                    {h.from_status
+                      ? <><LifecycleBadge status={h.from_status} /> → <LifecycleBadge status={h.to_status} /></>
+                      : <>Set to <LifecycleBadge status={h.to_status} /></>
+                    }
+                    {h.reason && <span className="ml-1 text-slate-500">— {h.reason}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Shared sub-components
+// ---------------------------------------------------------------------------
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -41,7 +206,7 @@ function Card({ title, icon: Icon, children }: { title: string; icon: typeof Use
 }
 
 // ---------------------------------------------------------------------------
-// Move-section dialog (same as in RosterPage but scoped to profile)
+// Move-section dialog
 // ---------------------------------------------------------------------------
 
 function MoveSectionDialog({
@@ -115,9 +280,12 @@ export default function StudentProfilePage() {
   const { student_id } = useParams<{ student_id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const currentUser = useCurrentUser()
 
   const [showMove,      setShowMove]      = useState(false)
   const [showUnenroll,  setShowUnenroll]  = useState(false)
+
+  const canManage = currentUser?.role === 'ADMIN' || currentUser?.role === 'DEAN'
 
   const { data: profile, isLoading } = useQuery<StudentProfile>({
     queryKey: ['sis-student-profile', student_id],
@@ -215,7 +383,12 @@ export default function StudentProfilePage() {
         )}
       </Card>
 
-      {/* Actions */}
+      {/* Lifecycle panel — ADMIN / DEAN only */}
+      {student_id && (
+        <LifecyclePanel studentId={student_id} canManage={canManage} />
+      )}
+
+      {/* Enrollment actions */}
       {hasEnrollment && (
         <div
           className="rounded-xl p-5 space-y-3"

@@ -264,6 +264,34 @@ export interface ImportBatchListOut {
 }
 
 // ---------------------------------------------------------------------------
+// Student Lifecycle (H64.3)
+// ---------------------------------------------------------------------------
+
+export interface LifecycleHistoryEntry {
+  id:          string
+  from_status: string | null
+  to_status:   string
+  reason:      string | null
+  changed_by:  string
+  changed_at:  string
+}
+
+export interface LifecycleStatusOut {
+  student_id:     string
+  current_status: string
+  allowed_next:   string[]
+  history:        LifecycleHistoryEntry[]
+}
+
+export interface LifecycleTransitionOut {
+  student_id:      string
+  previous_status: string
+  new_status:      string
+  is_active:       boolean
+  message:         string
+}
+
+// ---------------------------------------------------------------------------
 // Attendance (H55)
 // ---------------------------------------------------------------------------
 
@@ -708,6 +736,13 @@ export const sisApi = {
   // Import rollback (H64.2)
   rollbackImportBatch: (batchId: string): Promise<{ batch_id: string; batch_ref: string; rolled_back_at: string; message: string }> =>
     api.post(`/sis/imports/${batchId}/rollback`).then(r => r.data),
+
+  // Student lifecycle (H64.3)
+  getStudentLifecycle: (studentId: string): Promise<LifecycleStatusOut> =>
+    api.get<LifecycleStatusOut>(`/sis/students/${studentId}/lifecycle`).then(r => r.data),
+
+  transitionStudentLifecycle: (studentId: string, newStatus: string, reason?: string): Promise<LifecycleTransitionOut> =>
+    api.post<LifecycleTransitionOut>(`/sis/students/${studentId}/lifecycle`, { new_status: newStatus, reason: reason ?? null }).then(r => r.data),
 
   downloadBulkProfileTemplateXlsx: (): Promise<void> =>
     api.get('/sis/directory/students/import/template.xlsx', { responseType: 'blob' }).then(r => {
