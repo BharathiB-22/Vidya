@@ -27,3 +27,10 @@ class ImportBatchOut(BaseModel):
 class ImportBatchListOut(BaseModel):
     items: list[ImportBatchOut]
     total: int
+
+
+class RollbackOut(BaseModel):
+    batch_id:       UUID
+    batch_ref:      str
+    rolled_back_at: Optional[datetime]
+    message:        str

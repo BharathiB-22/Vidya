@@ -705,6 +705,10 @@ export const sisApi = {
   getImportBatch: (batchId: string): Promise<ImportBatch> =>
     api.get<ImportBatch>(`/sis/imports/${batchId}`).then(r => r.data),
 
+  // Import rollback (H64.2)
+  rollbackImportBatch: (batchId: string): Promise<{ batch_id: string; batch_ref: string; rolled_back_at: string; message: string }> =>
+    api.post(`/sis/imports/${batchId}/rollback`).then(r => r.data),
+
   downloadBulkProfileTemplateXlsx: (): Promise<void> =>
     api.get('/sis/directory/students/import/template.xlsx', { responseType: 'blob' }).then(r => {
       _triggerSisDownload(
