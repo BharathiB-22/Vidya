@@ -83,6 +83,7 @@ import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
+import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
 import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
 import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
 import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
@@ -187,9 +188,10 @@ export default function App() {
             <Route path="/sis/directory/students/:student_id"    element={<StudentProfilePage />} />
           </Route>
 
-          {/* SIS Semester Rollover — ADMIN only */}
+          {/* SIS Semester Rollover + Import History — ADMIN only */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
             <Route path="/sis/rollover" element={<SemesterRolloverPage />} />
+            <Route path="/sis/imports" element={<ImportHistoryPage />} />
           </Route>
 
           {/* Attendance — Faculty mark + shortage report */}

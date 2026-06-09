@@ -576,7 +576,7 @@ def test_grace_log_subject_result_back_ref():
 
 def _load_migration():
     p = pathlib.Path(
-        "alembic/tenant_versions/0035_tenant_results_management.py"
+        "backend/alembic/tenant_versions/0035_tenant_results_management.py"
     )
     spec = importlib.util.spec_from_file_location("mig_0035", p)
     mod  = importlib.util.module_from_spec(spec)

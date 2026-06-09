@@ -23,13 +23,42 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.database import Base
 
+
+# ---------------------------------------------------------------------------
+# H64.1: Import batch tracking
+# ---------------------------------------------------------------------------
+
+class SisImportBatch(Base):
+    __tablename__ = "sis_import_batches"
+    __table_args__ = (
+        UniqueConstraint("batch_ref", name="uq_sis_import_batches_batch_ref"),
+        Index("ix_sis_import_batches_imported_by",    "imported_by"),
+        Index("ix_sis_import_batches_imported_at",    "imported_at"),
+        Index("ix_sis_import_batches_is_rolled_back", "is_rolled_back"),
+    )
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    batch_ref      = Column(String(30),  nullable=False)
+    imported_by    = Column(UUID(as_uuid=True), nullable=False)
+    imported_at    = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    record_type    = Column(String(20),  nullable=False)   # STUDENT | FACULTY
+    total_records  = Column(Integer(),   nullable=False, default=0)
+    success_count  = Column(Integer(),   nullable=False, default=0)
+    failed_count   = Column(Integer(),   nullable=False, default=0)
+    is_rolled_back = Column(Boolean(),   nullable=False, default=False)
+    rolled_back_by = Column(UUID(as_uuid=True), nullable=True)
+    rolled_back_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: SIS School
+# ---------------------------------------------------------------------------
 
 class SisSchool(Base):
     __tablename__ = "sis_schools"
@@ -61,23 +90,25 @@ class SisStudentProfile(Base):
         UniqueConstraint("usn", name="uq_sis_student_profiles_usn"),
         Index("ix_sis_student_profiles_usn", "usn"),
         Index("ix_sis_student_profiles_admission_year", "admission_year"),
+        Index("ix_sis_student_profiles_import_batch_id", "import_batch_id"),
     )
 
-    user_id                = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    usn                    = Column(String(30), nullable=True)
-    admission_year         = Column(Integer, nullable=True)
-    date_of_birth          = Column(Date, nullable=True)
-    phone                  = Column(String(20), nullable=True)
-    address_line1          = Column(String(200), nullable=True)
-    address_city           = Column(String(100), nullable=True)
-    address_state          = Column(String(100), nullable=True)
-    emergency_contact_name = Column(String(100), nullable=True)
-    emergency_contact_phone= Column(String(20), nullable=True)
-    photo_url              = Column(String(500), nullable=True)
-    notes                  = Column(Text, nullable=True)
-    is_active              = Column(Boolean, nullable=False, default=True)
-    created_at             = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
-    updated_at             = Column(DateTime(timezone=True), nullable=True)
+    user_id                 = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    usn                     = Column(String(30), nullable=True)
+    admission_year          = Column(Integer, nullable=True)
+    date_of_birth           = Column(Date, nullable=True)
+    phone                   = Column(String(20), nullable=True)
+    address_line1           = Column(String(200), nullable=True)
+    address_city            = Column(String(100), nullable=True)
+    address_state           = Column(String(100), nullable=True)
+    emergency_contact_name  = Column(String(100), nullable=True)
+    emergency_contact_phone = Column(String(20), nullable=True)
+    photo_url               = Column(String(500), nullable=True)
+    notes                   = Column(Text, nullable=True)
+    is_active               = Column(Boolean, nullable=False, default=True)
+    import_batch_id         = Column(UUID(as_uuid=True), ForeignKey("sis_import_batches.id", ondelete="SET NULL"), nullable=True)
+    created_at              = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at              = Column(DateTime(timezone=True), nullable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +121,7 @@ class SisFacultyProfile(Base):
         UniqueConstraint("employee_id", name="uq_sis_faculty_profiles_employee_id"),
         Index("ix_sis_faculty_profiles_employee_id", "employee_id"),
         Index("ix_sis_faculty_profiles_primary_department_id", "primary_department_id"),
+        Index("ix_sis_faculty_profiles_import_batch_id", "import_batch_id"),
     )
 
     user_id               = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
@@ -104,5 +136,6 @@ class SisFacultyProfile(Base):
     primary_department_id = Column(UUID(as_uuid=True), ForeignKey("acad_departments.id", ondelete="SET NULL"), nullable=True)
     photo_url             = Column(String(500), nullable=True)
     is_active             = Column(Boolean, nullable=False, default=True)
+    import_batch_id       = Column(UUID(as_uuid=True), ForeignKey("sis_import_batches.id", ondelete="SET NULL"), nullable=True)
     created_at            = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at            = Column(DateTime(timezone=True), nullable=True)

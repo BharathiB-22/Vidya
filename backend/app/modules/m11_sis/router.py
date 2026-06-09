@@ -9,6 +9,7 @@ from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.attendance_router import attendance_router
+from app.modules.m11_sis.import_batch_router import import_batch_router
 from app.modules.m11_sis.directory_router import directory_router
 from app.modules.m11_sis.enrollment_router import enrollment_router
 from app.modules.m11_sis.exam_router import exam_router
@@ -23,6 +24,7 @@ from app.modules.m11_sis.schemas import SchoolCreate, SchoolOut, SchoolUpdate
 from app.modules.m11_sis.service import SchoolService, SchoolServiceError
 
 router = APIRouter(tags=["M11 SIS"])
+router.include_router(import_batch_router)
 router.include_router(enrollment_router)
 router.include_router(directory_router)
 router.include_router(me_router)

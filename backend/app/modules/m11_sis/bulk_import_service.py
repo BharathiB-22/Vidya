@@ -329,12 +329,14 @@ class BulkProfileImportService:
             DirectoryServiceError,
             StudentDirectoryService,
         )
+        from app.modules.m11_sis.import_batch_service import ImportBatchService
 
         # Always re-validate — never trust the client to re-send the same file
         preview = await BulkProfileImportService.preview(content, db, filename=filename)
 
         updated = 0
         row_errors: list[str] = []
+        updated_user_ids: list[UUID] = []
 
         for row in preview.rows:
             if not row.is_valid or row.student_id is None:
@@ -366,6 +368,7 @@ class BulkProfileImportService:
                     db=db,
                 )
                 updated += 1
+                updated_user_ids.append(row.student_id)
             except DirectoryServiceError as exc:
                 row_errors.append(
                     f"Row {row.row_number} ({row.email}): {exc.message}"
@@ -373,6 +376,27 @@ class BulkProfileImportService:
             except Exception as exc:
                 row_errors.append(
                     f"Row {row.row_number} ({row.email}): unexpected error — {exc}"
+                )
+
+        # Record the batch so it appears in Import History (H64.1)
+        if updated > 0:
+            from sqlalchemy import update as sa_update
+            from app.modules.m11_sis.models import SisStudentProfile
+
+            batch = await ImportBatchService.create_batch(
+                imported_by=actor_user_id,
+                record_type="STUDENT",
+                total_records=preview.total_rows,
+                success_count=updated,
+                failed_count=len(row_errors),
+                db=db,
+            )
+            # Stamp batch id on every profile that was just updated
+            if updated_user_ids:
+                await db.execute(
+                    sa_update(SisStudentProfile)
+                    .where(SisStudentProfile.user_id.in_(updated_user_ids))
+                    .values(import_batch_id=batch.id)
                 )
 
         skipped = preview.total_rows - updated

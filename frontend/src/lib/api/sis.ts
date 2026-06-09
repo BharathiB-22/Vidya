@@ -241,6 +241,29 @@ export interface ProfileImportCommitResult {
 }
 
 // ---------------------------------------------------------------------------
+// Import Batches (H64.1)
+// ---------------------------------------------------------------------------
+
+export interface ImportBatch {
+  id:             string
+  batch_ref:      string
+  imported_by:    string
+  imported_at:    string
+  record_type:    string
+  total_records:  number
+  success_count:  number
+  failed_count:   number
+  is_rolled_back: boolean
+  rolled_back_by: string | null
+  rolled_back_at: string | null
+}
+
+export interface ImportBatchListOut {
+  items: ImportBatch[]
+  total: number
+}
+
+// ---------------------------------------------------------------------------
 // Attendance (H55)
 // ---------------------------------------------------------------------------
 
@@ -674,6 +697,13 @@ export const sisApi = {
     api.get('/sis/directory/students/import/template.csv', { responseType: 'blob' }).then(r => {
       _triggerSisDownload(r.data, 'student_profiles_template.csv', 'text/csv')
     }),
+
+  // Import history (H64.1)
+  listImportBatches: (limit = 50, offset = 0): Promise<ImportBatchListOut> =>
+    api.get<ImportBatchListOut>('/sis/imports', { params: { limit, offset } }).then(r => r.data),
+
+  getImportBatch: (batchId: string): Promise<ImportBatch> =>
+    api.get<ImportBatch>(`/sis/imports/${batchId}`).then(r => r.data),
 
   downloadBulkProfileTemplateXlsx: (): Promise<void> =>
     api.get('/sis/directory/students/import/template.xlsx', { responseType: 'blob' }).then(r => {
