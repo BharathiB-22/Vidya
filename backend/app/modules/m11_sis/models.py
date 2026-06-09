@@ -139,9 +139,12 @@ class SisFacultyProfile(Base):
     primary_department_id = Column(UUID(as_uuid=True), ForeignKey("acad_departments.id", ondelete="SET NULL"), nullable=True)
     photo_url             = Column(String(500), nullable=True)
     is_active             = Column(Boolean, nullable=False, default=True)
+    lifecycle_status      = Column(String(20), nullable=False, default="ACTIVE")
     import_batch_id       = Column(UUID(as_uuid=True), ForeignKey("sis_import_batches.id", ondelete="SET NULL"), nullable=True)
     created_at            = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at            = Column(DateTime(timezone=True), nullable=True)
+
+    lifecycle_history     = relationship("SisFacultyLifecycleHistory", back_populates="faculty", lazy="select")
 
 
 # ---------------------------------------------------------------------------
@@ -164,3 +167,25 @@ class SisStudentLifecycleHistory(Base):
     changed_at  = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     student = relationship("SisStudentProfile", back_populates="lifecycle_history")
+
+
+# ---------------------------------------------------------------------------
+# H64.4: Faculty lifecycle history — append-only audit trail
+# ---------------------------------------------------------------------------
+
+class SisFacultyLifecycleHistory(Base):
+    __tablename__ = "sis_faculty_lifecycle_history"
+    __table_args__ = (
+        Index("ix_sis_flh_faculty_id", "faculty_id"),
+        Index("ix_sis_flh_changed_at",  "changed_at"),
+    )
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    faculty_id  = Column(UUID(as_uuid=True), ForeignKey("sis_faculty_profiles.user_id", ondelete="CASCADE"), nullable=False)
+    from_status = Column(String(20), nullable=True)
+    to_status   = Column(String(20), nullable=False)
+    reason      = Column(Text, nullable=True)
+    changed_by  = Column(UUID(as_uuid=True), nullable=False)
+    changed_at  = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    faculty = relationship("SisFacultyProfile", back_populates="lifecycle_history")

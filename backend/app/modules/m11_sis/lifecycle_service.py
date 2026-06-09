@@ -24,7 +24,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.m11_sis.models import SisStudentLifecycleHistory, SisStudentProfile
+from app.modules.m11_sis.models import (
+    SisFacultyLifecycleHistory,
+    SisFacultyProfile,
+    SisStudentLifecycleHistory,
+    SisStudentProfile,
+)
 
 # ---------------------------------------------------------------------------
 # Status catalogue
@@ -164,6 +169,104 @@ class StudentLifecycleService:
 
         # Mirror is_active: ARCHIVED and WITHDRAWN → is_active=False; all others → True
         profile.is_active = new_status not in ("ARCHIVED", "WITHDRAWN")
+
+        await db.flush()
+        return profile
+
+
+# ---------------------------------------------------------------------------
+# Faculty lifecycle — H64.4
+# ---------------------------------------------------------------------------
+
+FACULTY_ALL_STATUSES = {"ACTIVE", "INACTIVE", "ARCHIVED"}
+
+FACULTY_TRANSITIONS: dict[str, list[str]] = {
+    "ACTIVE":   ["INACTIVE", "ARCHIVED"],
+    "INACTIVE": ["ACTIVE",   "ARCHIVED"],
+    "ARCHIVED": [],
+}
+
+
+class FacultyLifecycleService:
+
+    @staticmethod
+    async def get_status(faculty_id: UUID, db: AsyncSession) -> dict:
+        profile = await db.get(SisFacultyProfile, faculty_id)
+        if profile is None:
+            raise LifecycleServiceError("NOT_FOUND", "Faculty profile not found", 404)
+
+        current = profile.lifecycle_status or "ACTIVE"
+        history_q = await db.execute(
+            select(SisFacultyLifecycleHistory)
+            .where(SisFacultyLifecycleHistory.faculty_id == faculty_id)
+            .order_by(SisFacultyLifecycleHistory.changed_at.desc())
+            .limit(20)
+        )
+        return {
+            "faculty_id":     faculty_id,
+            "current_status": current,
+            "allowed_next":   FACULTY_TRANSITIONS.get(current, []),
+            "history":        list(history_q.scalars().all()),
+        }
+
+    @staticmethod
+    async def transition(
+        faculty_id: UUID,
+        new_status: str,
+        *,
+        actor_user_id: UUID,
+        actor_role: str,
+        reason: Optional[str],
+        db: AsyncSession,
+    ) -> SisFacultyProfile:
+        if actor_role not in ("ADMIN", "DEAN"):
+            raise LifecycleServiceError(
+                "FORBIDDEN",
+                "Only ADMIN or DEAN may change a faculty member's lifecycle status.",
+                403,
+            )
+
+        if new_status not in FACULTY_ALL_STATUSES:
+            raise LifecycleServiceError(
+                "INVALID_STATUS",
+                f"'{new_status}' is not a valid faculty lifecycle status. "
+                f"Valid: {', '.join(sorted(FACULTY_ALL_STATUSES))}",
+                400,
+            )
+
+        profile = await db.get(SisFacultyProfile, faculty_id)
+        if profile is None:
+            raise LifecycleServiceError("NOT_FOUND", "Faculty profile not found", 404)
+
+        current = profile.lifecycle_status or "ACTIVE"
+        allowed = FACULTY_TRANSITIONS.get(current, [])
+
+        if new_status == current:
+            raise LifecycleServiceError("NO_CHANGE", f"Faculty is already in status '{current}'.", 409)
+
+        if new_status not in allowed:
+            raise LifecycleServiceError(
+                "INVALID_TRANSITION",
+                f"Cannot transition from '{current}' to '{new_status}'. "
+                f"Allowed next: {', '.join(allowed) or 'none (terminal)'}",
+                422,
+            )
+
+        entry = SisFacultyLifecycleHistory(
+            id          = _uuid.uuid4(),
+            faculty_id  = faculty_id,
+            from_status = current,
+            to_status   = new_status,
+            reason      = reason,
+            changed_by  = actor_user_id,
+            changed_at  = datetime.now(timezone.utc),
+        )
+        db.add(entry)
+
+        profile.lifecycle_status = new_status
+        profile.updated_at       = datetime.now(timezone.utc)
+        # INACTIVE and ARCHIVED → is_active=False
+        profile.is_active = new_status == "ACTIVE"
 
         await db.flush()
         return profile

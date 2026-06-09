@@ -37,3 +37,22 @@ class LifecycleTransitionOut(BaseModel):
     new_status:      str
     is_active:       bool
     message:         str
+
+
+# ---------------------------------------------------------------------------
+# Faculty lifecycle schemas — H64.4
+# ---------------------------------------------------------------------------
+
+class FacultyLifecycleStatusOut(BaseModel):
+    faculty_id:     UUID
+    current_status: str
+    allowed_next:   list[str]
+    history:        list[LifecycleHistoryEntry]
+
+
+class FacultyLifecycleTransitionOut(BaseModel):
+    faculty_id:      UUID
+    previous_status: str
+    new_status:      str
+    is_active:       bool
+    message:         str

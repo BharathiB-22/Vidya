@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, UserCheck, BookOpen, Building2, Phone, MapPin, Calendar, Pencil, X, Save,
+  Activity, ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageShell } from '@/components/shell/PageShell'
@@ -10,7 +11,7 @@ import { PageLoading } from '@/components/shared/PageLoading'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import { sisApi } from '@/lib/api/sis'
-import type { FacultyDetailOut, FacultyProfileUpsert } from '@/lib/api/sis'
+import type { FacultyDetailOut, FacultyProfileUpsert, FacultyLifecycleStatusOut } from '@/lib/api/sis'
 import { academicsApi } from '@/lib/api/academics'
 import { useAuth } from '@/lib/auth'
 
@@ -53,6 +54,147 @@ function RoleChip({ role }: { role: string }) {
     >
       {role.replace('_', ' ')}
     </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Faculty lifecycle panel — H64.4
+// ---------------------------------------------------------------------------
+
+const FACULTY_STATUS_COLORS: Record<string, { bg: string; color: string; border: string }> = {
+  ACTIVE:   { bg: 'rgba(34,197,94,0.12)',   color: '#4ade80', border: 'rgba(34,197,94,0.25)'   },
+  INACTIVE: { bg: 'rgba(251,191,36,0.12)',  color: '#fbbf24', border: 'rgba(251,191,36,0.25)'  },
+  ARCHIVED: { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
+}
+
+function FacultyStatusBadge({ status }: { status: string }) {
+  const c = FACULTY_STATUS_COLORS[status] ?? FACULTY_STATUS_COLORS.ACTIVE
+  return (
+    <span
+      className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded"
+      style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}
+    >
+      {status}
+    </span>
+  )
+}
+
+function formatDt(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; canManage: boolean }) {
+  const qc = useQueryClient()
+  const [selectedStatus, setSelectedStatus] = useState('')
+  const [reason, setReason]                 = useState('')
+  const [showHistory, setShowHistory]       = useState(false)
+
+  const { data, isLoading } = useQuery<FacultyLifecycleStatusOut>({
+    queryKey: ['sis-faculty-lifecycle', facultyId],
+    queryFn:  () => sisApi.getFacultyLifecycle(facultyId),
+    enabled:  canManage,
+  })
+
+  const transitionMut = useMutation({
+    mutationFn: () => sisApi.transitionFacultyLifecycle(facultyId, selectedStatus, reason || undefined),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['sis-faculty-lifecycle', facultyId] })
+      qc.invalidateQueries({ queryKey: ['sis-faculty-detail', facultyId] })
+      qc.invalidateQueries({ queryKey: ['sis-faculty-directory'] })
+      addToast(res.message, 'success')
+      setSelectedStatus('')
+      setReason('')
+    },
+    onError: (e) => addToast(getErrorMessage(e), 'error'),
+  })
+
+  if (!canManage) return null
+  if (isLoading || !data) return (
+    <div className="rounded-xl px-6 py-4" style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <p className="text-sm text-slate-500">Loading lifecycle…</p>
+    </div>
+  )
+
+  return (
+    <div className="rounded-xl px-6 py-4 space-y-3"
+      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
+
+      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <Activity className="h-4 w-4 text-slate-500" />
+        <h3 className="text-sm font-semibold text-slate-400">Lifecycle Status</h3>
+      </div>
+
+      <div className="flex items-center justify-between py-1">
+        <span className="text-sm text-slate-500">Current status</span>
+        <FacultyStatusBadge status={data.current_status} />
+      </div>
+
+      {data.allowed_next.length > 0 && (
+        <div className="space-y-2 pt-1">
+          <p className="text-xs text-slate-500">Change status (human ratification required):</p>
+          <select
+            value={selectedStatus}
+            onChange={e => setSelectedStatus(e.target.value)}
+            className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200"
+          >
+            <option value="">Select new status…</option>
+            {data.allowed_next.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {selectedStatus && (
+            <>
+              <input
+                type="text"
+                placeholder="Reason (optional)"
+                value={reason}
+                onChange={e => setReason(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 placeholder:text-slate-600"
+              />
+              <Button
+                size="sm"
+                onClick={() => transitionMut.mutate()}
+                disabled={transitionMut.isPending}
+                className="w-full"
+              >
+                {transitionMut.isPending ? 'Applying…' : `Confirm → ${selectedStatus}`}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {data.current_status === 'ARCHIVED' && (
+        <p className="text-xs text-slate-500 py-1">This faculty member is archived. No further transitions available.</p>
+      )}
+
+      {data.history.length > 0 && (
+        <div className="pt-2">
+          <button
+            onClick={() => setShowHistory(v => !v)}
+            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <ChevronDown size={12} className={showHistory ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            {showHistory ? 'Hide' : 'Show'} history ({data.history.length})
+          </button>
+          {showHistory && (
+            <div className="mt-2 space-y-1">
+              {data.history.map(h => (
+                <div key={h.id} className="text-xs text-slate-400 flex items-start gap-2 py-1"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <span className="shrink-0 tabular-nums text-slate-600">{formatDt(h.changed_at)}</span>
+                  <span>
+                    {h.from_status
+                      ? <><FacultyStatusBadge status={h.from_status} /> → <FacultyStatusBadge status={h.to_status} /></>
+                      : <>Set to <FacultyStatusBadge status={h.to_status} /></>
+                    }
+                    {h.reason && <span className="ml-1 text-slate-500">— {h.reason}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -305,6 +447,11 @@ export default function FacultyProfilePage() {
           <InfoRow label="Name" value={profile.primary_department.name} />
           <InfoRow label="Code" value={profile.primary_department.code} />
         </Card>
+      )}
+
+      {/* Lifecycle panel — ADMIN / DEAN only */}
+      {user_id && (
+        <FacultyLifecyclePanel facultyId={user_id} canManage={canEdit} />
       )}
 
       {/* Course assignments */}

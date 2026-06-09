@@ -291,6 +291,21 @@ export interface LifecycleTransitionOut {
   message:         string
 }
 
+export interface FacultyLifecycleStatusOut {
+  faculty_id:     string
+  current_status: string
+  allowed_next:   string[]
+  history:        LifecycleHistoryEntry[]
+}
+
+export interface FacultyLifecycleTransitionOut {
+  faculty_id:      string
+  previous_status: string
+  new_status:      string
+  is_active:       boolean
+  message:         string
+}
+
 // ---------------------------------------------------------------------------
 // Attendance (H55)
 // ---------------------------------------------------------------------------
@@ -743,6 +758,13 @@ export const sisApi = {
 
   transitionStudentLifecycle: (studentId: string, newStatus: string, reason?: string): Promise<LifecycleTransitionOut> =>
     api.post<LifecycleTransitionOut>(`/sis/students/${studentId}/lifecycle`, { new_status: newStatus, reason: reason ?? null }).then(r => r.data),
+
+  // Faculty lifecycle (H64.4)
+  getFacultyLifecycle: (facultyId: string): Promise<FacultyLifecycleStatusOut> =>
+    api.get<FacultyLifecycleStatusOut>(`/sis/faculty/${facultyId}/lifecycle`).then(r => r.data),
+
+  transitionFacultyLifecycle: (facultyId: string, newStatus: string, reason?: string): Promise<FacultyLifecycleTransitionOut> =>
+    api.post<FacultyLifecycleTransitionOut>(`/sis/faculty/${facultyId}/lifecycle`, { new_status: newStatus, reason: reason ?? null }).then(r => r.data),
 
   downloadBulkProfileTemplateXlsx: (): Promise<void> =>
     api.get('/sis/directory/students/import/template.xlsx', { responseType: 'blob' }).then(r => {
