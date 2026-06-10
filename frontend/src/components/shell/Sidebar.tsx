@@ -5,7 +5,7 @@ import {
   GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
-  Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert,
+  Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -182,6 +182,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Labs',           to: '/student/labs',          icon: FlaskConical,  roles: ['STUDENT'] },
       { label: 'My Research',       to: '/student/research',      icon: Microscope,    roles: ['STUDENT'] },
+      { label: 'Digital Exams',      to: '/student/exams/digital', icon: Monitor,       roles: ['STUDENT'] },
       { label: 'My Attendance',     to: '/sis/attendance/me',     icon: CalendarCheck, roles: ['STUDENT'] },
       { label: 'My Marks',          to: '/sis/marks/me',          icon: BookMarked,    roles: ['STUDENT'] },
       { label: 'My Hall Ticket',    to: '/sis/hall-tickets/me',   icon: Ticket,        roles: ['STUDENT'] },

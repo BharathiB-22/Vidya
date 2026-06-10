@@ -110,6 +110,12 @@ import ExamSessionDetailPage from '@/pages/sis/ExamSessionDetailPage'
 import ExamInvigilationPage from '@/pages/sis/ExamInvigilationPage'
 import ExamSeatAllocationPage from '@/pages/sis/ExamSeatAllocationPage'
 import MyExamTimetablePage from '@/pages/sis/MyExamTimetablePage'
+import AvailableExamsPage from '@/pages/student/AvailableExamsPage'
+import ExamInstructionsPage from '@/pages/student/ExamInstructionsPage'
+import ActiveExamPage from '@/pages/student/ActiveExamPage'
+import SubmissionConfirmPage from '@/pages/student/SubmissionConfirmPage'
+import ExamResultPage from '@/pages/student/ExamResultPage'
+import { ExamGuard } from '@/components/digitalExams/ExamGuard'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -276,6 +282,17 @@ export default function App() {
           {/* Student Exam Timetable — STUDENT */}
           <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
             <Route path="/sis/exam/my-timetable"           element={<MyExamTimetablePage />} />
+          </Route>
+
+          {/* Digital Exams — M09.5 Student flow */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
+            <Route path="/student/exams/digital"                        element={<AvailableExamsPage />} />
+            <Route element={<ExamGuard />}>
+              <Route path="/student/exams/digital/:sessionId/instructions" element={<ExamInstructionsPage />} />
+              <Route path="/student/exams/digital/:sessionId/take"         element={<ActiveExamPage />} />
+              <Route path="/student/exams/digital/:sessionId/submitted"    element={<SubmissionConfirmPage />} />
+            </Route>
+            <Route path="/student/exams/digital/attempts/:attemptId/result" element={<ExamResultPage />} />
           </Route>
 
           {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}
