@@ -85,6 +85,21 @@ class EvaluationRound(str, enum.Enum):
     MODERATION = "MODERATION"
 
 
+class BoardSessionStatus(str, enum.Enum):
+    """Lifecycle of an Examination Board results-approval session."""
+    OPEN     = "OPEN"      # session created; awaiting decision
+    APPROVED = "APPROVED"  # Board approved; results locked
+    REJECTED = "REJECTED"  # Board rejected; scripts returned for review
+    DECLARED = "DECLARED"  # Admin published results to students
+
+
+class BoardApprovalStatus(str, enum.Enum):
+    """Approval status of a course within a board session."""
+    PENDING  = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 # ---------------------------------------------------------------------------
 # ScannedScriptBatch — exam bundle workflow
 # ---------------------------------------------------------------------------
@@ -485,3 +500,86 @@ class ExamScoreLedger(Base):
     )
 
     script = relationship("ScannedScript", back_populates="score_entry")
+
+
+# ---------------------------------------------------------------------------
+# ExamBoardSession — M09.4 Board Approval Gate (paper-level, post BOARD_FINALISED)
+# ---------------------------------------------------------------------------
+
+class ExamBoardSession(Base):
+    """
+    Examination Board session for approving results of one exam paper.
+
+    Created by Dean/Admin after all scripts are BOARD_FINALISED.
+    Board reviews aggregate statistics (mean, pass rate) and casts approve/reject.
+
+    Human-gate invariants (M09.4):
+      status → APPROVED only via board approve endpoint.
+      status → REJECTED only via board reject endpoint.
+      status → DECLARED only via admin declare endpoint.
+      After APPROVED: no mark adjustments permitted (service-enforced).
+    """
+    __tablename__ = "exam_board_sessions"
+    __table_args__ = (
+        Index("ix_board_sessions_exam_paper", "exam_paper_id"),
+        Index("ix_board_sessions_status",     "status"),
+        Index("ix_board_sessions_convened_by", "convened_by"),
+        Index("ix_board_sessions_created_at", "created_at"),
+    )
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exam_paper_id    = Column(UUID(as_uuid=True), nullable=False)
+    session_title    = Column(Text, nullable=False)
+    convened_by      = Column(UUID(as_uuid=True), nullable=False)  # DEAN user_id
+    convened_at      = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    status           = Column(String(20), nullable=False, server_default="OPEN", default="OPEN")
+    board_remarks    = Column(Text, nullable=True)
+    decided_by       = Column(UUID(as_uuid=True), nullable=True)
+    decided_at       = Column(DateTime(timezone=True), nullable=True)
+    declared_by      = Column(UUID(as_uuid=True), nullable=True)
+    declared_at      = Column(DateTime(timezone=True), nullable=True)
+    created_at       = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    course_approval  = relationship(
+        "ExamBoardCourseApproval",
+        back_populates="session",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class ExamBoardCourseApproval(Base):
+    """
+    Aggregate statistics snapshot for one exam paper within a board session.
+
+    Stats are computed at session creation from exam_score_ledger entries.
+    Stores mean, pass/fail counts, and approval status per course.
+    """
+    __tablename__ = "exam_board_course_approvals"
+    __table_args__ = (
+        UniqueConstraint("session_id", name="uq_board_course_approval_session"),
+        Index("ix_board_course_approvals_session",    "session_id"),
+        Index("ix_board_course_approvals_exam_paper", "exam_paper_id"),
+        Index("ix_board_course_approvals_status",     "approval_status"),
+    )
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id       = Column(
+        UUID(as_uuid=True),
+        ForeignKey("exam_board_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    exam_paper_id    = Column(UUID(as_uuid=True), nullable=False)  # denorm
+    mean_marks       = Column(Numeric(6, 2), nullable=True)
+    max_marks        = Column(Numeric(6, 2), nullable=True)
+    pass_count       = Column(Integer, nullable=True)
+    fail_count       = Column(Integer, nullable=True)
+    total_scripts    = Column(Integer, nullable=True)
+    pass_rate_pct    = Column(Numeric(5, 2), nullable=True)
+    approval_status  = Column(
+        String(20), nullable=False, server_default="PENDING", default="PENDING"
+    )
+    created_at       = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    session = relationship("ExamBoardSession", back_populates="course_approval")

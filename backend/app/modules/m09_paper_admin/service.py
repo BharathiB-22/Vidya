@@ -29,7 +29,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.m09_paper_admin.models import (
+    BoardApprovalStatus,
+    BoardSessionStatus,
     EvaluationRound,
+    ExamBoardCourseApproval,
+    ExamBoardSession,
     ExamScoreLedger,
     ModerationStatus,
     ScannedScript,
@@ -38,6 +42,8 @@ from app.modules.m09_paper_admin.models import (
     ScriptStatus,
 )
 from app.modules.m09_paper_admin.repository import (
+    BoardCourseApprovalRepository,
+    BoardSessionRepository,
     ExamScoreLedgerRepository,
     ModerationRepository,
     ScriptEvaluationRepository,
@@ -1035,6 +1041,18 @@ class ScriptService:
                 f"(current: {script.status!r}).",
             )
 
+        # M09.4: reject adjustments when results are board-approved or declared (lock)
+        locked = await BoardSessionRepository.get_approved_session(
+            script.exam_paper_id, db=db
+        )
+        if locked:
+            raise ScriptServiceError(
+                "RESULTS_LOCKED",
+                "Results for this paper are locked after Board approval. "
+                "Use the Revaluation Workflow to make post-approval changes.",
+                409,
+            )
+
         updates: dict[UUID, dict] = {
             UUID(qid): {
                 "board_adjusted_marks": entry.board_adjusted_marks,
@@ -1775,3 +1793,371 @@ class ModerationService:
             "already_pending": already_pending,
             "skipped":         skipped,
         }
+
+
+# ---------------------------------------------------------------------------
+# BoardApprovalService — M09.4 Examination Board Results Approval
+# ---------------------------------------------------------------------------
+
+class BoardApprovalService:
+    """
+    Examination Board results approval workflow.
+
+    Human-gate invariants:
+      convene()  → only Dean/Admin; paper must have all scripts BOARD_FINALISED.
+      approve()  → status OPEN only; no further mark changes after this point.
+      reject()   → status OPEN only; scripts released for re-evaluation.
+      declare()  → status APPROVED only; Admin only.
+    """
+
+    # -----------------------------------------------------------------------
+    # Convene session
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def convene(
+        exam_paper_id: UUID,
+        session_title: str,
+        pass_mark_pct: float,
+        *,
+        convened_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> ExamBoardSession:
+        """
+        Create a new board session for a paper's results.
+
+        Preconditions:
+          - At least one BOARD_FINALISED script must exist for the paper.
+          - No OPEN session may already exist (prevents double-convening).
+        Computes aggregate statistics (mean, pass rate) from the ledger at convene time.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+        import math
+
+        # Guard: no existing OPEN session
+        existing_open = await BoardSessionRepository.get_open_session(exam_paper_id, db=db)
+        if existing_open:
+            raise ScriptServiceError(
+                "SESSION_ALREADY_OPEN",
+                "An open board session already exists for this paper. "
+                "Close or decide the existing session before creating a new one.",
+                409,
+            )
+
+        # Guard: at least one BOARD_FINALISED script
+        count_q = select(func.count(ScannedScript.id)).where(
+            ScannedScript.exam_paper_id == exam_paper_id,
+            ScannedScript.status == ScriptStatus.BOARD_FINALISED.value,
+        )
+        count_result = await db.execute(count_q)
+        finalised_count = count_result.scalar_one() or 0
+        if finalised_count == 0:
+            raise ScriptServiceError(
+                "NO_FINALISED_SCRIPTS",
+                "Cannot convene a board session: no BOARD_FINALISED scripts found for this paper.",
+                422,
+            )
+
+        # Compute statistics from the exam_score_ledger
+        from sqlalchemy import func as sa_func
+        ledger_q = select(ExamScoreLedger).where(
+            ExamScoreLedger.exam_paper_id == exam_paper_id
+        )
+        ledger_result = await db.execute(ledger_q)
+        ledger_entries = list(ledger_result.scalars().all())
+
+        total_scripts  = len(ledger_entries)
+        mean_marks:    float | None = None
+        max_marks_val: float | None = None
+        pass_count     = 0
+        fail_count     = 0
+        pass_rate_pct: float | None = None
+
+        if ledger_entries:
+            scores     = [float(e.total_marks) for e in ledger_entries]
+            max_marks_val = float(ledger_entries[0].max_marks) if ledger_entries else None
+            mean_marks = sum(scores) / len(scores)
+            pass_threshold = (pass_mark_pct / 100.0) * (max_marks_val or 0.0)
+            pass_count = sum(1 for s in scores if s >= pass_threshold)
+            fail_count = total_scripts - pass_count
+            pass_rate_pct = round(pass_count / total_scripts * 100, 2) if total_scripts > 0 else 0.0
+
+        # Create session
+        session = await BoardSessionRepository.create(
+            exam_paper_id=exam_paper_id,
+            session_title=session_title,
+            convened_by=convened_by,
+            db=db,
+        )
+
+        # Create stats snapshot
+        await BoardCourseApprovalRepository.create(
+            session_id=session.id,
+            exam_paper_id=exam_paper_id,
+            mean_marks=round(mean_marks, 2) if mean_marks is not None else None,
+            max_marks=max_marks_val,
+            pass_count=pass_count,
+            fail_count=fail_count,
+            total_scripts=total_scripts,
+            pass_rate_pct=pass_rate_pct,
+            db=db,
+        )
+
+        await db.commit()
+        await db.refresh(session)
+
+        await AuditService.log(
+            AuditEventType.BOARD_SESSION_CONVENED,
+            actor_user_id=convened_by,
+            actor_role="DEAN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="exam_paper",
+            target_id=str(exam_paper_id),
+            metadata={
+                "session_id":      str(session.id),
+                "session_title":   session_title,
+                "finalised_count": finalised_count,
+                "total_ledger":    total_scripts,
+                "pass_rate_pct":   pass_rate_pct,
+            },
+        )
+        return session
+
+    # -----------------------------------------------------------------------
+    # Approve
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def approve(
+        session_id: UUID,
+        board_remarks: str | None,
+        *,
+        decided_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> ExamBoardSession:
+        """
+        Board approves results. Locks the paper — no further mark adjustments.
+        Only valid when session status == OPEN.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        session = await _require_board_session(session_id, db=db)
+
+        if session.status != BoardSessionStatus.OPEN.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Board approve requires session status OPEN (current: {session.status!r}).",
+            )
+
+        await BoardSessionRepository.approve(
+            session, decided_by=decided_by, board_remarks=board_remarks, db=db
+        )
+        # Update stats snapshot approval status
+        approval = await BoardCourseApprovalRepository.get_by_session(session_id, db=db)
+        if approval:
+            await BoardCourseApprovalRepository.set_approval_status(
+                approval, BoardApprovalStatus.APPROVED, db=db
+            )
+
+        await db.commit()
+        await db.refresh(session)
+
+        await AuditService.log(
+            AuditEventType.BOARD_SESSION_APPROVED,
+            actor_user_id=decided_by,
+            actor_role="DEAN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="exam_board_session",
+            target_id=str(session_id),
+            metadata={
+                "exam_paper_id": str(session.exam_paper_id),
+                "board_remarks": board_remarks,
+            },
+        )
+        return session
+
+    # -----------------------------------------------------------------------
+    # Reject
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def reject(
+        session_id: UUID,
+        board_remarks: str,
+        *,
+        decided_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> ExamBoardSession:
+        """Board rejects results. Session status → REJECTED; scripts released for correction."""
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        session = await _require_board_session(session_id, db=db)
+
+        if session.status != BoardSessionStatus.OPEN.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Board reject requires session status OPEN (current: {session.status!r}).",
+            )
+
+        await BoardSessionRepository.reject(
+            session, decided_by=decided_by, board_remarks=board_remarks, db=db
+        )
+        approval = await BoardCourseApprovalRepository.get_by_session(session_id, db=db)
+        if approval:
+            await BoardCourseApprovalRepository.set_approval_status(
+                approval, BoardApprovalStatus.REJECTED, db=db
+            )
+
+        await db.commit()
+        await db.refresh(session)
+
+        await AuditService.log(
+            AuditEventType.BOARD_SESSION_REJECTED,
+            actor_user_id=decided_by,
+            actor_role="DEAN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="exam_board_session",
+            target_id=str(session_id),
+            metadata={
+                "exam_paper_id": str(session.exam_paper_id),
+                "board_remarks": board_remarks,
+            },
+        )
+        return session
+
+    # -----------------------------------------------------------------------
+    # Declare
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def declare(
+        session_id: UUID,
+        *,
+        declared_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> ExamBoardSession:
+        """
+        Admin publishes results. Only valid when session status == APPROVED.
+        After this, results are visible to students.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        session = await _require_board_session(session_id, db=db)
+
+        if session.status != BoardSessionStatus.APPROVED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Results declaration requires session status APPROVED "
+                f"(current: {session.status!r}).",
+            )
+
+        await BoardSessionRepository.declare(session, declared_by=declared_by, db=db)
+        await db.commit()
+        await db.refresh(session)
+
+        await AuditService.log(
+            AuditEventType.RESULTS_DECLARED,
+            actor_user_id=declared_by,
+            actor_role="ADMIN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="exam_board_session",
+            target_id=str(session_id),
+            metadata={
+                "exam_paper_id": str(session.exam_paper_id),
+                "session_title": session.session_title,
+            },
+        )
+        return session
+
+    # -----------------------------------------------------------------------
+    # Read operations
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def get_session(session_id: UUID, *, db: AsyncSession) -> ExamBoardSession:
+        """Return a board session by ID."""
+        session = await _require_board_session(session_id, db=db)
+        return session
+
+    @staticmethod
+    async def list_sessions(
+        exam_paper_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> tuple[list[ExamBoardSession], int]:
+        items = await BoardSessionRepository.list_for_paper(
+            exam_paper_id, offset=offset, limit=limit, db=db
+        )
+        total = await BoardSessionRepository.count_for_paper(exam_paper_id, db=db)
+        return items, total
+
+    @staticmethod
+    async def get_statistics(
+        session_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> ExamBoardCourseApproval | None:
+        """Return the aggregate statistics snapshot for a session."""
+        return await BoardCourseApprovalRepository.get_by_session(session_id, db=db)
+
+    @staticmethod
+    async def get_board_status(
+        exam_paper_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> dict:
+        """Current board gate status for a paper."""
+        # Count scripts by status
+        counts_q = (
+            select(ScannedScript.status, func.count(ScannedScript.id))
+            .where(ScannedScript.exam_paper_id == exam_paper_id)
+            .group_by(ScannedScript.status)
+        )
+        counts_result = await db.execute(counts_q)
+        counts = {row[0]: row[1] for row in counts_result.all()}
+
+        total         = sum(counts.values())
+        finalised     = counts.get(ScriptStatus.BOARD_FINALISED.value, 0)
+        mod_pending   = counts.get(ScriptStatus.MODERATION_PENDING.value, 0)
+        mod_complete  = counts.get(ScriptStatus.MODERATION_COMPLETE.value, 0)
+        all_finalised = (total > 0) and (finalised == total)
+
+        # Most recent session
+        sessions = await BoardSessionRepository.list_for_paper(
+            exam_paper_id, offset=0, limit=1, db=db
+        )
+        latest = sessions[0] if sessions else None
+
+        return {
+            "exam_paper_id":      str(exam_paper_id),
+            "total_scripts":      total,
+            "finalised_scripts":  finalised,
+            "moderation_pending": mod_pending,
+            "moderation_complete": mod_complete,
+            "all_finalised":      all_finalised,
+            "ready_for_board":    all_finalised and (not latest or latest.status == BoardSessionStatus.REJECTED.value),
+            "latest_session_id":  str(latest.id) if latest else None,
+            "latest_session_status": latest.status if latest else None,
+        }
+
+
+async def _require_board_session(session_id: UUID, *, db: AsyncSession) -> ExamBoardSession:
+    """Load a board session or raise 404."""
+    session = await BoardSessionRepository.get_by_id(session_id, db=db)
+    if session is None:
+        raise ScriptServiceError("NOT_FOUND", f"Board session {session_id!r} not found.", 404)
+    return session

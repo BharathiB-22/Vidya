@@ -299,6 +299,10 @@ class AuditEventType(str, enum.Enum):
     EXAM_SCORE_RECORDED         = "EXAM_SCORE_RECORDED"
     SCRIPT_MODERATION_FLAGGED   = "SCRIPT_MODERATION_FLAGGED"   # M09.2: variance exceeded or manual flag
     SCRIPT_MODERATION_SUBMITTED = "SCRIPT_MODERATION_SUBMITTED" # M09.2: moderator submitted marks
+    BOARD_SESSION_CONVENED      = "BOARD_SESSION_CONVENED"      # M09.4: results board session created
+    BOARD_SESSION_APPROVED      = "BOARD_SESSION_APPROVED"      # M09.4: board approved results
+    BOARD_SESSION_REJECTED      = "BOARD_SESSION_REJECTED"      # M09.4: board rejected results
+    RESULTS_DECLARED            = "RESULTS_DECLARED"            # M09.4: admin declared results to students
 
     # Bell Curve Normaliser — M10
     BELL_CURVE_ANALYSIS_TRIGGERED     = "BELL_CURVE_ANALYSIS_TRIGGERED"

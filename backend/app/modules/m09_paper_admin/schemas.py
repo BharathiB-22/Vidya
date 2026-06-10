@@ -474,3 +474,96 @@ class ModerationHistoryResponse(BaseModel):
     moderation_evals:    list[ScriptEvaluationResponse]
     primary_evals:       list[ScriptEvaluationResponse]
     secondary_evals:     list[ScriptEvaluationResponse]
+
+
+# ---------------------------------------------------------------------------
+# Board Approval — M09.4
+# ---------------------------------------------------------------------------
+
+class BoardSessionCreateRequest(BaseModel):
+    """Dean/Admin convenes a board session for a paper's results."""
+    exam_paper_id: UUID
+    session_title: str = Field(..., min_length=5, description="Title for the board session.")
+    pass_mark_pct: float = Field(
+        default=40.0,
+        ge=0.0,
+        le=100.0,
+        description="Pass threshold percentage for pass/fail computation.",
+    )
+
+
+class BoardApproveRequest(BaseModel):
+    """Board casts approval of results."""
+    board_remarks: Optional[str] = Field(
+        default=None,
+        description="Optional remarks from the Board.",
+    )
+
+
+class BoardRejectRequest(BaseModel):
+    """Board rejects results and returns for re-evaluation."""
+    board_remarks: str = Field(
+        ..., min_length=20,
+        description="Mandatory reason for rejection.",
+    )
+
+
+class BoardCourseApprovalResponse(BaseModel):
+    """Aggregate statistics for an exam paper within a board session."""
+    id:               UUID
+    session_id:       UUID
+    exam_paper_id:    UUID
+    mean_marks:       Optional[float]
+    max_marks:        Optional[float]
+    pass_count:       Optional[int]
+    fail_count:       Optional[int]
+    total_scripts:    Optional[int]
+    pass_rate_pct:    Optional[float]
+    approval_status:  str
+    created_at:       datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BoardSessionResponse(BaseModel):
+    """Full board session record."""
+    id:              UUID
+    exam_paper_id:   UUID
+    session_title:   str
+    convened_by:     UUID
+    convened_at:     datetime
+    status:          str
+    board_remarks:   Optional[str]
+    decided_by:      Optional[UUID]
+    decided_at:      Optional[datetime]
+    declared_by:     Optional[UUID]
+    declared_at:     Optional[datetime]
+    created_at:      datetime
+    course_stats:    Optional[BoardCourseApprovalResponse] = None
+
+    model_config = {"from_attributes": True}
+
+
+class BoardSessionListResponse(BaseModel):
+    """Paginated list of board sessions for a paper."""
+    items:  list[BoardSessionResponse]
+    total:  int
+    offset: int
+    limit:  int
+
+
+class BoardStatisticsResponse(BaseModel):
+    """Computed statistics for a board session."""
+    session_id:        UUID
+    exam_paper_id:     UUID
+    total_finalised:   int
+    total_scripts:     int
+    mean_marks:        Optional[float]
+    max_marks:         Optional[float]
+    min_marks:         Optional[float]
+    std_dev:           Optional[float]
+    pass_count:        int
+    fail_count:        int
+    pass_rate_pct:     float
+    pass_mark_pct:     float
+    board_status:      str

@@ -21,7 +21,11 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.m09_paper_admin.models import (
+    BoardApprovalStatus,
+    BoardSessionStatus,
     EvaluationRound,
+    ExamBoardCourseApproval,
+    ExamBoardSession,
     ExamScoreLedger,
     ModerationStatus,
     ScannedScript,
@@ -1009,3 +1013,188 @@ class ModerationRepository:
         if row is None or row[0] is None:
             return default_threshold
         return float(row[0])
+
+
+# ---------------------------------------------------------------------------
+# BoardSessionRepository — M09.4 Examination Board Approval
+# ---------------------------------------------------------------------------
+
+class BoardSessionRepository:
+    """
+    Examination Board session CRUD.
+    One session covers one exam paper's result approval lifecycle.
+    """
+
+    @staticmethod
+    async def create(
+        exam_paper_id: UUID,
+        session_title: str,
+        convened_by: UUID,
+        *,
+        db: AsyncSession,
+    ) -> ExamBoardSession:
+        session = ExamBoardSession(
+            exam_paper_id=exam_paper_id,
+            session_title=session_title,
+            convened_by=convened_by,
+            status=BoardSessionStatus.OPEN.value,
+        )
+        db.add(session)
+        await db.flush()
+        return session
+
+    @staticmethod
+    async def get_by_id(session_id: UUID, *, db: AsyncSession) -> ExamBoardSession | None:
+        result = await db.execute(
+            select(ExamBoardSession).where(ExamBoardSession.id == session_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_for_paper(
+        exam_paper_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[ExamBoardSession]:
+        result = await db.execute(
+            select(ExamBoardSession)
+            .where(ExamBoardSession.exam_paper_id == exam_paper_id)
+            .order_by(ExamBoardSession.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_for_paper(exam_paper_id: UUID, *, db: AsyncSession) -> int:
+        result = await db.execute(
+            select(func.count(ExamBoardSession.id))
+            .where(ExamBoardSession.exam_paper_id == exam_paper_id)
+        )
+        return result.scalar_one() or 0
+
+    @staticmethod
+    async def get_open_session(exam_paper_id: UUID, *, db: AsyncSession) -> ExamBoardSession | None:
+        """Return the most recent OPEN session for a paper, or None."""
+        result = await db.execute(
+            select(ExamBoardSession)
+            .where(
+                ExamBoardSession.exam_paper_id == exam_paper_id,
+                ExamBoardSession.status == BoardSessionStatus.OPEN.value,
+            )
+            .order_by(ExamBoardSession.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_approved_session(exam_paper_id: UUID, *, db: AsyncSession) -> ExamBoardSession | None:
+        """Return the APPROVED or DECLARED session for a paper (for lock checks)."""
+        result = await db.execute(
+            select(ExamBoardSession)
+            .where(
+                ExamBoardSession.exam_paper_id == exam_paper_id,
+                ExamBoardSession.status.in_([
+                    BoardSessionStatus.APPROVED.value,
+                    BoardSessionStatus.DECLARED.value,
+                ]),
+            )
+            .order_by(ExamBoardSession.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def approve(
+        session: ExamBoardSession,
+        decided_by: UUID,
+        board_remarks: str | None,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        from datetime import datetime, timezone
+        session.status = BoardSessionStatus.APPROVED.value
+        session.decided_by = decided_by
+        session.decided_at = datetime.now(timezone.utc)
+        session.board_remarks = board_remarks
+        await db.flush()
+
+    @staticmethod
+    async def reject(
+        session: ExamBoardSession,
+        decided_by: UUID,
+        board_remarks: str,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        from datetime import datetime, timezone
+        session.status = BoardSessionStatus.REJECTED.value
+        session.decided_by = decided_by
+        session.decided_at = datetime.now(timezone.utc)
+        session.board_remarks = board_remarks
+        await db.flush()
+
+    @staticmethod
+    async def declare(
+        session: ExamBoardSession,
+        declared_by: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        from datetime import datetime, timezone
+        session.status = BoardSessionStatus.DECLARED.value
+        session.declared_by = declared_by
+        session.declared_at = datetime.now(timezone.utc)
+        await db.flush()
+
+
+class BoardCourseApprovalRepository:
+    """Aggregate stats snapshot for one exam paper within a board session."""
+
+    @staticmethod
+    async def create(
+        session_id: UUID,
+        exam_paper_id: UUID,
+        *,
+        mean_marks: float | None,
+        max_marks: float | None,
+        pass_count: int | None,
+        fail_count: int | None,
+        total_scripts: int | None,
+        pass_rate_pct: float | None,
+        db: AsyncSession,
+    ) -> ExamBoardCourseApproval:
+        approval = ExamBoardCourseApproval(
+            session_id=session_id,
+            exam_paper_id=exam_paper_id,
+            mean_marks=mean_marks,
+            max_marks=max_marks,
+            pass_count=pass_count,
+            fail_count=fail_count,
+            total_scripts=total_scripts,
+            pass_rate_pct=pass_rate_pct,
+            approval_status=BoardApprovalStatus.PENDING.value,
+        )
+        db.add(approval)
+        await db.flush()
+        return approval
+
+    @staticmethod
+    async def get_by_session(session_id: UUID, *, db: AsyncSession) -> ExamBoardCourseApproval | None:
+        result = await db.execute(
+            select(ExamBoardCourseApproval)
+            .where(ExamBoardCourseApproval.session_id == session_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def set_approval_status(
+        approval: ExamBoardCourseApproval,
+        status: BoardApprovalStatus,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        approval.approval_status = status.value
+        await db.flush()

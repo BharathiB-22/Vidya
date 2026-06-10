@@ -49,7 +49,14 @@ from app.core.auth.schemas import CurrentUser
 from app.modules.m09_paper_admin.schemas import (
     AcceptSuggestionsRequest,
     BoardAdjustRequest,
+    BoardApproveRequest,
     BoardComparisonResponse,
+    BoardCourseApprovalResponse,
+    BoardRejectRequest,
+    BoardSessionCreateRequest,
+    BoardSessionListResponse,
+    BoardSessionResponse,
+    BoardStatisticsResponse,
     BulkMarkUpdate,
     EvaluatorReviewResponse,
     ExamScoreLedgerListResponse,
@@ -73,6 +80,7 @@ from app.modules.m09_paper_admin.schemas import (
     ScriptVarianceResponse,
 )
 from app.modules.m09_paper_admin.service import (
+    BoardApprovalService,
     ModerationService,
     ScriptService,
     ScriptServiceError,
@@ -90,15 +98,17 @@ _BOARD    = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ     = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
 
 
-_ADMIN_ONLY  = [TenantRole.ADMIN]
-_MODERATE    = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.2: who can moderate
+_ADMIN_ONLY    = [TenantRole.ADMIN]
+_MODERATE      = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.2: who can moderate
+_BOARD_APPROVE = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.4: who can approve/reject results
 
-def _ingest_dep():    return require_roles(*_INGEST)
-def _eval_dep():      return require_roles(*_EVALUATE)
-def _board_dep():     return require_roles(*_BOARD)
-def _read_dep():      return require_roles(*_READ)
-def _admin_dep():     return require_roles(*_ADMIN_ONLY)
-def _moderate_dep():  return require_roles(*_MODERATE)
+def _ingest_dep():         return require_roles(*_INGEST)
+def _eval_dep():           return require_roles(*_EVALUATE)
+def _board_dep():          return require_roles(*_BOARD)
+def _read_dep():           return require_roles(*_READ)
+def _admin_dep():          return require_roles(*_ADMIN_ONLY)
+def _moderate_dep():       return require_roles(*_MODERATE)
+def _board_approve_dep():  return require_roles(*_BOARD_APPROVE)
 
 
 # ---------------------------------------------------------------------------
@@ -894,3 +904,172 @@ async def get_moderation_history(
     except ScriptServiceError as exc:
         _raise(exc)
     return result
+
+
+# ---------------------------------------------------------------------------
+# M09.4 — Board Approval Endpoints
+# Note: placed after /{script_id} routes; /board/ prefix avoids collisions.
+# ---------------------------------------------------------------------------
+
+@router.post("/board/sessions", response_model=BoardSessionResponse)
+async def convene_board_session(
+    payload: BoardSessionCreateRequest,
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: convene a board session for an exam paper's results.
+    Requires at least one BOARD_FINALISED script. Computes aggregate statistics
+    (mean, pass rate) at convene time.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        session = await BoardApprovalService.convene(
+            payload.exam_paper_id,
+            payload.session_title,
+            payload.pass_mark_pct,
+            convened_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return session
+
+
+@router.get("/board/sessions", response_model=BoardSessionListResponse)
+async def list_board_sessions(
+    paper_id: UUID = Query(..., description="Exam paper ID"),
+    offset: int = Query(default=0, ge=0),
+    limit: int  = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Admin: list board sessions for an exam paper."""
+    db: AsyncSession = db_info["db"]
+    items, total = await BoardApprovalService.list_sessions(
+        paper_id, offset=offset, limit=limit, db=db
+    )
+    return BoardSessionListResponse(items=items, total=total, offset=offset, limit=limit)
+
+
+@router.get("/board/sessions/{session_id}", response_model=BoardSessionResponse)
+async def get_board_session(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Admin: get board session details."""
+    db: AsyncSession = db_info["db"]
+    try:
+        session = await BoardApprovalService.get_session(session_id, db=db)
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return session
+
+
+@router.get("/board/sessions/{session_id}/statistics", response_model=BoardCourseApprovalResponse)
+async def get_board_session_statistics(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Admin: computed statistics for a board session."""
+    db: AsyncSession = db_info["db"]
+    try:
+        stats = await BoardApprovalService.get_statistics(session_id, db=db)
+    except ScriptServiceError as exc:
+        _raise(exc)
+    if stats is None:
+        raise HTTPException(status_code=404, detail="No statistics found for this session.")
+    return stats
+
+
+@router.post("/board/sessions/{session_id}/approve", response_model=BoardSessionResponse)
+async def approve_board_session(
+    session_id: UUID,
+    payload: BoardApproveRequest,
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: Board approves results.
+    After approval, no mark adjustments are permitted (results locked).
+    Only valid when session status is OPEN.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        session = await BoardApprovalService.approve(
+            session_id,
+            payload.board_remarks,
+            decided_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return session
+
+
+@router.post("/board/sessions/{session_id}/reject", response_model=BoardSessionResponse)
+async def reject_board_session(
+    session_id: UUID,
+    payload: BoardRejectRequest,
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: Board rejects results.
+    Session moves to REJECTED; scripts may be re-evaluated and a new session convened.
+    Only valid when session status is OPEN.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        session = await BoardApprovalService.reject(
+            session_id,
+            payload.board_remarks,
+            decided_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return session
+
+
+@router.post("/board/sessions/{session_id}/declare", response_model=BoardSessionResponse)
+async def declare_results(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_admin_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Admin only: publish results to students.
+    Only valid when session status is APPROVED.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        session = await BoardApprovalService.declare(
+            session_id,
+            declared_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return session
+
+
+@router.get("/board/paper/{paper_id}/status")
+async def get_board_status(
+    paper_id: UUID,
+    current_user: CurrentUser = Depends(_board_approve_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Admin/Board: current board gate status for a paper."""
+    db: AsyncSession = db_info["db"]
+    return await BoardApprovalService.get_board_status(paper_id, db=db)
