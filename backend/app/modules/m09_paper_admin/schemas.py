@@ -675,3 +675,116 @@ class RevaluationDetailResponse(BaseModel):
     """Full revaluation request + per-question evaluations."""
     request:     RevaluationRequestResponse
     evaluations: list[RevaluationEvaluationResponse]
+
+
+# ---------------------------------------------------------------------------
+# Digital Exams — M09.5
+# ---------------------------------------------------------------------------
+
+class DigitalSessionCreate(BaseModel):
+    exam_paper_id:     UUID
+    title:             str = Field(..., min_length=3, max_length=200)
+    max_duration_mins: int = Field(default=180, ge=10, le=600)
+    window_start:      Optional[datetime] = None
+    window_end:        Optional[datetime] = None
+    instructions:      Optional[str] = None
+
+
+class DigitalSessionResponse(BaseModel):
+    id:                UUID
+    exam_paper_id:     UUID
+    created_by:        UUID
+    title:             str
+    status:            str
+    max_duration_mins: int
+    window_start:      Optional[datetime]
+    window_end:        Optional[datetime]
+    instructions:      Optional[str]
+    activated_at:      Optional[datetime]
+    closed_at:         Optional[datetime]
+    created_at:        datetime
+    attempt_count:     int = 0
+    scored_count:      int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class DigitalSessionListResponse(BaseModel):
+    items:  list[DigitalSessionResponse]
+    total:  int
+    offset: int
+    limit:  int
+
+
+class DigitalAttemptResponse(BaseModel):
+    id:              UUID
+    session_id:      UUID
+    student_user_id: UUID
+    status:          str
+    started_at:      datetime
+    expires_at:      Optional[datetime]
+    submitted_at:    Optional[datetime]
+    auto_scored_at:  Optional[datetime]
+    auto_score:      Optional[float]
+    mcq_max_score:   Optional[float]
+    created_at:      datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DigitalResponseIn(BaseModel):
+    """Student saves one answer (MCQ or subjective)."""
+    selected_option: Optional[str] = Field(default=None, max_length=4)
+    response_text:   Optional[str] = None
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "DigitalResponseIn":
+        if self.selected_option is None and self.response_text is None:
+            raise ValueError("Provide selected_option or response_text")
+        return self
+
+
+class DigitalResponseOut(BaseModel):
+    id:              UUID
+    attempt_id:      UUID
+    question_id:     UUID
+    question_type:   Optional[str]
+    selected_option: Optional[str]
+    response_text:   Optional[str]
+    is_auto_scored:  bool
+    auto_score:      Optional[float]
+    is_correct:      Optional[bool]
+    answered_at:     Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class DigitalQuestionOut(BaseModel):
+    """Question data served to students — correct answers never included."""
+    id:            UUID
+    unit_number:   int
+    question_type: str
+    bloom_level:   str
+    question_text: str
+    options:       Optional[list[dict]]
+    marks:         float
+    section_label: Optional[str]
+    choice_group:  Optional[int]
+    # student's saved response for this question (if any)
+    saved_response: Optional[DigitalResponseOut] = None
+
+
+class DigitalAttemptDetailResponse(BaseModel):
+    attempt:    DigitalAttemptResponse
+    questions:  list[DigitalQuestionOut]
+
+
+class DigitalResultResponse(BaseModel):
+    """Result view after scoring."""
+    attempt:      DigitalAttemptResponse
+    responses:    list[DigitalResponseOut]
+    total_questions:    int
+    mcq_questions:      int
+    subjective_questions: int
+    attempted_count:    int
+    correct_mcq:        int

@@ -659,6 +659,155 @@ class RevaluationRequest(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Digital Exams — M09.5
+# ---------------------------------------------------------------------------
+
+class DigitalExamSessionStatus(str, enum.Enum):
+    DRAFT  = "DRAFT"   # created; not yet open to students
+    ACTIVE = "ACTIVE"  # students can start attempts
+    CLOSED = "CLOSED"  # no new attempts; scoring complete
+
+
+class DigitalAttemptStatus(str, enum.Enum):
+    IN_PROGRESS = "IN_PROGRESS"  # student started; timer running
+    SUBMITTED   = "SUBMITTED"    # student submitted; awaiting auto-score
+    SCORED      = "SCORED"       # MCQ auto-scored; subjective pending evaluator
+
+
+class DigitalExamSession(Base):
+    """
+    One digital exam delivery window for an exam paper.
+
+    Human-gate invariants (M09.5):
+      status → ACTIVE only via admin activate endpoint.
+      status → CLOSED only via admin close endpoint.
+      Students can only start attempts while status == ACTIVE.
+    """
+    __tablename__ = "digital_exam_sessions"
+    __table_args__ = (
+        Index("ix_digital_sessions_paper",   "exam_paper_id"),
+        Index("ix_digital_sessions_status",  "status"),
+        Index("ix_digital_sessions_created", "created_at"),
+    )
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exam_paper_id     = Column(UUID(as_uuid=True), nullable=False)
+    created_by        = Column(UUID(as_uuid=True), nullable=False)
+    title             = Column(String, nullable=False)
+    status            = Column(
+        Enum(DigitalExamSessionStatus, native_enum=False),
+        nullable=False,
+        default=DigitalExamSessionStatus.DRAFT,
+    )
+    window_start      = Column(DateTime(timezone=True), nullable=True)
+    window_end        = Column(DateTime(timezone=True), nullable=True)
+    max_duration_mins = Column(Integer, nullable=False, default=180)
+    instructions      = Column(Text, nullable=True)
+    activated_at      = Column(DateTime(timezone=True), nullable=True)
+    closed_at         = Column(DateTime(timezone=True), nullable=True)
+    created_at        = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    attempts = relationship(
+        "DigitalExamAttempt",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class DigitalExamAttempt(Base):
+    """
+    One attempt per student per digital exam session.
+
+    Human-gate invariants (M09.5):
+      status → SUBMITTED only via student submit endpoint.
+      status → SCORED by system after auto-scoring MCQ responses.
+      One attempt per student per session (enforced by UNIQUE constraint).
+      auto_score covers MCQ questions only; subjective marks pending evaluator.
+    """
+    __tablename__ = "digital_exam_attempts"
+    __table_args__ = (
+        UniqueConstraint("session_id", "student_user_id", name="uq_digital_attempt_session_student"),
+        Index("ix_digital_attempts_session",  "session_id"),
+        Index("ix_digital_attempts_student",  "student_user_id"),
+        Index("ix_digital_attempts_status",   "status"),
+        Index("ix_digital_attempts_submitted", "submitted_at"),
+    )
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id       = Column(
+        UUID(as_uuid=True),
+        ForeignKey("digital_exam_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    student_user_id  = Column(UUID(as_uuid=True), nullable=False)
+    status           = Column(
+        Enum(DigitalAttemptStatus, native_enum=False),
+        nullable=False,
+        default=DigitalAttemptStatus.IN_PROGRESS,
+    )
+    started_at       = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    expires_at       = Column(DateTime(timezone=True), nullable=True)
+    submitted_at     = Column(DateTime(timezone=True), nullable=True)
+    auto_scored_at   = Column(DateTime(timezone=True), nullable=True)
+    # MCQ auto-score (sum of correct MCQ marks); null until SCORED
+    auto_score       = Column(Numeric(6, 2), nullable=True)
+    # Sum of all question marks in the paper (denominator for MCQ section)
+    mcq_max_score    = Column(Numeric(6, 2), nullable=True)
+    created_at       = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    session = relationship("DigitalExamSession", back_populates="attempts")
+    responses = relationship(
+        "DigitalExamResponse",
+        back_populates="attempt",
+        cascade="all, delete-orphan",
+    )
+
+
+class DigitalExamResponse(Base):
+    """
+    One response row per question per digital exam attempt.
+
+    MCQ questions: selected_option + is_auto_scored + auto_score set on submit.
+    Subjective questions: response_text; auto_score remains NULL.
+    One response per (attempt_id, question_id) enforced by UNIQUE constraint.
+    """
+    __tablename__ = "digital_exam_responses"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "question_id", name="uq_digital_response_attempt_question"),
+        Index("ix_digital_responses_attempt",  "attempt_id"),
+        Index("ix_digital_responses_question", "question_id"),
+    )
+
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    attempt_id       = Column(
+        UUID(as_uuid=True),
+        ForeignKey("digital_exam_attempts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    question_id      = Column(UUID(as_uuid=True), nullable=False)
+    question_type    = Column(String(30), nullable=True)
+    # MCQ response
+    selected_option  = Column(String(4), nullable=True)
+    # Subjective response
+    response_text    = Column(Text, nullable=True)
+    # Auto-scoring (MCQ only)
+    is_auto_scored   = Column(Boolean, nullable=False, default=False, server_default="false")
+    auto_score       = Column(Numeric(6, 2), nullable=True)
+    is_correct       = Column(Boolean, nullable=True)
+    answered_at      = Column(DateTime(timezone=True), nullable=True)
+    updated_at       = Column(DateTime(timezone=True), nullable=True)
+    created_at       = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    attempt = relationship("DigitalExamAttempt", back_populates="responses")
+
+
 class RevaluationEvaluation(Base):
     """Per-question marks from the revaluation evaluator."""
     __tablename__ = "sis_revaluation_evaluations"

@@ -23,6 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.m09_paper_admin.models import (
     BoardApprovalStatus,
     BoardSessionStatus,
+    DigitalAttemptStatus,
+    DigitalExamAttempt,
+    DigitalExamResponse,
+    DigitalExamSession,
+    DigitalExamSessionStatus,
     EvaluationRound,
     ExamBoardCourseApproval,
     ExamBoardSession,
@@ -1427,3 +1432,243 @@ class RevaluationEvaluationRepository:
             .order_by(RevaluationEvaluation.created_at)
         )
         return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# DigitalExamSessionRepository — M09.5
+# ---------------------------------------------------------------------------
+
+class DigitalSessionRepository:
+
+    @staticmethod
+    async def create(
+        *,
+        exam_paper_id: UUID,
+        created_by: UUID,
+        title: str,
+        max_duration_mins: int,
+        window_start,
+        window_end,
+        instructions: str | None,
+        db: AsyncSession,
+    ) -> DigitalExamSession:
+        session = DigitalExamSession(
+            exam_paper_id=exam_paper_id,
+            created_by=created_by,
+            title=title,
+            max_duration_mins=max_duration_mins,
+            window_start=window_start,
+            window_end=window_end,
+            instructions=instructions,
+        )
+        db.add(session)
+        await db.flush()
+        return session
+
+    @staticmethod
+    async def get(session_id: UUID, *, db: AsyncSession) -> DigitalExamSession | None:
+        result = await db.execute(
+            select(DigitalExamSession).where(DigitalExamSession.id == session_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_all(
+        *,
+        exam_paper_id: UUID | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> tuple[list[DigitalExamSession], int]:
+        q = select(DigitalExamSession)
+        if exam_paper_id:
+            q = q.where(DigitalExamSession.exam_paper_id == exam_paper_id)
+        total_result = await db.execute(
+            select(func.count()).select_from(q.subquery())
+        )
+        total = total_result.scalar_one()
+        result = await db.execute(
+            q.order_by(DigitalExamSession.created_at.desc()).offset(offset).limit(limit)
+        )
+        return list(result.scalars().all()), total
+
+    @staticmethod
+    async def activate(session: DigitalExamSession, *, db: AsyncSession) -> DigitalExamSession:
+        session.status = DigitalExamSessionStatus.ACTIVE
+        session.activated_at = datetime.now(timezone.utc)
+        await db.flush()
+        return session
+
+    @staticmethod
+    async def close(session: DigitalExamSession, *, db: AsyncSession) -> DigitalExamSession:
+        session.status = DigitalExamSessionStatus.CLOSED
+        session.closed_at = datetime.now(timezone.utc)
+        await db.flush()
+        return session
+
+    @staticmethod
+    async def count_attempts(session_id: UUID, *, db: AsyncSession) -> tuple[int, int]:
+        """Returns (total_attempts, scored_count)."""
+        total_r = await db.execute(
+            select(func.count()).where(DigitalExamAttempt.session_id == session_id)
+        )
+        scored_r = await db.execute(
+            select(func.count()).where(
+                DigitalExamAttempt.session_id == session_id,
+                DigitalExamAttempt.status == DigitalAttemptStatus.SCORED,
+            )
+        )
+        return total_r.scalar_one(), scored_r.scalar_one()
+
+
+# ---------------------------------------------------------------------------
+# DigitalAttemptRepository — M09.5
+# ---------------------------------------------------------------------------
+
+class DigitalAttemptRepository:
+
+    @staticmethod
+    async def get_for_student(
+        session_id: UUID, student_user_id: UUID, *, db: AsyncSession
+    ) -> DigitalExamAttempt | None:
+        result = await db.execute(
+            select(DigitalExamAttempt).where(
+                DigitalExamAttempt.session_id == session_id,
+                DigitalExamAttempt.student_user_id == student_user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get(attempt_id: UUID, *, db: AsyncSession) -> DigitalExamAttempt | None:
+        result = await db.execute(
+            select(DigitalExamAttempt).where(DigitalExamAttempt.id == attempt_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def create(
+        *,
+        session_id: UUID,
+        student_user_id: UUID,
+        expires_at,
+        db: AsyncSession,
+    ) -> DigitalExamAttempt:
+        attempt = DigitalExamAttempt(
+            session_id=session_id,
+            student_user_id=student_user_id,
+            expires_at=expires_at,
+            status=DigitalAttemptStatus.IN_PROGRESS,
+        )
+        db.add(attempt)
+        await db.flush()
+        return attempt
+
+    @staticmethod
+    async def mark_submitted(
+        attempt: DigitalExamAttempt, *, db: AsyncSession
+    ) -> DigitalExamAttempt:
+        attempt.status = DigitalAttemptStatus.SUBMITTED
+        attempt.submitted_at = datetime.now(timezone.utc)
+        await db.flush()
+        return attempt
+
+    @staticmethod
+    async def mark_scored(
+        attempt: DigitalExamAttempt,
+        auto_score: float,
+        mcq_max_score: float,
+        *,
+        db: AsyncSession,
+    ) -> DigitalExamAttempt:
+        attempt.status = DigitalAttemptStatus.SCORED
+        attempt.auto_score = auto_score
+        attempt.mcq_max_score = mcq_max_score
+        attempt.auto_scored_at = datetime.now(timezone.utc)
+        await db.flush()
+        return attempt
+
+    @staticmethod
+    async def list_for_session(
+        session_id: UUID, *, db: AsyncSession
+    ) -> list[DigitalExamAttempt]:
+        result = await db.execute(
+            select(DigitalExamAttempt)
+            .where(DigitalExamAttempt.session_id == session_id)
+            .order_by(DigitalExamAttempt.started_at)
+        )
+        return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# DigitalResponseRepository — M09.5
+# ---------------------------------------------------------------------------
+
+class DigitalResponseRepository:
+
+    @staticmethod
+    async def upsert(
+        *,
+        attempt_id: UUID,
+        question_id: UUID,
+        question_type: str | None,
+        selected_option: str | None,
+        response_text: str | None,
+        db: AsyncSession,
+    ) -> DigitalExamResponse:
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(DigitalExamResponse).where(
+                DigitalExamResponse.attempt_id == attempt_id,
+                DigitalExamResponse.question_id == question_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.selected_option = selected_option
+            existing.response_text = response_text
+            existing.answered_at = now
+            existing.updated_at = now
+            await db.flush()
+            return existing
+        response = DigitalExamResponse(
+            attempt_id=attempt_id,
+            question_id=question_id,
+            question_type=question_type,
+            selected_option=selected_option,
+            response_text=response_text,
+            answered_at=now,
+        )
+        db.add(response)
+        await db.flush()
+        return response
+
+    @staticmethod
+    async def list_for_attempt(
+        attempt_id: UUID, *, db: AsyncSession
+    ) -> list[DigitalExamResponse]:
+        result = await db.execute(
+            select(DigitalExamResponse)
+            .where(DigitalExamResponse.attempt_id == attempt_id)
+            .order_by(DigitalExamResponse.created_at)
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def score_mcq(
+        response: DigitalExamResponse,
+        correct_option: str | None,
+        marks: float,
+        *,
+        db: AsyncSession,
+    ) -> DigitalExamResponse:
+        is_correct = (
+            response.selected_option is not None
+            and correct_option is not None
+            and response.selected_option.upper() == correct_option.upper()
+        )
+        response.is_auto_scored = True
+        response.is_correct = is_correct
+        response.auto_score = float(marks) if is_correct else 0.0
+        await db.flush()
+        return response

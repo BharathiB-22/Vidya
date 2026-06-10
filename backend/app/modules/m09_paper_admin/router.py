@@ -58,6 +58,14 @@ from app.modules.m09_paper_admin.schemas import (
     BoardSessionResponse,
     BoardStatisticsResponse,
     BulkMarkUpdate,
+    DigitalAttemptDetailResponse,
+    DigitalAttemptResponse,
+    DigitalResponseIn,
+    DigitalResponseOut,
+    DigitalResultResponse,
+    DigitalSessionCreate,
+    DigitalSessionListResponse,
+    DigitalSessionResponse,
     EvaluatorReviewResponse,
     ExamScoreLedgerListResponse,
     ExamScoreLedgerResponse,
@@ -90,6 +98,8 @@ from app.modules.m09_paper_admin.schemas import (
 )
 from app.modules.m09_paper_admin.service import (
     BoardApprovalService,
+    DigitalExamError,
+    DigitalExamService,
     ModerationService,
     RevaluationService,
     ScriptService,
@@ -111,6 +121,9 @@ _READ     = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.B
 _ADMIN_ONLY    = [TenantRole.ADMIN]
 _MODERATE      = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.2: who can moderate
 _BOARD_APPROVE = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.4: who can approve/reject results
+_DIGITAL_ADMIN = [TenantRole.ADMIN, TenantRole.BOARD]  # M09.5: session management
+_DIGITAL_READ  = [TenantRole.ADMIN, TenantRole.BOARD, TenantRole.DEAN]  # M09.5: view sessions/results
+_STUDENT_ONLY  = [TenantRole.STUDENT]  # M09.5: exam taking
 
 def _ingest_dep():         return require_roles(*_INGEST)
 def _eval_dep():           return require_roles(*_EVALUATE)
@@ -119,6 +132,9 @@ def _read_dep():           return require_roles(*_READ)
 def _admin_dep():          return require_roles(*_ADMIN_ONLY)
 def _moderate_dep():       return require_roles(*_MODERATE)
 def _board_approve_dep():  return require_roles(*_BOARD_APPROVE)
+def _digital_admin_dep():  return require_roles(*_DIGITAL_ADMIN)
+def _digital_read_dep():   return require_roles(*_DIGITAL_READ)
+def _student_dep():        return require_roles(*_STUDENT_ONLY)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +146,10 @@ def _raise(exc: ScriptServiceError) -> None:
         status_code=exc.status_code,
         detail={"error": exc.code, "message": exc.message},
     )
+
+
+def _raise_digital(exc: DigitalExamError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
 
 # ---------------------------------------------------------------------------
@@ -1288,3 +1308,211 @@ async def board_reject_revaluation(
     except ScriptServiceError as exc:
         _raise(exc)
     return req
+
+
+# ---------------------------------------------------------------------------
+# Digital Exams — M09.5
+# Route summary
+#   POST   /digital/sessions                      Admin: create session
+#   PATCH  /digital/sessions/{id}/activate        Admin: open to students
+#   PATCH  /digital/sessions/{id}/close           Admin: close session
+#   GET    /digital/sessions                      Admin/Board: list sessions
+#   GET    /digital/sessions/{id}                 Admin/Board: session detail
+#   POST   /digital/sessions/{id}/attempt         Student: start/resume attempt
+#   GET    /digital/attempts/{id}/questions       Student: get questions
+#   PUT    /digital/attempts/{id}/responses/{qid} Student: save response
+#   POST   /digital/attempts/{id}/submit          Student: final submit
+#   GET    /digital/attempts/{id}/result          Student/Admin: view result
+# ---------------------------------------------------------------------------
+
+
+@router.post("/digital/sessions", response_model=DigitalSessionResponse, status_code=201)
+async def create_digital_session(
+    payload: DigitalSessionCreate,
+    current_user: CurrentUser = Depends(_digital_admin_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin/Board: create a digital exam delivery session for an exam paper."""
+    db: AsyncSession = db_info["db"]
+    try:
+        session = await DigitalExamService.create_session(
+            exam_paper_id=payload.exam_paper_id,
+            created_by=current_user.user_id,
+            title=payload.title,
+            max_duration_mins=payload.max_duration_mins,
+            window_start=payload.window_start,
+            window_end=payload.window_end,
+            instructions=payload.instructions,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+    out = DigitalSessionResponse.model_validate(session)
+    out.attempt_count = 0
+    out.scored_count = 0
+    return out
+
+
+@router.patch("/digital/sessions/{session_id}/activate", response_model=DigitalSessionResponse)
+async def activate_digital_session(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_digital_admin_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin/Board: open session — students can now start attempts."""
+    db: AsyncSession = db_info["db"]
+    try:
+        session = await DigitalExamService.activate_session(
+            session_id, actor_user_id=current_user.user_id, db=db
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+    out = DigitalSessionResponse.model_validate(session)
+    out.attempt_count = 0
+    out.scored_count = 0
+    return out
+
+
+@router.patch("/digital/sessions/{session_id}/close", response_model=DigitalSessionResponse)
+async def close_digital_session(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_digital_admin_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin/Board: close session — no new attempts accepted."""
+    db: AsyncSession = db_info["db"]
+    try:
+        session = await DigitalExamService.close_session(
+            session_id, actor_user_id=current_user.user_id, db=db
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+    out = DigitalSessionResponse.model_validate(session)
+    out.attempt_count = 0
+    out.scored_count = 0
+    return out
+
+
+@router.get("/digital/sessions", response_model=DigitalSessionListResponse)
+async def list_digital_sessions(
+    exam_paper_id: UUID | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(_digital_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin/Board/Dean: list digital exam sessions."""
+    db: AsyncSession = db_info["db"]
+    return await DigitalExamService.list_sessions(
+        exam_paper_id=exam_paper_id, offset=offset, limit=limit, db=db
+    )
+
+
+@router.get("/digital/sessions/{session_id}", response_model=DigitalSessionResponse)
+async def get_digital_session(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_digital_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin/Board/Dean: session detail with attempt counts."""
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.get_session_detail(session_id, db=db)
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.post("/digital/sessions/{session_id}/attempt", response_model=DigitalAttemptResponse, status_code=200)
+async def start_or_resume_attempt(
+    session_id: UUID,
+    current_user: CurrentUser = Depends(_student_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student: start or resume a digital exam attempt."""
+    db: AsyncSession = db_info["db"]
+    try:
+        attempt = await DigitalExamService.start_or_resume_attempt(
+            session_id, student_user_id=current_user.user_id, db=db
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+    return DigitalAttemptResponse.model_validate(attempt)
+
+
+@router.get("/digital/attempts/{attempt_id}/questions", response_model=DigitalAttemptDetailResponse)
+async def get_attempt_questions(
+    attempt_id: UUID,
+    current_user: CurrentUser = Depends(_student_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student: get questions for current attempt (no correct answers exposed)."""
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.get_attempt_with_questions(
+            attempt_id, student_user_id=current_user.user_id, db=db
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.put(
+    "/digital/attempts/{attempt_id}/responses/{question_id}",
+    response_model=DigitalResponseOut,
+)
+async def save_response(
+    attempt_id: UUID,
+    question_id: UUID,
+    payload: DigitalResponseIn,
+    current_user: CurrentUser = Depends(_student_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student: save/update answer for one question (auto-save)."""
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.save_response(
+            attempt_id,
+            question_id,
+            student_user_id=current_user.user_id,
+            selected_option=payload.selected_option,
+            response_text=payload.response_text,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.post("/digital/attempts/{attempt_id}/submit", response_model=DigitalResultResponse)
+async def submit_attempt(
+    attempt_id: UUID,
+    current_user: CurrentUser = Depends(_student_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student: submit exam — triggers MCQ auto-scoring."""
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.submit_attempt(
+            attempt_id, student_user_id=current_user.user_id, db=db
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.get("/digital/attempts/{attempt_id}/result", response_model=DigitalResultResponse)
+async def get_attempt_result(
+    attempt_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(
+        TenantRole.STUDENT, TenantRole.ADMIN, TenantRole.BOARD, TenantRole.DEAN
+    )),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student/Admin/Board: view exam result after submission."""
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.get_result(
+            attempt_id,
+            requester_user_id=current_user.user_id,
+            requester_role=current_user.role,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)

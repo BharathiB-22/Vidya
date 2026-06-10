@@ -37,6 +37,10 @@ from app.modules.m09_paper_admin.models import (
     ExamScoreLedger,
     ModerationStatus,
     RevaluationRequest,
+    DigitalAttemptStatus,
+    DigitalExamAttempt,
+    DigitalExamSession,
+    DigitalExamSessionStatus,
     RevaluationStatus,
     ScannedScript,
     ScriptEvaluation,
@@ -46,6 +50,9 @@ from app.modules.m09_paper_admin.models import (
 from app.modules.m09_paper_admin.repository import (
     BoardCourseApprovalRepository,
     BoardSessionRepository,
+    DigitalAttemptRepository,
+    DigitalResponseRepository,
+    DigitalSessionRepository,
     ExamScoreLedgerRepository,
     ModerationRepository,
     RevaluationEvaluationRepository,
@@ -2661,4 +2668,481 @@ class RevaluationService:
         return RevaluationDetailResponse(
             request=RevaluationRequestResponse.model_validate(req),
             evaluations=[RevaluationEvaluationResponse.model_validate(e) for e in evals],
+        )
+
+
+# ---------------------------------------------------------------------------
+# DigitalExamService — M09.5
+# ---------------------------------------------------------------------------
+
+class DigitalExamError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+
+class DigitalExamService:
+    """
+    Business logic for digital exam delivery.
+
+    Human-gate invariants:
+      Session status advances only through explicit admin endpoints.
+      Students can only start an attempt while session.status == ACTIVE.
+      One attempt per student per session (repo UNIQUE constraint + service guard).
+      MCQ auto-scoring runs only on submit — never modifies evaluator_marks.
+      Auto-score written to attempt.auto_score; full ledger write deferred to Board.
+    """
+
+    @staticmethod
+    async def create_session(
+        *,
+        exam_paper_id: UUID,
+        created_by: UUID,
+        title: str,
+        max_duration_mins: int,
+        window_start,
+        window_end,
+        instructions: str | None,
+        db: AsyncSession,
+    ) -> DigitalExamSession:
+        from app.modules.m09_paper_admin.schemas import DigitalSessionResponse
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+
+        session = await DigitalSessionRepository.create(
+            exam_paper_id=exam_paper_id,
+            created_by=created_by,
+            title=title,
+            max_duration_mins=max_duration_mins,
+            window_start=window_start,
+            window_end=window_end,
+            instructions=instructions,
+            db=db,
+        )
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_SESSION_CREATED,
+            actor_user_id=created_by,
+            resource_type="digital_exam_session",
+            resource_id=session.id,
+            metadata={"exam_paper_id": str(exam_paper_id), "title": title},
+        )
+        return session
+
+    @staticmethod
+    async def activate_session(
+        session_id: UUID,
+        *,
+        actor_user_id: UUID,
+        db: AsyncSession,
+    ) -> DigitalExamSession:
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+
+        session = await DigitalSessionRepository.get(session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+        if session.status != DigitalExamSessionStatus.DRAFT:
+            raise DigitalExamError(
+                f"Session is {session.status}; only DRAFT sessions can be activated", 409
+            )
+        session = await DigitalSessionRepository.activate(session, db=db)
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_SESSION_ACTIVATED,
+            actor_user_id=actor_user_id,
+            resource_type="digital_exam_session",
+            resource_id=session_id,
+            metadata={},
+        )
+        return session
+
+    @staticmethod
+    async def close_session(
+        session_id: UUID,
+        *,
+        actor_user_id: UUID,
+        db: AsyncSession,
+    ) -> DigitalExamSession:
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+
+        session = await DigitalSessionRepository.get(session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+        if session.status == DigitalExamSessionStatus.CLOSED:
+            raise DigitalExamError("Session is already closed", 409)
+        session = await DigitalSessionRepository.close(session, db=db)
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_SESSION_CLOSED,
+            actor_user_id=actor_user_id,
+            resource_type="digital_exam_session",
+            resource_id=session_id,
+            metadata={},
+        )
+        return session
+
+    @staticmethod
+    async def list_sessions(
+        *,
+        exam_paper_id: UUID | None,
+        offset: int,
+        limit: int,
+        db: AsyncSession,
+    ):
+        from app.modules.m09_paper_admin.schemas import (
+            DigitalSessionListResponse,
+            DigitalSessionResponse,
+        )
+        sessions, total = await DigitalSessionRepository.list_all(
+            exam_paper_id=exam_paper_id, offset=offset, limit=limit, db=db
+        )
+        items = []
+        for s in sessions:
+            attempt_count, scored_count = await DigitalSessionRepository.count_attempts(
+                s.id, db=db
+            )
+            out = DigitalSessionResponse.model_validate(s)
+            out.attempt_count = attempt_count
+            out.scored_count = scored_count
+            items.append(out)
+        return DigitalSessionListResponse(
+            items=items, total=total, offset=offset, limit=limit
+        )
+
+    @staticmethod
+    async def get_session_detail(session_id: UUID, *, db: AsyncSession):
+        from app.modules.m09_paper_admin.schemas import DigitalSessionResponse
+
+        session = await DigitalSessionRepository.get(session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+        attempt_count, scored_count = await DigitalSessionRepository.count_attempts(
+            session_id, db=db
+        )
+        out = DigitalSessionResponse.model_validate(session)
+        out.attempt_count = attempt_count
+        out.scored_count = scored_count
+        return out
+
+    @staticmethod
+    async def start_or_resume_attempt(
+        session_id: UUID,
+        *,
+        student_user_id: UUID,
+        db: AsyncSession,
+    ) -> DigitalExamAttempt:
+        from datetime import datetime, timezone, timedelta
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+
+        session = await DigitalSessionRepository.get(session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+        if session.status != DigitalExamSessionStatus.ACTIVE:
+            raise DigitalExamError("Session is not active; exam is not open", 409)
+
+        existing = await DigitalAttemptRepository.get_for_student(
+            session_id, student_user_id, db=db
+        )
+        if existing:
+            if existing.status == DigitalAttemptStatus.SUBMITTED:
+                raise DigitalExamError("You have already submitted this exam", 409)
+            if existing.status == DigitalAttemptStatus.SCORED:
+                raise DigitalExamError("Your exam has already been scored", 409)
+            # Check timer expiry
+            if existing.expires_at and datetime.now(timezone.utc) > existing.expires_at:
+                # Auto-submit expired attempt
+                if existing.status == DigitalAttemptStatus.IN_PROGRESS:
+                    await DigitalExamService._auto_score_attempt(existing, db=db)
+            return existing
+
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=session.max_duration_mins)
+        attempt = await DigitalAttemptRepository.create(
+            session_id=session_id,
+            student_user_id=student_user_id,
+            expires_at=expires_at,
+            db=db,
+        )
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_ATTEMPT_STARTED,
+            actor_user_id=student_user_id,
+            resource_type="digital_exam_attempt",
+            resource_id=attempt.id,
+            metadata={"session_id": str(session_id)},
+        )
+        return attempt
+
+    @staticmethod
+    async def get_attempt_with_questions(
+        attempt_id: UUID,
+        *,
+        student_user_id: UUID,
+        db: AsyncSession,
+    ):
+        from app.modules.m09_paper_admin.schemas import (
+            DigitalAttemptDetailResponse,
+            DigitalAttemptResponse,
+            DigitalQuestionOut,
+            DigitalResponseOut,
+        )
+        from app.modules.m08_exam_setter.models import ExamQuestion
+        from sqlalchemy import select as sa_select
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+        if attempt.student_user_id != student_user_id:
+            raise DigitalExamError("Access denied", 403)
+
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+
+        q_result = await db.execute(
+            sa_select(ExamQuestion)
+            .where(ExamQuestion.exam_paper_id == session.exam_paper_id)
+            .order_by(ExamQuestion.unit_number, ExamQuestion.section_label)
+        )
+        questions = list(q_result.scalars().all())
+
+        responses = await DigitalResponseRepository.list_for_attempt(attempt_id, db=db)
+        response_map = {r.question_id: r for r in responses}
+
+        question_outs = []
+        for q in questions:
+            saved = response_map.get(q.id)
+            question_outs.append(
+                DigitalQuestionOut(
+                    id=q.id,
+                    unit_number=q.unit_number,
+                    question_type=q.question_type,
+                    bloom_level=q.bloom_level,
+                    question_text=q.question_text,
+                    options=q.options,
+                    marks=float(q.marks),
+                    section_label=q.section_label,
+                    choice_group=q.choice_group,
+                    saved_response=DigitalResponseOut.model_validate(saved) if saved else None,
+                )
+            )
+
+        return DigitalAttemptDetailResponse(
+            attempt=DigitalAttemptResponse.model_validate(attempt),
+            questions=question_outs,
+        )
+
+    @staticmethod
+    async def save_response(
+        attempt_id: UUID,
+        question_id: UUID,
+        *,
+        student_user_id: UUID,
+        selected_option: str | None,
+        response_text: str | None,
+        db: AsyncSession,
+    ):
+        from app.modules.m09_paper_admin.schemas import DigitalResponseOut
+        from app.modules.m08_exam_setter.models import ExamQuestion
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+        from sqlalchemy import select as sa_select
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+        if attempt.student_user_id != student_user_id:
+            raise DigitalExamError("Access denied", 403)
+        if attempt.status != DigitalAttemptStatus.IN_PROGRESS:
+            raise DigitalExamError("Exam has already been submitted", 409)
+
+        # Verify question belongs to the exam
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        q_result = await db.execute(
+            sa_select(ExamQuestion).where(
+                ExamQuestion.id == question_id,
+                ExamQuestion.exam_paper_id == session.exam_paper_id,
+            )
+        )
+        question = q_result.scalar_one_or_none()
+        if not question:
+            raise DigitalExamError("Question not found in this exam", 404)
+
+        response = await DigitalResponseRepository.upsert(
+            attempt_id=attempt_id,
+            question_id=question_id,
+            question_type=question.question_type,
+            selected_option=selected_option,
+            response_text=response_text,
+            db=db,
+        )
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_RESPONSE_SAVED,
+            actor_user_id=student_user_id,
+            resource_type="digital_exam_response",
+            resource_id=response.id,
+            metadata={"attempt_id": str(attempt_id), "question_id": str(question_id)},
+        )
+        return DigitalResponseOut.model_validate(response)
+
+    @staticmethod
+    async def submit_attempt(
+        attempt_id: UUID,
+        *,
+        student_user_id: UUID,
+        db: AsyncSession,
+    ):
+        from app.modules.m09_paper_admin.schemas import DigitalResultResponse
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+        if attempt.student_user_id != student_user_id:
+            raise DigitalExamError("Access denied", 403)
+        if attempt.status != DigitalAttemptStatus.IN_PROGRESS:
+            raise DigitalExamError("Exam has already been submitted", 409)
+
+        await DigitalAttemptRepository.mark_submitted(attempt, db=db)
+        return await DigitalExamService._auto_score_attempt(attempt, db=db)
+
+    @staticmethod
+    async def _auto_score_attempt(
+        attempt: DigitalExamAttempt,
+        *,
+        db: AsyncSession,
+    ):
+        from app.modules.m09_paper_admin.schemas import (
+            DigitalAttemptResponse,
+            DigitalResponseOut,
+            DigitalResultResponse,
+        )
+        from app.modules.m08_exam_setter.models import ExamQuestion, QuestionType
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+        from sqlalchemy import select as sa_select
+
+        if attempt.status == DigitalAttemptStatus.IN_PROGRESS:
+            await DigitalAttemptRepository.mark_submitted(attempt, db=db)
+
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        q_result = await db.execute(
+            sa_select(ExamQuestion).where(
+                ExamQuestion.exam_paper_id == session.exam_paper_id
+            )
+        )
+        questions = list(q_result.scalars().all())
+
+        responses = await DigitalResponseRepository.list_for_attempt(attempt.id, db=db)
+        response_map = {r.question_id: r for r in responses}
+
+        total_auto_score = 0.0
+        mcq_max = 0.0
+        mcq_count = 0
+        subjective_count = 0
+        correct_mcq = 0
+
+        for q in questions:
+            if q.question_type == QuestionType.MCQ:
+                mcq_count += 1
+                mcq_max += float(q.marks)
+                r = response_map.get(q.id)
+                if r:
+                    await DigitalResponseRepository.score_mcq(
+                        r, q.correct_option, float(q.marks), db=db
+                    )
+                    if r.is_correct:
+                        total_auto_score += float(q.marks)
+                        correct_mcq += 1
+            else:
+                subjective_count += 1
+
+        await DigitalAttemptRepository.mark_scored(
+            attempt, total_auto_score, mcq_max, db=db
+        )
+
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_AUTO_SCORED,
+            actor_user_id=attempt.student_user_id,
+            resource_type="digital_exam_attempt",
+            resource_id=attempt.id,
+            metadata={
+                "auto_score": total_auto_score,
+                "mcq_max": mcq_max,
+                "correct_mcq": correct_mcq,
+            },
+        )
+
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_SUBMITTED,
+            actor_user_id=attempt.student_user_id,
+            resource_type="digital_exam_attempt",
+            resource_id=attempt.id,
+            metadata={"session_id": str(attempt.session_id)},
+        )
+
+        final_responses = await DigitalResponseRepository.list_for_attempt(attempt.id, db=db)
+        return DigitalResultResponse(
+            attempt=DigitalAttemptResponse.model_validate(attempt),
+            responses=[DigitalResponseOut.model_validate(r) for r in final_responses],
+            total_questions=len(questions),
+            mcq_questions=mcq_count,
+            subjective_questions=subjective_count,
+            attempted_count=len(final_responses),
+            correct_mcq=correct_mcq,
+        )
+
+    @staticmethod
+    async def get_result(
+        attempt_id: UUID,
+        *,
+        requester_user_id: UUID,
+        requester_role: str,
+        db: AsyncSession,
+    ):
+        from app.modules.m09_paper_admin.schemas import (
+            DigitalAttemptResponse,
+            DigitalResponseOut,
+            DigitalResultResponse,
+        )
+        from app.modules.m08_exam_setter.models import ExamQuestion, QuestionType
+        from sqlalchemy import select as sa_select
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+
+        if requester_role == "STUDENT" and attempt.student_user_id != requester_user_id:
+            raise DigitalExamError("Access denied", 403)
+
+        if attempt.status == DigitalAttemptStatus.IN_PROGRESS:
+            raise DigitalExamError("Exam not yet submitted", 409)
+
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        q_result = await db.execute(
+            sa_select(ExamQuestion).where(
+                ExamQuestion.exam_paper_id == session.exam_paper_id
+            )
+        )
+        questions = list(q_result.scalars().all())
+        mcq_count = sum(1 for q in questions if q.question_type == QuestionType.MCQ)
+        subjective_count = len(questions) - mcq_count
+
+        responses = await DigitalResponseRepository.list_for_attempt(attempt_id, db=db)
+        correct_mcq = sum(1 for r in responses if r.is_correct)
+
+        return DigitalResultResponse(
+            attempt=DigitalAttemptResponse.model_validate(attempt),
+            responses=[DigitalResponseOut.model_validate(r) for r in responses],
+            total_questions=len(questions),
+            mcq_questions=mcq_count,
+            subjective_questions=subjective_count,
+            attempted_count=len(responses),
+            correct_mcq=correct_mcq,
         )

@@ -310,6 +310,15 @@ class AuditEventType(str, enum.Enum):
     REVALUATION_BOARD_RATIFIED  = "REVALUATION_BOARD_RATIFIED"  # M09.3: board ratified, ledger updated
     REVALUATION_BOARD_REJECTED  = "REVALUATION_BOARD_REJECTED"  # M09.3: board rejected revaluation outcome
 
+    # Digital Exams — M09.5
+    DIGITAL_EXAM_SESSION_CREATED   = "DIGITAL_EXAM_SESSION_CREATED"   # admin created session
+    DIGITAL_EXAM_SESSION_ACTIVATED = "DIGITAL_EXAM_SESSION_ACTIVATED" # admin opened session to students
+    DIGITAL_EXAM_SESSION_CLOSED    = "DIGITAL_EXAM_SESSION_CLOSED"    # admin closed session
+    DIGITAL_EXAM_ATTEMPT_STARTED   = "DIGITAL_EXAM_ATTEMPT_STARTED"   # student started attempt
+    DIGITAL_EXAM_RESPONSE_SAVED    = "DIGITAL_EXAM_RESPONSE_SAVED"    # student saved answer
+    DIGITAL_EXAM_SUBMITTED         = "DIGITAL_EXAM_SUBMITTED"         # student submitted exam
+    DIGITAL_EXAM_AUTO_SCORED       = "DIGITAL_EXAM_AUTO_SCORED"       # system auto-scored MCQ
+
     # Bell Curve Normaliser — M10
     BELL_CURVE_ANALYSIS_TRIGGERED     = "BELL_CURVE_ANALYSIS_TRIGGERED"
     BELL_CURVE_ANALYSIS_COMPLETED     = "BELL_CURVE_ANALYSIS_COMPLETED"
