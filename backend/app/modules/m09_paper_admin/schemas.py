@@ -307,6 +307,8 @@ class PaperPipelineStats(BaseModel):
     waiting_second_evaluator:  int = 0
     secondary_evaluated:       int = 0
     marks_submitted:           int
+    moderation_pending:        int = 0
+    moderation_complete:       int = 0
     board_finalised:           int
     completion_pct:            float
 
@@ -373,3 +375,102 @@ class BoardComparisonResponse(BaseModel):
     secondary_total:         float
     max_marks_total:         float
     board_adjustments_set:   bool
+
+
+# ---------------------------------------------------------------------------
+# Moderation Workflow — M09.2
+# ---------------------------------------------------------------------------
+
+class ModerationFlagRequest(BaseModel):
+    """Dean/Admin manually flags a MARKS_SUBMITTED script for moderation."""
+    reason: str = Field(..., min_length=10, description="Mandatory justification for flagging.")
+
+
+class ModerationMarkEntry(BaseModel):
+    """Moderator's mark for a single question."""
+    evaluator_marks: float = Field(..., ge=0)
+    evaluator_note:  str | None = None
+
+
+class ModerationSubmitRequest(BaseModel):
+    """
+    Moderator submits per-question marks for a MODERATION_PENDING script.
+    marks: {question_id (str UUID) → ModerationMarkEntry}
+    moderation_notes: mandatory narrative explaining the moderation decision.
+    All questions from the PRIMARY round must be covered.
+    """
+    marks:            dict[str, ModerationMarkEntry] = Field(
+        ...,
+        description="Moderator's marks keyed by question_id (str UUID).",
+    )
+    moderation_notes: str = Field(
+        ...,
+        min_length=20,
+        description="Mandatory explanation of the moderation decision.",
+    )
+
+    @model_validator(mode="after")
+    def at_least_one(self) -> "ModerationSubmitRequest":
+        if not self.marks:
+            raise ValueError("marks dict must contain at least one entry.")
+        return self
+
+
+class ScriptVarianceResponse(BaseModel):
+    """
+    Primary vs secondary evaluator comparison — used before and during moderation.
+    variance_pct = abs(primary_total - secondary_total) / max_marks_total * 100.
+    exceeds_threshold = variance_pct > discrepancy_threshold_pct for this paper.
+    """
+    script_id:              UUID
+    masked_id:              str
+    exam_paper_id:          UUID
+    status:                 str
+    double_evaluation_enabled: bool
+    primary_total:          float
+    secondary_total:        float
+    max_marks_total:        float
+    variance_pct:           float
+    threshold_pct:          float
+    exceeds_threshold:      bool
+    moderation_review_id:   Optional[UUID] = None
+    moderation_status:      Optional[str]  = None
+
+
+class ModerationReviewResponse(BaseModel):
+    """Full moderation review record for a script."""
+    id:                UUID
+    script_id:         UUID
+    exam_paper_id:     UUID
+    primary_total:     float
+    secondary_total:   float
+    variance_pct:      float
+    variance_threshold: float
+    flag_reason:       str
+    flagged_by:        Optional[UUID]
+    flagged_at:        datetime
+    moderator_id:      Optional[UUID]
+    moderation_notes:  Optional[str]
+    status:            str
+    completed_at:      Optional[datetime]
+    created_at:        datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ModerationQueueResponse(BaseModel):
+    """Paginated moderation queue for an exam paper."""
+    items:  list[ModerationReviewResponse]
+    total:  int
+    offset: int
+    limit:  int
+
+
+class ModerationHistoryResponse(BaseModel):
+    """
+    Full moderation history for a script: review record + MODERATION round evaluations.
+    """
+    review:              Optional[ModerationReviewResponse]
+    moderation_evals:    list[ScriptEvaluationResponse]
+    primary_evals:       list[ScriptEvaluationResponse]
+    secondary_evals:     list[ScriptEvaluationResponse]

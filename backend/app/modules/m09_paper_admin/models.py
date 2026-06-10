@@ -66,8 +66,10 @@ class ScriptStatus(str, enum.Enum):
     FAILED                     = "FAILED"                     # unrecoverable Celery failure
     REVIEW_REQUIRED            = "REVIEW_REQUIRED"            # partial OCR; evaluator enters manually
     WAITING_SECOND_EVALUATOR   = "WAITING_SECOND_EVALUATOR"   # primary submitted; awaiting secondary
-    SECONDARY_EVALUATED        = "SECONDARY_EVALUATED"        # secondary submitted; auto → MARKS_SUBMITTED
+    SECONDARY_EVALUATED        = "SECONDARY_EVALUATED"        # secondary submitted; variance check pending
     MARKS_SUBMITTED            = "MARKS_SUBMITTED"            # Gate 1 complete; awaiting Board
+    MODERATION_PENDING         = "MODERATION_PENDING"         # M09.2: variance exceeded; awaiting moderator
+    MODERATION_COMPLETE        = "MODERATION_COMPLETE"        # M09.2: moderator submitted; awaiting Board
     BOARD_FINALISED            = "BOARD_FINALISED"            # Gate 2: identity revealed; ledger written
 
 
@@ -254,6 +256,12 @@ class ScannedScript(Base):
         back_populates="script",
         uselist=False,
     )
+    moderation_review = relationship(
+        "ScriptModerationReview",
+        back_populates="script",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +349,79 @@ class ScriptEvaluation(Base):
     updated_at          = Column(DateTime(timezone=True), nullable=True)
 
     script = relationship("ScannedScript", back_populates="evaluations")
+
+
+# ---------------------------------------------------------------------------
+# ScriptModerationReview — M09.2
+# ---------------------------------------------------------------------------
+
+class ModerationStatus(str, enum.Enum):
+    PENDING  = "PENDING"   # flagged; awaiting moderator
+    COMPLETE = "COMPLETE"  # moderator submitted MODERATION round marks
+    SKIPPED  = "SKIPPED"   # flagged but Board overrode without moderation
+
+
+class ScriptModerationReview(Base):
+    """
+    One row per moderation event for a scanned script.
+
+    Created when variance between primary and secondary evaluator totals
+    exceeds exam_papers.discrepancy_threshold_pct (auto-flag), or when a
+    Dean/Admin manually flags a MARKS_SUBMITTED script.
+
+    flagged_by = NULL means auto-flagged by the system.
+    moderator_id / moderation_notes are set when the moderator submits.
+
+    Invariants:
+      - Written ONLY by ModerationService; never by Celery.
+      - Original evaluator marks (PRIMARY / SECONDARY rounds) are immutable
+        after moderation is created.
+      - Moderated marks are stored as MODERATION round ScriptEvaluation rows.
+    """
+    __tablename__ = "script_moderation_reviews"
+    __table_args__ = (
+        Index("ix_moderation_reviews_script",     "script_id"),
+        Index("ix_moderation_reviews_exam_paper", "exam_paper_id"),
+        Index("ix_moderation_reviews_status",     "status"),
+        Index("ix_moderation_reviews_moderator",  "moderator_id"),
+        Index("ix_moderation_reviews_created",    "created_at"),
+    )
+
+    id                 = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    script_id          = Column(
+        UUID(as_uuid=True),
+        ForeignKey("scanned_scripts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    exam_paper_id      = Column(UUID(as_uuid=True), nullable=False)  # denormalized
+
+    # Evaluator totals at the time of flagging (snapshot — immutable after creation)
+    primary_total      = Column(Numeric(6, 2), nullable=False)
+    secondary_total    = Column(Numeric(6, 2), nullable=False)
+    variance_pct       = Column(Numeric(5, 2), nullable=False)  # abs(P-S)/max*100
+    variance_threshold = Column(Numeric(5, 2), nullable=False)  # threshold that was in effect
+
+    # Why flagged: "AUTO_VARIANCE" or a free-text reason from Dean/Admin
+    flag_reason        = Column(Text, nullable=False)
+    # NULL = auto-flagged by system; non-NULL = flagged by a named human
+    flagged_by         = Column(UUID(as_uuid=True), nullable=True)
+    flagged_at         = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    # Moderation outcome — populated when moderator submits
+    moderator_id       = Column(UUID(as_uuid=True), nullable=True)
+    moderation_notes   = Column(Text, nullable=True)  # mandatory when status → COMPLETE
+
+    status             = Column(
+        Enum(ModerationStatus, native_enum=False),
+        nullable=False,
+        default=ModerationStatus.PENDING,
+    )
+    completed_at       = Column(DateTime(timezone=True), nullable=True)
+    created_at         = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    script = relationship("ScannedScript", back_populates="moderation_review")
 
 
 # ---------------------------------------------------------------------------

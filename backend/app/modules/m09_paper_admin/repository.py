@@ -23,8 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.m09_paper_admin.models import (
     EvaluationRound,
     ExamScoreLedger,
+    ModerationStatus,
     ScannedScript,
     ScriptEvaluation,
+    ScriptModerationReview,
     ScriptStatus,
 )
 
@@ -406,6 +408,38 @@ class ScriptRepository:
         )
 
     @staticmethod
+    async def set_moderation_pending(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """M09.2: flag script for moderation; written ONLY by ModerationService."""
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                status=ScriptStatus.MODERATION_PENDING.value,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
+    async def set_moderation_complete(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """M09.2: moderator submitted marks; written ONLY by ModerationService."""
+        await db.execute(
+            sa_update(ScannedScript)
+            .where(ScannedScript.id == script_id)
+            .values(
+                status=ScriptStatus.MODERATION_COMPLETE.value,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    @staticmethod
     async def set_quality_overridden(
         script_id: UUID,
         *,
@@ -701,6 +735,44 @@ class ScriptEvaluationRepository:
         )
         return float(result.scalar() or 0.0)
 
+    @staticmethod
+    async def bulk_create_moderation_evaluations(
+        marks: dict[UUID, dict],
+        *,
+        primary_evals: list[ScriptEvaluation],
+        script_id: UUID,
+        db: AsyncSession,
+    ) -> list[ScriptEvaluation]:
+        """
+        M09.2: create MODERATION round evaluation rows from moderator's per-question marks.
+        marks: {question_id → {evaluator_marks, evaluator_note}}
+        Primary eval rows supply question_type / max_marks for the MODERATION rows.
+        evaluator_marks is the moderator's authoritative mark — never None after this.
+        """
+        primary_map = {e.question_id: e for e in primary_evals}
+        objs = []
+        for question_id, data in marks.items():
+            primary = primary_map.get(question_id)
+            if primary is None:
+                continue
+            obj = ScriptEvaluation(
+                script_id=script_id,
+                question_id=question_id,
+                question_type=primary.question_type,
+                max_marks=primary.max_marks,
+                evaluation_round=EvaluationRound.MODERATION.value,
+                evaluator_marks=data["evaluator_marks"],
+                evaluator_note=data.get("evaluator_note"),
+                # Copy AI suggestion metadata for traceability
+                ai_suggested_marks=primary.ai_suggested_marks,
+                ai_model=primary.ai_model,
+                prompt_hash=primary.prompt_hash,
+            )
+            db.add(obj)
+            objs.append(obj)
+        await db.flush()
+        return objs
+
 
 # ---------------------------------------------------------------------------
 # ExamScoreLedgerRepository — append-only
@@ -788,7 +860,7 @@ class TaskJobPublicRepository:
         payload: dict,
         *,
         db: AsyncSession,
-    ) -> UUID:
+    ) -> UUID:  # noqa: E501 (continued below)
         import json as _json
         from sqlalchemy import text as sa_text
         job_id = uuid.uuid4()
@@ -806,3 +878,134 @@ class TaskJobPublicRepository:
         })
         await db.flush()
         return job_id
+
+
+# ---------------------------------------------------------------------------
+# ModerationRepository — M09.2
+# ---------------------------------------------------------------------------
+
+class ModerationRepository:
+
+    @staticmethod
+    async def create(
+        *,
+        script_id: UUID,
+        exam_paper_id: UUID,
+        primary_total: float,
+        secondary_total: float,
+        variance_pct: float,
+        variance_threshold: float,
+        flag_reason: str,
+        flagged_by: UUID | None,
+        db: AsyncSession,
+    ) -> ScriptModerationReview:
+        """Create a new moderation review row. Called ONLY by ModerationService."""
+        review = ScriptModerationReview(
+            script_id=script_id,
+            exam_paper_id=exam_paper_id,
+            primary_total=primary_total,
+            secondary_total=secondary_total,
+            variance_pct=variance_pct,
+            variance_threshold=variance_threshold,
+            flag_reason=flag_reason,
+            flagged_by=flagged_by,
+            status=ModerationStatus.PENDING,
+        )
+        db.add(review)
+        await db.flush()
+        return review
+
+    @staticmethod
+    async def get_by_script(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> ScriptModerationReview | None:
+        result = await db.execute(
+            select(ScriptModerationReview)
+            .where(ScriptModerationReview.script_id == script_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def complete(
+        review: ScriptModerationReview,
+        *,
+        moderator_id: UUID,
+        moderation_notes: str,
+        db: AsyncSession,
+    ) -> None:
+        """Mark moderation review complete. Called ONLY by ModerationService.submit_moderation."""
+        now = datetime.now(timezone.utc)
+        await db.execute(
+            sa_update(ScriptModerationReview)
+            .where(ScriptModerationReview.id == review.id)
+            .values(
+                status=ModerationStatus.COMPLETE,
+                moderator_id=moderator_id,
+                moderation_notes=moderation_notes,
+                completed_at=now,
+            )
+        )
+
+    @staticmethod
+    async def list_pending_for_paper(
+        exam_paper_id: UUID,
+        *,
+        offset: int,
+        limit: int,
+        db: AsyncSession,
+    ) -> list[ScriptModerationReview]:
+        """All PENDING moderation reviews for an exam paper (moderation queue)."""
+        q = (
+            select(ScriptModerationReview)
+            .where(
+                ScriptModerationReview.exam_paper_id == exam_paper_id,
+                ScriptModerationReview.status == ModerationStatus.PENDING,
+            )
+            .order_by(ScriptModerationReview.variance_pct.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_pending_for_paper(
+        exam_paper_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> int:
+        result = await db.execute(
+            select(func.count(ScriptModerationReview.id))
+            .where(
+                ScriptModerationReview.exam_paper_id == exam_paper_id,
+                ScriptModerationReview.status == ModerationStatus.PENDING,
+            )
+        )
+        return int(result.scalar() or 0)
+
+    @staticmethod
+    async def get_threshold(
+        exam_paper_id: UUID,
+        *,
+        db: AsyncSession,
+        default_threshold: float = 20.0,
+    ) -> float:
+        """
+        Read discrepancy_threshold_pct from exam_papers.
+        Falls back to default_threshold when the paper has no explicit setting.
+        Uses raw SQL to avoid a cross-module ORM dependency.
+        """
+        from sqlalchemy import text as sa_text
+        result = await db.execute(
+            sa_text(
+                "SELECT discrepancy_threshold_pct FROM exam_papers "
+                "WHERE id = CAST(:pid AS uuid)"
+            ),
+            {"pid": str(exam_paper_id)},
+        )
+        row = result.fetchone()
+        if row is None or row[0] is None:
+            return default_threshold
+        return float(row[0])

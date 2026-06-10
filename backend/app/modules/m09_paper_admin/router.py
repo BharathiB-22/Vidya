@@ -55,6 +55,11 @@ from app.modules.m09_paper_admin.schemas import (
     ExamScoreLedgerListResponse,
     ExamScoreLedgerResponse,
     JobStatusResponse,
+    ModerationFlagRequest,
+    ModerationHistoryResponse,
+    ModerationQueueResponse,
+    ModerationReviewResponse,
+    ModerationSubmitRequest,
     PaperPipelineStats,
     QualityOverrideRequest,
     ScannedScriptListResponse,
@@ -65,8 +70,13 @@ from app.modules.m09_paper_admin.schemas import (
     ScriptFinaliseRequest,
     ScriptIngestRequest,
     ScriptSubmitMarksRequest,
+    ScriptVarianceResponse,
 )
-from app.modules.m09_paper_admin.service import ScriptService, ScriptServiceError
+from app.modules.m09_paper_admin.service import (
+    ModerationService,
+    ScriptService,
+    ScriptServiceError,
+)
 
 router = APIRouter(tags=["M09 Paper Admin"])
 
@@ -80,13 +90,15 @@ _BOARD    = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ     = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
 
 
-_ADMIN_ONLY = [TenantRole.ADMIN]
+_ADMIN_ONLY  = [TenantRole.ADMIN]
+_MODERATE    = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.2: who can moderate
 
-def _ingest_dep():   return require_roles(*_INGEST)
-def _eval_dep():     return require_roles(*_EVALUATE)
-def _board_dep():    return require_roles(*_BOARD)
-def _read_dep():     return require_roles(*_READ)
-def _admin_dep():    return require_roles(*_ADMIN_ONLY)
+def _ingest_dep():    return require_roles(*_INGEST)
+def _eval_dep():      return require_roles(*_EVALUATE)
+def _board_dep():     return require_roles(*_BOARD)
+def _read_dep():      return require_roles(*_READ)
+def _admin_dep():     return require_roles(*_ADMIN_ONLY)
+def _moderate_dep():  return require_roles(*_MODERATE)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +266,57 @@ async def list_all_scripts(
         items=[ScannedScriptResponse.model_validate(s) for s in items],
         total=total, offset=offset, limit=limit,
     )
+
+
+# ---------------------------------------------------------------------------
+# M09.2 Moderation routes — all STATIC paths; declared before /{script_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/moderation/queue", response_model=ModerationQueueResponse)
+async def get_moderation_queue(
+    paper_id: UUID = Query(..., description="Exam paper UUID"),
+    offset:   int  = Query(default=0, ge=0),
+    limit:    int  = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(_moderate_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: list all PENDING moderation reviews for an exam paper.
+    Sorted by variance_pct descending (highest variance first).
+    """
+    db: AsyncSession = db_info["db"]
+    items, total = await ModerationService.list_moderation_queue(
+        paper_id, offset=offset, limit=limit, db=db
+    )
+    return ModerationQueueResponse(
+        items=[ModerationReviewResponse.model_validate(r) for r in items],
+        total=total, offset=offset, limit=limit,
+    )
+
+
+@router.post("/paper/{paper_id}/auto-flag-moderation")
+async def auto_flag_moderation(
+    paper_id:     UUID,
+    current_user: CurrentUser = Depends(_moderate_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: scan all MARKS_SUBMITTED double-evaluation scripts for this paper
+    and auto-flag those exceeding the paper's discrepancy threshold.
+    Returns counts: checked, flagged, already_pending, skipped.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+    try:
+        result = await ModerationService.auto_flag_paper(
+            paper_id,
+            flagged_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -733,3 +796,101 @@ async def board_adjust_marks(
     except ScriptServiceError as exc:
         _raise(exc)
     return [ScriptEvaluationResponse.model_validate(e) for e in evals]
+
+
+# ---------------------------------------------------------------------------
+# M09.2 — script-level moderation endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/{script_id}/variance", response_model=ScriptVarianceResponse)
+async def get_script_variance(
+    script_id: UUID,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Board/Dean/Admin: show primary vs secondary evaluator totals and variance %.
+    Available for double-evaluation scripts from SECONDARY_EVALUATED status onward.
+    Identity is always masked.
+    """
+    db: AsyncSession = db_info["db"]
+    try:
+        result = await ModerationService.get_variance(script_id, db=db)
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return result
+
+
+@router.post("/{script_id}/flag-moderation", response_model=ModerationReviewResponse)
+async def flag_for_moderation(
+    script_id: UUID,
+    payload:   ModerationFlagRequest,
+    current_user: CurrentUser = Depends(_moderate_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: manually flag a MARKS_SUBMITTED script for moderation review.
+    Creates a moderation review record and advances status → MODERATION_PENDING.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+    try:
+        review = await ModerationService.flag_for_moderation(
+            script_id,
+            reason=payload.reason,
+            flagged_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return ModerationReviewResponse.model_validate(review)
+
+
+@router.post("/{script_id}/moderate", response_model=ModerationHistoryResponse)
+async def submit_moderation(
+    script_id: UUID,
+    payload:   ModerationSubmitRequest,
+    current_user: CurrentUser = Depends(_moderate_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Dean/Admin: submit per-question moderation marks for a MODERATION_PENDING script.
+
+    All PRIMARY round questions must be covered.
+    moderation_notes (≥20 chars) is mandatory.
+    Creates MODERATION round ScriptEvaluation rows; status → MODERATION_COMPLETE.
+    Board finalise will use MODERATION marks as the authoritative scores.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+    try:
+        review, _ = await ModerationService.submit_moderation(
+            script_id,
+            payload,
+            moderator_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return await ModerationService.get_moderation_history(script_id, db=db)
+
+
+@router.get("/{script_id}/moderation-history", response_model=ModerationHistoryResponse)
+async def get_moderation_history(
+    script_id: UUID,
+    current_user: CurrentUser = Depends(_board_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Board/Dean/Admin: full moderation audit trail for a script.
+    Returns the moderation review record plus PRIMARY, SECONDARY, and MODERATION
+    evaluation rounds side by side.
+    """
+    db: AsyncSession = db_info["db"]
+    try:
+        result = await ModerationService.get_moderation_history(script_id, db=db)
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return result

@@ -31,12 +31,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.m09_paper_admin.models import (
     EvaluationRound,
     ExamScoreLedger,
+    ModerationStatus,
     ScannedScript,
     ScriptEvaluation,
+    ScriptModerationReview,
     ScriptStatus,
 )
 from app.modules.m09_paper_admin.repository import (
     ExamScoreLedgerRepository,
+    ModerationRepository,
     ScriptEvaluationRepository,
     ScriptRepository,
     TaskJobPublicRepository,
@@ -538,28 +541,80 @@ class ScriptService:
                 },
             )
 
-            # M09.1: no moderation — advance directly to MARKS_SUBMITTED
-            # M09.2 will insert discrepancy check here before this transition
-            await ScriptRepository.set_marks_submitted(
-                script_id, submitted_by=evaluator_user_id, db=db
+            # M09.2: variance check — auto-flag for moderation if threshold exceeded
+            primary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+                script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
             )
-            await db.commit()
-            await db.refresh(script)
+            secondary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+                script_id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+            )
+            max_marks_total = await ScriptEvaluationRepository.sum_max_marks(
+                script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            )
+            threshold_pct = await ModerationRepository.get_threshold(
+                script.exam_paper_id, db=db
+            )
+            variance_pct = (
+                abs(primary_total - secondary_total) / max_marks_total * 100
+                if max_marks_total > 0 else 0.0
+            )
 
-            await AuditService.log(
-                AuditEventType.SCRIPT_MARKS_SUBMITTED,
-                actor_user_id=evaluator_user_id,
-                actor_role="EVALUATOR",
-                tenant_id=tenant_id,
-                schema_name=None,
-                target_entity="scanned_script",
-                target_id=str(script_id),
-                metadata={
-                    "question_count": len(evals),
-                    "evaluation_round": "SECONDARY",
-                    "new_status": ScriptStatus.MARKS_SUBMITTED.value,
-                },
-            )
+            if variance_pct > threshold_pct:
+                # High variance → MODERATION_PENDING
+                await ModerationRepository.create(
+                    script_id=script_id,
+                    exam_paper_id=script.exam_paper_id,
+                    primary_total=primary_total,
+                    secondary_total=secondary_total,
+                    variance_pct=round(variance_pct, 2),
+                    variance_threshold=threshold_pct,
+                    flag_reason="AUTO_VARIANCE",
+                    flagged_by=None,
+                    db=db,
+                )
+                await ScriptRepository.set_moderation_pending(script_id, db=db)
+                await db.commit()
+                await db.refresh(script)
+
+                await AuditService.log(
+                    AuditEventType.SCRIPT_MODERATION_FLAGGED,
+                    actor_user_id=evaluator_user_id,
+                    actor_role="EVALUATOR",
+                    tenant_id=tenant_id,
+                    schema_name=None,
+                    target_entity="scanned_script",
+                    target_id=str(script_id),
+                    metadata={
+                        "flag_reason":    "AUTO_VARIANCE",
+                        "variance_pct":   round(variance_pct, 2),
+                        "threshold_pct":  threshold_pct,
+                        "primary_total":  primary_total,
+                        "secondary_total": secondary_total,
+                    },
+                )
+            else:
+                # Low variance → MARKS_SUBMITTED (existing path)
+                await ScriptRepository.set_marks_submitted(
+                    script_id, submitted_by=evaluator_user_id, db=db
+                )
+                await db.commit()
+                await db.refresh(script)
+
+                await AuditService.log(
+                    AuditEventType.SCRIPT_MARKS_SUBMITTED,
+                    actor_user_id=evaluator_user_id,
+                    actor_role="EVALUATOR",
+                    tenant_id=tenant_id,
+                    schema_name=None,
+                    target_entity="scanned_script",
+                    target_id=str(script_id),
+                    metadata={
+                        "question_count":  len(evals),
+                        "evaluation_round": "SECONDARY",
+                        "new_status":       ScriptStatus.MARKS_SUBMITTED.value,
+                        "variance_pct":     round(variance_pct, 2),
+                    },
+                )
 
         else:
             # Single-eval path — existing behaviour
@@ -612,24 +667,38 @@ class ScriptService:
         """
         script = await _require_script(script_id, db=db)
 
-        if script.status != ScriptStatus.MARKS_SUBMITTED.value:
+        acceptable = (
+            ScriptStatus.MARKS_SUBMITTED.value,
+            ScriptStatus.MODERATION_COMPLETE.value,
+        )
+        if script.status not in acceptable:
             raise ScriptServiceError(
                 "INVALID_STATUS",
-                f"Board finalisation requires status MARKS_SUBMITTED "
+                f"Board finalisation requires status MARKS_SUBMITTED or MODERATION_COMPLETE "
                 f"(current: {script.status!r}).",
             )
 
+        # M09.2: use MODERATION round when moderator marks exist; else PRIMARY
+        moderation_evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.MODERATION.value, db=db
+        )
+        authoritative_round = (
+            EvaluationRound.MODERATION.value
+            if moderation_evals
+            else EvaluationRound.PRIMARY.value
+        )
+
         # Step 1: copy COALESCE(board_adjusted_marks, evaluator_marks) → final_marks
         await ScriptEvaluationRepository.set_final_marks(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=authoritative_round, db=db
         )
 
         # Step 2: compute official total using final_marks (respects board adjustments)
         total_marks = await ScriptEvaluationRepository.sum_final_marks(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=authoritative_round, db=db
         )
         max_marks = await ScriptEvaluationRepository.sum_max_marks(
-            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            script_id, evaluation_round=authoritative_round, db=db
         )
 
         # For double-evaluation papers: snapshot pre-adjustment totals per evaluator
@@ -1269,6 +1338,440 @@ class ScriptService:
             waiting_second_evaluator=counts.get(ScriptStatus.WAITING_SECOND_EVALUATOR.value, 0),
             secondary_evaluated=counts.get(ScriptStatus.SECONDARY_EVALUATED.value, 0),
             marks_submitted=counts.get(ScriptStatus.MARKS_SUBMITTED.value, 0),
+            moderation_pending=counts.get(ScriptStatus.MODERATION_PENDING.value, 0),
+            moderation_complete=counts.get(ScriptStatus.MODERATION_COMPLETE.value, 0),
             board_finalised=board,
             completion_pct=round(board / total * 100, 1) if total > 0 else 0.0,
         )
+
+
+# ---------------------------------------------------------------------------
+# ModerationService — M09.2
+# ---------------------------------------------------------------------------
+
+class ModerationService:
+
+    # -----------------------------------------------------------------------
+    # Get variance — pre-moderation comparison view
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def get_variance(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> "ScriptVarianceResponse":
+        """
+        Return primary vs secondary evaluator totals and variance % for a script.
+        Available for any double-evaluation script from SECONDARY_EVALUATED onward.
+        For single-evaluator scripts, secondary_total is 0 and variance_pct is 0.
+        Identity is always masked.
+        """
+        from app.modules.m09_paper_admin.schemas import ScriptVarianceResponse
+
+        script = await _require_script(script_id, db=db)
+
+        primary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        secondary_total = (
+            await ScriptEvaluationRepository.sum_evaluator_marks(
+                script_id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+            )
+            if script.double_evaluation_enabled else 0.0
+        )
+        max_marks_total = await ScriptEvaluationRepository.sum_max_marks(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        threshold_pct = await ModerationRepository.get_threshold(
+            script.exam_paper_id, db=db
+        )
+        variance_pct = (
+            abs(primary_total - secondary_total) / max_marks_total * 100
+            if max_marks_total > 0 else 0.0
+        )
+
+        review = await ModerationRepository.get_by_script(script_id, db=db)
+
+        return ScriptVarianceResponse(
+            script_id=script.id,
+            masked_id=script.masked_id,
+            exam_paper_id=script.exam_paper_id,
+            status=script.status,
+            double_evaluation_enabled=script.double_evaluation_enabled,
+            primary_total=primary_total,
+            secondary_total=secondary_total,
+            max_marks_total=max_marks_total,
+            variance_pct=round(variance_pct, 2),
+            threshold_pct=threshold_pct,
+            exceeds_threshold=(variance_pct > threshold_pct),
+            moderation_review_id=review.id if review else None,
+            moderation_status=review.status if review else None,
+        )
+
+    # -----------------------------------------------------------------------
+    # Manual flag — Dean/Admin flags MARKS_SUBMITTED script
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def flag_for_moderation(
+        script_id: UUID,
+        *,
+        reason: str,
+        flagged_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> "ScriptModerationReview":
+        """
+        Dean/Admin manually flags a script for moderation.
+        Only valid when status == MARKS_SUBMITTED.
+        Creates a moderation review row and advances to MODERATION_PENDING.
+        """
+        from app.modules.m09_paper_admin.schemas import ModerationReviewResponse
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        script = await _require_script(script_id, db=db)
+
+        if script.status != ScriptStatus.MARKS_SUBMITTED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Manual moderation flag requires status MARKS_SUBMITTED "
+                f"(current: {script.status!r}).",
+            )
+
+        existing = await ModerationRepository.get_by_script(script_id, db=db)
+        if existing and existing.status == ModerationStatus.PENDING:
+            raise ScriptServiceError(
+                "ALREADY_FLAGGED",
+                "This script already has a pending moderation review.",
+                409,
+            )
+
+        primary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        secondary_total = (
+            await ScriptEvaluationRepository.sum_evaluator_marks(
+                script_id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+            )
+            if script.double_evaluation_enabled else 0.0
+        )
+        max_marks_total = await ScriptEvaluationRepository.sum_max_marks(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        threshold_pct = await ModerationRepository.get_threshold(
+            script.exam_paper_id, db=db
+        )
+        variance_pct = (
+            abs(primary_total - secondary_total) / max_marks_total * 100
+            if max_marks_total > 0 else 0.0
+        )
+
+        review = await ModerationRepository.create(
+            script_id=script_id,
+            exam_paper_id=script.exam_paper_id,
+            primary_total=primary_total,
+            secondary_total=secondary_total,
+            variance_pct=round(variance_pct, 2),
+            variance_threshold=threshold_pct,
+            flag_reason=reason,
+            flagged_by=flagged_by,
+            db=db,
+        )
+        await ScriptRepository.set_moderation_pending(script_id, db=db)
+        await db.commit()
+        await db.refresh(review)
+
+        await AuditService.log(
+            AuditEventType.SCRIPT_MODERATION_FLAGGED,
+            actor_user_id=flagged_by,
+            actor_role="DEAN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="scanned_script",
+            target_id=str(script_id),
+            metadata={
+                "flag_reason":     reason,
+                "variance_pct":    round(variance_pct, 2),
+                "threshold_pct":   threshold_pct,
+                "review_id":       str(review.id),
+            },
+        )
+        return review
+
+    # -----------------------------------------------------------------------
+    # Submit moderation — moderator enters per-question marks
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def submit_moderation(
+        script_id: UUID,
+        payload: "ModerationSubmitRequest",
+        *,
+        moderator_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> tuple[ScriptModerationReview, list[ScriptEvaluation]]:
+        """
+        Moderator submits per-question marks for a MODERATION_PENDING script.
+
+        Sequence:
+          1. Validate status == MODERATION_PENDING and a moderation review exists.
+          2. Verify all PRIMARY round questions are covered in the payload.
+          3. Create MODERATION round ScriptEvaluation rows.
+          4. Mark moderation review COMPLETE.
+          5. Advance script status → MODERATION_COMPLETE.
+          6. Log audit event.
+
+        Human-gate invariant:
+          - Original PRIMARY / SECONDARY evaluator_marks are never modified.
+          - MODERATION round rows carry the moderator's authoritative marks.
+          - board_finalise will use MODERATION round for final_marks.
+        """
+        from app.modules.m09_paper_admin.schemas import ModerationSubmitRequest
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        script = await _require_script(script_id, db=db)
+
+        if script.status != ScriptStatus.MODERATION_PENDING.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Moderation submit requires status MODERATION_PENDING "
+                f"(current: {script.status!r}).",
+            )
+
+        review = await ModerationRepository.get_by_script(script_id, db=db)
+        if review is None or review.status != ModerationStatus.PENDING:
+            raise ScriptServiceError(
+                "NO_REVIEW",
+                "No pending moderation review found for this script.",
+                404,
+            )
+
+        primary_evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        if not primary_evals:
+            raise ScriptServiceError(
+                "NO_EVALUATIONS",
+                "No PRIMARY evaluation rows found for this script.",
+                422,
+            )
+
+        primary_question_ids = {e.question_id for e in primary_evals}
+        submitted_ids = {UUID(qid) for qid in payload.marks}
+        missing = primary_question_ids - submitted_ids
+        if missing:
+            raise ScriptServiceError(
+                "INCOMPLETE_MARKS",
+                f"Moderation marks missing for {len(missing)} question(s). "
+                "All questions from the PRIMARY round must be covered.",
+                422,
+            )
+
+        marks_by_uuid: dict[UUID, dict] = {
+            UUID(qid): {
+                "evaluator_marks": m.evaluator_marks,
+                "evaluator_note":  m.evaluator_note,
+            }
+            for qid, m in payload.marks.items()
+        }
+
+        moderation_evals = await ScriptEvaluationRepository.bulk_create_moderation_evaluations(
+            marks_by_uuid,
+            primary_evals=primary_evals,
+            script_id=script_id,
+            db=db,
+        )
+
+        await ModerationRepository.complete(
+            review,
+            moderator_id=moderator_id,
+            moderation_notes=payload.moderation_notes,
+            db=db,
+        )
+        await ScriptRepository.set_moderation_complete(script_id, db=db)
+        await db.commit()
+        await db.refresh(review)
+
+        await AuditService.log(
+            AuditEventType.SCRIPT_MODERATION_SUBMITTED,
+            actor_user_id=moderator_id,
+            actor_role="DEAN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="scanned_script",
+            target_id=str(script_id),
+            metadata={
+                "review_id":        str(review.id),
+                "question_count":   len(moderation_evals),
+                "moderation_notes": payload.moderation_notes[:200],
+            },
+        )
+        return review, moderation_evals
+
+    # -----------------------------------------------------------------------
+    # Moderation history — full audit trail for a script
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def get_moderation_history(
+        script_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> "ModerationHistoryResponse":
+        """
+        Return the moderation review record plus all three evaluation rounds.
+        Available for MODERATION_PENDING, MODERATION_COMPLETE, and BOARD_FINALISED scripts.
+        Identity is always masked.
+        """
+        from app.modules.m09_paper_admin.schemas import (
+            ModerationHistoryResponse,
+            ModerationReviewResponse,
+            ScriptEvaluationResponse,
+        )
+
+        await _require_script(script_id, db=db)
+
+        review = await ModerationRepository.get_by_script(script_id, db=db)
+        primary_evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        secondary_evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+        )
+        moderation_evals = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.MODERATION.value, db=db
+        )
+
+        return ModerationHistoryResponse(
+            review=(
+                ModerationReviewResponse.model_validate(review) if review else None
+            ),
+            moderation_evals=[ScriptEvaluationResponse.model_validate(e) for e in moderation_evals],
+            primary_evals=[ScriptEvaluationResponse.model_validate(e) for e in primary_evals],
+            secondary_evals=[ScriptEvaluationResponse.model_validate(e) for e in secondary_evals],
+        )
+
+    # -----------------------------------------------------------------------
+    # Moderation queue — MODERATION_PENDING scripts for an exam paper
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def list_moderation_queue(
+        exam_paper_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> tuple[list[ScriptModerationReview], int]:
+        """List all PENDING moderation reviews for an exam paper, sorted by variance_pct desc."""
+        items = await ModerationRepository.list_pending_for_paper(
+            exam_paper_id, offset=offset, limit=limit, db=db
+        )
+        total = await ModerationRepository.count_pending_for_paper(
+            exam_paper_id, db=db
+        )
+        return items, total
+
+    # -----------------------------------------------------------------------
+    # Auto-flag all high-variance scripts for a paper
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def auto_flag_paper(
+        exam_paper_id: UUID,
+        *,
+        flagged_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> dict:
+        """
+        Scan all MARKS_SUBMITTED double-evaluation scripts for a paper and
+        auto-flag those exceeding the paper's discrepancy_threshold_pct.
+        Returns counts: {checked, flagged, already_pending, skipped}.
+        """
+        from sqlalchemy import select
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        threshold_pct = await ModerationRepository.get_threshold(exam_paper_id, db=db)
+
+        q = (
+            select(ScannedScript)
+            .where(
+                ScannedScript.exam_paper_id == exam_paper_id,
+                ScannedScript.status == ScriptStatus.MARKS_SUBMITTED.value,
+                ScannedScript.double_evaluation_enabled.is_(True),
+            )
+        )
+        result = await db.execute(q)
+        scripts = list(result.scalars().all())
+
+        checked = flagged = already_pending = skipped = 0
+        for script in scripts:
+            checked += 1
+            existing = await ModerationRepository.get_by_script(script.id, db=db)
+            if existing and existing.status == ModerationStatus.PENDING:
+                already_pending += 1
+                continue
+
+            primary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+                script.id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            )
+            secondary_total = await ScriptEvaluationRepository.sum_evaluator_marks(
+                script.id, evaluation_round=EvaluationRound.SECONDARY.value, db=db
+            )
+            max_marks_total = await ScriptEvaluationRepository.sum_max_marks(
+                script.id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+            )
+            variance_pct = (
+                abs(primary_total - secondary_total) / max_marks_total * 100
+                if max_marks_total > 0 else 0.0
+            )
+
+            if variance_pct > threshold_pct:
+                await ModerationRepository.create(
+                    script_id=script.id,
+                    exam_paper_id=exam_paper_id,
+                    primary_total=primary_total,
+                    secondary_total=secondary_total,
+                    variance_pct=round(variance_pct, 2),
+                    variance_threshold=threshold_pct,
+                    flag_reason="AUTO_VARIANCE",
+                    flagged_by=flagged_by,
+                    db=db,
+                )
+                await ScriptRepository.set_moderation_pending(script.id, db=db)
+                flagged += 1
+            else:
+                skipped += 1
+
+        if flagged > 0:
+            await db.commit()
+
+        await AuditService.log(
+            AuditEventType.SCRIPT_MODERATION_FLAGGED,
+            actor_user_id=flagged_by,
+            actor_role="DEAN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="exam_paper",
+            target_id=str(exam_paper_id),
+            metadata={
+                "action":          "auto_flag_paper",
+                "checked":         checked,
+                "flagged":         flagged,
+                "already_pending": already_pending,
+                "skipped":         skipped,
+                "threshold_pct":   threshold_pct,
+            },
+        )
+        return {
+            "checked":         checked,
+            "flagged":         flagged,
+            "already_pending": already_pending,
+            "skipped":         skipped,
+        }
