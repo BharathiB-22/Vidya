@@ -69,6 +69,15 @@ from app.modules.m09_paper_admin.schemas import (
     ModerationSubmitRequest,
     PaperPipelineStats,
     QualityOverrideRequest,
+    RevaluationAcceptRequest,
+    RevaluationBoardRatifyRequest,
+    RevaluationBoardRejectRequest,
+    RevaluationCreateRequest,
+    RevaluationDetailResponse,
+    RevaluationRejectRequest,
+    RevaluationRequestListResponse,
+    RevaluationRequestResponse,
+    RevaluationSubmitMarksRequest,
     ScannedScriptListResponse,
     ScannedScriptResponse,
     ScriptAssignEvaluatorRequest,
@@ -82,6 +91,7 @@ from app.modules.m09_paper_admin.schemas import (
 from app.modules.m09_paper_admin.service import (
     BoardApprovalService,
     ModerationService,
+    RevaluationService,
     ScriptService,
     ScriptServiceError,
 )
@@ -1073,3 +1083,208 @@ async def get_board_status(
     """Dean/Admin/Board: current board gate status for a paper."""
     db: AsyncSession = db_info["db"]
     return await BoardApprovalService.get_board_status(paper_id, db=db)
+
+
+# ---------------------------------------------------------------------------
+# M09.3 — Revaluation Workflow Endpoints
+# ---------------------------------------------------------------------------
+
+_STUDENT_ONLY = [TenantRole.STUDENT]
+_REVAL_ADMIN  = [TenantRole.ADMIN, TenantRole.DEAN]
+_REVAL_BOARD  = [TenantRole.DEAN, TenantRole.ADMIN, TenantRole.BOARD]
+
+
+@router.post("/revaluation/requests", response_model=RevaluationRequestResponse)
+async def submit_revaluation_request(
+    payload: RevaluationCreateRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student: submit a revaluation request for a script."""
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        req = await RevaluationService.submit_request(
+            payload.script_id,
+            payload.reason,
+            payload.payment_reference,
+            student_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return req
+
+
+@router.get("/revaluation/requests/my", response_model=RevaluationRequestListResponse)
+async def list_my_revaluation_requests(
+    offset: int = Query(default=0, ge=0),
+    limit:  int = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Student: list my revaluation requests."""
+    db: AsyncSession = db_info["db"]
+    items = await RevaluationService.list_my_requests(
+        current_user.user_id, offset=offset, limit=limit, db=db
+    )
+    return RevaluationRequestListResponse(
+        items=items, total=len(items), offset=offset, limit=limit
+    )
+
+
+@router.get("/revaluation/requests", response_model=RevaluationRequestListResponse)
+async def list_revaluation_requests(
+    paper_id: UUID = Query(..., description="Exam paper ID"),
+    status:   str | None = Query(default=None),
+    offset:   int = Query(default=0, ge=0),
+    limit:    int = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(require_roles(*_REVAL_ADMIN)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin/Dean: list revaluation requests for a paper."""
+    db: AsyncSession = db_info["db"]
+    items = await RevaluationService.list_requests_for_paper(
+        paper_id, status=status, offset=offset, limit=limit, db=db
+    )
+    return RevaluationRequestListResponse(
+        items=items, total=len(items), offset=offset, limit=limit
+    )
+
+
+@router.get("/revaluation/requests/{request_id}", response_model=RevaluationDetailResponse)
+async def get_revaluation_request(
+    request_id: UUID,
+    current_user: CurrentUser = Depends(_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Get revaluation request detail. Students may only view their own."""
+    db: AsyncSession = db_info["db"]
+    try:
+        result = await RevaluationService.get_request_detail(
+            request_id,
+            requester_user_id=current_user.user_id,
+            requester_role=current_user.role,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return result
+
+
+@router.post("/revaluation/requests/{request_id}/accept", response_model=RevaluationRequestResponse)
+async def accept_revaluation_request(
+    request_id: UUID,
+    payload: RevaluationAcceptRequest,
+    current_user: CurrentUser = Depends(require_roles(*_REVAL_ADMIN)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin: accept revaluation request and assign evaluator."""
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        req = await RevaluationService.accept_request(
+            request_id,
+            payload.assigned_evaluator_id,
+            payload.admin_notes,
+            admin_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return req
+
+
+@router.post("/revaluation/requests/{request_id}/reject", response_model=RevaluationRequestResponse)
+async def reject_revaluation_request(
+    request_id: UUID,
+    payload: RevaluationRejectRequest,
+    current_user: CurrentUser = Depends(require_roles(*_REVAL_ADMIN)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Admin: reject revaluation request at intake."""
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        req = await RevaluationService.reject_request(
+            request_id,
+            payload.admin_notes,
+            admin_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return req
+
+
+@router.post("/revaluation/requests/{request_id}/submit-marks", response_model=RevaluationRequestResponse)
+async def submit_revaluation_marks(
+    request_id: UUID,
+    payload: RevaluationSubmitMarksRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY, TenantRole.ADMIN)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Faculty (assigned evaluator): submit per-question revaluation marks."""
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        req = await RevaluationService.submit_revaluation_marks(
+            request_id,
+            payload.marks,
+            payload.submission_note,
+            evaluator_user_id=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return req
+
+
+@router.post("/revaluation/requests/{request_id}/board-ratify", response_model=RevaluationRequestResponse)
+async def board_ratify_revaluation(
+    request_id: UUID,
+    payload: RevaluationBoardRatifyRequest,
+    current_user: CurrentUser = Depends(require_roles(*_REVAL_BOARD)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Board/Admin: ratify revaluation outcome — awarded_total = max(original, revaluation)."""
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        req = await RevaluationService.board_ratify(
+            request_id,
+            payload.board_remarks,
+            decided_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return req
+
+
+@router.post("/revaluation/requests/{request_id}/board-reject", response_model=RevaluationRequestResponse)
+async def board_reject_revaluation(
+    request_id: UUID,
+    payload: RevaluationBoardRejectRequest,
+    current_user: CurrentUser = Depends(require_roles(*_REVAL_BOARD)),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Board/Admin: reject revaluation outcome — original marks stand."""
+    db: AsyncSession = db_info["db"]
+    tenant_id = db_info["tenant_id"]
+    try:
+        req = await RevaluationService.board_reject(
+            request_id,
+            payload.board_remarks,
+            decided_by=current_user.user_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except ScriptServiceError as exc:
+        _raise(exc)
+    return req

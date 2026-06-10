@@ -567,3 +567,111 @@ class BoardStatisticsResponse(BaseModel):
     pass_rate_pct:     float
     pass_mark_pct:     float
     board_status:      str
+
+
+# ---------------------------------------------------------------------------
+# Revaluation Workflow — M09.3
+# ---------------------------------------------------------------------------
+
+class RevaluationCreateRequest(BaseModel):
+    """Student submits a revaluation request for a script."""
+    script_id:         UUID
+    reason:            str = Field(..., min_length=20, description="Student's stated reason.")
+    payment_reference: Optional[str] = None
+
+
+class RevaluationAcceptRequest(BaseModel):
+    """Admin accepts revaluation request and assigns an evaluator."""
+    assigned_evaluator_id: UUID
+    admin_notes:           Optional[str] = None
+
+
+class RevaluationRejectRequest(BaseModel):
+    """Admin rejects a revaluation request at intake."""
+    admin_notes: str = Field(..., min_length=10, description="Mandatory rejection reason.")
+
+
+class RevaluationMarkEntry(BaseModel):
+    """Revaluator's mark for a single question."""
+    revaluation_marks: float = Field(..., ge=0)
+    evaluator_note:    Optional[str] = None
+
+
+class RevaluationSubmitMarksRequest(BaseModel):
+    """Revaluator submits per-question marks."""
+    marks: dict[str, RevaluationMarkEntry] = Field(
+        ...,
+        description="Mapping of question_id (str UUID) → revaluation mark.",
+    )
+    submission_note: Optional[str] = None
+
+    @model_validator(mode="after")
+    def at_least_one(self) -> "RevaluationSubmitMarksRequest":
+        if not self.marks:
+            raise ValueError("marks dict must contain at least one entry.")
+        return self
+
+
+class RevaluationBoardRatifyRequest(BaseModel):
+    """Board ratifies the revaluation outcome."""
+    board_remarks: Optional[str] = None
+
+
+class RevaluationBoardRejectRequest(BaseModel):
+    """Board rejects the revaluation outcome."""
+    board_remarks: str = Field(..., min_length=20, description="Mandatory rejection reason.")
+
+
+class RevaluationEvaluationResponse(BaseModel):
+    """Per-question revaluation marks."""
+    id:                UUID
+    request_id:        UUID
+    question_id:       UUID
+    question_type:     Optional[str]
+    max_marks:         Optional[float]
+    original_marks:    Optional[float]
+    revaluation_marks: Optional[float]
+    evaluator_note:    Optional[str]
+    created_at:        datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RevaluationRequestResponse(BaseModel):
+    """Full revaluation request record."""
+    id:                    UUID
+    script_id:             UUID
+    exam_paper_id:         UUID
+    student_user_id:       UUID
+    student_roll_ref:      Optional[str]
+    original_total:        float
+    max_marks:             float
+    reason:                str
+    payment_reference:     Optional[str]
+    status:                str
+    assigned_evaluator_id: Optional[UUID]
+    revaluation_total:     Optional[float]
+    awarded_total:         Optional[float]
+    admin_notes:           Optional[str]
+    board_remarks:         Optional[str]
+    decided_by:            Optional[UUID]
+    decided_at:            Optional[datetime]
+    window_closes_at:      Optional[datetime]
+    created_at:            datetime
+    updated_at:            Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class RevaluationRequestListResponse(BaseModel):
+    """Paginated list of revaluation requests."""
+    items:  list[RevaluationRequestResponse]
+    total:  int
+    offset: int
+    limit:  int
+
+
+class RevaluationDetailResponse(BaseModel):
+    """Full revaluation request + per-question evaluations."""
+    request:     RevaluationRequestResponse
+    evaluations: list[RevaluationEvaluationResponse]

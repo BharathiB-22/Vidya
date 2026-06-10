@@ -583,3 +583,104 @@ class ExamBoardCourseApproval(Base):
     created_at       = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     session = relationship("ExamBoardSession", back_populates="course_approval")
+
+
+# ---------------------------------------------------------------------------
+# Revaluation Workflow — M09.3
+# ---------------------------------------------------------------------------
+
+class RevaluationStatus(str, enum.Enum):
+    """Lifecycle of a revaluation request."""
+    SUBMITTED         = "SUBMITTED"          # student submitted
+    ACCEPTED          = "ACCEPTED"           # Admin accepted; evaluator assigned
+    IN_PROGRESS       = "IN_PROGRESS"        # revaluator working
+    EVALUATED         = "EVALUATED"          # revaluator submitted marks
+    BOARD_REVIEW      = "BOARD_REVIEW"       # forwarded to Board for ratification
+    APPROVED          = "APPROVED"           # Board ratified; awarded_total computed
+    REJECTED_BY_BOARD = "REJECTED_BY_BOARD"  # Board rejected the revaluation outcome
+    REJECTED          = "REJECTED"           # Admin rejected at intake
+    CLOSED            = "CLOSED"             # terminal state
+
+
+class RevaluationRequest(Base):
+    """
+    Student revaluation request for a script.
+
+    Human-gate invariants (M09.3):
+      - Only DECLARED scripts may have requests (checked in service).
+      - assigned_evaluator_id must differ from original + second evaluator.
+      - awarded_total = max(original_total, revaluation_total) — never less.
+      - Board ratification required before updating exam_score_ledger.
+      - This is the ONLY legitimate post-publication mark change path.
+    """
+    __tablename__ = "sis_revaluation_requests"
+    __table_args__ = (
+        Index("ix_reval_requests_script",    "script_id"),
+        Index("ix_reval_requests_student",   "student_user_id"),
+        Index("ix_reval_requests_exam_paper", "exam_paper_id"),
+        Index("ix_reval_requests_status",    "status"),
+        Index("ix_reval_requests_evaluator", "assigned_evaluator_id"),
+        Index("ix_reval_requests_created",   "created_at"),
+    )
+
+    id                    = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    script_id             = Column(
+        UUID(as_uuid=True),
+        ForeignKey("scanned_scripts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    exam_paper_id         = Column(UUID(as_uuid=True), nullable=False)  # denorm
+    student_user_id       = Column(UUID(as_uuid=True), nullable=False)
+    student_roll_ref      = Column(String, nullable=True)
+    original_total        = Column(Numeric(6, 2), nullable=False)  # snapshot at request time
+    max_marks             = Column(Numeric(6, 2), nullable=False)
+    reason                = Column(Text, nullable=False)
+    payment_reference     = Column(String, nullable=True)
+    status                = Column(String(30), nullable=False, server_default="SUBMITTED", default="SUBMITTED")
+    assigned_evaluator_id = Column(UUID(as_uuid=True), nullable=True)
+    revaluation_total     = Column(Numeric(6, 2), nullable=True)
+    awarded_total         = Column(Numeric(6, 2), nullable=True)  # max(original, revaluation)
+    admin_notes           = Column(Text, nullable=True)
+    board_remarks         = Column(Text, nullable=True)
+    decided_by            = Column(UUID(as_uuid=True), nullable=True)
+    decided_at            = Column(DateTime(timezone=True), nullable=True)
+    window_closes_at      = Column(DateTime(timezone=True), nullable=True)
+    created_at            = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at            = Column(
+        DateTime(timezone=True), nullable=True, onupdate=text("now()")
+    )
+
+    evaluations = relationship(
+        "RevaluationEvaluation",
+        back_populates="request",
+        cascade="all, delete-orphan",
+    )
+
+
+class RevaluationEvaluation(Base):
+    """Per-question marks from the revaluation evaluator."""
+    __tablename__ = "sis_revaluation_evaluations"
+    __table_args__ = (
+        Index("ix_reval_evals_request",  "request_id"),
+        Index("ix_reval_evals_question", "question_id"),
+    )
+
+    id                 = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id         = Column(
+        UUID(as_uuid=True),
+        ForeignKey("sis_revaluation_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    question_id        = Column(UUID(as_uuid=True), nullable=False)
+    question_type      = Column(String(30), nullable=True)
+    max_marks          = Column(Numeric(6, 2), nullable=True)
+    original_marks     = Column(Numeric(6, 2), nullable=True)
+    revaluation_marks  = Column(Numeric(6, 2), nullable=True)
+    evaluator_note     = Column(Text, nullable=True)
+    created_at         = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    request = relationship("RevaluationRequest", back_populates="evaluations")

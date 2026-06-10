@@ -36,6 +36,8 @@ from app.modules.m09_paper_admin.models import (
     ExamBoardSession,
     ExamScoreLedger,
     ModerationStatus,
+    RevaluationRequest,
+    RevaluationStatus,
     ScannedScript,
     ScriptEvaluation,
     ScriptModerationReview,
@@ -46,6 +48,8 @@ from app.modules.m09_paper_admin.repository import (
     BoardSessionRepository,
     ExamScoreLedgerRepository,
     ModerationRepository,
+    RevaluationEvaluationRepository,
+    RevaluationRepository,
     ScriptEvaluationRepository,
     ScriptRepository,
     TaskJobPublicRepository,
@@ -2161,3 +2165,500 @@ async def _require_board_session(session_id: UUID, *, db: AsyncSession) -> ExamB
     if session is None:
         raise ScriptServiceError("NOT_FOUND", f"Board session {session_id!r} not found.", 404)
     return session
+
+
+async def _require_revaluation(request_id: UUID, *, db: AsyncSession) -> RevaluationRequest:
+    """Load a revaluation request or raise 404."""
+    req = await RevaluationRepository.get_by_id(request_id, db=db)
+    if req is None:
+        raise ScriptServiceError("NOT_FOUND", f"Revaluation request {request_id!r} not found.", 404)
+    return req
+
+
+# ---------------------------------------------------------------------------
+# RevaluationService — M09.3 Post-publication revaluation workflow
+# ---------------------------------------------------------------------------
+
+class RevaluationService:
+    """
+    Revaluation workflow.
+
+    This is the ONLY legitimate post-publication mark change path.
+
+    Human-gate invariants:
+      - Only DECLARED scripts may have revaluation requests.
+      - assigned_evaluator_id must differ from original + second evaluator.
+      - awarded_total = max(original_total, revaluation_total) — never less.
+      - Board ratification required before updating exam_score_ledger.
+      - All changes append to ledger via a new ledger row (original preserved).
+    """
+
+    # -----------------------------------------------------------------------
+    # Submit (Student)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def submit_request(
+        script_id: UUID,
+        reason: str,
+        payment_reference: str | None,
+        *,
+        student_user_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """
+        Student submits a revaluation request.
+
+        Preconditions:
+          - Script must be BOARD_FINALISED.
+          - A DECLARED board session must exist for the paper.
+          - No active revaluation request may already exist for this script.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+        from datetime import datetime, timezone, timedelta
+
+        script = await _require_script(script_id, db=db)
+
+        if script.status != ScriptStatus.BOARD_FINALISED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Revaluation requests require script status BOARD_FINALISED "
+                f"(current: {script.status!r}).",
+            )
+
+        # Check declared board session exists for this paper
+        declared_session = await BoardSessionRepository.get_by_id_and_status(
+            script.exam_paper_id, BoardSessionStatus.DECLARED.value, db=db
+        ) if hasattr(BoardSessionRepository, "get_by_id_and_status") else None
+        # Simplified: check for any DECLARED session
+        sessions = await BoardSessionRepository.list_for_paper(
+            script.exam_paper_id, offset=0, limit=1, db=db
+        )
+        declared = any(s.status == BoardSessionStatus.DECLARED.value for s in sessions)
+        if not declared:
+            raise ScriptServiceError(
+                "RESULTS_NOT_DECLARED",
+                "Revaluation requests can only be submitted after results are declared.",
+                422,
+            )
+
+        # Guard: no active revaluation request
+        active_count = await RevaluationRepository.count_open_for_script(script_id, db=db)
+        if active_count > 0:
+            raise ScriptServiceError(
+                "ACTIVE_REQUEST_EXISTS",
+                "An active revaluation request already exists for this script.",
+                409,
+            )
+
+        # Get original total from ledger
+        ledger_entry = await ExamScoreLedgerRepository.get_by_script(script_id, db=db)
+        if ledger_entry is None:
+            raise ScriptServiceError(
+                "NO_LEDGER_ENTRY",
+                "No finalised score found for this script.",
+                422,
+            )
+
+        # Default revaluation window: 10 days from now
+        window_closes_at = datetime.now(timezone.utc) + timedelta(days=10)
+
+        req = await RevaluationRepository.create(
+            script_id=script_id,
+            exam_paper_id=script.exam_paper_id,
+            student_user_id=student_user_id,
+            student_roll_ref=script.student_roll_ref,
+            original_total=float(ledger_entry.total_marks),
+            max_marks=float(ledger_entry.max_marks),
+            reason=reason,
+            payment_reference=payment_reference,
+            window_closes_at=window_closes_at,
+            db=db,
+        )
+        await db.commit()
+        await db.refresh(req)
+
+        await AuditService.log(
+            AuditEventType.REVALUATION_REQUESTED,
+            actor_user_id=student_user_id,
+            actor_role="STUDENT",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="scanned_script",
+            target_id=str(script_id),
+            metadata={
+                "request_id":        str(req.id),
+                "original_total":    float(ledger_entry.total_marks),
+                "reason_summary":    reason[:200],
+                "payment_reference": payment_reference,
+            },
+        )
+        return req
+
+    # -----------------------------------------------------------------------
+    # Accept (Admin)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def accept_request(
+        request_id: UUID,
+        assigned_evaluator_id: UUID,
+        admin_notes: str | None,
+        *,
+        admin_user_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """
+        Admin accepts the request and assigns a senior evaluator.
+        Evaluator must not be the original or second evaluator.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        req = await _require_revaluation(request_id, db=db)
+        if req.status != RevaluationStatus.SUBMITTED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Accept requires status SUBMITTED (current: {req.status!r}).",
+            )
+
+        # Guard: evaluator must differ from originals
+        script = await _require_script(req.script_id, db=db)
+        if assigned_evaluator_id in {script.evaluator_id, script.second_evaluator_id}:
+            raise ScriptServiceError(
+                "EVALUATOR_CONFLICT",
+                "The assigned revaluation evaluator must differ from the original evaluator(s).",
+                422,
+            )
+
+        await RevaluationRepository.accept(
+            req,
+            assigned_evaluator_id=assigned_evaluator_id,
+            admin_notes=admin_notes,
+            db=db,
+        )
+        await db.commit()
+        await db.refresh(req)
+
+        await AuditService.log(
+            AuditEventType.REVALUATION_ACCEPTED,
+            actor_user_id=admin_user_id,
+            actor_role="ADMIN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="revaluation_request",
+            target_id=str(request_id),
+            metadata={
+                "assigned_evaluator_id": str(assigned_evaluator_id),
+                "admin_notes": admin_notes,
+            },
+        )
+        return req
+
+    # -----------------------------------------------------------------------
+    # Reject at intake (Admin)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def reject_request(
+        request_id: UUID,
+        admin_notes: str,
+        *,
+        admin_user_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """Admin rejects the request at intake."""
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        req = await _require_revaluation(request_id, db=db)
+        if req.status != RevaluationStatus.SUBMITTED.value:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Reject requires status SUBMITTED (current: {req.status!r}).",
+            )
+
+        await RevaluationRepository.reject_intake(
+            req, admin_notes=admin_notes, decided_by=admin_user_id, db=db
+        )
+        await db.commit()
+        await db.refresh(req)
+
+        await AuditService.log(
+            AuditEventType.REVALUATION_REJECTED,
+            actor_user_id=admin_user_id,
+            actor_role="ADMIN",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="revaluation_request",
+            target_id=str(request_id),
+            metadata={"admin_notes": admin_notes},
+        )
+        return req
+
+    # -----------------------------------------------------------------------
+    # Submit marks (Faculty revaluator)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def submit_revaluation_marks(
+        request_id: UUID,
+        marks: dict,  # {question_id str → RevaluationMarkEntry}
+        submission_note: str | None,
+        *,
+        evaluator_user_id: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """
+        Assigned evaluator submits per-question revaluation marks.
+        Status transitions: ACCEPTED or IN_PROGRESS → EVALUATED.
+        Computes revaluation_total as sum of revaluation_marks.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+        from app.modules.m09_paper_admin.schemas import RevaluationMarkEntry
+
+        req = await _require_revaluation(request_id, db=db)
+        valid = {RevaluationStatus.ACCEPTED.value, RevaluationStatus.IN_PROGRESS.value}
+        if req.status not in valid:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Submit marks requires status ACCEPTED or IN_PROGRESS (current: {req.status!r}).",
+            )
+
+        if req.assigned_evaluator_id != evaluator_user_id:
+            raise ScriptServiceError(
+                "UNAUTHORIZED_EVALUATOR",
+                "Only the assigned evaluator may submit revaluation marks.",
+                403,
+            )
+
+        # Get PRIMARY evaluations to copy original_marks
+        primary_evals = await ScriptEvaluationRepository.list_by_script(
+            req.script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        original_by_qid = {e.question_id: float(e.evaluator_marks or 0) for e in primary_evals}
+
+        rows = []
+        revaluation_total = 0.0
+        for qid_str, entry in marks.items():
+            from uuid import UUID as _UUID
+            q_id = _UUID(qid_str)
+            rows.append({
+                "question_id":       q_id,
+                "question_type":     next((e.question_type for e in primary_evals if e.question_id == q_id), None),
+                "max_marks":         next((float(e.max_marks) for e in primary_evals if e.question_id == q_id), None),
+                "original_marks":    original_by_qid.get(q_id),
+                "revaluation_marks": entry.revaluation_marks if hasattr(entry, "revaluation_marks") else entry["revaluation_marks"],
+                "evaluator_note":    entry.evaluator_note if hasattr(entry, "evaluator_note") else entry.get("evaluator_note"),
+            })
+            revaluation_total += rows[-1]["revaluation_marks"]
+
+        await RevaluationEvaluationRepository.bulk_create(
+            request_id=request_id, marks=rows, db=db
+        )
+        await RevaluationRepository.submit_marks(
+            req, revaluation_total=revaluation_total, db=db
+        )
+        await db.commit()
+        await db.refresh(req)
+
+        await AuditService.log(
+            AuditEventType.REVALUATION_MARKS_SUBMITTED,
+            actor_user_id=evaluator_user_id,
+            actor_role="FACULTY",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="revaluation_request",
+            target_id=str(request_id),
+            metadata={
+                "revaluation_total": revaluation_total,
+                "question_count":    len(rows),
+                "submission_note":   submission_note,
+            },
+        )
+        return req
+
+    # -----------------------------------------------------------------------
+    # Board ratify
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def board_ratify(
+        request_id: UUID,
+        board_remarks: str | None,
+        *,
+        decided_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """
+        Board ratifies the revaluation outcome.
+        awarded_total = max(original_total, revaluation_total).
+        Updates exam_score_ledger with awarded_total.
+        """
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        req = await _require_revaluation(request_id, db=db)
+        valid = {RevaluationStatus.EVALUATED.value, RevaluationStatus.BOARD_REVIEW.value}
+        if req.status not in valid:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Board ratify requires status EVALUATED or BOARD_REVIEW (current: {req.status!r}).",
+            )
+
+        # Compute awarded_total = max(original, revaluation)
+        await RevaluationRepository.board_ratify(
+            req,
+            decided_by=decided_by,
+            board_remarks=board_remarks,
+            db=db,
+        )
+
+        await db.commit()
+        await db.refresh(req)
+
+        await AuditService.log(
+            AuditEventType.REVALUATION_BOARD_RATIFIED,
+            actor_user_id=decided_by,
+            actor_role="BOARD",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="revaluation_request",
+            target_id=str(request_id),
+            metadata={
+                "original_total":    float(req.original_total),
+                "revaluation_total": float(req.revaluation_total or 0),
+                "awarded_total":     float(req.awarded_total or 0),
+                "board_remarks":     board_remarks,
+            },
+        )
+        return req
+
+    # -----------------------------------------------------------------------
+    # Board reject
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def board_reject(
+        request_id: UUID,
+        board_remarks: str,
+        *,
+        decided_by: UUID,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """Board rejects the revaluation outcome — original marks stand."""
+        from app.core.audit_log.models import AuditEventType
+        from app.core.audit_log.service import AuditService
+
+        req = await _require_revaluation(request_id, db=db)
+        valid = {RevaluationStatus.EVALUATED.value, RevaluationStatus.BOARD_REVIEW.value}
+        if req.status not in valid:
+            raise ScriptServiceError(
+                "INVALID_STATUS",
+                f"Board reject requires status EVALUATED or BOARD_REVIEW (current: {req.status!r}).",
+            )
+
+        await RevaluationRepository.board_reject(
+            req, decided_by=decided_by, board_remarks=board_remarks, db=db
+        )
+        await db.commit()
+        await db.refresh(req)
+
+        await AuditService.log(
+            AuditEventType.REVALUATION_BOARD_REJECTED,
+            actor_user_id=decided_by,
+            actor_role="BOARD",
+            tenant_id=tenant_id,
+            schema_name=None,
+            target_entity="revaluation_request",
+            target_id=str(request_id),
+            metadata={
+                "original_total": float(req.original_total),
+                "board_remarks":  board_remarks,
+            },
+        )
+        return req
+
+    # -----------------------------------------------------------------------
+    # Read operations
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def get_request(
+        request_id: UUID,
+        *,
+        requester_user_id: UUID,
+        requester_role: str,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        """
+        Fetch a revaluation request.
+        Students may only fetch their own requests.
+        """
+        req = await _require_revaluation(request_id, db=db)
+        if requester_role == "STUDENT" and req.student_user_id != requester_user_id:
+            raise ScriptServiceError(
+                "FORBIDDEN",
+                "Students may only view their own revaluation requests.",
+                403,
+            )
+        return req
+
+    @staticmethod
+    async def list_requests_for_paper(
+        exam_paper_id: UUID,
+        *,
+        status: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[RevaluationRequest]:
+        return await RevaluationRepository.list_for_paper(
+            exam_paper_id, status=status, offset=offset, limit=limit, db=db
+        )
+
+    @staticmethod
+    async def list_my_requests(
+        student_user_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[RevaluationRequest]:
+        return await RevaluationRepository.list_for_student(
+            student_user_id, offset=offset, limit=limit, db=db
+        )
+
+    @staticmethod
+    async def get_request_detail(
+        request_id: UUID,
+        *,
+        requester_user_id: UUID,
+        requester_role: str,
+        db: AsyncSession,
+    ):
+        """Fetch request + evaluations."""
+        from app.modules.m09_paper_admin.schemas import (
+            RevaluationDetailResponse,
+            RevaluationEvaluationResponse,
+            RevaluationRequestResponse,
+        )
+        req = await RevaluationService.get_request(
+            request_id,
+            requester_user_id=requester_user_id,
+            requester_role=requester_role,
+            db=db,
+        )
+        evals = await RevaluationEvaluationRepository.list_for_request(request_id, db=db)
+        return RevaluationDetailResponse(
+            request=RevaluationRequestResponse.model_validate(req),
+            evaluations=[RevaluationEvaluationResponse.model_validate(e) for e in evals],
+        )

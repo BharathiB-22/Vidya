@@ -28,6 +28,9 @@ from app.modules.m09_paper_admin.models import (
     ExamBoardSession,
     ExamScoreLedger,
     ModerationStatus,
+    RevaluationEvaluation,
+    RevaluationRequest,
+    RevaluationStatus,
     ScannedScript,
     ScriptEvaluation,
     ScriptModerationReview,
@@ -1198,3 +1201,229 @@ class BoardCourseApprovalRepository:
     ) -> None:
         approval.approval_status = status.value
         await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# RevaluationRepository — M09.3 Revaluation Workflow
+# ---------------------------------------------------------------------------
+
+class RevaluationRepository:
+    """
+    Revaluation request CRUD.
+    Every modification is a direct column update; no row is ever deleted.
+    """
+
+    @staticmethod
+    async def create(
+        script_id: UUID,
+        exam_paper_id: UUID,
+        student_user_id: UUID,
+        student_roll_ref: str | None,
+        original_total: float,
+        max_marks: float,
+        reason: str,
+        payment_reference: str | None,
+        window_closes_at,
+        *,
+        db: AsyncSession,
+    ) -> RevaluationRequest:
+        req = RevaluationRequest(
+            script_id=script_id,
+            exam_paper_id=exam_paper_id,
+            student_user_id=student_user_id,
+            student_roll_ref=student_roll_ref,
+            original_total=original_total,
+            max_marks=max_marks,
+            reason=reason,
+            payment_reference=payment_reference,
+            status=RevaluationStatus.SUBMITTED.value,
+            window_closes_at=window_closes_at,
+        )
+        db.add(req)
+        await db.flush()
+        return req
+
+    @staticmethod
+    async def get_by_id(request_id: UUID, *, db: AsyncSession) -> RevaluationRequest | None:
+        result = await db.execute(
+            select(RevaluationRequest).where(RevaluationRequest.id == request_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_for_paper(
+        exam_paper_id: UUID,
+        *,
+        status: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[RevaluationRequest]:
+        q = select(RevaluationRequest).where(
+            RevaluationRequest.exam_paper_id == exam_paper_id
+        )
+        if status:
+            q = q.where(RevaluationRequest.status == status)
+        q = q.order_by(RevaluationRequest.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def list_for_student(
+        student_user_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[RevaluationRequest]:
+        q = (
+            select(RevaluationRequest)
+            .where(RevaluationRequest.student_user_id == student_user_id)
+            .order_by(RevaluationRequest.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_open_for_script(script_id: UUID, *, db: AsyncSession) -> int:
+        """Count active (non-rejected, non-closed) requests for a script."""
+        active = {
+            RevaluationStatus.SUBMITTED.value,
+            RevaluationStatus.ACCEPTED.value,
+            RevaluationStatus.IN_PROGRESS.value,
+            RevaluationStatus.EVALUATED.value,
+            RevaluationStatus.BOARD_REVIEW.value,
+        }
+        result = await db.execute(
+            select(func.count(RevaluationRequest.id)).where(
+                RevaluationRequest.script_id == script_id,
+                RevaluationRequest.status.in_(active),
+            )
+        )
+        return result.scalar_one() or 0
+
+    @staticmethod
+    async def accept(
+        req: RevaluationRequest,
+        assigned_evaluator_id: UUID,
+        admin_notes: str | None,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        req.status = RevaluationStatus.ACCEPTED.value
+        req.assigned_evaluator_id = assigned_evaluator_id
+        req.admin_notes = admin_notes
+        await db.flush()
+
+    @staticmethod
+    async def reject_intake(
+        req: RevaluationRequest,
+        admin_notes: str,
+        decided_by: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        from datetime import datetime, timezone
+        req.status = RevaluationStatus.REJECTED.value
+        req.admin_notes = admin_notes
+        req.decided_by = decided_by
+        req.decided_at = datetime.now(timezone.utc)
+        await db.flush()
+
+    @staticmethod
+    async def set_in_progress(req: RevaluationRequest, *, db: AsyncSession) -> None:
+        req.status = RevaluationStatus.IN_PROGRESS.value
+        await db.flush()
+
+    @staticmethod
+    async def submit_marks(
+        req: RevaluationRequest,
+        revaluation_total: float,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        req.status = RevaluationStatus.EVALUATED.value
+        req.revaluation_total = revaluation_total
+        await db.flush()
+
+    @staticmethod
+    async def forward_to_board(req: RevaluationRequest, *, db: AsyncSession) -> None:
+        req.status = RevaluationStatus.BOARD_REVIEW.value
+        await db.flush()
+
+    @staticmethod
+    async def board_ratify(
+        req: RevaluationRequest,
+        decided_by: UUID,
+        board_remarks: str | None,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        from datetime import datetime, timezone
+        awarded = max(float(req.original_total), float(req.revaluation_total or 0))
+        req.status = RevaluationStatus.APPROVED.value
+        req.awarded_total = awarded
+        req.decided_by = decided_by
+        req.decided_at = datetime.now(timezone.utc)
+        req.board_remarks = board_remarks
+        await db.flush()
+
+    @staticmethod
+    async def board_reject(
+        req: RevaluationRequest,
+        decided_by: UUID,
+        board_remarks: str,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        from datetime import datetime, timezone
+        req.status = RevaluationStatus.REJECTED_BY_BOARD.value
+        req.decided_by = decided_by
+        req.decided_at = datetime.now(timezone.utc)
+        req.board_remarks = board_remarks
+        await db.flush()
+
+    @staticmethod
+    async def close(req: RevaluationRequest, *, db: AsyncSession) -> None:
+        req.status = RevaluationStatus.CLOSED.value
+        await db.flush()
+
+
+class RevaluationEvaluationRepository:
+    """Per-question marks for a revaluation request."""
+
+    @staticmethod
+    async def bulk_create(
+        request_id: UUID,
+        marks: list[dict],  # [{question_id, question_type, max_marks, original_marks, revaluation_marks, note}]
+        *,
+        db: AsyncSession,
+    ) -> list[RevaluationEvaluation]:
+        rows = []
+        for m in marks:
+            row = RevaluationEvaluation(
+                request_id=request_id,
+                question_id=m["question_id"],
+                question_type=m.get("question_type"),
+                max_marks=m.get("max_marks"),
+                original_marks=m.get("original_marks"),
+                revaluation_marks=m["revaluation_marks"],
+                evaluator_note=m.get("evaluator_note"),
+            )
+            db.add(row)
+            rows.append(row)
+        await db.flush()
+        return rows
+
+    @staticmethod
+    async def list_for_request(
+        request_id: UUID, *, db: AsyncSession
+    ) -> list[RevaluationEvaluation]:
+        result = await db.execute(
+            select(RevaluationEvaluation)
+            .where(RevaluationEvaluation.request_id == request_id)
+            .order_by(RevaluationEvaluation.created_at)
+        )
+        return list(result.scalars().all())

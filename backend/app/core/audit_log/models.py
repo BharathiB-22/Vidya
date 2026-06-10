@@ -303,6 +303,12 @@ class AuditEventType(str, enum.Enum):
     BOARD_SESSION_APPROVED      = "BOARD_SESSION_APPROVED"      # M09.4: board approved results
     BOARD_SESSION_REJECTED      = "BOARD_SESSION_REJECTED"      # M09.4: board rejected results
     RESULTS_DECLARED            = "RESULTS_DECLARED"            # M09.4: admin declared results to students
+    REVALUATION_REQUESTED       = "REVALUATION_REQUESTED"       # M09.3: student submitted revaluation
+    REVALUATION_ACCEPTED        = "REVALUATION_ACCEPTED"        # M09.3: admin accepted + assigned evaluator
+    REVALUATION_REJECTED        = "REVALUATION_REJECTED"        # M09.3: admin rejected at intake
+    REVALUATION_MARKS_SUBMITTED = "REVALUATION_MARKS_SUBMITTED" # M09.3: evaluator submitted revaluation marks
+    REVALUATION_BOARD_RATIFIED  = "REVALUATION_BOARD_RATIFIED"  # M09.3: board ratified, ledger updated
+    REVALUATION_BOARD_REJECTED  = "REVALUATION_BOARD_REJECTED"  # M09.3: board rejected revaluation outcome
 
     # Bell Curve Normaliser — M10
     BELL_CURVE_ANALYSIS_TRIGGERED     = "BELL_CURVE_ANALYSIS_TRIGGERED"
