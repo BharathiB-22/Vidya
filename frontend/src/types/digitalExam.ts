@@ -1,7 +1,7 @@
 // M09.5 Digital Exams — TypeScript types
 
 export type DigitalSessionStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED'
-export type DigitalAttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'SCORED'
+export type DigitalAttemptStatus = 'IN_PROGRESS' | 'SUBMITTED' | 'SCORED' | 'FULLY_EVALUATED'
 
 export interface DigitalExamSession {
   id:                string
@@ -126,4 +126,75 @@ export interface DigitalResultResponse {
   subjective_questions:  number
   attempted_count:       number
   correct_mcq:           number
+}
+
+// Phase D — Faculty Subjective Review
+
+export interface FacultyScoreIn {
+  score:  number
+  note?:  string | null
+}
+
+export interface SubjectiveResponseItem {
+  response_id:        string
+  question_id:        string
+  question_text:      string
+  max_marks:          number
+  response_text:      string | null
+  faculty_score:      number | null
+  faculty_note:       string | null
+  faculty_scored_by:  string | null
+  faculty_scored_at:  string | null
+}
+
+export interface SubjectiveScoreOut {
+  response_id:       string
+  question_id:       string
+  faculty_score:     number
+  faculty_note:      string | null
+  faculty_scored_by: string
+  faculty_scored_at: string
+}
+
+export interface SubjectivePendingAttempt {
+  attempt_id:       string
+  session_id:       string
+  status:           DigitalAttemptStatus
+  submitted_at:     string | null
+  auto_score:       number | null
+  mcq_max_score:    number | null
+  subjective_count: number
+  scored_count:     number
+}
+
+export interface SubjectiveQueueResponse {
+  session_id: string
+  items:      SubjectivePendingAttempt[]
+  total:      number
+}
+
+export interface SubjectiveReviewResponse {
+  attempt_id:        string
+  session_id:        string
+  status:            DigitalAttemptStatus
+  submitted_at:      string | null
+  auto_score:        number | null
+  mcq_max_score:     number | null
+  responses:         SubjectiveResponseItem[]
+  total_subjective:  number
+  scored_count:      number
+  all_scored:        boolean
+}
+
+export interface SubjectiveSubmitIn {
+  confirm: boolean
+}
+
+export interface SubjectiveSubmitResult {
+  attempt_id:           string
+  status:               DigitalAttemptStatus
+  total_subjective:     number
+  scored_count:         number
+  total_faculty_score:  number
+  fully_evaluated_at:   string
 }

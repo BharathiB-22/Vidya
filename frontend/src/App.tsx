@@ -122,6 +122,8 @@ import DigitalSessionDetailPage from '@/pages/DigitalSessionDetailPage'
 import DigitalMonitoringPage from '@/pages/DigitalMonitoringPage'
 import DeanDigitalAnalyticsPage from '@/pages/DeanDigitalAnalyticsPage'
 import SessionStatisticsPage from '@/pages/SessionStatisticsPage'
+import SubjectiveReviewQueuePage from '@/pages/SubjectiveReviewQueuePage'
+import SubjectiveReviewPage from '@/pages/SubjectiveReviewPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -414,6 +416,12 @@ export default function App() {
           {/* My Scripts — FACULTY evaluator view */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/scripts/evaluator" element={<MyScriptsPage />} />
+          </Route>
+
+          {/* Digital Subjective Review — FACULTY, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN']} />}>
+            <Route path="/faculty/digital-reviews"            element={<SubjectiveReviewQueuePage />} />
+            <Route path="/faculty/digital-reviews/:attemptId" element={<SubjectiveReviewPage />} />
           </Route>
 
           {/* Bell Curve — DEAN, ADMIN, BOARD */}

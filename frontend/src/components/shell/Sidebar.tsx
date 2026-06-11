@@ -6,7 +6,7 @@ import {
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
-  Activity,
+  Activity, PenLine,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -60,7 +60,8 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Research Supervision', to: '/research/problems',    icon: Microscope,    roles: ['FACULTY'] },
       { label: 'Exam Papers',          to: '/exams',                icon: FileText,      roles: ['FACULTY'] },
       { label: 'Internal Marks',       to: '/sis/marks/setup',      icon: BookMarked,    roles: ['FACULTY'] },
-      { label: 'My Evaluations',       to: '/scripts/evaluator',    icon: ClipboardList, roles: ['FACULTY'] },
+      { label: 'My Evaluations',  to: '/scripts/evaluator',      icon: ClipboardList, roles: ['FACULTY'] },
+      { label: 'Digital Reviews', to: '/faculty/digital-reviews', icon: PenLine,       roles: ['FACULTY'] },
     ],
   },
 

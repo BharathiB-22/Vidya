@@ -10,6 +10,12 @@ import type {
   DigitalSessionAnalytics,
   DigitalSessionCreate,
   DigitalSessionListResponse,
+  FacultyScoreIn,
+  SubjectiveQueueResponse,
+  SubjectiveReviewResponse,
+  SubjectiveScoreOut,
+  SubjectiveSubmitIn,
+  SubjectiveSubmitResult,
 } from '@/types/digitalExam'
 
 const BASE = '/scripts/digital'
@@ -100,5 +106,50 @@ export async function getSessionAnalytics(
   const { data } = await api.get(`${BASE}/sessions/${sessionId}/analytics`, {
     params: { pass_threshold_pct: passThresholdPct },
   })
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Phase D — Faculty Subjective Review
+// ---------------------------------------------------------------------------
+
+export async function listPendingSubjectiveReview(
+  sessionId: string,
+  params?: { offset?: number; limit?: number },
+): Promise<SubjectiveQueueResponse> {
+  const { data } = await api.get(
+    `${BASE}/sessions/${sessionId}/attempts/pending-review`,
+    { params },
+  )
+  return data
+}
+
+export async function getSubjectiveResponses(
+  attemptId: string,
+): Promise<SubjectiveReviewResponse> {
+  const { data } = await api.get(`${BASE}/attempts/${attemptId}/subjective-responses`)
+  return data
+}
+
+export async function saveFacultyScore(
+  attemptId:  string,
+  questionId: string,
+  payload:    FacultyScoreIn,
+): Promise<SubjectiveScoreOut> {
+  const { data } = await api.patch(
+    `${BASE}/attempts/${attemptId}/responses/${questionId}/faculty-score`,
+    payload,
+  )
+  return data
+}
+
+export async function submitSubjectiveScores(
+  attemptId: string,
+  payload:   SubjectiveSubmitIn,
+): Promise<SubjectiveSubmitResult> {
+  const { data } = await api.post(
+    `${BASE}/attempts/${attemptId}/subjective-submit`,
+    payload,
+  )
   return data
 }

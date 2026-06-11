@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '@/lib/api/digitalExam'
-import type { DigitalSessionCreate } from '@/types/digitalExam'
+import type { DigitalSessionCreate, FacultyScoreIn, SubjectiveSubmitIn } from '@/types/digitalExam'
 
 export const digitalExamKeys = {
-  all:          ['digitalExams'] as const,
-  sessions:     (f?: Record<string, unknown>) => [...digitalExamKeys.all, 'sessions', f] as const,
-  session:      (id: string) => [...digitalExamKeys.all, 'sessions', id] as const,
-  analytics:    (id: string) => [...digitalExamKeys.all, 'sessions', id, 'analytics'] as const,
-  attempt:      (id: string) => [...digitalExamKeys.all, 'attempts', id] as const,
-  questions:    (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'questions'] as const,
-  result:       (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'result'] as const,
+  all:              ['digitalExams'] as const,
+  sessions:         (f?: Record<string, unknown>) => [...digitalExamKeys.all, 'sessions', f] as const,
+  session:          (id: string) => [...digitalExamKeys.all, 'sessions', id] as const,
+  analytics:        (id: string) => [...digitalExamKeys.all, 'sessions', id, 'analytics'] as const,
+  attempt:          (id: string) => [...digitalExamKeys.all, 'attempts', id] as const,
+  questions:        (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'questions'] as const,
+  result:           (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'result'] as const,
+  pendingReview:    (sessionId: string) => [...digitalExamKeys.all, 'sessions', sessionId, 'pending-review'] as const,
+  subjectiveReview: (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'subjective-review'] as const,
 }
 
 export function useDigitalSessions(params?: { exam_paper_id?: string; offset?: number; limit?: number }) {
@@ -73,5 +75,56 @@ export function useSessionAnalytics(sessionId: string, passThresholdPct = 40) {
     queryKey: digitalExamKeys.analytics(sessionId),
     queryFn:  () => api.getSessionAnalytics(sessionId, passThresholdPct),
     enabled:  Boolean(sessionId),
+  })
+}
+
+// Phase D — Faculty Subjective Review
+
+export function usePendingSubjectiveReview(
+  sessionId: string,
+  params?: { offset?: number; limit?: number },
+) {
+  return useQuery({
+    queryKey: digitalExamKeys.pendingReview(sessionId),
+    queryFn:  () => api.listPendingSubjectiveReview(sessionId, params),
+    enabled:  Boolean(sessionId),
+  })
+}
+
+export function useSubjectiveResponses(attemptId: string) {
+  return useQuery({
+    queryKey: digitalExamKeys.subjectiveReview(attemptId),
+    queryFn:  () => api.getSubjectiveResponses(attemptId),
+    enabled:  Boolean(attemptId),
+  })
+}
+
+export function useSaveFacultyScore() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      attemptId,
+      questionId,
+      payload,
+    }: { attemptId: string; questionId: string; payload: FacultyScoreIn }) =>
+      api.saveFacultyScore(attemptId, questionId, payload),
+    onSuccess: (_, { attemptId }) => {
+      qc.invalidateQueries({ queryKey: digitalExamKeys.subjectiveReview(attemptId) })
+    },
+  })
+}
+
+export function useSubmitSubjectiveScores() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      attemptId,
+      payload,
+    }: { attemptId: string; payload: SubjectiveSubmitIn }) =>
+      api.submitSubjectiveScores(attemptId, payload),
+    onSuccess: (_, { attemptId }) => {
+      qc.invalidateQueries({ queryKey: digitalExamKeys.subjectiveReview(attemptId) })
+      qc.invalidateQueries({ queryKey: digitalExamKeys.attempt(attemptId) })
+    },
   })
 }
