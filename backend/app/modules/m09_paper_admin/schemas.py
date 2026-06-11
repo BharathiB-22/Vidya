@@ -818,3 +818,85 @@ class DigitalSessionAnalyticsResponse(BaseModel):
     pass_rate_pct:      Optional[float]
     pass_threshold_pct: float              # configurable; default 40 %
     score_buckets:      list[DigitalScoreBucket]
+
+
+# ---------------------------------------------------------------------------
+# M09.5 Faculty Subjective Review — Phase D
+# ---------------------------------------------------------------------------
+
+class FacultyScoreIn(BaseModel):
+    """Faculty enters a score for one subjective response."""
+    score: float = Field(..., ge=0, description="Marks awarded; must not exceed question max_marks")
+    note:  Optional[str] = Field(default=None, max_length=1000)
+
+
+class SubjectiveResponseItem(BaseModel):
+    """One subjective question + student answer for faculty review."""
+    response_id:       UUID
+    question_id:       UUID
+    question_text:     str
+    max_marks:         float
+    response_text:     Optional[str]
+    faculty_score:     Optional[float]
+    faculty_note:      Optional[str]
+    faculty_scored_by: Optional[UUID]
+    faculty_scored_at: Optional[datetime]
+
+
+class SubjectivePendingAttempt(BaseModel):
+    """Summary of one SCORED attempt for the faculty review queue."""
+    attempt_id:       UUID
+    session_id:       UUID
+    student_user_id:  UUID
+    status:           str
+    submitted_at:     Optional[datetime]
+    auto_score:       Optional[float]
+    mcq_max_score:    Optional[float]
+    subjective_count: int
+    scored_count:     int
+
+
+class SubjectiveQueueResponse(BaseModel):
+    items:  list[SubjectivePendingAttempt]
+    total:  int
+    offset: int
+    limit:  int
+
+
+class SubjectiveReviewResponse(BaseModel):
+    """Full subjective review panel for one attempt."""
+    attempt_id:       UUID
+    session_id:       UUID
+    status:           str
+    submitted_at:     Optional[datetime]
+    auto_score:       Optional[float]
+    mcq_max_score:    Optional[float]
+    responses:        list[SubjectiveResponseItem]
+    total_subjective: int
+    scored_count:     int
+    all_scored:       bool
+
+
+class SubjectiveScoreOut(BaseModel):
+    """Response after faculty saves score for one question."""
+    response_id:       UUID
+    question_id:       UUID
+    faculty_score:     Optional[float]
+    faculty_note:      Optional[str]
+    faculty_scored_by: Optional[UUID]
+    faculty_scored_at: Optional[datetime]
+
+
+class SubjectiveSubmitIn(BaseModel):
+    """Optional note on final submission of all subjective scores."""
+    submission_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SubjectiveSubmitResult(BaseModel):
+    """Result after faculty submits all subjective scores (Gate)."""
+    attempt_id:              UUID
+    status:                  str
+    total_auto_score:        Optional[float]
+    total_subjective_score:  float
+    total_score:             float
+    submission_note:         Optional[str]

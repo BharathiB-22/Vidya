@@ -1589,6 +1589,15 @@ class DigitalAttemptRepository:
         return attempt
 
     @staticmethod
+    async def mark_fully_evaluated(
+        attempt: DigitalExamAttempt, *, db: AsyncSession
+    ) -> DigitalExamAttempt:
+        """Set status → FULLY_EVALUATED after faculty submits all subjective scores."""
+        attempt.status = DigitalAttemptStatus.FULLY_EVALUATED
+        await db.flush()
+        return attempt
+
+    @staticmethod
     async def list_for_session(
         session_id: UUID, *, db: AsyncSession
     ) -> list[DigitalExamAttempt]:
@@ -1653,6 +1662,114 @@ class DigitalResponseRepository:
             .order_by(DigitalExamResponse.created_at)
         )
         return list(result.scalars().all())
+
+    @staticmethod
+    async def list_subjective_for_attempt(
+        attempt_id: UUID, *, db: AsyncSession
+    ) -> list[DigitalExamResponse]:
+        """Return only non-MCQ responses for an attempt, ordered by creation."""
+        result = await db.execute(
+            select(DigitalExamResponse)
+            .where(
+                DigitalExamResponse.attempt_id == attempt_id,
+                DigitalExamResponse.question_type != "MCQ",
+            )
+            .order_by(DigitalExamResponse.created_at)
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_by_attempt_and_question(
+        attempt_id: UUID, question_id: UUID, *, db: AsyncSession
+    ) -> DigitalExamResponse | None:
+        result = await db.execute(
+            select(DigitalExamResponse).where(
+                DigitalExamResponse.attempt_id == attempt_id,
+                DigitalExamResponse.question_id == question_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def score_subjective(
+        response: DigitalExamResponse,
+        *,
+        score: float,
+        note: str | None,
+        scored_by: UUID,
+        db: AsyncSession,
+    ) -> DigitalExamResponse:
+        """Write faculty score for one subjective response. Human-gate only — never called by Celery."""
+        response.faculty_score    = score
+        response.faculty_note     = note
+        response.faculty_scored_by = scored_by
+        response.faculty_scored_at = datetime.now(timezone.utc)
+        await db.flush()
+        return response
+
+    @staticmethod
+    async def count_unscored_subjective(
+        attempt_id: UUID, *, db: AsyncSession
+    ) -> int:
+        """Count subjective responses that still have faculty_score IS NULL."""
+        result = await db.execute(
+            select(func.count()).where(
+                DigitalExamResponse.attempt_id == attempt_id,
+                DigitalExamResponse.question_type != "MCQ",
+                DigitalExamResponse.faculty_score.is_(None),
+            )
+        )
+        return result.scalar_one()
+
+    @staticmethod
+    async def sum_faculty_scores(
+        attempt_id: UUID, *, db: AsyncSession
+    ) -> float:
+        """Sum of all faculty_scores for subjective responses in an attempt."""
+        result = await db.execute(
+            select(func.coalesce(func.sum(DigitalExamResponse.faculty_score), 0)).where(
+                DigitalExamResponse.attempt_id == attempt_id,
+                DigitalExamResponse.question_type != "MCQ",
+            )
+        )
+        return float(result.scalar() or 0.0)
+
+    @staticmethod
+    async def list_scored_for_session_with_pending_subjective(
+        session_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> tuple[list[DigitalExamAttempt], int]:
+        """
+        Return SCORED attempts that have at least one unscored subjective response.
+        Used to build the faculty review queue.
+        """
+        from sqlalchemy import exists as sa_exists
+
+        pending_subq = (
+            select(DigitalExamResponse.id)
+            .where(
+                DigitalExamResponse.attempt_id == DigitalExamAttempt.id,
+                DigitalExamResponse.question_type != "MCQ",
+                DigitalExamResponse.faculty_score.is_(None),
+            )
+            .correlate(DigitalExamAttempt)
+        )
+        base_q = select(DigitalExamAttempt).where(
+            DigitalExamAttempt.session_id == session_id,
+            DigitalExamAttempt.status == DigitalAttemptStatus.SCORED,
+            sa_exists(pending_subq),
+        )
+        count_result = await db.execute(
+            select(func.count()).select_from(base_q.subquery())
+        )
+        total = count_result.scalar_one()
+        result = await db.execute(
+            base_q.order_by(DigitalExamAttempt.submitted_at).offset(offset).limit(limit)
+        )
+        return list(result.scalars().all()), total
 
     @staticmethod
     async def score_mcq(

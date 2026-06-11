@@ -670,9 +670,10 @@ class DigitalExamSessionStatus(str, enum.Enum):
 
 
 class DigitalAttemptStatus(str, enum.Enum):
-    IN_PROGRESS = "IN_PROGRESS"  # student started; timer running
-    SUBMITTED   = "SUBMITTED"    # student submitted; awaiting auto-score
-    SCORED      = "SCORED"       # MCQ auto-scored; subjective pending evaluator
+    IN_PROGRESS     = "IN_PROGRESS"     # student started; timer running
+    SUBMITTED       = "SUBMITTED"       # student submitted; awaiting auto-score
+    SCORED          = "SCORED"          # MCQ auto-scored; subjective pending evaluator
+    FULLY_EVALUATED = "FULLY_EVALUATED" # all subjective scored and submitted by faculty
 
 
 class DigitalExamSession(Base):
@@ -799,6 +800,11 @@ class DigitalExamResponse(Base):
     is_auto_scored   = Column(Boolean, nullable=False, default=False, server_default="false")
     auto_score       = Column(Numeric(6, 2), nullable=True)
     is_correct       = Column(Boolean, nullable=True)
+    # Faculty scoring (subjective only — M09.5 Phase D)
+    faculty_score    = Column(Numeric(6, 2), nullable=True)
+    faculty_note     = Column(Text, nullable=True)
+    faculty_scored_by = Column(UUID(as_uuid=True), nullable=True)
+    faculty_scored_at = Column(DateTime(timezone=True), nullable=True)
     answered_at      = Column(DateTime(timezone=True), nullable=True)
     updated_at       = Column(DateTime(timezone=True), nullable=True)
     created_at       = Column(

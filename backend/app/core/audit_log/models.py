@@ -316,8 +316,10 @@ class AuditEventType(str, enum.Enum):
     DIGITAL_EXAM_SESSION_CLOSED    = "DIGITAL_EXAM_SESSION_CLOSED"    # admin closed session
     DIGITAL_EXAM_ATTEMPT_STARTED   = "DIGITAL_EXAM_ATTEMPT_STARTED"   # student started attempt
     DIGITAL_EXAM_RESPONSE_SAVED    = "DIGITAL_EXAM_RESPONSE_SAVED"    # student saved answer
-    DIGITAL_EXAM_SUBMITTED         = "DIGITAL_EXAM_SUBMITTED"         # student submitted exam
-    DIGITAL_EXAM_AUTO_SCORED       = "DIGITAL_EXAM_AUTO_SCORED"       # system auto-scored MCQ
+    DIGITAL_EXAM_SUBMITTED              = "DIGITAL_EXAM_SUBMITTED"              # student submitted exam
+    DIGITAL_EXAM_AUTO_SCORED            = "DIGITAL_EXAM_AUTO_SCORED"            # system auto-scored MCQ
+    DIGITAL_EXAM_SUBJECTIVE_SCORED      = "DIGITAL_EXAM_SUBJECTIVE_SCORED"      # faculty scored one subjective response
+    DIGITAL_EXAM_SUBJECTIVE_SUBMITTED   = "DIGITAL_EXAM_SUBJECTIVE_SUBMITTED"   # faculty submitted all subjective scores
 
     # Bell Curve Normaliser — M10
     BELL_CURVE_ANALYSIS_TRIGGERED     = "BELL_CURVE_ANALYSIS_TRIGGERED"

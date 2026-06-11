@@ -70,6 +70,7 @@ from app.modules.m09_paper_admin.schemas import (
     EvaluatorReviewResponse,
     ExamScoreLedgerListResponse,
     ExamScoreLedgerResponse,
+    FacultyScoreIn,
     JobStatusResponse,
     ModerationFlagRequest,
     ModerationHistoryResponse,
@@ -96,6 +97,11 @@ from app.modules.m09_paper_admin.schemas import (
     ScriptIngestRequest,
     ScriptSubmitMarksRequest,
     ScriptVarianceResponse,
+    SubjectiveQueueResponse,
+    SubjectiveReviewResponse,
+    SubjectiveScoreOut,
+    SubjectiveSubmitIn,
+    SubjectiveSubmitResult,
 )
 from app.modules.m09_paper_admin.service import (
     BoardApprovalService,
@@ -119,23 +125,25 @@ _BOARD    = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ     = [TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD]
 
 
-_ADMIN_ONLY    = [TenantRole.ADMIN]
-_MODERATE      = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.2: who can moderate
-_BOARD_APPROVE = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.4: who can approve/reject results
-_DIGITAL_ADMIN = [TenantRole.ADMIN, TenantRole.BOARD]  # M09.5: session management
-_DIGITAL_READ  = [TenantRole.ADMIN, TenantRole.BOARD, TenantRole.DEAN]  # M09.5: view sessions/results
-_STUDENT_ONLY  = [TenantRole.STUDENT]  # M09.5: exam taking
+_ADMIN_ONLY      = [TenantRole.ADMIN]
+_MODERATE        = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.2: who can moderate
+_BOARD_APPROVE   = [TenantRole.DEAN, TenantRole.ADMIN]  # M09.4: who can approve/reject results
+_DIGITAL_ADMIN   = [TenantRole.ADMIN, TenantRole.BOARD]  # M09.5: session management
+_DIGITAL_READ    = [TenantRole.ADMIN, TenantRole.BOARD, TenantRole.DEAN]  # M09.5: view sessions/results
+_STUDENT_ONLY    = [TenantRole.STUDENT]  # M09.5: exam taking
+_FACULTY_REVIEW  = [TenantRole.FACULTY, TenantRole.ADMIN]  # M09.5 Phase D: subjective scoring
 
-def _ingest_dep():         return require_roles(*_INGEST)
-def _eval_dep():           return require_roles(*_EVALUATE)
-def _board_dep():          return require_roles(*_BOARD)
-def _read_dep():           return require_roles(*_READ)
-def _admin_dep():          return require_roles(*_ADMIN_ONLY)
-def _moderate_dep():       return require_roles(*_MODERATE)
-def _board_approve_dep():  return require_roles(*_BOARD_APPROVE)
-def _digital_admin_dep():  return require_roles(*_DIGITAL_ADMIN)
-def _digital_read_dep():   return require_roles(*_DIGITAL_READ)
-def _student_dep():        return require_roles(*_STUDENT_ONLY)
+def _ingest_dep():          return require_roles(*_INGEST)
+def _eval_dep():            return require_roles(*_EVALUATE)
+def _board_dep():           return require_roles(*_BOARD)
+def _read_dep():            return require_roles(*_READ)
+def _admin_dep():           return require_roles(*_ADMIN_ONLY)
+def _moderate_dep():        return require_roles(*_MODERATE)
+def _board_approve_dep():   return require_roles(*_BOARD_APPROVE)
+def _digital_admin_dep():   return require_roles(*_DIGITAL_ADMIN)
+def _digital_read_dep():    return require_roles(*_DIGITAL_READ)
+def _student_dep():         return require_roles(*_STUDENT_ONLY)
+def _faculty_review_dep():  return require_roles(*_FACULTY_REVIEW)
 
 
 # ---------------------------------------------------------------------------
@@ -1535,6 +1543,135 @@ async def get_digital_session_analytics(
         return await DigitalExamService.get_session_analytics(
             session_id,
             pass_threshold_pct=pass_threshold_pct,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+# ---------------------------------------------------------------------------
+# M09.5 Phase D — Faculty Subjective Review
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/digital/sessions/{session_id}/attempts/pending-review",
+    response_model=SubjectiveQueueResponse,
+)
+async def list_pending_subjective_review(
+    session_id: UUID,
+    offset: int = Query(default=0, ge=0),
+    limit:  int = Query(default=50, ge=1, le=200),
+    current_user: CurrentUser = Depends(_faculty_review_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Faculty/Admin: list SCORED attempts that have unscored subjective responses.
+
+    FACULTY callers are restricted to sessions whose exam paper belongs to a
+    course they are assigned to (or created).  ADMIN sees all sessions.
+    """
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.list_pending_subjective_review(
+            session_id,
+            faculty_user_id=current_user.user_id,
+            faculty_role=current_user.role,
+            offset=offset,
+            limit=limit,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.get(
+    "/digital/attempts/{attempt_id}/subjective-responses",
+    response_model=SubjectiveReviewResponse,
+)
+async def get_subjective_responses(
+    attempt_id: UUID,
+    current_user: CurrentUser = Depends(_faculty_review_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Faculty/Admin: view all subjective questions + student answers for one attempt.
+
+    Valid only when attempt status is SCORED or FULLY_EVALUATED.
+    Includes question text, max_marks, student response, and any faculty score already saved.
+    """
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.get_subjective_responses(
+            attempt_id,
+            faculty_user_id=current_user.user_id,
+            faculty_role=current_user.role,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.patch(
+    "/digital/attempts/{attempt_id}/responses/{question_id}/faculty-score",
+    response_model=SubjectiveScoreOut,
+)
+async def save_faculty_score(
+    attempt_id:  UUID,
+    question_id: UUID,
+    payload: FacultyScoreIn,
+    current_user: CurrentUser = Depends(_faculty_review_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Faculty/Admin: save a score for one subjective response.
+
+    Constraints: 0 ≤ score ≤ question.max_marks.
+    May be called multiple times to revise a score before submission.
+    Does NOT advance the attempt status — call /subjective-submit for the Gate.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+    try:
+        return await DigitalExamService.save_faculty_score(
+            attempt_id,
+            question_id,
+            score=payload.score,
+            note=payload.note,
+            faculty_user_id=current_user.user_id,
+            faculty_role=current_user.role,
+            tenant_id=tenant_id,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.post(
+    "/digital/attempts/{attempt_id}/subjective-submit",
+    response_model=SubjectiveSubmitResult,
+)
+async def submit_subjective_scores(
+    attempt_id: UUID,
+    payload: SubjectiveSubmitIn,
+    current_user: CurrentUser = Depends(_faculty_review_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """
+    Faculty/Admin: submit all subjective scores for one attempt (Gate).
+
+    Pre-condition: every subjective response must have a faculty_score.
+    Post-condition: attempt status → FULLY_EVALUATED (irreversible).
+    Returns the MCQ auto-score, subjective total, and combined total.
+    """
+    db: AsyncSession = db_info["db"]
+    tenant_id: UUID  = db_info["tenant_id"]
+    try:
+        return await DigitalExamService.submit_subjective_scores(
+            attempt_id,
+            submission_note=payload.submission_note,
+            faculty_user_id=current_user.user_id,
+            faculty_role=current_user.role,
+            tenant_id=tenant_id,
             db=db,
         )
     except DigitalExamError as exc:

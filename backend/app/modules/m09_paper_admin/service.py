@@ -3225,3 +3225,344 @@ class DigitalExamService:
             pass_threshold_pct=pass_threshold_pct,
             score_buckets=buckets,
         )
+
+    # -----------------------------------------------------------------------
+    # M09.5 Phase D — Faculty Subjective Review
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def _check_faculty_course_access(
+        exam_paper_id: UUID,
+        faculty_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """
+        Verify the calling faculty member is authorised for the course linked to the
+        exam paper.  Authorised means either:
+          (a) they created the paper, or
+          (b) they have an active SubjectAssignment for the paper's course.
+        Raises DigitalExamError 403 if neither condition holds.
+        """
+        from app.modules.m08_exam_setter.models import ExamPaper
+        from app.modules.m_academics.models import SubjectAssignment
+        from sqlalchemy import select as sa_select
+
+        paper_result = await db.execute(
+            sa_select(ExamPaper).where(ExamPaper.id == exam_paper_id)
+        )
+        paper = paper_result.scalar_one_or_none()
+        if not paper:
+            raise DigitalExamError("Exam paper not found", 404)
+
+        if paper.created_by == faculty_user_id:
+            return
+
+        assignment_result = await db.execute(
+            sa_select(SubjectAssignment.id).where(
+                SubjectAssignment.course_id == paper.course_id,
+                SubjectAssignment.faculty_user_id == faculty_user_id,
+                SubjectAssignment.is_active.is_(True),
+            ).limit(1)
+        )
+        if assignment_result.scalar_one_or_none() is None:
+            raise DigitalExamError(
+                "You are not assigned to the course for this exam", 403
+            )
+
+    @staticmethod
+    async def list_pending_subjective_review(
+        session_id: UUID,
+        *,
+        faculty_user_id: UUID,
+        faculty_role: str,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ):
+        """
+        FACULTY/ADMIN: list SCORED attempts that still have unscored subjective responses.
+
+        FACULTY callers are restricted to sessions whose exam paper belongs to a course
+        they are assigned to (or created).  ADMIN bypasses the course check.
+        """
+        from app.modules.m09_paper_admin.schemas import (
+            SubjectivePendingAttempt,
+            SubjectiveQueueResponse,
+        )
+
+        session = await DigitalSessionRepository.get(session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+
+        if faculty_role == "FACULTY":
+            await DigitalExamService._check_faculty_course_access(
+                session.exam_paper_id, faculty_user_id, db=db
+            )
+
+        attempts, total = await DigitalResponseRepository.list_scored_for_session_with_pending_subjective(
+            session_id, offset=offset, limit=limit, db=db
+        )
+
+        items = []
+        for attempt in attempts:
+            all_subj = await DigitalResponseRepository.list_subjective_for_attempt(attempt.id, db=db)
+            unscored = await DigitalResponseRepository.count_unscored_subjective(attempt.id, db=db)
+            items.append(SubjectivePendingAttempt(
+                attempt_id=attempt.id,
+                session_id=attempt.session_id,
+                student_user_id=attempt.student_user_id,
+                status=attempt.status,
+                submitted_at=attempt.submitted_at,
+                auto_score=float(attempt.auto_score) if attempt.auto_score is not None else None,
+                mcq_max_score=float(attempt.mcq_max_score) if attempt.mcq_max_score is not None else None,
+                subjective_count=len(all_subj),
+                scored_count=len(all_subj) - unscored,
+            ))
+
+        return SubjectiveQueueResponse(items=items, total=total, offset=offset, limit=limit)
+
+    @staticmethod
+    async def get_subjective_responses(
+        attempt_id: UUID,
+        *,
+        faculty_user_id: UUID,
+        faculty_role: str,
+        db: AsyncSession,
+    ):
+        """
+        FACULTY/ADMIN: return all subjective questions + student answers for review.
+
+        Valid only for SCORED or FULLY_EVALUATED attempts.
+        FACULTY callers must be course-authorised.
+        """
+        from app.modules.m09_paper_admin.schemas import (
+            SubjectiveResponseItem,
+            SubjectiveReviewResponse,
+        )
+        from app.modules.m08_exam_setter.models import ExamQuestion
+        from sqlalchemy import select as sa_select
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+        if attempt.status not in (DigitalAttemptStatus.SCORED, DigitalAttemptStatus.FULLY_EVALUATED):
+            raise DigitalExamError(
+                "Attempt must be in SCORED or FULLY_EVALUATED state to review", 409
+            )
+
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        if faculty_role == "FACULTY":
+            await DigitalExamService._check_faculty_course_access(
+                session.exam_paper_id, faculty_user_id, db=db
+            )
+
+        responses = await DigitalResponseRepository.list_subjective_for_attempt(attempt_id, db=db)
+        question_ids = [r.question_id for r in responses]
+
+        questions: dict = {}
+        if question_ids:
+            q_result = await db.execute(
+                sa_select(ExamQuestion).where(ExamQuestion.id.in_(question_ids))
+            )
+            questions = {q.id: q for q in q_result.scalars().all()}
+
+        items = []
+        for r in responses:
+            q = questions.get(r.question_id)
+            items.append(SubjectiveResponseItem(
+                response_id=r.id,
+                question_id=r.question_id,
+                question_text=q.question_text if q else "",
+                max_marks=float(q.marks) if q else 0.0,
+                response_text=r.response_text,
+                faculty_score=float(r.faculty_score) if r.faculty_score is not None else None,
+                faculty_note=r.faculty_note,
+                faculty_scored_by=r.faculty_scored_by,
+                faculty_scored_at=r.faculty_scored_at,
+            ))
+
+        scored_count = sum(1 for r in responses if r.faculty_score is not None)
+        return SubjectiveReviewResponse(
+            attempt_id=attempt.id,
+            session_id=attempt.session_id,
+            status=attempt.status,
+            submitted_at=attempt.submitted_at,
+            auto_score=float(attempt.auto_score) if attempt.auto_score is not None else None,
+            mcq_max_score=float(attempt.mcq_max_score) if attempt.mcq_max_score is not None else None,
+            responses=items,
+            total_subjective=len(responses),
+            scored_count=scored_count,
+            all_scored=(scored_count == len(responses) and len(responses) > 0),
+        )
+
+    @staticmethod
+    async def save_faculty_score(
+        attempt_id: UUID,
+        question_id: UUID,
+        *,
+        score: float,
+        note: str | None,
+        faculty_user_id: UUID,
+        faculty_role: str,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ):
+        """
+        FACULTY/ADMIN: save a score for one subjective response.
+
+        Validates:
+          - Attempt in SCORED state
+          - Faculty course authorisation
+          - Question belongs to the exam paper
+          - 0 <= score <= question.max_marks
+          - Response is subjective (not MCQ)
+        Does NOT advance attempt status — use subjective-submit for the Gate.
+        """
+        from app.modules.m09_paper_admin.schemas import SubjectiveScoreOut
+        from app.modules.m08_exam_setter.models import ExamQuestion
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+        from sqlalchemy import select as sa_select
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+        if attempt.status != DigitalAttemptStatus.SCORED:
+            raise DigitalExamError(
+                "Attempt must be in SCORED state to enter subjective marks", 409
+            )
+
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        if faculty_role == "FACULTY":
+            await DigitalExamService._check_faculty_course_access(
+                session.exam_paper_id, faculty_user_id, db=db
+            )
+
+        q_result = await db.execute(
+            sa_select(ExamQuestion).where(
+                ExamQuestion.id == question_id,
+                ExamQuestion.exam_paper_id == session.exam_paper_id,
+            )
+        )
+        question = q_result.scalar_one_or_none()
+        if not question:
+            raise DigitalExamError("Question not found in this exam paper", 404)
+
+        max_marks = float(question.marks)
+        if score < 0 or score > max_marks:
+            raise DigitalExamError(
+                f"Score must be between 0 and {max_marks}", 422
+            )
+
+        response = await DigitalResponseRepository.get_by_attempt_and_question(
+            attempt_id, question_id, db=db
+        )
+        if not response:
+            raise DigitalExamError("No submitted response found for this question", 404)
+        if response.question_type == "MCQ":
+            raise DigitalExamError("MCQ responses are auto-scored; faculty scoring not applicable", 409)
+
+        response = await DigitalResponseRepository.score_subjective(
+            response, score=score, note=note, scored_by=faculty_user_id, db=db
+        )
+
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_SUBJECTIVE_SCORED,
+            actor_user_id=faculty_user_id,
+            resource_type="digital_exam_response",
+            resource_id=response.id,
+            metadata={
+                "attempt_id": str(attempt_id),
+                "question_id": str(question_id),
+                "score": score,
+                "max_marks": max_marks,
+                "tenant_id": str(tenant_id),
+            },
+        )
+
+        return SubjectiveScoreOut(
+            response_id=response.id,
+            question_id=response.question_id,
+            faculty_score=float(response.faculty_score),
+            faculty_note=response.faculty_note,
+            faculty_scored_by=response.faculty_scored_by,
+            faculty_scored_at=response.faculty_scored_at,
+        )
+
+    @staticmethod
+    async def submit_subjective_scores(
+        attempt_id: UUID,
+        *,
+        submission_note: str | None,
+        faculty_user_id: UUID,
+        faculty_role: str,
+        tenant_id: UUID,
+        db: AsyncSession,
+    ):
+        """
+        GATE: Faculty submits all subjective scores for one attempt.
+
+        Pre-conditions:
+          - Attempt status == SCORED
+          - All subjective responses have a faculty_score (none NULL)
+        Post-condition:
+          - Attempt status → FULLY_EVALUATED (append-only; no rollback)
+          - Audit log entry with totals
+        """
+        from app.modules.m09_paper_admin.schemas import SubjectiveSubmitResult
+        from app.core.audit_log.service import AuditService as AuditLogService
+        from app.core.audit_log.models import AuditEventType
+
+        attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
+        if not attempt:
+            raise DigitalExamError("Attempt not found", 404)
+        if attempt.status != DigitalAttemptStatus.SCORED:
+            raise DigitalExamError(
+                "Attempt must be in SCORED state; cannot re-submit after FULLY_EVALUATED", 409
+            )
+
+        session = await DigitalSessionRepository.get(attempt.session_id, db=db)
+        if faculty_role == "FACULTY":
+            await DigitalExamService._check_faculty_course_access(
+                session.exam_paper_id, faculty_user_id, db=db
+            )
+
+        unscored = await DigitalResponseRepository.count_unscored_subjective(attempt_id, db=db)
+        if unscored > 0:
+            raise DigitalExamError(
+                f"{unscored} subjective question(s) still need scoring before submission",
+                422,
+            )
+
+        subjective_total = await DigitalResponseRepository.sum_faculty_scores(attempt_id, db=db)
+        auto_score = float(attempt.auto_score) if attempt.auto_score is not None else 0.0
+        total_score = auto_score + subjective_total
+
+        await DigitalAttemptRepository.mark_fully_evaluated(attempt, db=db)
+
+        await AuditLogService.log(
+            db=db,
+            event_type=AuditEventType.DIGITAL_EXAM_SUBJECTIVE_SUBMITTED,
+            actor_user_id=faculty_user_id,
+            resource_type="digital_exam_attempt",
+            resource_id=attempt.id,
+            metadata={
+                "session_id": str(attempt.session_id),
+                "subjective_total": subjective_total,
+                "auto_score": auto_score,
+                "total_score": total_score,
+                "submission_note": submission_note,
+                "tenant_id": str(tenant_id),
+            },
+        )
+
+        return SubjectiveSubmitResult(
+            attempt_id=attempt.id,
+            status="FULLY_EVALUATED",
+            total_auto_score=auto_score,
+            total_subjective_score=subjective_total,
+            total_score=total_score,
+            submission_note=submission_note,
+        )
