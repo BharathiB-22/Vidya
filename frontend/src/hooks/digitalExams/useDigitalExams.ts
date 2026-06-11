@@ -6,6 +6,7 @@ export const digitalExamKeys = {
   all:          ['digitalExams'] as const,
   sessions:     (f?: Record<string, unknown>) => [...digitalExamKeys.all, 'sessions', f] as const,
   session:      (id: string) => [...digitalExamKeys.all, 'sessions', id] as const,
+  analytics:    (id: string) => [...digitalExamKeys.all, 'sessions', id, 'analytics'] as const,
   attempt:      (id: string) => [...digitalExamKeys.all, 'attempts', id] as const,
   questions:    (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'questions'] as const,
   result:       (attemptId: string) => [...digitalExamKeys.all, 'attempts', attemptId, 'result'] as const,
@@ -64,5 +65,13 @@ export function useCloseSession() {
   return useMutation({
     mutationFn: (sessionId: string) => api.closeSession(sessionId),
     onSuccess: () => qc.invalidateQueries({ queryKey: digitalExamKeys.all }),
+  })
+}
+
+export function useSessionAnalytics(sessionId: string, passThresholdPct = 40) {
+  return useQuery({
+    queryKey: digitalExamKeys.analytics(sessionId),
+    queryFn:  () => api.getSessionAnalytics(sessionId, passThresholdPct),
+    enabled:  Boolean(sessionId),
   })
 }

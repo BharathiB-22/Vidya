@@ -788,3 +788,33 @@ class DigitalResultResponse(BaseModel):
     subjective_questions: int
     attempted_count:    int
     correct_mcq:        int
+
+
+# ---------------------------------------------------------------------------
+# M09.5 Dean Analytics
+# ---------------------------------------------------------------------------
+
+class DigitalScoreBucket(BaseModel):
+    label:   str    # e.g. "0–10 %"
+    pct_lo:  int
+    pct_hi:  int
+    count:   int
+
+
+class DigitalSessionAnalyticsResponse(BaseModel):
+    """Per-session analytics for Dean / Admin / Board."""
+    session_id:         str
+    title:              str
+    status:             str
+    attempt_count:      int
+    scored_count:       int
+    in_progress_count:  int
+    avg_score_pct:      Optional[float]    # 0–100
+    min_score_pct:      Optional[float]
+    max_score_pct:      Optional[float]
+    median_score_pct:   Optional[float]
+    pass_count:         int
+    fail_count:         int
+    pass_rate_pct:      Optional[float]
+    pass_threshold_pct: float              # configurable; default 40 %
+    score_buckets:      list[DigitalScoreBucket]

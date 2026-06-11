@@ -63,6 +63,7 @@ from app.modules.m09_paper_admin.schemas import (
     DigitalResponseIn,
     DigitalResponseOut,
     DigitalResultResponse,
+    DigitalSessionAnalyticsResponse,
     DigitalSessionCreate,
     DigitalSessionListResponse,
     DigitalSessionResponse,
@@ -1512,6 +1513,28 @@ async def get_attempt_result(
             attempt_id,
             requester_user_id=current_user.user_id,
             requester_role=current_user.role,
+            db=db,
+        )
+    except DigitalExamError as exc:
+        _raise_digital(exc)
+
+
+@router.get(
+    "/digital/sessions/{session_id}/analytics",
+    response_model=DigitalSessionAnalyticsResponse,
+)
+async def get_digital_session_analytics(
+    session_id: UUID,
+    pass_threshold_pct: float = Query(default=40.0, ge=1.0, le=100.0),
+    current_user: CurrentUser = Depends(_digital_read_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """Dean/Admin/Board: aggregate score analytics for a session."""
+    db: AsyncSession = db_info["db"]
+    try:
+        return await DigitalExamService.get_session_analytics(
+            session_id,
+            pass_threshold_pct=pass_threshold_pct,
             db=db,
         )
     except DigitalExamError as exc:

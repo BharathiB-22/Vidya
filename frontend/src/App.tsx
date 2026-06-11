@@ -120,6 +120,8 @@ import DigitalSessionsPage from '@/pages/DigitalSessionsPage'
 import CreateDigitalSessionPage from '@/pages/CreateDigitalSessionPage'
 import DigitalSessionDetailPage from '@/pages/DigitalSessionDetailPage'
 import DigitalMonitoringPage from '@/pages/DigitalMonitoringPage'
+import DeanDigitalAnalyticsPage from '@/pages/DeanDigitalAnalyticsPage'
+import SessionStatisticsPage from '@/pages/SessionStatisticsPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -173,6 +175,12 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/course-assignments" element={<CourseAssignmentsPage />} />
             <Route path="/dean-review"        element={<DeanReviewPage />} />
+          </Route>
+
+          {/* Dean Digital Exam Analytics — DEAN, ADMIN, BOARD */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
+            <Route path="/exams/digital/analytics"              element={<DeanDigitalAnalyticsPage />} />
+            <Route path="/exams/digital/analytics/:sessionId"   element={<SessionStatisticsPage />} />
           </Route>
 
           {/* My Courses — FACULTY only */}

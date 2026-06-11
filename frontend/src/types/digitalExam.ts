@@ -93,6 +93,31 @@ export interface DigitalResponseIn {
   response_text?:   string | null
 }
 
+export interface DigitalScoreBucket {
+  label:   string
+  pct_lo:  number
+  pct_hi:  number
+  count:   number
+}
+
+export interface DigitalSessionAnalytics {
+  session_id:         string
+  title:              string
+  status:             string
+  attempt_count:      number
+  scored_count:       number
+  in_progress_count:  number
+  avg_score_pct:      number | null
+  min_score_pct:      number | null
+  max_score_pct:      number | null
+  median_score_pct:   number | null
+  pass_count:         number
+  fail_count:         number
+  pass_rate_pct:      number | null
+  pass_threshold_pct: number
+  score_buckets:      DigitalScoreBucket[]
+}
+
 export interface DigitalResultResponse {
   attempt:               DigitalExamAttempt
   responses:             DigitalResponseOut[]

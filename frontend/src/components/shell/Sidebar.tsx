@@ -97,7 +97,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Analytics',
     items: [
-      { label: 'Grade Analytics', to: '/bell-curve', icon: BarChart2, roles: ['DEAN'] },
+      { label: 'Grade Analytics',        to: '/bell-curve',                   icon: BarChart2, roles: ['DEAN'] },
+      { label: 'Digital Exam Analytics', to: '/exams/digital/analytics',      icon: Monitor,   roles: ['DEAN'] },
     ],
   },
 
@@ -185,6 +186,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Grade Analytics',   to: '/bell-curve',                  icon: BarChart2,      roles: ['BOARD'] },
       { label: 'Digital Sessions',  to: '/exams/digital',               icon: Monitor,        roles: ['BOARD'] },
       { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',    icon: Activity,       roles: ['BOARD'] },
+      { label: 'Exam Analytics',    to: '/exams/digital/analytics',     icon: BarChart2,      roles: ['BOARD'] },
     ],
   },
 

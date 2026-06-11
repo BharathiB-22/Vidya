@@ -7,6 +7,7 @@ import type {
   DigitalResultResponse,
   DigitalResponseIn,
   DigitalResponseOut,
+  DigitalSessionAnalytics,
   DigitalSessionCreate,
   DigitalSessionListResponse,
 } from '@/types/digitalExam'
@@ -89,5 +90,15 @@ export async function getAttemptResult(
   attemptId: string,
 ): Promise<DigitalResultResponse> {
   const { data } = await api.get(`${BASE}/attempts/${attemptId}/result`)
+  return data
+}
+
+export async function getSessionAnalytics(
+  sessionId: string,
+  passThresholdPct = 40,
+): Promise<DigitalSessionAnalytics> {
+  const { data } = await api.get(`${BASE}/sessions/${sessionId}/analytics`, {
+    params: { pass_threshold_pct: passThresholdPct },
+  })
   return data
 }

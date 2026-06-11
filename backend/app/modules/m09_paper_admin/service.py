@@ -3146,3 +3146,82 @@ class DigitalExamService:
             attempted_count=len(responses),
             correct_mcq=correct_mcq,
         )
+
+    @staticmethod
+    async def get_session_analytics(
+        session_id: UUID,
+        *,
+        pass_threshold_pct: float = 40.0,
+        db: AsyncSession,
+    ):
+        """Return aggregate score analytics for a session (Dean / Admin / Board)."""
+        from app.modules.m09_paper_admin.schemas import (
+            DigitalScoreBucket,
+            DigitalSessionAnalyticsResponse,
+        )
+        import statistics
+
+        session = await DigitalSessionRepository.get(session_id, db=db)
+        if not session:
+            raise DigitalExamError("Session not found", 404)
+
+        attempts = await DigitalAttemptRepository.list_for_session(session_id, db=db)
+
+        scored = [
+            a for a in attempts
+            if a.status == DigitalAttemptStatus.SCORED
+            and a.auto_score is not None
+            and a.mcq_max_score is not None
+            and a.mcq_max_score > 0
+        ]
+        in_progress = sum(
+            1 for a in attempts if a.status == DigitalAttemptStatus.IN_PROGRESS
+        )
+
+        # Score percentages (0–100)
+        score_pcts = [
+            float(a.auto_score) / float(a.mcq_max_score) * 100
+            for a in scored
+        ]
+
+        avg_pct = round(statistics.mean(score_pcts), 1)    if score_pcts else None
+        min_pct = round(min(score_pcts), 1)                if score_pcts else None
+        max_pct = round(max(score_pcts), 1)                if score_pcts else None
+        median_pct = round(statistics.median(score_pcts), 1) if score_pcts else None
+
+        pass_count = sum(1 for p in score_pcts if p >= pass_threshold_pct)
+        fail_count = len(score_pcts) - pass_count
+        pass_rate  = round(pass_count / len(score_pcts) * 100, 1) if score_pcts else None
+
+        # 10-point buckets
+        bucket_edges = list(range(0, 101, 10))
+        buckets: list[DigitalScoreBucket] = []
+        for lo, hi in zip(bucket_edges, bucket_edges[1:]):
+            cnt = sum(1 for p in score_pcts if lo <= p < hi)
+            # include 100 in the last bucket
+            if hi == 100:
+                cnt = sum(1 for p in score_pcts if lo <= p <= 100)
+            buckets.append(DigitalScoreBucket(
+                label=f"{lo}–{hi}%",
+                pct_lo=lo,
+                pct_hi=hi,
+                count=cnt,
+            ))
+
+        return DigitalSessionAnalyticsResponse(
+            session_id=str(session.id),
+            title=session.title,
+            status=session.status.value,
+            attempt_count=len(attempts),
+            scored_count=len(scored),
+            in_progress_count=in_progress,
+            avg_score_pct=avg_pct,
+            min_score_pct=min_pct,
+            max_score_pct=max_pct,
+            median_score_pct=median_pct,
+            pass_count=pass_count,
+            fail_count=fail_count,
+            pass_rate_pct=pass_rate,
+            pass_threshold_pct=pass_threshold_pct,
+            score_buckets=buckets,
+        )
