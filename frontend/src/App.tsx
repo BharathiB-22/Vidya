@@ -116,6 +116,10 @@ import ActiveExamPage from '@/pages/student/ActiveExamPage'
 import SubmissionConfirmPage from '@/pages/student/SubmissionConfirmPage'
 import ExamResultPage from '@/pages/student/ExamResultPage'
 import { ExamGuard } from '@/components/digitalExams/ExamGuard'
+import DigitalSessionsPage from '@/pages/DigitalSessionsPage'
+import CreateDigitalSessionPage from '@/pages/CreateDigitalSessionPage'
+import DigitalSessionDetailPage from '@/pages/DigitalSessionDetailPage'
+import DigitalMonitoringPage from '@/pages/DigitalMonitoringPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -375,6 +379,14 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
             <Route path="/exams/internal-marks" element={<InternalExamReleasePage />} />
             <Route path="/exams/internal-marks/course/:courseId" element={<InternalExamReleasePage />} />
+          </Route>
+
+          {/* Digital Exam Sessions — ADMIN, BOARD */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'BOARD']} />}>
+            <Route path="/exams/digital"              element={<DigitalSessionsPage />} />
+            <Route path="/exams/digital/create"       element={<CreateDigitalSessionPage />} />
+            <Route path="/exams/digital/monitoring"   element={<DigitalMonitoringPage />} />
+            <Route path="/exams/digital/:sessionId"   element={<DigitalSessionDetailPage />} />
           </Route>
 
           {/* Scanned Scripts — ADMIN, BOARD */}

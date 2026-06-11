@@ -6,6 +6,7 @@ import {
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
+  Activity,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -147,6 +148,15 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
+  // ── ADMIN: Examinations ───────────────────────────────────────────────────
+  {
+    heading: 'Examinations',
+    items: [
+      { label: 'Digital Sessions',  to: '/exams/digital',             icon: Monitor,     roles: ['ADMIN'] },
+      { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',  icon: Activity,    roles: ['ADMIN'] },
+    ],
+  },
+
   // ── ADMIN: Administration ─────────────────────────────────────────────────
   {
     heading: 'Administration',
@@ -168,11 +178,13 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Examination',
     items: [
-      { label: 'Exam Paper Review', to: '/exams/board/pending', icon: ClipboardCheck, roles: ['BOARD'] },
-      { label: 'Answer Scripts',    to: '/scripts',              icon: ClipboardList,  roles: ['BOARD'] },
-      { label: 'Script Evaluation', to: '/scripts/board',        icon: FileText,       roles: ['BOARD'] },
-      { label: 'Mark Sheet',        to: '/scripts/ledger',       icon: BookLock,       roles: ['BOARD'] },
-      { label: 'Grade Analytics',   to: '/bell-curve',           icon: BarChart2,      roles: ['BOARD'] },
+      { label: 'Exam Paper Review', to: '/exams/board/pending',        icon: ClipboardCheck, roles: ['BOARD'] },
+      { label: 'Answer Scripts',    to: '/scripts',                     icon: ClipboardList,  roles: ['BOARD'] },
+      { label: 'Script Evaluation', to: '/scripts/board',               icon: FileText,       roles: ['BOARD'] },
+      { label: 'Mark Sheet',        to: '/scripts/ledger',              icon: BookLock,       roles: ['BOARD'] },
+      { label: 'Grade Analytics',   to: '/bell-curve',                  icon: BarChart2,      roles: ['BOARD'] },
+      { label: 'Digital Sessions',  to: '/exams/digital',               icon: Monitor,        roles: ['BOARD'] },
+      { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',    icon: Activity,       roles: ['BOARD'] },
     ],
   },
 

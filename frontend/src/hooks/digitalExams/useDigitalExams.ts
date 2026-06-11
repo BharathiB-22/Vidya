@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '@/lib/api/digitalExam'
+import type { DigitalSessionCreate } from '@/types/digitalExam'
 
 export const digitalExamKeys = {
   all:          ['digitalExams'] as const,
@@ -39,5 +40,29 @@ export function useAttemptResult(attemptId: string) {
     queryKey: digitalExamKeys.result(attemptId),
     queryFn:  () => api.getAttemptResult(attemptId),
     enabled:  Boolean(attemptId),
+  })
+}
+
+export function useCreateSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: DigitalSessionCreate) => api.createSession(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: digitalExamKeys.all }),
+  })
+}
+
+export function useActivateSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionId: string) => api.activateSession(sessionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: digitalExamKeys.all }),
+  })
+}
+
+export function useCloseSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionId: string) => api.closeSession(sessionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: digitalExamKeys.all }),
   })
 }
