@@ -33,6 +33,7 @@ from app.modules.m06_labs_evaluator.router import router as labs_router
 from app.modules.m07_research_supervision.router import router as research_router
 from app.modules.m08_exam_setter.router import router as exam_router
 from app.modules.m09_paper_admin.router import router as paper_admin_router
+from app.modules.m09_paper_admin.assignment_router import router as evaluation_assignment_router
 from app.modules.m10_bell_curve.router import router as bell_curve_router
 from app.modules.m_academics.router import router as academics_router
 from app.modules.m_academics.assignment_router import router as assignment_router
@@ -165,6 +166,7 @@ app.include_router(labs_router, prefix="/labs")
 app.include_router(research_router, prefix="/research")
 app.include_router(exam_router,        prefix="/exams")
 app.include_router(paper_admin_router, prefix="/scripts")
+app.include_router(evaluation_assignment_router, prefix="/evaluation-assignments")
 app.include_router(bell_curve_router, prefix="/bell-curve")
 app.include_router(academics_router,  prefix="/academics")
 app.include_router(assignment_router, prefix="/course-assignments")

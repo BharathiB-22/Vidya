@@ -61,6 +61,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Exam Papers',          to: '/exams',                icon: FileText,      roles: ['FACULTY'] },
       { label: 'Internal Marks',       to: '/sis/marks/setup',      icon: BookMarked,    roles: ['FACULTY'] },
       { label: 'My Evaluations',  to: '/scripts/evaluator',      icon: ClipboardList, roles: ['FACULTY'] },
+      { label: 'Evaluation Assignments', to: '/faculty/evaluation-assignments', icon: ClipboardCheck, roles: ['FACULTY'] },
       { label: 'Digital Reviews', to: '/faculty/digital-reviews', icon: PenLine,       roles: ['FACULTY'] },
     ],
   },
@@ -91,6 +92,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Exam Sessions', to: '/sis/exam/sessions',  icon: CalendarDays, roles: ['DEAN'] },
       { label: 'Exam Centers',  to: '/sis/exam/centers',   icon: MapPin,       roles: ['DEAN'] },
       { label: 'Results',       to: '/sis/results',        icon: ClipboardList, roles: ['DEAN'] },
+      { label: 'Evaluation Assignments', to: '/dean/evaluation-assignments', icon: ClipboardCheck, roles: ['DEAN'] },
     ],
   },
 
@@ -156,6 +158,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Digital Sessions',  to: '/exams/digital',             icon: Monitor,     roles: ['ADMIN'] },
       { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',  icon: Activity,    roles: ['ADMIN'] },
+      { label: 'Evaluation Assignments', to: '/admin/evaluation-assignments', icon: ClipboardCheck, roles: ['ADMIN'] },
     ],
   },
 

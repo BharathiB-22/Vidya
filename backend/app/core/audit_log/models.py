@@ -321,6 +321,15 @@ class AuditEventType(str, enum.Enum):
     DIGITAL_EXAM_SUBJECTIVE_SCORED      = "DIGITAL_EXAM_SUBJECTIVE_SCORED"      # faculty scored one subjective response
     DIGITAL_EXAM_SUBJECTIVE_SUBMITTED   = "DIGITAL_EXAM_SUBJECTIVE_SUBMITTED"   # faculty submitted all subjective scores
 
+    # Assignment Engine — M09.6
+    ASSIGNMENT_CREATED        = "ASSIGNMENT_CREATED"         # work allocated to an evaluator
+    ASSIGNMENT_REASSIGNED     = "ASSIGNMENT_REASSIGNED"      # work moved to a different evaluator
+    ASSIGNMENT_STARTED        = "ASSIGNMENT_STARTED"         # evaluator began the work
+    ASSIGNMENT_SUBMITTED      = "ASSIGNMENT_SUBMITTED"       # evaluator submitted marks for the work
+    ASSIGNMENT_COMPLETED      = "ASSIGNMENT_COMPLETED"       # assignment closed as done (human action)
+    ASSIGNMENT_CANCELLED      = "ASSIGNMENT_CANCELLED"       # allocation withdrawn
+    AUTO_ASSIGNMENT_EXECUTED  = "AUTO_ASSIGNMENT_EXECUTED"   # workload-balanced batch allocation run
+
     # Bell Curve Normaliser — M10
     BELL_CURVE_ANALYSIS_TRIGGERED     = "BELL_CURVE_ANALYSIS_TRIGGERED"
     BELL_CURVE_ANALYSIS_COMPLETED     = "BELL_CURVE_ANALYSIS_COMPLETED"

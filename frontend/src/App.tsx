@@ -124,6 +124,9 @@ import DeanDigitalAnalyticsPage from '@/pages/DeanDigitalAnalyticsPage'
 import SessionStatisticsPage from '@/pages/SessionStatisticsPage'
 import SubjectiveReviewQueuePage from '@/pages/SubjectiveReviewQueuePage'
 import SubjectiveReviewPage from '@/pages/SubjectiveReviewPage'
+import FacultyAssignmentsPage from '@/pages/assignments/FacultyAssignmentsPage'
+import FacultyAssignmentDetailPage from '@/pages/assignments/FacultyAssignmentDetailPage'
+import AssignmentManagementPage from '@/pages/assignments/AssignmentManagementPage'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
@@ -416,6 +419,22 @@ export default function App() {
           {/* My Scripts — FACULTY evaluator view */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/scripts/evaluator" element={<MyScriptsPage />} />
+          </Route>
+
+          {/* Evaluation Assignments (M09.6) — Faculty / Evaluator own work */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'EVALUATOR']} />}>
+            <Route path="/faculty/evaluation-assignments"     element={<FacultyAssignmentsPage />} />
+            <Route path="/faculty/evaluation-assignments/:id" element={<FacultyAssignmentDetailPage />} />
+          </Route>
+
+          {/* Evaluation Assignments (M09.6) — Admin management */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
+            <Route path="/admin/evaluation-assignments" element={<AssignmentManagementPage mode="admin" />} />
+          </Route>
+
+          {/* Evaluation Assignments (M09.6) — Dean monitoring */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
+            <Route path="/dean/evaluation-assignments" element={<AssignmentManagementPage mode="dean" />} />
           </Route>
 
           {/* Digital Subjective Review — FACULTY, ADMIN */}
