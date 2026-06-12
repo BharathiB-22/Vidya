@@ -6,7 +6,7 @@ import {
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
-  Activity, PenLine, Scale,
+  Activity, PenLine, Scale, ShieldCheck,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
@@ -161,6 +161,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',  icon: Activity,    roles: ['ADMIN'] },
       { label: 'Examination Analytics', to: '/admin/exam-analytics',  icon: BarChart2,   roles: ['ADMIN'] },
       { label: 'Evaluation Assignments', to: '/admin/evaluation-assignments', icon: ClipboardCheck, roles: ['ADMIN'] },
+      { label: 'Compliance & Audit',     to: '/admin/compliance',      icon: ShieldCheck, roles: ['ADMIN'] },
     ],
   },
 
@@ -194,6 +195,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',    icon: Activity,       roles: ['BOARD'] },
       { label: 'Exam Analytics',    to: '/exams/digital/analytics',     icon: BarChart2,      roles: ['BOARD'] },
       { label: 'Board Analytics',   to: '/board/exam-analytics',        icon: Scale,          roles: ['BOARD'] },
+      { label: 'Compliance & Audit', to: '/board/compliance',           icon: ShieldCheck,    roles: ['BOARD'] },
     ],
   },
 

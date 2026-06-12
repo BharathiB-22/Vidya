@@ -41,6 +41,8 @@ import app.modules.m06_labs_evaluator.models  # noqa: F401
 import app.modules.m07_research_supervision.models  # noqa: F401
 import app.modules.m08_exam_setter.models  # noqa: F401
 import app.modules.m09_paper_admin.models  # noqa: F401
+import app.modules.m09_paper_admin.assignment_models  # noqa: F401 — M09.6 evaluation_assignments
+import app.modules.m09_paper_admin.compliance_models  # noqa: F401 — M09.9 exam_mark_audit
 import app.modules.m10_bell_curve.models  # noqa: F401
 
 # m11 SIS — tenant-scoped; ordered by FK dependency

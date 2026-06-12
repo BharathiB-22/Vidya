@@ -125,6 +125,8 @@ import SessionStatisticsPage from '@/pages/SessionStatisticsPage'
 import DeanExamAnalyticsPage from '@/pages/DeanExamAnalyticsPage'
 import AdminExamAnalyticsPage from '@/pages/AdminExamAnalyticsPage'
 import BoardExamAnalyticsPage from '@/pages/BoardExamAnalyticsPage'
+import AdminCompliancePage from '@/pages/AdminCompliancePage'
+import BoardCompliancePage from '@/pages/BoardCompliancePage'
 import SubjectiveReviewQueuePage from '@/pages/SubjectiveReviewQueuePage'
 import SubjectiveReviewPage from '@/pages/SubjectiveReviewPage'
 import FacultyAssignmentsPage from '@/pages/assignments/FacultyAssignmentsPage'
@@ -200,6 +202,14 @@ export default function App() {
           </Route>
           <Route element={<AuthGuard allowedRoles={['BOARD', 'ADMIN', 'DEAN']} />}>
             <Route path="/board/exam-analytics" element={<BoardExamAnalyticsPage />} />
+          </Route>
+
+          {/* M09.9 Compliance & Audit — governance dashboards */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/admin/compliance" element={<AdminCompliancePage />} />
+          </Route>
+          <Route element={<AuthGuard allowedRoles={['BOARD', 'ADMIN', 'DEAN']} />}>
+            <Route path="/board/compliance" element={<BoardCompliancePage />} />
           </Route>
 
           {/* My Courses — FACULTY only */}

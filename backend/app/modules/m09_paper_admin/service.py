@@ -363,6 +363,13 @@ class ScriptService:
 
         evaluation_round = _get_evaluation_round(script, evaluator_user_id)
 
+        # Snapshot previous evaluator_marks per question BEFORE the write so the
+        # compliance ledger can record the exact previous → new delta (M09.9).
+        prior = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=evaluation_round, db=db
+        )
+        prior_by_q = {str(e.question_id): e for e in prior}
+
         updates: dict[UUID, dict] = {
             UUID(qid): {
                 "evaluator_marks": m.evaluator_marks,
@@ -386,6 +393,35 @@ class ScriptService:
             target_entity="scanned_script",
             target_id=str(script_id),
             metadata={"question_count": len(updates)},
+        )
+
+        # M09.9: field-level before/after into the append-only compliance ledger.
+        from app.modules.m09_paper_admin.compliance_models import MarkChangeType
+        from app.modules.m09_paper_admin.compliance_service import ExamMarkAuditService
+        changes = []
+        for qid, m in payload.marks.items():
+            prev = prior_by_q.get(qid)
+            prev_val = float(prev.evaluator_marks) if prev and prev.evaluator_marks is not None else None
+            new_val = float(m.evaluator_marks) if m.evaluator_marks is not None else None
+            if prev_val == new_val:
+                continue
+            changes.append({
+                "question_id":   qid,
+                "previous_marks": prev_val,
+                "new_marks":      new_val,
+                "max_marks":      float(prev.max_marks) if prev and prev.max_marks is not None else None,
+                "reason":         m.evaluator_note,
+            })
+        await ExamMarkAuditService.record_changes(
+            script_id=script_id,
+            exam_paper_id=script.exam_paper_id,
+            change_type=MarkChangeType.EVALUATOR_UPDATE.value,
+            actor_user_id=evaluator_user_id,
+            actor_role="EVALUATOR",
+            source_event=AuditEventType.SCRIPT_MARKS_UPDATED.value,
+            changes=changes,
+            masked_id=script.masked_id,
+            evaluation_round=evaluation_round,
         )
 
         return await ScriptEvaluationRepository.list_by_script(
@@ -1064,6 +1100,13 @@ class ScriptService:
                 409,
             )
 
+        # Snapshot the current effective mark per question BEFORE the override so
+        # the compliance ledger records the true previous → new delta (M09.9).
+        prior = await ScriptEvaluationRepository.list_by_script(
+            script_id, evaluation_round=EvaluationRound.PRIMARY.value, db=db
+        )
+        prior_by_q = {str(e.question_id): e for e in prior}
+
         updates: dict[UUID, dict] = {
             UUID(qid): {
                 "board_adjusted_marks": entry.board_adjusted_marks,
@@ -1090,6 +1133,39 @@ class ScriptService:
                 "question_count": len(updates),
                 "action":         "board_adjust",
             },
+        )
+
+        # M09.9: field-level board-adjustment history. Previous value is the
+        # current effective mark COALESCE(board_adjusted, evaluator); new is the override.
+        from app.modules.m09_paper_admin.compliance_models import MarkChangeType
+        from app.modules.m09_paper_admin.compliance_service import ExamMarkAuditService
+        changes = []
+        for qid, entry in payload.adjustments.items():
+            prev = prior_by_q.get(qid)
+            if prev is not None and prev.board_adjusted_marks is not None:
+                prev_val = float(prev.board_adjusted_marks)
+            elif prev is not None and prev.evaluator_marks is not None:
+                prev_val = float(prev.evaluator_marks)
+            else:
+                prev_val = None
+            new_val = float(entry.board_adjusted_marks) if entry.board_adjusted_marks is not None else None
+            changes.append({
+                "question_id":   qid,
+                "previous_marks": prev_val,
+                "new_marks":      new_val,
+                "max_marks":      float(prev.max_marks) if prev and prev.max_marks is not None else None,
+                "reason":         entry.board_adjustment_note,
+            })
+        await ExamMarkAuditService.record_changes(
+            script_id=script_id,
+            exam_paper_id=script.exam_paper_id,
+            change_type=MarkChangeType.BOARD_ADJUSTMENT.value,
+            actor_user_id=board_user_id,
+            actor_role="BOARD",
+            source_event=AuditEventType.SCRIPT_MARKS_UPDATED.value,
+            changes=changes,
+            masked_id=script.masked_id,
+            evaluation_round=EvaluationRound.PRIMARY.value,
         )
 
         return await ScriptEvaluationRepository.list_by_script(
