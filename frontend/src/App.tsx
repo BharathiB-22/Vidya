@@ -122,6 +122,9 @@ import DigitalSessionDetailPage from '@/pages/DigitalSessionDetailPage'
 import DigitalMonitoringPage from '@/pages/DigitalMonitoringPage'
 import DeanDigitalAnalyticsPage from '@/pages/DeanDigitalAnalyticsPage'
 import SessionStatisticsPage from '@/pages/SessionStatisticsPage'
+import DeanExamAnalyticsPage from '@/pages/DeanExamAnalyticsPage'
+import AdminExamAnalyticsPage from '@/pages/AdminExamAnalyticsPage'
+import BoardExamAnalyticsPage from '@/pages/BoardExamAnalyticsPage'
 import SubjectiveReviewQueuePage from '@/pages/SubjectiveReviewQueuePage'
 import SubjectiveReviewPage from '@/pages/SubjectiveReviewPage'
 import FacultyAssignmentsPage from '@/pages/assignments/FacultyAssignmentsPage'
@@ -186,6 +189,17 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
             <Route path="/exams/digital/analytics"              element={<DeanDigitalAnalyticsPage />} />
             <Route path="/exams/digital/analytics/:sessionId"   element={<SessionStatisticsPage />} />
+          </Route>
+
+          {/* M09.8 Examination Analytics — role-specific dashboards */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
+            <Route path="/dean/exam-analytics" element={<DeanExamAnalyticsPage />} />
+          </Route>
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
+            <Route path="/admin/exam-analytics" element={<AdminExamAnalyticsPage />} />
+          </Route>
+          <Route element={<AuthGuard allowedRoles={['BOARD', 'ADMIN', 'DEAN']} />}>
+            <Route path="/board/exam-analytics" element={<BoardExamAnalyticsPage />} />
           </Route>
 
           {/* My Courses — FACULTY only */}
