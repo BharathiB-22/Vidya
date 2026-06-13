@@ -29,6 +29,9 @@ from app.modules.m09_paper_admin.analytics_schemas import (
     GradeAnalyticsResponse,
     GradeBucketResponse,
     ModerationAnalyticsResponse,
+    OcrAnalyticsResponse,
+    OcrCorrectionPerReviewerResponse,
+    OcrQualityDistributionItem,
     OverviewResponse,
     RevaluationAnalyticsResponse,
     SubjectAnalyticsResponse,
@@ -334,4 +337,71 @@ class ExamAnalyticsService:
             top_subjects=top_subjects,
             revaluation=reval,
             moderation=mod,
+        )
+
+    # -----------------------------------------------------------------------
+    # OCR Analytics — M09.7 extension
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    async def ocr_analytics(
+        exam_paper_id: UUID | None,
+        *,
+        db: AsyncSession,
+    ) -> OcrAnalyticsResponse:
+        from app.modules.m09_paper_admin.ocr_repository import OcrQueueRepository
+        from app.modules.m09_paper_admin.analytics_repository import AnalyticsRepository
+
+        stats = await OcrQueueRepository.ocr_accuracy_stats(exam_paper_id, db=db)
+        reviewer_rows = await OcrQueueRepository.ocr_corrections_per_reviewer(exam_paper_id, db=db)
+        distribution_rows = await OcrQueueRepository.ocr_quality_distribution(exam_paper_id, db=db)
+
+        total_queued    = int(stats.get("total_queued") or 0)
+        total_corrected = int(stats.get("total_corrected") or 0)
+        total_accepted  = int(stats.get("total_accepted") or 0)
+        total_rerun     = int(stats.get("total_rerun") or 0)
+        total_unreadable = int(stats.get("total_unreadable") or 0)
+        reviewer_count  = int(stats.get("reviewer_count") or 0)
+        avg_conf_raw    = stats.get("avg_confidence")
+        avg_confidence  = round(float(avg_conf_raw), 3) if avg_conf_raw is not None else None
+
+        decided = total_corrected + total_accepted + total_unreadable
+        accuracy_rate = (
+            round(total_accepted / decided * 100, 1) if decided > 0 else None
+        )
+
+        # Enrich reviewer rows with names
+        reviewer_ids = [r["reviewer_id"] for r in reviewer_rows if r.get("reviewer_id")]
+        names: dict[str, str] = {}
+        if reviewer_ids:
+            names = await AnalyticsRepository.load_user_names(reviewer_ids, db=db)
+
+        corrections_per_reviewer = [
+            OcrCorrectionPerReviewerResponse(
+                reviewer_id=r["reviewer_id"],
+                reviewer_name=names.get(r["reviewer_id"]),
+                total_reviewed=int(r["total_reviewed"]),
+                corrections=int(r["corrections"]),
+            )
+            for r in reviewer_rows
+        ]
+
+        quality_distribution = [
+            OcrQualityDistributionItem(category=r["category"], count=int(r["count"]))
+            for r in distribution_rows
+        ]
+
+        return OcrAnalyticsResponse(
+            scope="PAPER" if exam_paper_id else "INSTITUTION",
+            exam_paper_id=str(exam_paper_id) if exam_paper_id else None,
+            total_queued=total_queued,
+            total_corrected=total_corrected,
+            total_accepted=total_accepted,
+            total_rerun=total_rerun,
+            total_unreadable=total_unreadable,
+            ocr_accuracy_rate=accuracy_rate,
+            average_confidence=avg_confidence,
+            reviewer_count=reviewer_count,
+            corrections_per_reviewer=corrections_per_reviewer,
+            quality_distribution=quality_distribution,
         )

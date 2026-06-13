@@ -136,6 +136,37 @@ class ModerationAnalyticsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# OCR Analytics — M09.7 extension
+# ---------------------------------------------------------------------------
+
+class OcrCorrectionPerReviewerResponse(BaseModel):
+    reviewer_id:    str
+    reviewer_name:  str | None = None
+    total_reviewed: int
+    corrections:    int
+
+
+class OcrQualityDistributionItem(BaseModel):
+    category:  str   # OCR_FAILURE / LOW_CONFIDENCE / QUALITY_ISSUE / MEDIUM_CONFIDENCE
+    count:     int
+
+
+class OcrAnalyticsResponse(BaseModel):
+    scope:                    str          # "PAPER" or "INSTITUTION"
+    exam_paper_id:            str | None
+    total_queued:             int
+    total_corrected:          int
+    total_accepted:           int
+    total_rerun:              int
+    total_unreadable:         int
+    ocr_accuracy_rate:        float | None  # accepted / (accepted + corrected + unreadable) * 100
+    average_confidence:       float | None  # 0–1.0
+    reviewer_count:           int
+    corrections_per_reviewer: list[OcrCorrectionPerReviewerResponse]
+    quality_distribution:     list[OcrQualityDistributionItem]
+
+
+# ---------------------------------------------------------------------------
 # Dashboard bundle — one round-trip for a dashboard landing page
 # ---------------------------------------------------------------------------
 

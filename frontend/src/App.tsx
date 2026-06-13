@@ -129,6 +129,8 @@ import AdminCompliancePage from '@/pages/AdminCompliancePage'
 import BoardCompliancePage from '@/pages/BoardCompliancePage'
 import SubjectiveReviewQueuePage from '@/pages/SubjectiveReviewQueuePage'
 import SubjectiveReviewPage from '@/pages/SubjectiveReviewPage'
+import OCRReviewQueuePage from '@/pages/OCRReviewQueuePage'
+import OCRReviewDetailPage from '@/pages/OCRReviewDetailPage'
 import FacultyAssignmentsPage from '@/pages/assignments/FacultyAssignmentsPage'
 import FacultyAssignmentDetailPage from '@/pages/assignments/FacultyAssignmentDetailPage'
 import AssignmentManagementPage from '@/pages/assignments/AssignmentManagementPage'
@@ -465,6 +467,12 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN']} />}>
             <Route path="/faculty/digital-reviews"            element={<SubjectiveReviewQueuePage />} />
             <Route path="/faculty/digital-reviews/:attemptId" element={<SubjectiveReviewPage />} />
+          </Route>
+
+          {/* M09.7 OCR Review Queue — ADMIN, FACULTY (reviewer role) */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'FACULTY']} />}>
+            <Route path="/ocr-review"           element={<OCRReviewQueuePage />} />
+            <Route path="/ocr-review/:queueId"  element={<OCRReviewDetailPage />} />
           </Route>
 
           {/* Bell Curve — DEAN, ADMIN, BOARD */}

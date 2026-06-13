@@ -34,6 +34,9 @@ from app.modules.m09_paper_admin.compliance_schemas import (
     EvaluatorActivityRow,
     MarkAuditEntryResponse,
     ModerationReportRow,
+    OcrCorrectionHistoryRow,
+    OcrEscalationRow,
+    OcrReviewerActivityRow,
     PublicationApprovalRow,
     QuestionMarkHistoryResponse,
     MarkLineageStepResponse,
@@ -370,6 +373,83 @@ class ComplianceService:
             for r in rows
         ]
 
+    @staticmethod
+    async def ocr_correction_history_report(
+        exam_paper_id: UUID | None, *, db: AsyncSession,
+    ) -> list[OcrCorrectionHistoryRow]:
+        from app.modules.m09_paper_admin.ocr_repository import OcrQueueRepository
+        rows = await OcrQueueRepository.ocr_correction_history(exam_paper_id, db=db)
+        names = await ComplianceRepository.user_names(
+            [r["reviewer_id"] for r in rows if r.get("reviewer_id")], db=db
+        )
+        return [
+            OcrCorrectionHistoryRow(
+                queue_id=r["queue_id"],
+                script_id=r["script_id"],
+                masked_id=r.get("masked_id"),
+                exam_paper_id=r["exam_paper_id"],
+                priority_category=r.get("priority_category"),
+                ocr_confidence=_f(r.get("ocr_confidence")),
+                action_taken=r.get("action_taken"),
+                reviewer_id=r.get("reviewer_id"),
+                reviewer_name=names.get(r.get("reviewer_id") or ""),
+                reviewer_notes=r.get("reviewer_notes"),
+                review_started_at=r.get("review_started_at"),
+                completed_at=r.get("completed_at"),
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    async def ocr_reviewer_activity_report(
+        exam_paper_id: UUID | None, *, db: AsyncSession,
+    ) -> list[OcrReviewerActivityRow]:
+        from app.modules.m09_paper_admin.ocr_repository import OcrQueueRepository
+        rows = await OcrQueueRepository.ocr_reviewer_activity(exam_paper_id, db=db)
+        names = await ComplianceRepository.user_names(
+            [r["reviewer_id"] for r in rows if r.get("reviewer_id")], db=db
+        )
+        return [
+            OcrReviewerActivityRow(
+                reviewer_id=r["reviewer_id"],
+                reviewer_name=names.get(r["reviewer_id"]),
+                total_reviewed=int(r["total_reviewed"]),
+                corrections=int(r["corrections"]),
+                accepted=int(r["accepted"]),
+                rerun_requested=int(r["rerun_requested"]),
+                escalated=int(r["escalated"]),
+                marked_unreadable=int(r["marked_unreadable"]),
+                last_activity_at=r.get("last_activity_at"),
+            )
+            for r in rows
+        ]
+
+    @staticmethod
+    async def ocr_escalation_report(
+        exam_paper_id: UUID | None, *, db: AsyncSession,
+    ) -> list[OcrEscalationRow]:
+        from app.modules.m09_paper_admin.ocr_repository import OcrQueueRepository
+        rows = await OcrQueueRepository.ocr_escalation_report(exam_paper_id, db=db)
+        names = await ComplianceRepository.user_names(
+            [r["reviewer_id"] for r in rows if r.get("reviewer_id")], db=db
+        )
+        return [
+            OcrEscalationRow(
+                queue_id=r["queue_id"],
+                script_id=r["script_id"],
+                masked_id=r.get("masked_id"),
+                exam_paper_id=r["exam_paper_id"],
+                priority_category=r.get("priority_category"),
+                ocr_confidence=_f(r.get("ocr_confidence")),
+                reviewer_id=r.get("reviewer_id"),
+                reviewer_name=names.get(r.get("reviewer_id") or ""),
+                reviewer_notes=r.get("reviewer_notes"),
+                review_started_at=r.get("review_started_at"),
+                completed_at=r.get("completed_at"),
+            )
+            for r in rows
+        ]
+
     # Report dispatcher (drives both the JSON endpoint and CSV export)
     _REPORTS = {
         "publication_approval": ("publication_approval_report", [
@@ -396,6 +476,21 @@ class ComplianceService:
             "session_id", "exam_paper_id", "exam_paper_title", "session_title", "status",
             "convened_by_name", "convened_at", "decided_by_name", "decided_at",
             "pass_rate_pct", "mean_marks", "total_scripts", "board_remarks",
+        ]),
+        "ocr_correction_history": ("ocr_correction_history_report", [
+            "queue_id", "script_id", "masked_id", "exam_paper_id",
+            "priority_category", "ocr_confidence", "action_taken",
+            "reviewer_name", "reviewer_notes", "review_started_at", "completed_at",
+        ]),
+        "ocr_reviewer_activity": ("ocr_reviewer_activity_report", [
+            "reviewer_id", "reviewer_name", "total_reviewed", "corrections",
+            "accepted", "rerun_requested", "escalated", "marked_unreadable",
+            "last_activity_at",
+        ]),
+        "ocr_escalation": ("ocr_escalation_report", [
+            "queue_id", "script_id", "masked_id", "exam_paper_id",
+            "priority_category", "ocr_confidence", "reviewer_name",
+            "reviewer_notes", "review_started_at", "completed_at",
         ]),
     }
 

@@ -87,6 +87,15 @@ EXAM_EVENT_CATALOG: dict[str, tuple[str, str]] = {
     "ASSIGNMENT_COMPLETED":     (Category.ASSIGNMENT, "Assignment completed"),
     "ASSIGNMENT_CANCELLED":     (Category.ASSIGNMENT, "Assignment cancelled"),
     "AUTO_ASSIGNMENT_EXECUTED": (Category.ASSIGNMENT, "Auto-assignment batch executed"),
+
+    # --- OCR review (M09.7) ---
+    "OCR_REVIEW_STARTED":    (Category.SCANNING, "OCR review started by reviewer"),
+    "OCR_TEXT_CORRECTED":    (Category.SCANNING, "OCR text corrected by reviewer"),
+    "OCR_RERUN_REQUESTED":   (Category.SCANNING, "OCR re-extraction requested"),
+    "OCR_ESCALATED":         (Category.SCANNING, "Script escalated for Admin review"),
+    "OCR_ACCEPTED":          (Category.SCANNING, "OCR text accepted as-is"),
+    "OCR_MARKED_UNREADABLE": (Category.SCANNING, "Script marked as physically unreadable"),
+    "OCR_THRESHOLD_UPDATED": (Category.SCANNING, "OCR confidence threshold updated"),
 }
 
 # Frozen set of event-type strings the compliance layer surfaces — used by the

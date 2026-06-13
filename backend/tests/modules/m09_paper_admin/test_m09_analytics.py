@@ -330,10 +330,12 @@ class TestRouterWiring:
     def test_all_eight_routes_present(self):
         from app.modules.m09_paper_admin.analytics_router import router
         paths = {r.path for r in router.routes}
-        assert paths == {
+        # M09.7 added /ocr analytics endpoint
+        expected = {
             "/overview", "/subjects", "/grades", "/batches",
-            "/faculty", "/revaluation", "/moderation", "/dashboard",
+            "/faculty", "/revaluation", "/moderation", "/dashboard", "/ocr",
         }
+        assert expected.issubset(paths)
 
     def test_governance_routes_exclude_faculty(self):
         from app.modules.m09_paper_admin.analytics_router import _GOV, _READ

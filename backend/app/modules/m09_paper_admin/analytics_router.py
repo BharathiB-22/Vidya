@@ -34,6 +34,7 @@ from app.modules.m09_paper_admin.analytics_schemas import (
     FacultyAnalyticsResponse,
     GradeAnalyticsResponse,
     ModerationAnalyticsResponse,
+    OcrAnalyticsResponse,
     OverviewResponse,
     RevaluationAnalyticsResponse,
     SubjectAnalyticsResponse,
@@ -167,6 +168,17 @@ async def get_moderation(
 # ---------------------------------------------------------------------------
 # Dashboard bundle
 # ---------------------------------------------------------------------------
+
+@router.get("/ocr", response_model=OcrAnalyticsResponse)
+async def get_ocr_analytics(
+    exam_paper_id: UUID | None = Query(default=None),
+    current_user: CurrentUser = Depends(_gov_dep()),
+    db_info=Depends(get_tenant_context_dep),
+):
+    """OCR accuracy rate, average confidence, corrections per reviewer, quality distribution."""
+    db: AsyncSession = db_info["db"]
+    return await ExamAnalyticsService.ocr_analytics(exam_paper_id, db=db)
+
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(

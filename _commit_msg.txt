@@ -1,0 +1,12 @@
+﻿[M09.5 UI] faculty review
+
+Phase D — Faculty Subjective Review UI
+- SubjectiveReviewQueuePage: session-scoped pending queue with progress bars
+- SubjectiveReviewPage: per-question score entry, save per response, confirm + submit gate
+- New types: SubjectivePendingAttempt, SubjectiveReviewResponse, FacultyScoreIn, SubjectiveSubmitResult
+- API functions: listPendingSubjectiveReview, getSubjectiveResponses, saveFacultyScore, submitSubjectiveScores
+- Hooks: usePendingSubjectiveReview, useSubjectiveResponses, useSaveFacultyScore, useSubmitSubjectiveScores
+- Routes: /faculty/digital-reviews, /faculty/digital-reviews/:attemptId (FACULTY + ADMIN)
+- Sidebar: Digital Reviews nav item under Assess & Research (FACULTY)
+- DigitalAttemptStatus extended with FULLY_EVALUATED
+- TypeScript clean, build passes

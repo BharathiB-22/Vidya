@@ -296,10 +296,14 @@ class TestWiring:
     def test_six_reports_registered(self):
         from app.modules.m09_paper_admin.compliance_service import ComplianceService
         names = ComplianceService.report_names()
-        assert set(names) == {
+        # Original 5 + 3 OCR reports added by M09.7
+        base = {
             "publication_approval", "moderation", "revaluation",
             "evaluator_activity", "board_approval",
         }
+        ocr = {"ocr_correction_history", "ocr_reviewer_activity", "ocr_escalation"}
+        assert base.issubset(set(names))
+        assert ocr.issubset(set(names))
         # Every report has an ordered CSV column spec.
         for name in names:
             _method, cols = ComplianceService._REPORTS[name]

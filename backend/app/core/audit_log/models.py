@@ -330,6 +330,15 @@ class AuditEventType(str, enum.Enum):
     ASSIGNMENT_CANCELLED      = "ASSIGNMENT_CANCELLED"       # allocation withdrawn
     AUTO_ASSIGNMENT_EXECUTED  = "AUTO_ASSIGNMENT_EXECUTED"   # workload-balanced batch allocation run
 
+    # OCR Review Queue — M09.7
+    OCR_REVIEW_STARTED      = "OCR_REVIEW_STARTED"      # reviewer opened a script for OCR review
+    OCR_TEXT_CORRECTED      = "OCR_TEXT_CORRECTED"       # reviewer edited OCR extracted text
+    OCR_RERUN_REQUESTED     = "OCR_RERUN_REQUESTED"      # reviewer requested OCR re-extraction
+    OCR_ESCALATED           = "OCR_ESCALATED"            # script escalated to Admin for decision
+    OCR_ACCEPTED            = "OCR_ACCEPTED"             # OCR text accepted as-is by reviewer
+    OCR_MARKED_UNREADABLE   = "OCR_MARKED_UNREADABLE"    # script marked physically unreadable
+    OCR_THRESHOLD_UPDATED   = "OCR_THRESHOLD_UPDATED"    # Admin changed confidence threshold config
+
     # Bell Curve Normaliser — M10
     BELL_CURVE_ANALYSIS_TRIGGERED     = "BELL_CURVE_ANALYSIS_TRIGGERED"
     BELL_CURVE_ANALYSIS_COMPLETED     = "BELL_CURVE_ANALYSIS_COMPLETED"

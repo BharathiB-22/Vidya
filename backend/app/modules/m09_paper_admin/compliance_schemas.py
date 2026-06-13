@@ -180,6 +180,51 @@ class BoardApprovalRow(BaseModel):
     board_remarks: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# OCR Compliance report rows — M09.7
+# ---------------------------------------------------------------------------
+
+class OcrCorrectionHistoryRow(BaseModel):
+    queue_id:          str
+    script_id:         str
+    masked_id:         Optional[str] = None
+    exam_paper_id:     str
+    priority_category: Optional[str] = None
+    ocr_confidence:    Optional[float] = None
+    action_taken:      Optional[str] = None
+    reviewer_id:       Optional[str] = None
+    reviewer_name:     Optional[str] = None
+    reviewer_notes:    Optional[str] = None
+    review_started_at: Optional[datetime] = None
+    completed_at:      Optional[datetime] = None
+
+
+class OcrReviewerActivityRow(BaseModel):
+    reviewer_id:       str
+    reviewer_name:     Optional[str] = None
+    total_reviewed:    int = 0
+    corrections:       int = 0
+    accepted:          int = 0
+    rerun_requested:   int = 0
+    escalated:         int = 0
+    marked_unreadable: int = 0
+    last_activity_at:  Optional[datetime] = None
+
+
+class OcrEscalationRow(BaseModel):
+    queue_id:          str
+    script_id:         str
+    masked_id:         Optional[str] = None
+    exam_paper_id:     str
+    priority_category: Optional[str] = None
+    ocr_confidence:    Optional[float] = None
+    reviewer_id:       Optional[str] = None
+    reviewer_name:     Optional[str] = None
+    reviewer_notes:    Optional[str] = None
+    review_started_at: Optional[datetime] = None
+    completed_at:      Optional[datetime] = None
+
+
 class ReportResponse(BaseModel):
     """Generic report envelope — `report` names which report, `rows` is its payload."""
     report:       str
