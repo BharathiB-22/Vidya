@@ -15,7 +15,9 @@ from app.core.onboarding.schemas import (
     CSVRowResult,
     GenerateStudentsRequest,
     GenerateStudentsResult,
+    ImportUsnRange,
 )
+from app.core.onboarding.usn_mint import MintItem, ProjectItem, mint_usns, project_usns
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$")
 
@@ -265,6 +267,58 @@ class OnboardingService:
         return sec_row.scalar_one_or_none()
 
     # ------------------------------------------------------------------ #
+    # USN-triple resolution helpers (Phase 1 / Step 4)                    #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    async def _resolve_program_identity(
+        program_id: UUID, db: AsyncSession
+    ) -> tuple[str | None, str | None]:
+        """Return (program_code, school_code) for a program — school via dept."""
+        row = await db.execute(
+            text(
+                "SELECT p.code AS program_code, sch.code AS school_code "
+                "FROM acad_programs p "
+                "LEFT JOIN acad_departments d ON d.id = p.department_id "
+                "LEFT JOIN sis_schools    sch ON sch.id = d.school_id "
+                "WHERE p.id = :pid"
+            ),
+            {"pid": str(program_id)},
+        )
+        m = row.mappings().one_or_none()
+        if m is None:
+            return None, None
+        return m["program_code"], m["school_code"]
+
+    @staticmethod
+    async def _admission_year_from_section(
+        section_id: UUID, db: AsyncSession
+    ) -> int | None:
+        """Authoritative admission year = the section's batch start_year."""
+        row = await db.execute(
+            text(
+                "SELECT b.start_year FROM acad_sections sec "
+                "JOIN acad_semesters sem ON sem.id = sec.semester_id "
+                "JOIN acad_batches    b   ON b.id   = sem.batch_id "
+                "WHERE sec.id = :sec"
+            ),
+            {"sec": str(section_id)},
+        )
+        val = row.scalar_one_or_none()
+        return int(val) if val is not None else None
+
+    @staticmethod
+    def _split_codes(raw_value: str) -> list[str]:
+        """Parse a pipe/comma-delimited list of program codes (deduped, upper)."""
+        parts = re.split(r"[|,]", raw_value or "")
+        seen: list[str] = []
+        for p in parts:
+            c = p.strip().upper()
+            if c and c not in seen:
+                seen.append(c)
+        return seen
+
+    # ------------------------------------------------------------------ #
     # Bulk student generation                                              #
     # ------------------------------------------------------------------ #
 
@@ -378,6 +432,8 @@ class OnboardingService:
         seen_ids:    set[str] = set()
         _program_cache: dict[str, UUID | None] = {}
         _section_cache: dict[tuple, UUID | None] = {}
+        _identity_cache: dict[str, tuple] = {}   # program_id -> (program_code, school_code)
+        _year_cache: dict[str, int | None] = {}  # section_id -> admission_year
 
         rows: list[CSVRowResult] = []
         for i, raw in enumerate(raw_rows):
@@ -430,9 +486,57 @@ class OnboardingService:
                         )
                         row.is_valid = False
 
+            # USN triple derivation (school_code, admission_year, program_code).
+            if row.acad_program_id is not None:
+                pid_key = str(row.acad_program_id)
+                if pid_key not in _identity_cache:
+                    _identity_cache[pid_key] = await OnboardingService._resolve_program_identity(
+                        row.acad_program_id, db
+                    )
+                prog_code_resolved, school_code = _identity_cache[pid_key]
+                row.school_code = school_code
+
+                admission_year: int | None = None
+                if row.section_id is not None:
+                    sec_key = str(row.section_id)
+                    if sec_key not in _year_cache:
+                        _year_cache[sec_key] = await OnboardingService._admission_year_from_section(
+                            row.section_id, db
+                        )
+                    admission_year = _year_cache[sec_key]
+                if admission_year is None:
+                    byr = raw.get("batch_year", "").strip()
+                    if byr.isdigit():
+                        admission_year = int(byr)
+                row.admission_year = admission_year
+
+                if not (prog_code_resolved and school_code and admission_year is not None):
+                    row.warnings.append(
+                        "USN will not be auto-generated — missing school link "
+                        "or admission year for this program"
+                    )
+
             rows.append(row)
 
         rows = await OnboardingService._check_db_duplicates(rows, db)
+
+        # Project USNs (read-only) for valid rows whose triple is complete.
+        project_pairs: list[tuple[CSVRowResult, ProjectItem]] = []
+        for row in rows:
+            if not row.is_valid or row.acad_program_id is None:
+                continue
+            prog_code_resolved, _sc = _identity_cache.get(str(row.acad_program_id), (None, None))
+            if prog_code_resolved and row.school_code and row.admission_year is not None:
+                item = ProjectItem(
+                    triple=(row.school_code, row.admission_year, prog_code_resolved),
+                    full_name=row.full_name, email=row.email,
+                )
+                project_pairs.append((row, item))
+
+        ranges = await project_usns(db, [it for _, it in project_pairs])
+        for row, item in project_pairs:
+            row.projected_usn = item.projected
+
         valid = sum(1 for r in rows if r.is_valid)
         dup_file, dup_db = OnboardingService._count_duplicates(rows)
 
@@ -443,6 +547,14 @@ class OnboardingService:
             duplicate_in_file=dup_file,
             duplicate_in_db=dup_db,
             rows=rows,
+            projected_usn_ranges=[
+                ImportUsnRange(
+                    school_code=r.school_code, admission_year=r.admission_year,
+                    program_code=r.program_code, count=r.count,
+                    first_usn=r.first_usn, last_usn=r.last_usn,
+                )
+                for r in ranges
+            ],
         )
 
     @staticmethod
@@ -465,11 +577,14 @@ class OnboardingService:
 
         rows_to_insert: list[dict] = []
         enroll_pairs:   list[tuple[str, str]] = []
+        mint_items:     list[MintItem] = []
+        _identity_cache: dict[str, tuple] = {}
 
         for r in preview.rows:
             if not r.is_valid:
                 continue
-            uid = str(_uuid.uuid4())
+            uid_obj = _uuid.uuid4()
+            uid = str(uid_obj)
             rows_to_insert.append({
                 "id":              uid,
                 "email":           r.email,
@@ -482,8 +597,25 @@ class OnboardingService:
             if r.section_resolved and r.section_id is not None:
                 enroll_pairs.append((uid, str(r.section_id)))
 
+            # Queue for USN minting when the triple is complete.
+            if r.acad_program_id is not None and r.school_code and r.admission_year is not None:
+                pid_key = str(r.acad_program_id)
+                if pid_key not in _identity_cache:
+                    _identity_cache[pid_key] = await OnboardingService._resolve_program_identity(
+                        r.acad_program_id, db
+                    )
+                prog_code_resolved, _sc = _identity_cache[pid_key]
+                if prog_code_resolved:
+                    mint_items.append(MintItem(
+                        triple=(r.school_code, r.admission_year, prog_code_resolved),
+                        user_id=uid_obj, full_name=r.full_name, email=r.email,
+                    ))
+
         created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
         enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(enroll_pairs, db)
+
+        # Mint USNs via UsnAllocator (only target users just created in this run).
+        _, usns_assigned = await mint_usns(db, mint_items)
 
         return CSVCommitResult(
             total=preview.total_rows,
@@ -495,6 +627,7 @@ class OnboardingService:
                 if not r.is_valid
             ],
             enrollments_created=enrollments_created,
+            usns_assigned=usns_assigned,
         )
 
     # ------------------------------------------------------------------ #
@@ -520,10 +653,25 @@ class OnboardingService:
 
         seen_emails: set[str] = set()
         seen_ids:    set[str] = set()
-        rows = [
-            OnboardingService._validate_common(i + 1, raw, "employee_id", seen_emails, seen_ids)
-            for i, raw in enumerate(raw_rows)
-        ]
+        _program_cache: dict[str, UUID | None] = {}
+
+        rows: list[CSVRowResult] = []
+        for i, raw in enumerate(raw_rows):
+            row = OnboardingService._validate_common(i + 1, raw, "employee_id", seen_emails, seen_ids)
+
+            # Resolve optional program mappings (pipe/comma-delimited).
+            codes = OnboardingService._split_codes(raw.get("program_codes", ""))
+            for code in codes:
+                if code not in _program_cache:
+                    _program_cache[code] = await OnboardingRepository.resolve_program_by_code(code, db)
+                if _program_cache[code] is not None:
+                    row.resolved_program_codes.append(code)
+                else:
+                    row.unresolved_program_codes.append(code)
+                    row.warnings.append(f"Program not found (mapping skipped): '{code}'")
+
+            rows.append(row)
+
         rows = await OnboardingService._check_db_duplicates(rows, db)
         valid = sum(1 for r in rows if r.is_valid)
         dup_file, dup_db = OnboardingService._count_duplicates(rows)
@@ -538,36 +686,110 @@ class OnboardingService:
         )
 
     @staticmethod
+    async def _get_user_by_email(email: str, db: AsyncSession) -> tuple[UUID, str] | None:
+        row = await db.execute(
+            text("SELECT id, role FROM users WHERE LOWER(email) = :email"),
+            {"email": email.lower()},
+        )
+        m = row.mappings().one_or_none()
+        if m is None:
+            return None
+        return m["id"], str(m["role"])
+
+    @staticmethod
     async def commit_faculty_csv(
         content: bytes,
         default_password: str,
         db: AsyncSession,
         *,
         filename: str = "faculty.csv",
+        actor_user_id: UUID | None = None,
+        actor_role: str | None = None,
+        tenant_id: UUID | None = None,
+        schema_name: str | None = None,
     ) -> CSVCommitResult:
+        from app.core.onboarding.faculty_program_service import (
+            FacultyProgramService,
+            FacultyProgramServiceError,
+        )
+
         preview = await OnboardingService.preview_faculty_csv(content, db, filename=filename)
         pw_hash = hash_password(default_password)
-        rows_to_insert = [
-            {
-                "id":              str(_uuid.uuid4()),
+
+        # Create valid (new) faculty users; remember email -> new uid.
+        rows_to_insert: list[dict] = []
+        new_uid_by_email: dict[str, UUID] = {}
+        for r in preview.rows:
+            if not r.is_valid:
+                continue
+            uid_obj = _uuid.uuid4()
+            new_uid_by_email[r.email.lower()] = uid_obj
+            rows_to_insert.append({
+                "id":              str(uid_obj),
                 "email":           r.email,
                 "pw_hash":         pw_hash,
                 "role":            "FACULTY",
                 "full_name":       r.full_name,
                 "identifier":      r.identifier,
                 "acad_program_id": None,
-            }
-            for r in preview.rows
-            if r.is_valid
-        ]
+            })
         created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
+
+        # Apply program mappings via FacultyProgramService.  Covers both the
+        # faculty just created AND faculty that already exist (matched by email)
+        # — the latter is where reactivation / duplicate-prevention is exercised.
+        m_created = m_reactivated = m_skipped = 0
+        errors = [
+            f"Row {r.row_number}: {', '.join(r.errors)}"
+            for r in preview.rows
+            if not r.is_valid
+        ]
+        _prog_id_cache: dict[str, UUID | None] = {}
+
+        for r in preview.rows:
+            if not r.resolved_program_codes:
+                continue
+
+            # Resolve the faculty user id: a brand-new row, or an existing user.
+            faculty_uid: UUID | None = new_uid_by_email.get(r.email.lower())
+            if faculty_uid is None:
+                existing = await OnboardingService._get_user_by_email(r.email, db)
+                if existing is None or existing[1].upper() != "FACULTY":
+                    continue  # not creatable here and not an existing faculty
+                faculty_uid = existing[0]
+
+            for code in r.resolved_program_codes:
+                if code not in _prog_id_cache:
+                    _prog_id_cache[code] = await OnboardingRepository.resolve_program_by_code(code, db)
+                pid = _prog_id_cache[code]
+                if pid is None:
+                    continue
+                try:
+                    out = await FacultyProgramService.assign_program(
+                        db,
+                        faculty_user_id=faculty_uid,
+                        program_id=pid,
+                        assigned_by=actor_user_id or faculty_uid,
+                        actor_role=actor_role,
+                        tenant_id=tenant_id,
+                        schema_name=schema_name,
+                    )
+                    if out.reactivated:
+                        m_reactivated += 1
+                    else:
+                        m_created += 1
+                except FacultyProgramServiceError as e:
+                    if e.code == "DUPLICATE_ASSIGNMENT":
+                        m_skipped += 1
+                    else:
+                        errors.append(f"Row {r.row_number}: program '{code}' — {e.message}")
+
         return CSVCommitResult(
             total=preview.total_rows,
             created=created,
             skipped=preview.invalid_rows,
-            errors=[
-                f"Row {r.row_number}: {', '.join(r.errors)}"
-                for r in preview.rows
-                if not r.is_valid
-            ],
+            errors=errors,
+            program_mappings_created=m_created,
+            program_mappings_reactivated=m_reactivated,
+            program_mappings_skipped=m_skipped,
         )

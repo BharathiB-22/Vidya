@@ -56,10 +56,28 @@ class CSVRowResult(BaseModel):
     identifier: Optional[str]
     is_valid: bool
     errors: list[str]
+    warnings: list[str] = Field(default_factory=list)
     section_id: Optional[UUID] = None
     section_resolved: bool = False
     acad_program_id: Optional[UUID] = None
     program_resolved: bool = False
+    # USN projection (students) — Phase 1 / Step 4
+    school_code: Optional[str] = None
+    admission_year: Optional[int] = None
+    projected_usn: Optional[str] = None
+    # Program mappings (faculty) — Phase 1 / Step 4
+    resolved_program_codes: list[str] = Field(default_factory=list)
+    unresolved_program_codes: list[str] = Field(default_factory=list)
+
+
+class ImportUsnRange(BaseModel):
+    """Projected USN range for one (school, year, program) triple in an import."""
+    school_code: str
+    admission_year: int
+    program_code: str
+    count: int
+    first_usn: str
+    last_usn: str
 
 
 class CSVPreviewResponse(BaseModel):
@@ -69,6 +87,8 @@ class CSVPreviewResponse(BaseModel):
     duplicate_in_file: int = 0
     duplicate_in_db: int = 0
     rows: list[CSVRowResult]
+    # Students: projected USN ranges that would be minted on commit
+    projected_usn_ranges: list[ImportUsnRange] = Field(default_factory=list)
 
 
 class CSVCommitResult(BaseModel):
@@ -77,6 +97,12 @@ class CSVCommitResult(BaseModel):
     skipped: int
     errors: list[str]
     enrollments_created: int = 0
+    # Students: USNs minted via UsnAllocator during this commit
+    usns_assigned: int = 0
+    # Faculty: program mappings applied via FacultyProgramService
+    program_mappings_created: int = 0
+    program_mappings_reactivated: int = 0
+    program_mappings_skipped: int = 0
 
 
 # ---------------------------------------------------------------------------

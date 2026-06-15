@@ -197,6 +197,7 @@ async def preview_faculty_csv(
 async def commit_faculty_csv(
     file: UploadFile = File(...),
     default_password: str = Form(default="Faculty@123"),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
     db: AsyncSession = Depends(_admin_db),
 ) -> CSVCommitResult:
     _read_file_upload(file)
@@ -214,6 +215,10 @@ async def commit_faculty_csv(
     return await OnboardingService.commit_faculty_csv(
         content, default_password, db,
         filename=file.filename or "faculty.csv",
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
     )
 
 
@@ -344,9 +349,9 @@ _STUDENTS_CSV_SAMPLE = (
 )
 
 _FACULTY_CSV_SAMPLE = (
-    "full_name,email,employee_id\n"
-    "Dr. John Smith,john.smith@university.edu,EMP001\n"
-    "Dr. Jane Doe,jane.doe@university.edu,EMP002\n"
+    "full_name,email,employee_id,program_codes\n"
+    "Dr. John Smith,john.smith@university.edu,EMP001,MCA|BCA\n"
+    "Dr. Jane Doe,jane.doe@university.edu,EMP002,MCA\n"
 )
 
 
@@ -387,10 +392,10 @@ async def sample_students_xlsx() -> Response:
 @router.get("/sample-xlsx/faculty")
 async def sample_faculty_xlsx() -> Response:
     content = _make_xlsx(
-        headers=["full_name", "email", "employee_id"],
+        headers=["full_name", "email", "employee_id", "program_codes"],
         rows=[
-            ["Dr. John Smith", "john.smith@university.edu", "EMP001"],
-            ["Dr. Jane Doe", "jane.doe@university.edu", "EMP002"],
+            ["Dr. John Smith", "john.smith@university.edu", "EMP001", "MCA|BCA"],
+            ["Dr. Jane Doe", "jane.doe@university.edu", "EMP002", "MCA"],
         ],
     )
     return Response(
