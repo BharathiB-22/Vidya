@@ -18,7 +18,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Enum,
-    ForeignKey, Index, SmallInteger, String, Text,
+    ForeignKey, Index, Integer, PrimaryKeyConstraint, SmallInteger, String, Text,
     UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -186,3 +186,37 @@ class SubjectAssignment(Base):
     role_in_course      = Column(Enum(CourseRoleInCourse, name="courseroleincoarse", native_enum=False), nullable=False)
     revoked_at          = Column(DateTime(timezone=True), nullable=True)
     revoked_by_user_id  = Column(UUID(as_uuid=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# ERP Onboarding (Phase 1): USN sequence allocation
+# ---------------------------------------------------------------------------
+
+class UsnSequenceCounter(Base):
+    """Per-(school, admission year, program) monotonic USN sequence counter.
+
+    `next_seq` is the next sequence number to hand out (starts at 1).  Blocks are
+    reserved atomically in `UsnAllocator` via
+        INSERT ... ON CONFLICT DO UPDATE SET next_seq = next_seq + n RETURNING
+    The ON CONFLICT row lock serialises concurrent allocations, so every issued
+    USN sequence is contiguous, gap-free, and never double-assigned.  The counter
+    resets per triple: SCA/2026/MCA is independent of SCA/2026/BCA and SCA/2027/MCA.
+
+    admission_year is stored full (e.g. 2026); the USN string renders the 2-digit
+    suffix.  Import-layer year validation keeps years within one century so that
+    rendering stays unambiguous.
+    """
+    __tablename__ = "usn_sequence_counters"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "school_code", "admission_year", "program_code",
+            name="pk_usn_sequence_counters",
+        ),
+    )
+
+    school_code    = Column(String(10), nullable=False)
+    admission_year = Column(Integer,    nullable=False)
+    program_code   = Column(String(10), nullable=False)
+    next_seq       = Column(Integer,    nullable=False, server_default=text("1"))
+    created_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at     = Column(DateTime(timezone=True), nullable=True)
