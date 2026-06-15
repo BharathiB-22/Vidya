@@ -148,9 +148,15 @@ services:
           memory: 1G
 
   # ── Schema migrations (runs once, then exits) ──────────────────────────────
+  # 1. Public schema to head.  2. Forward-migrate every existing tenant schema
+  # to head via upgrade_all_tenants (idempotent), so tenants created before a new
+  # migration receive it automatically — no manual DB intervention.  alembic
+  # requires ALEMBIC_TARGET to select the public vs. tenant version directory.
   migrate:
     build: ./backend
-    command: alembic upgrade head
+    command: >
+      sh -c "ALEMBIC_TARGET=public alembic upgrade head &&
+             python -m app.management.upgrade_all_tenants"
     env_file: .env.prod
     environment:
       DATABASE_URL: ${DATABASE_URL}   # REQUIRED

@@ -354,10 +354,13 @@ migrate:
   # Failed Jobs are preserved by Helm's hook-delete-policy for log inspection;
   # this TTL is a safety net in case they accumulate.
   ttlSecondsAfterFinished: 300
-  # Run the tenant schema migration in addition to the public schema.
-  # Set true only when tenant schemas exist and the tenant alembic env.py
-  # is configured to target a known schema. Default false — safe for new deploys.
-  runTenantMigration: false
+  # Forward-migrate every existing tenant schema to head after the public
+  # migration, via app.management.upgrade_all_tenants. Default true so legacy
+  # tenants (created before a new migration) receive it automatically on deploy
+  # with no manual DB intervention. Idempotent; the migration-check.sh
+  # destructive-DDL gate guards against unsafe tenant DDL. Set false only to
+  # deliberately defer tenant migration for manual review.
+  runTenantMigration: true
   resources:
     requests:
       cpu: 100m

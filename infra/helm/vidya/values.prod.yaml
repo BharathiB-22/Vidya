@@ -42,7 +42,7 @@
 #   [ ] networkPolicy.enabled: true
 #   [ ] env.ENVIRONMENT: production
 #   [ ] env.EMAIL_NOTIFICATIONS_ENABLED: "True"
-#   [ ] migrate.runTenantMigration  reviewed before upgrade
+#   [ ] migrate.runTenantMigration  true (forward-migrates all tenant schemas)
 # =============================================================================
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ frontend:
 migrate:
   image:
     tag: "0.1.0"
-  runTenantMigration: false   # review before each upgrade that adds tenant columns
+  runTenantMigration: true    # forward-migrate all tenant schemas to head on deploy (idempotent)
 
 # ── flower ────────────────────────────────────────────────────────────────────
 flower:

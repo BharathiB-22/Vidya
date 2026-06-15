@@ -18,10 +18,13 @@
   MIGRATION PATHS
   ───────────────
   Public schema (always): creates/updates shared tables (tenants, audit_logs, users…).
-  Tenant schema (opt-in): updates the tenant schema template.
-    Enable via: migrate.runTenantMigration: true in values.
-    Only set this when tenant schemas already exist and the tenant alembic
-    env.py is configured to target a known schema.
+  Tenant schemas (migrate.runTenantMigration, default true): forward-migrates
+    EVERY existing tenant schema to head via app.management.upgrade_all_tenants,
+    which iterates public.tenants and runs alembic per schema. This ensures
+    tenants created before a new migration still receive it on the next deploy —
+    new tenants get it at provision time, legacy tenants get it here. Idempotent:
+    schemas already at head are a no-op. The public migration above must run
+    first because the script reads public.tenants.
 
   ALEMBIC_TARGET env var selects which alembic version directory to use:
     public → backend/alembic/public_versions/
@@ -113,7 +116,10 @@ spec:
               set -e
               ALEMBIC_TARGET=public alembic upgrade head
               {{ if .Values.migrate.runTenantMigration -}}
-              ALEMBIC_TARGET=tenant alembic upgrade head
+              # Forward-migrate every existing tenant schema to head (idempotent).
+              # Iterates public.tenants and runs alembic per schema, so tenants
+              # created before a new migration still receive it on this deploy.
+              python -m app.management.upgrade_all_tenants
               {{- end }}
           env:
             # Prevent Python from writing .pyc files to the read-only root fs.

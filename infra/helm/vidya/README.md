@@ -347,7 +347,7 @@ Run through this list before every production release.
 - [ ] ESO `refreshInterval` is set (`30m` recommended for prod)
 - [ ] `env.ENVIRONMENT: production`
 - [ ] `env.ACCESS_TOKEN_EXPIRE_MINUTES` is `≤ 30`
-- [ ] `migrate.runTenantMigration` reviewed — set only when required
+- [ ] `migrate.runTenantMigration` is `true` — forward-migrates every tenant schema to head on deploy
 
 ### Operations
 
