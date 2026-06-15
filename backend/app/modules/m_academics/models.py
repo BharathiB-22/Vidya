@@ -220,3 +220,38 @@ class UsnSequenceCounter(Base):
     next_seq       = Column(Integer,    nullable=False, server_default=text("1"))
     created_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at     = Column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# ERP Onboarding (Phase 1 / Step 3): Faculty ↔ Program mapping
+# ---------------------------------------------------------------------------
+
+class FacultyProgramAssignment(Base):
+    """Many-to-many faculty ↔ program membership (program teaching scope).
+
+    Distinct from `SisFacultyProfile.primary_department_id` (the faculty's home
+    department).  Soft-revoke only — rows are never deleted; revocation stamps
+    `is_active=False`, `revoked_by`, `revoked_at`.  A partial-unique index
+    enforces at most one ACTIVE assignment per (faculty, program), while still
+    allowing historical revoked rows and re-assignment after revocation.
+    """
+    __tablename__ = "faculty_program_assignments"
+    __table_args__ = (
+        Index(
+            "uq_fpa_active_faculty_program",
+            "faculty_user_id", "program_id",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+        Index("ix_fpa_program",        "program_id"),
+        Index("ix_fpa_faculty_active", "faculty_user_id", "is_active"),
+    )
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    faculty_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id",          ondelete="CASCADE"), nullable=False)
+    program_id      = Column(UUID(as_uuid=True), ForeignKey("acad_programs.id",   ondelete="CASCADE"), nullable=False)
+    is_active       = Column(Boolean, nullable=False, default=True)
+    assigned_by     = Column(UUID(as_uuid=True), nullable=False)
+    assigned_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    revoked_by      = Column(UUID(as_uuid=True), nullable=True)
+    revoked_at      = Column(DateTime(timezone=True), nullable=True)

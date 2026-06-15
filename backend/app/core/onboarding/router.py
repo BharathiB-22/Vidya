@@ -17,6 +17,16 @@ from app.core.onboarding.schemas import (
     UsnBackfillCommitResult,
     UsnBackfillPreviewResponse,
 )
+from app.core.onboarding.faculty_program_schemas import (
+    FacultyProgramAssignRequest,
+    FacultyProgramListResponse,
+    FacultyProgramOut,
+    FacultyProgramRevokeRequest,
+)
+from app.core.onboarding.faculty_program_service import (
+    FacultyProgramService,
+    FacultyProgramServiceError,
+)
 from app.core.onboarding.service import OnboardingError, OnboardingService
 from app.core.onboarding.usn_backfill_service import UsnBackfillService
 from app.database import AsyncSessionLocal
@@ -229,6 +239,83 @@ async def usn_backfill_commit(
     Idempotent and atomic.  Existing USNs are never modified.
     """
     return await UsnBackfillService.commit(db, actor_user_id=current_user.user_id)
+
+
+# ---------------------------------------------------------------------------
+# Faculty ↔ Program assignments (Phase 1 / Step 3)
+# ---------------------------------------------------------------------------
+
+def _faculty_program_err(e: FacultyProgramServiceError) -> HTTPException:
+    return HTTPException(
+        status_code=e.status_code,
+        detail={"error": e.code, "message": e.message},
+    )
+
+
+@router.post("/faculty-programs/assign", response_model=FacultyProgramOut)
+async def assign_faculty_program(
+    body: FacultyProgramAssignRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyProgramOut:
+    """Grant a faculty teaching scope on a program (reactivates if revoked)."""
+    try:
+        return await FacultyProgramService.assign_program(
+            db,
+            faculty_user_id=body.faculty_user_id,
+            program_id=body.program_id,
+            assigned_by=current_user.user_id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+        )
+    except FacultyProgramServiceError as e:
+        raise _faculty_program_err(e)
+
+
+@router.post("/faculty-programs/revoke", response_model=FacultyProgramOut)
+async def revoke_faculty_program(
+    body: FacultyProgramRevokeRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyProgramOut:
+    """Soft-revoke the active assignment for (faculty, program)."""
+    try:
+        return await FacultyProgramService.revoke_program(
+            db,
+            faculty_user_id=body.faculty_user_id,
+            program_id=body.program_id,
+            revoked_by=current_user.user_id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+        )
+    except FacultyProgramServiceError as e:
+        raise _faculty_program_err(e)
+
+
+@router.get("/faculty-programs/by-faculty/{faculty_user_id}", response_model=FacultyProgramListResponse)
+async def list_programs_for_faculty(
+    faculty_user_id: str,
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyProgramListResponse:
+    fid = _parse_uuid_form(faculty_user_id, "faculty_user_id")
+    return await FacultyProgramService.list_programs(
+        db, faculty_user_id=fid, include_inactive=include_inactive
+    )
+
+
+@router.get("/faculty-programs/by-program/{program_id}", response_model=FacultyProgramListResponse)
+async def list_faculty_for_program(
+    program_id: str,
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyProgramListResponse:
+    pid = _parse_uuid_form(program_id, "program_id")
+    return await FacultyProgramService.list_faculty_for_program(
+        db, program_id=pid, include_inactive=include_inactive
+    )
 
 
 # ---------------------------------------------------------------------------
