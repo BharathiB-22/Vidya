@@ -80,6 +80,44 @@ class ImportUsnRange(BaseModel):
     last_usn: str
 
 
+class StudentSummaryMeta(BaseModel):
+    """Dashboard-ready rollup for a student import preview."""
+    total_rows: int
+    valid_rows: int
+    invalid_rows: int
+    # Distinct EXISTING academic entities the valid rows resolve to
+    schools_count: int
+    departments_count: int
+    programs_count: int
+    batches_count: int
+    sections_count: int
+    # Students that would receive a freshly-minted USN on commit
+    projected_usns_count: int
+    # Distinct entities REFERENCED in the file that do not exist yet
+    new_schools: int
+    new_departments: int
+    new_programs: int
+    new_batches: int
+    new_sections: int
+
+
+class FacultySummaryMeta(BaseModel):
+    """Dashboard-ready rollup for a faculty import preview."""
+    total_rows: int
+    valid_rows: int
+    invalid_rows: int
+    faculty_count: int
+    unique_programs: int
+    new_program_assignments: int
+    reactivated_assignments: int
+
+
+class ProgramAssignmentCount(BaseModel):
+    """How many faculty an import maps to a given program (for charts)."""
+    program_code: str
+    faculty_count: int
+
+
 class CSVPreviewResponse(BaseModel):
     total_rows: int
     valid_rows: int
@@ -89,6 +127,10 @@ class CSVPreviewResponse(BaseModel):
     rows: list[CSVRowResult]
     # Students: projected USN ranges that would be minted on commit
     projected_usn_ranges: list[ImportUsnRange] = Field(default_factory=list)
+    # Dashboard rollup — StudentSummaryMeta or FacultySummaryMeta shape
+    summary_meta: Optional[dict] = None
+    # Faculty: per-program faculty counts for charts
+    program_assignment_summary: list[ProgramAssignmentCount] = Field(default_factory=list)
 
 
 class CSVCommitResult(BaseModel):

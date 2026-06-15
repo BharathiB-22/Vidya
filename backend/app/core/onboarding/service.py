@@ -13,9 +13,12 @@ from app.core.onboarding.schemas import (
     CSVCommitResult,
     CSVPreviewResponse,
     CSVRowResult,
+    FacultySummaryMeta,
     GenerateStudentsRequest,
     GenerateStudentsResult,
     ImportUsnRange,
+    ProgramAssignmentCount,
+    StudentSummaryMeta,
 )
 from app.core.onboarding.usn_mint import MintItem, ProjectItem, mint_usns, project_usns
 
@@ -273,11 +276,12 @@ class OnboardingService:
     @staticmethod
     async def _resolve_program_identity(
         program_id: UUID, db: AsyncSession
-    ) -> tuple[str | None, str | None]:
-        """Return (program_code, school_code) for a program — school via dept."""
+    ) -> tuple[str | None, str | None, str | None]:
+        """Return (program_code, school_code, department_code) — school via dept."""
         row = await db.execute(
             text(
-                "SELECT p.code AS program_code, sch.code AS school_code "
+                "SELECT p.code AS program_code, sch.code AS school_code, "
+                "       d.code AS department_code "
                 "FROM acad_programs p "
                 "LEFT JOIN acad_departments d ON d.id = p.department_id "
                 "LEFT JOIN sis_schools    sch ON sch.id = d.school_id "
@@ -287,8 +291,20 @@ class OnboardingService:
         )
         m = row.mappings().one_or_none()
         if m is None:
-            return None, None
-        return m["program_code"], m["school_code"]
+            return None, None, None
+        return m["program_code"], m["school_code"], m["department_code"]
+
+    @staticmethod
+    async def _batch_exists(program_code: str, batch_year: int, db: AsyncSession) -> bool:
+        row = await db.execute(
+            text(
+                "SELECT 1 FROM acad_batches b "
+                "JOIN acad_programs p ON p.id = b.program_id "
+                "WHERE UPPER(p.code) = :code AND b.start_year = :yr LIMIT 1"
+            ),
+            {"code": program_code.upper(), "yr": batch_year},
+        )
+        return row.scalar_one_or_none() is not None
 
     @staticmethod
     async def _admission_year_from_section(
@@ -432,8 +448,13 @@ class OnboardingService:
         seen_ids:    set[str] = set()
         _program_cache: dict[str, UUID | None] = {}
         _section_cache: dict[tuple, UUID | None] = {}
-        _identity_cache: dict[str, tuple] = {}   # program_id -> (program_code, school_code)
+        _identity_cache: dict[str, tuple] = {}   # program_id -> (program_code, school_code, dept_code)
         _year_cache: dict[str, int | None] = {}  # section_id -> admission_year
+
+        # Referenced-but-missing structure (for summary_meta.new_*)
+        _new_programs: set[str] = set()
+        _new_batches: set[tuple] = set()
+        _new_sections: set[tuple] = set()
 
         rows: list[CSVRowResult] = []
         for i, raw in enumerate(raw_rows):
@@ -460,6 +481,7 @@ class OnboardingService:
                     else:
                         row.errors.append(f"Program not found: '{prog_code}'")
                         row.is_valid = False
+                        _new_programs.add(prog_code.upper())
 
             # Section resolution
             if context_section_id is not None:
@@ -485,6 +507,13 @@ class OnboardingService:
                             f"year={batch_yr_str} section='{sec_name}'"
                         )
                         row.is_valid = False
+                        # Classify the gap as a missing batch vs a missing section.
+                        if batch_yr_str.isdigit() and not await OnboardingService._batch_exists(
+                            prog_code, int(batch_yr_str), db
+                        ):
+                            _new_batches.add((prog_code.upper(), int(batch_yr_str)))
+                        else:
+                            _new_sections.add((prog_code.upper(), batch_yr_str, sec_name.upper()))
 
             # USN triple derivation (school_code, admission_year, program_code).
             if row.acad_program_id is not None:
@@ -493,7 +522,7 @@ class OnboardingService:
                     _identity_cache[pid_key] = await OnboardingService._resolve_program_identity(
                         row.acad_program_id, db
                     )
-                prog_code_resolved, school_code = _identity_cache[pid_key]
+                prog_code_resolved, school_code, _dept_code = _identity_cache[pid_key]
                 row.school_code = school_code
 
                 admission_year: int | None = None
@@ -525,7 +554,7 @@ class OnboardingService:
         for row in rows:
             if not row.is_valid or row.acad_program_id is None:
                 continue
-            prog_code_resolved, _sc = _identity_cache.get(str(row.acad_program_id), (None, None))
+            prog_code_resolved, _sc, _dc = _identity_cache.get(str(row.acad_program_id), (None, None, None))
             if prog_code_resolved and row.school_code and row.admission_year is not None:
                 item = ProjectItem(
                     triple=(row.school_code, row.admission_year, prog_code_resolved),
@@ -539,6 +568,44 @@ class OnboardingService:
 
         valid = sum(1 for r in rows if r.is_valid)
         dup_file, dup_db = OnboardingService._count_duplicates(rows)
+
+        # ---- Dashboard rollup (summary_meta) ----
+        schools: set[str] = set()
+        departments: set[str] = set()
+        programs: set[str] = set()
+        batches: set[tuple] = set()
+        sections: set[str] = set()
+        projected_count = 0
+        for r in rows:
+            if not r.is_valid:
+                continue
+            if r.acad_program_id is not None:
+                programs.add(str(r.acad_program_id))
+                _pc, sc, dc = _identity_cache.get(str(r.acad_program_id), (None, None, None))
+                if sc:
+                    schools.add(sc.upper())
+                if dc:
+                    departments.add(dc.upper())
+                if r.admission_year is not None:
+                    batches.add((str(r.acad_program_id), r.admission_year))
+            if r.section_id is not None:
+                sections.add(str(r.section_id))
+            if r.projected_usn:
+                projected_count += 1
+
+        summary = StudentSummaryMeta(
+            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid,
+            schools_count=len(schools), departments_count=len(departments),
+            programs_count=len(programs), batches_count=len(batches),
+            sections_count=len(sections),
+            projected_usns_count=projected_count,
+            # A student CSV references existing structure; schools/departments are
+            # always reached via an existing program, so they are never "new".
+            new_schools=0, new_departments=0,
+            new_programs=len(_new_programs),
+            new_batches=len(_new_batches),
+            new_sections=len(_new_sections),
+        )
 
         return CSVPreviewResponse(
             total_rows=len(rows),
@@ -555,6 +622,7 @@ class OnboardingService:
                 )
                 for r in ranges
             ],
+            summary_meta=summary.model_dump(),
         )
 
     @staticmethod
@@ -604,7 +672,7 @@ class OnboardingService:
                     _identity_cache[pid_key] = await OnboardingService._resolve_program_identity(
                         r.acad_program_id, db
                     )
-                prog_code_resolved, _sc = _identity_cache[pid_key]
+                prog_code_resolved, _sc, _dc = _identity_cache[pid_key]
                 if prog_code_resolved:
                     mint_items.append(MintItem(
                         triple=(r.school_code, r.admission_year, prog_code_resolved),
@@ -676,6 +744,59 @@ class OnboardingService:
         valid = sum(1 for r in rows if r.is_valid)
         dup_file, dup_db = OnboardingService._count_duplicates(rows)
 
+        # ---- Dashboard rollup: predict the mappings commit would apply ----
+        unique_programs: set[str] = set()
+        faculty_emails: set[str] = set()
+        prog_faculty: dict[str, set[str]] = {}   # program_code -> set(faculty email)
+        new_assignments = reactivated = 0
+
+        for r in rows:
+            if not r.resolved_program_codes:
+                # A valid faculty row with no mappings still counts as onboarded.
+                if r.is_valid:
+                    faculty_emails.add(r.email.lower())
+                continue
+
+            # Resolve the faculty identity this row would map to.
+            faculty_id: UUID | None = None
+            is_new = False
+            if r.is_valid:
+                is_new = True                       # brand-new faculty (created on commit)
+            else:
+                existing = await OnboardingService._get_user_by_email(r.email, db)
+                if existing is not None and existing[1].upper() == "FACULTY":
+                    faculty_id = existing[0]
+                else:
+                    continue                        # not creatable, not existing faculty
+
+            faculty_emails.add(r.email.lower())
+            for code in r.resolved_program_codes:
+                unique_programs.add(code)
+                prog_faculty.setdefault(code, set()).add(r.email.lower())
+                if is_new:
+                    new_assignments += 1            # no prior state possible
+                    continue
+                pid = _program_cache.get(code)
+                state = await OnboardingService._assignment_state(faculty_id, pid, db) if pid else "none"
+                if state == "active":
+                    pass                            # duplicate — skipped
+                elif state == "revoked":
+                    reactivated += 1
+                else:
+                    new_assignments += 1
+
+        summary = FacultySummaryMeta(
+            total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid,
+            faculty_count=len(faculty_emails),
+            unique_programs=len(unique_programs),
+            new_program_assignments=new_assignments,
+            reactivated_assignments=reactivated,
+        )
+        program_assignment_summary = [
+            ProgramAssignmentCount(program_code=code, faculty_count=len(emails))
+            for code, emails in sorted(prog_faculty.items())
+        ]
+
         return CSVPreviewResponse(
             total_rows=len(rows),
             valid_rows=valid,
@@ -683,6 +804,8 @@ class OnboardingService:
             duplicate_in_file=dup_file,
             duplicate_in_db=dup_db,
             rows=rows,
+            summary_meta=summary.model_dump(),
+            program_assignment_summary=program_assignment_summary,
         )
 
     @staticmethod
@@ -695,6 +818,22 @@ class OnboardingService:
         if m is None:
             return None
         return m["id"], str(m["role"])
+
+    @staticmethod
+    async def _assignment_state(faculty_id: UUID, program_id: UUID, db: AsyncSession) -> str:
+        """Current mapping state for a (faculty, program) pair: active|revoked|none."""
+        row = await db.execute(
+            text(
+                "SELECT bool_or(is_active) AS has_active, count(*) AS n "
+                "FROM faculty_program_assignments "
+                "WHERE faculty_user_id = :f AND program_id = :p"
+            ),
+            {"f": str(faculty_id), "p": str(program_id)},
+        )
+        m = row.mappings().one()
+        if not m["n"]:
+            return "none"
+        return "active" if m["has_active"] else "revoked"
 
     @staticmethod
     async def commit_faculty_csv(
