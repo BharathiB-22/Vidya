@@ -14,6 +14,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.onboarding.usn_governance import ProgramCodeUsageService
 from app.modules.m_academics.models import (
     AcadBatch, AcadDepartment, AcadProgram,
     AcadSection, AcadSemester,
@@ -143,6 +144,13 @@ class ProgramService:
         updates: dict = body.model_dump(exclude_none=True)
 
         if "code" in updates and updates["code"] != prog.code:
+            # USN immutability: the old code may be cemented into issued USNs.
+            if await ProgramCodeUsageService.is_program_code_used(prog.code, db):
+                raise AcadServiceError(
+                    "USN_CODE_LOCKED",
+                    "Program code cannot be changed because issued USNs depend on it.",
+                    409,
+                )
             if await ProgramRepo.get_by_code(updates["code"], db):
                 raise AcadServiceError("DUPLICATE_CODE", f"Program code '{updates['code']}' already exists.")
 

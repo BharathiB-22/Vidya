@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
+from app.core.onboarding.usn_governance import SchoolCodeUsageService
 from app.modules.m11_sis.models import SisSchool
 from app.modules.m11_sis.repository import SchoolRepository
 from app.modules.m11_sis.schemas import SchoolCreate, SchoolUpdate
@@ -77,6 +78,13 @@ class SchoolService:
             raise SchoolServiceError("NOT_FOUND", "School not found.", 404)
         updates = body.model_dump(exclude_none=True)
         if "code" in updates and updates["code"] != school.code:
+            # USN immutability: the old code may be cemented into issued USNs.
+            if await SchoolCodeUsageService.is_school_code_used(school.code, db):
+                raise SchoolServiceError(
+                    "USN_CODE_LOCKED",
+                    "School code cannot be changed because issued USNs depend on it.",
+                    409,
+                )
             if await SchoolRepository.get_by_code(updates["code"], db):
                 raise SchoolServiceError("DUPLICATE_CODE", f"School code '{updates['code']}' already exists.")
         if "name" in updates and updates["name"] != school.name:
