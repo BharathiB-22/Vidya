@@ -77,3 +77,57 @@ class CSVCommitResult(BaseModel):
     skipped: int
     errors: list[str]
     enrollments_created: int = 0
+
+
+# ---------------------------------------------------------------------------
+# USN backfill (Phase 1 / Step 2)
+# ---------------------------------------------------------------------------
+
+class UsnBackfillRow(BaseModel):
+    """One existing student evaluated for USN backfill."""
+    user_id: UUID
+    full_name: str
+    email: str
+    # Derived academic identity (None when the chain could not be resolved)
+    school_code: Optional[str] = None
+    program_code: Optional[str] = None
+    admission_year: Optional[int] = None
+    # Existing vs projected USN
+    existing_usn: Optional[str] = None
+    projected_usn: Optional[str] = None
+    # Outcome for this row
+    action: str                       # SKIP_HAS_USN | ASSIGN | ERROR | CONFLICT
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class UsnProjectedRange(BaseModel):
+    """Projected USN range for one (school, year, program) triple."""
+    school_code: str
+    admission_year: int
+    program_code: str
+    seed_next_seq: int                # counter start used for this run
+    count: int                        # students to be assigned in this triple
+    first_usn: str
+    last_usn: str
+
+
+class UsnBackfillPreviewResponse(BaseModel):
+    total_students: int
+    already_have_usn: int             # skipped
+    to_assign: int
+    errors_count: int
+    conflicts_count: int
+    warnings_count: int
+    projected_ranges: list[UsnProjectedRange]
+    rows: list[UsnBackfillRow]
+
+
+class UsnBackfillCommitResult(BaseModel):
+    total_students: int
+    assigned: int
+    skipped: int                      # already had a USN
+    failed: int                       # errors + conflicts not assigned
+    counters_seeded: int              # triples whose counter was advanced from existing USNs
+    batch_ref: Optional[str] = None   # sis_import_batches reference for traceability
+    errors: list[str] = Field(default_factory=list)

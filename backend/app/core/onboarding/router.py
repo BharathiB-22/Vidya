@@ -14,8 +14,11 @@ from app.core.onboarding.schemas import (
     CSVPreviewResponse,
     GenerateStudentsRequest,
     GenerateStudentsResult,
+    UsnBackfillCommitResult,
+    UsnBackfillPreviewResponse,
 )
 from app.core.onboarding.service import OnboardingError, OnboardingService
+from app.core.onboarding.usn_backfill_service import UsnBackfillService
 from app.database import AsyncSessionLocal
 
 router = APIRouter(tags=["onboarding"])
@@ -202,6 +205,30 @@ async def commit_faculty_csv(
         content, default_password, db,
         filename=file.filename or "faculty.csv",
     )
+
+
+# ---------------------------------------------------------------------------
+# USN backfill — assign USNs to existing students (preview-first)
+# ---------------------------------------------------------------------------
+
+@router.post("/usn-backfill/preview", response_model=UsnBackfillPreviewResponse)
+async def usn_backfill_preview(
+    db: AsyncSession = Depends(_admin_db),
+) -> UsnBackfillPreviewResponse:
+    """Read-only: derive academic identity and project USNs.  No writes."""
+    return await UsnBackfillService.preview(db)
+
+
+@router.post("/usn-backfill/commit", response_model=UsnBackfillCommitResult)
+async def usn_backfill_commit(
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> UsnBackfillCommitResult:
+    """Seed counters, allocate USNs, and assign them to students lacking one.
+
+    Idempotent and atomic.  Existing USNs are never modified.
+    """
+    return await UsnBackfillService.commit(db, actor_user_id=current_user.user_id)
 
 
 # ---------------------------------------------------------------------------
