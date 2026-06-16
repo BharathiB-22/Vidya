@@ -152,7 +152,6 @@ export interface FacultyDirectoryItem {
   user_id: string
   full_name: string
   email: string
-  institution_email: string | null
   employee_id: string | null
   designation: string | null
   specialization: string | null

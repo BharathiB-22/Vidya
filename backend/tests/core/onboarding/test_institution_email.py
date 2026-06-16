@@ -25,8 +25,8 @@ def test_format_email_student_lowercases():
     assert format_email("SCA26BCA001", "lms.edu") == "sca26bca001@lms.edu"
 
 
-def test_format_email_faculty_lowercases():
-    assert format_email("EMP001", "LMS.EDU") == "emp001@lms.edu"
+def test_format_email_uppercase_domain_normalized():
+    assert format_email("SCA26BCA002", "LMS.EDU") == "sca26bca002@lms.edu"
 
 
 def test_format_email_strips_and_normalizes_domain():
@@ -60,22 +60,17 @@ def test_set_domain_rejects_no_tld():
 # ---------------------------------------------------------------------------
 
 def _student(usn, inst=None):
-    return {"user_id": uuid.uuid4(), "full_name": "Stu", "role": "STUDENT",
-            "login_email": "stu@gmail.com", "existing_inst": inst, "usn": usn, "employee_id": None}
-
-
-def _faculty(emp, inst=None):
-    return {"user_id": uuid.uuid4(), "full_name": "Prof", "role": "FACULTY",
-            "login_email": "prof@gmail.com", "existing_inst": inst, "usn": None, "employee_id": emp}
+    return {"user_id": uuid.uuid4(), "full_name": "Stu",
+            "login_email": "stu@gmail.com", "existing_inst": inst, "usn": usn}
 
 
 @pytest.mark.asyncio
 async def test_preview_classifies_rows():
     rows = [
-        _student("SCA26BCA001"),                       # ASSIGN
-        _student(None),                                # SKIP_NO_IDENTIFIER
-        _faculty("EMP001", inst="emp001@lms.edu"),     # SKIP_HAS_EMAIL
-        _faculty("EMP002"),                            # ASSIGN
+        _student("SCA26BCA001"),                              # ASSIGN
+        _student(None),                                       # SKIP_NO_IDENTIFIER
+        _student("SCA26BCA002", inst="sca26bca002@lms.edu"),  # SKIP_HAS_EMAIL
+        _student("SCA26BCA003"),                              # ASSIGN
     ]
     with patch.object(InstitutionEmailService, "_load", AsyncMock(return_value=rows)):
         resp = await InstitutionEmailService.preview(
@@ -83,15 +78,12 @@ async def test_preview_classifies_rows():
         )
     by_action = {r.action for r in resp.rows}
     assert resp.domain == "lms.edu"
-    assert resp.total_users == 4
-    assert resp.students == 2
-    assert resp.faculty == 2
+    assert resp.total_students == 4
     assert resp.to_assign == 2
     assert resp.already_have == 1
     assert resp.no_identifier == 1
     assert {"ASSIGN", "SKIP_NO_IDENTIFIER", "SKIP_HAS_EMAIL"} <= by_action
-    # The student ASSIGN row carries the projected email
-    assign = next(r for r in resp.rows if r.action == "ASSIGN" and r.role == "STUDENT")
+    assign = next(r for r in resp.rows if r.action == "ASSIGN")
     assert assign.projected_institution_email == "sca26bca001@lms.edu"
 
 
@@ -99,8 +91,8 @@ async def test_preview_classifies_rows():
 async def test_preview_detects_conflict_against_existing():
     # An existing institution_email collides with a projected one.
     rows = [
-        _faculty("EMP001", inst="emp001@lms.edu"),  # already taken
-        _student("EMP001"),                          # would project emp001@lms.edu → CONFLICT
+        _student("SCA26BCA001", inst="sca26bca001@lms.edu"),  # already taken
+        _student("SCA26BCA001"),                              # projects same → CONFLICT
     ]
     with patch.object(InstitutionEmailService, "_load", AsyncMock(return_value=rows)):
         resp = await InstitutionEmailService.preview(
@@ -127,9 +119,9 @@ async def test_preview_requires_domain():
 @pytest.mark.asyncio
 async def test_commit_assigns_and_skips():
     rows = [
-        _student("SCA26BCA001"),                    # ASSIGN
-        _faculty("EMP001", inst="emp001@lms.edu"),  # SKIP (already has)
-        _student(None),                             # SKIP (no identifier)
+        _student("SCA26BCA001"),                              # ASSIGN
+        _student("SCA26BCA002", inst="sca26bca002@lms.edu"),  # SKIP (already has)
+        _student(None),                                       # SKIP (no identifier)
     ]
     db = MagicMock()
     db.execute = AsyncMock(return_value=MagicMock(rowcount=1))

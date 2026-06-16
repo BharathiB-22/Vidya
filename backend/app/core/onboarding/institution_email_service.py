@@ -1,9 +1,13 @@
 """Institution email foundation — Phase 1.2 / Task C.
 
-Generates institutional email addresses for existing members:
+Generates institutional email addresses for existing **students only**:
 
     Student :  {usn}@{institution_domain}          e.g. sca26bca001@lms.edu
-    Faculty :  {employee_id}@{institution_domain}   e.g. emp001@lms.edu
+
+Faculty are intentionally excluded: they keep using their real `email` only
+(identities may move across departments, no business value, avoids collisions).
+The student institution email is intended to become the student's primary login
+identifier in a future phase.
 
 Preview-first and idempotent.  Rules:
   * institution_email is unique per tenant (enforced by uq_users_institution_email).
@@ -39,7 +43,7 @@ class InstitutionEmailError(Exception):
 
 
 def format_email(local_part: str, domain: str) -> str:
-    """{usn|employee_id}@{domain}, lower-cased."""
+    """{usn}@{domain}, lower-cased."""
     return f"{local_part.strip().lower()}@{normalize_domain(domain)}"
 
 
@@ -48,15 +52,12 @@ _LOAD_SQL = text(
     SELECT
         u.id                AS user_id,
         u.full_name         AS full_name,
-        u.role              AS role,
         u.email             AS login_email,
         u.institution_email AS existing_inst,
-        sp.usn              AS usn,
-        fp.employee_id      AS employee_id
+        sp.usn              AS usn
     FROM users u
     LEFT JOIN sis_student_profiles sp ON sp.user_id = u.id
-    LEFT JOIN sis_faculty_profiles fp ON fp.user_id = u.id
-    WHERE u.is_active = true AND u.role IN ('STUDENT', 'FACULTY')
+    WHERE u.is_active = true AND u.role = 'STUDENT'
     ORDER BY u.full_name, u.id
     """
 )
@@ -74,10 +75,8 @@ _WRITE_SQL = text(
 
 
 def _local_part(row: dict) -> tuple[str | None, str]:
-    """Return (local_part, kind) for a user row."""
-    if row["role"] == "STUDENT":
-        return (row["usn"], "usn")
-    return (row["employee_id"], "employee_id")
+    """Return (local_part, kind) for a student row — the USN."""
+    return (row["usn"], "usn")
 
 
 class InstitutionEmailService:
@@ -144,19 +143,13 @@ class InstitutionEmailService:
         }
 
         out: list[InstitutionEmailRow] = []
-        students = faculty = to_assign = already = no_id = conflicts = 0
+        to_assign = already = no_id = conflicts = 0
 
         for r in rows:
-            if r["role"] == "STUDENT":
-                students += 1
-            else:
-                faculty += 1
-
             local, kind = _local_part(r)
             row = InstitutionEmailRow(
                 user_id=r["user_id"],
                 full_name=r["full_name"],
-                role=r["role"],
                 login_email=r["login_email"],
                 identifier=local,
                 existing_institution_email=r["existing_inst"],
@@ -193,9 +186,7 @@ class InstitutionEmailService:
 
         return InstitutionEmailPreviewResponse(
             domain=domain,
-            total_users=len(rows),
-            students=students,
-            faculty=faculty,
+            total_students=len(rows),
             to_assign=to_assign,
             already_have=already,
             no_identifier=no_id,
@@ -271,7 +262,7 @@ class InstitutionEmailService:
         # the whole run atomically.
         return InstitutionEmailCommitResult(
             domain=domain,
-            total_users=len(rows),
+            total_students=len(rows),
             assigned=assigned,
             skipped=skipped,
             conflicts=conflicts,

@@ -158,7 +158,6 @@ class FacultyDirectoryItem(BaseModel):
     user_id: UUID
     full_name: str
     email: str
-    institution_email: Optional[str] = None
     employee_id: Optional[str]
     designation: Optional[str]
     specialization: Optional[str]
@@ -175,7 +174,6 @@ class FacultyDetailOut(BaseModel):
     user_id: UUID
     full_name: str
     email: str
-    institution_email: Optional[str] = None
     identifier: Optional[str]
     employee_id: Optional[str]
     designation: Optional[str]

@@ -1,7 +1,7 @@
 """Institution email foundation — Phase 1.2 / Task C schemas.
 
-Generation only: project and assign {usn|employee_id}@{institution_domain}
-institution emails to existing students and faculty.  Login is unaffected.
+Generation only: project and assign {usn}@{institution_domain} institution
+emails to existing students (faculty are excluded).  Login is unaffected.
 """
 from __future__ import annotations
 
@@ -50,14 +50,13 @@ class InstitutionEmailRunIn(BaseModel):
         return normalize_domain(v) if isinstance(v, str) and v.strip() else None
 
 
-# Per-user projection row.
+# Per-student projection row (students only — faculty keep their real email).
 # action ∈ ASSIGN | SKIP_HAS_EMAIL | SKIP_NO_IDENTIFIER | CONFLICT
 class InstitutionEmailRow(BaseModel):
     user_id: UUID
     full_name: str
-    role: str
     login_email: str
-    identifier: Optional[str] = None  # usn (student) or employee_id (faculty)
+    identifier: Optional[str] = None  # usn
     existing_institution_email: Optional[str] = None
     projected_institution_email: Optional[str] = None
     action: str
@@ -66,9 +65,7 @@ class InstitutionEmailRow(BaseModel):
 
 class InstitutionEmailPreviewResponse(BaseModel):
     domain: str
-    total_users: int
-    students: int
-    faculty: int
+    total_students: int
     to_assign: int
     already_have: int
     no_identifier: int
@@ -78,7 +75,7 @@ class InstitutionEmailPreviewResponse(BaseModel):
 
 class InstitutionEmailCommitResult(BaseModel):
     domain: str
-    total_users: int
+    total_students: int
     assigned: int
     skipped: int
     conflicts: int
