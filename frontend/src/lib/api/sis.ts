@@ -85,6 +85,7 @@ export interface StudentProfile {
   student_id: string
   full_name: string
   email: string
+  institution_email: string | null
   identifier: string | null
   usn: string | null
   admission_year: number | null
@@ -122,6 +123,7 @@ export interface StudentDirectoryItem {
   user_id: string
   full_name: string
   email: string
+  institution_email: string | null
   identifier: string | null
   usn: string | null
   admission_year: number | null
@@ -150,6 +152,7 @@ export interface FacultyDirectoryItem {
   user_id: string
   full_name: string
   email: string
+  institution_email: string | null
   employee_id: string | null
   designation: string | null
   specialization: string | null

@@ -112,6 +112,7 @@ class StudentProfileOut(BaseModel):
     student_id: UUID
     full_name: str
     email: str
+    institution_email: Optional[str] = None
     identifier: Optional[str]
     usn: Optional[str]
     admission_year: Optional[int]

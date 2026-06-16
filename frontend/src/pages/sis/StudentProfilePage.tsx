@@ -339,6 +339,11 @@ export default function StudentProfilePage() {
       <Card title="Student" icon={UserCircle2}>
         <InfoRow label="Full name"      value={profile.full_name} />
         <InfoRow label="Email"          value={profile.email} />
+        <InfoRow label="Institution email" value={
+          profile.institution_email
+            ? <span className="font-mono" style={{ color: '#374151' }}>{profile.institution_email}</span>
+            : <span style={{ color: '#9CA3AF' }}>Not generated</span>
+        } />
         <InfoRow label="Identifier"     value={profile.identifier ?? '—'} />
         {profile.usn && (
           <InfoRow label="USN" value={

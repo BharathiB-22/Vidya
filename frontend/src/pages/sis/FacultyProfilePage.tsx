@@ -428,6 +428,11 @@ export default function FacultyProfilePage() {
       {/* Contact & Basics */}
       <Card title="Contact & Basics" icon={UserCheck}>
         <InfoRow label="Email"          value={profile.email} />
+        <InfoRow label="Institution email" value={
+          profile.institution_email
+            ? <span className="font-mono" style={{ color: '#374151' }}>{profile.institution_email}</span>
+            : <span style={{ color: '#9CA3AF' }}>Not generated</span>
+        } />
         {profile.phone    && <InfoRow label="Phone"     value={<span className="flex items-center gap-1"><Phone className="h-3 w-3 text-slate-500" />{profile.phone}</span>} />}
         {profile.office_location && <InfoRow label="Office" value={<span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-slate-500" />{profile.office_location}</span>} />}
         {profile.joining_date && <InfoRow label="Joined" value={<span className="flex items-center gap-1"><Calendar className="h-3 w-3 text-slate-500" />{profile.joining_date}</span>} />}

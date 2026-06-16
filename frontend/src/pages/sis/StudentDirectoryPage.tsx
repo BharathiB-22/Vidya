@@ -144,6 +144,11 @@ function StudentCard({
           )}
         </div>
         <p className="text-xs mt-0.5 truncate" style={{ color: '#4B5563' }}>{student.email}</p>
+        {student.institution_email && (
+          <p className="text-xs mt-0.5 truncate font-mono" style={{ color: '#374151' }} title="Institution email">
+            {student.institution_email}
+          </p>
+        )}
         <div className="mt-1.5 flex flex-wrap gap-2">
           {student.program && <span className="text-xs" style={{ color: '#374151' }}>{student.program.name} · {student.program.degree_type}</span>}
           {student.batch && <span className="text-xs" style={{ color: '#4B5563' }}>Batch {student.batch.start_year}–{student.batch.end_year}</span>}

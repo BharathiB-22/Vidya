@@ -280,6 +280,7 @@ class EnrollmentRepository:
             student_id=user.id,
             full_name=user.full_name,
             email=user.email,
+            institution_email=user.institution_email,
             identifier=user.identifier,
             usn=sis_profile.usn if sis_profile else None,
             admission_year=sis_profile.admission_year if sis_profile else None,

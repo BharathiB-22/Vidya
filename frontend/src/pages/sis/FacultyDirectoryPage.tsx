@@ -134,6 +134,11 @@ function FacultyCard({
           )}
         </div>
         <p className="text-xs mt-0.5 truncate" style={{ color: '#4B5563' }}>{member.email}</p>
+        {member.institution_email && (
+          <p className="text-xs mt-0.5 truncate font-mono" style={{ color: '#374151' }} title="Institution email">
+            {member.institution_email}
+          </p>
+        )}
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
           {member.designation && <span className="text-xs" style={{ color: '#374151' }}>{member.designation}</span>}
           {member.primary_department && <span className="text-xs" style={{ color: '#4B5563' }}>{member.primary_department.name}</span>}

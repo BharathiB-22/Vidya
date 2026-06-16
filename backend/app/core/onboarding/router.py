@@ -27,6 +27,17 @@ from app.core.onboarding.faculty_program_service import (
     FacultyProgramService,
     FacultyProgramServiceError,
 )
+from app.core.onboarding.institution_email_schemas import (
+    InstitutionDomainOut,
+    InstitutionEmailCommitResult,
+    InstitutionEmailPreviewResponse,
+    InstitutionEmailRunIn,
+    SetInstitutionDomainIn,
+)
+from app.core.onboarding.institution_email_service import (
+    InstitutionEmailError,
+    InstitutionEmailService,
+)
 from app.core.onboarding.service import OnboardingError, OnboardingService
 from app.core.onboarding.usn_backfill_service import UsnBackfillService
 from app.database import AsyncSessionLocal
@@ -246,6 +257,70 @@ async def usn_backfill_commit(
     Idempotent and atomic.  Existing USNs are never modified.
     """
     return await UsnBackfillService.commit(db, actor_user_id=current_user.user_id)
+
+
+# ---------------------------------------------------------------------------
+# Institution email foundation (Phase 1.2 / Task C) — generation only
+# ---------------------------------------------------------------------------
+
+def _institution_email_err(e: InstitutionEmailError) -> HTTPException:
+    return HTTPException(status_code=e.status_code, detail={"error": e.code, "message": e.message})
+
+
+@router.get("/institution-domain", response_model=InstitutionDomainOut)
+async def get_institution_domain(
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> InstitutionDomainOut:
+    return await InstitutionEmailService.get_domain(db, schema_name=current_user.schema_name)
+
+
+@router.put("/institution-domain", response_model=InstitutionDomainOut)
+async def set_institution_domain(
+    body: SetInstitutionDomainIn,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> InstitutionDomainOut:
+    return await InstitutionEmailService.set_domain(
+        db, schema_name=current_user.schema_name, domain=body.domain
+    )
+
+
+@router.post("/institution-email/preview", response_model=InstitutionEmailPreviewResponse)
+async def institution_email_preview(
+    body: InstitutionEmailRunIn = InstitutionEmailRunIn(),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> InstitutionEmailPreviewResponse:
+    """Read-only: project institution emails for students and faculty."""
+    try:
+        return await InstitutionEmailService.preview(
+            db, schema_name=current_user.schema_name, override_domain=body.domain
+        )
+    except InstitutionEmailError as e:
+        raise _institution_email_err(e)
+
+
+@router.post("/institution-email/commit", response_model=InstitutionEmailCommitResult)
+async def institution_email_commit(
+    body: InstitutionEmailRunIn = InstitutionEmailRunIn(),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> InstitutionEmailCommitResult:
+    """Assign institution emails where missing.  Idempotent and atomic.
+
+    Existing institution emails and the login `email` are never modified;
+    personal_email is backfilled from the login email.
+    """
+    try:
+        return await InstitutionEmailService.commit(
+            db,
+            schema_name=current_user.schema_name,
+            actor_user_id=current_user.user_id,
+            override_domain=body.domain,
+        )
+    except InstitutionEmailError as e:
+        raise _institution_email_err(e)
 
 
 # ---------------------------------------------------------------------------
