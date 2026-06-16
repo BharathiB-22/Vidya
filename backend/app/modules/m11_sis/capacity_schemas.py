@@ -13,9 +13,25 @@ class SectionCapacityOut(BaseModel):
     semester_id:  UUID
     max_strength: Optional[int]
     enrolled:     int
-    available:    Optional[int]   # None when max_strength is unset
+    available:    Optional[int]   # None when max_strength is unset; may be negative when over capacity
     is_full:      bool
-    fill_pct:     Optional[float] # 0–100, None when max_strength unset
+    fill_pct:     Optional[float] # 0–100+, None when max_strength unset
+
+    # P1.2 Task A — academic-hierarchy context (derived via section→…→school chain)
+    school_id:        Optional[UUID] = None
+    school_name:      Optional[str]  = None
+    department_id:    Optional[UUID] = None
+    department_name:  Optional[str]  = None
+    program_id:       Optional[UUID] = None
+    program_name:     Optional[str]  = None
+    program_code:     Optional[str]  = None
+    batch_id:         Optional[UUID] = None
+    batch_name:       Optional[str]  = None
+    semester_number:  Optional[int]  = None
+    semester_label:   Optional[str]  = None
+
+    # HEALTHY | NEAR_FULL | FULL | OVER | NO_CAP
+    status:           str = "NO_CAP"
 
     model_config = {"from_attributes": True}
 

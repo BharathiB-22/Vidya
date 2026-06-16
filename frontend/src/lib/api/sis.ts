@@ -360,6 +360,8 @@ export interface SearchResultsOut {
 // Enrollment Capacity (H64.6)
 // ---------------------------------------------------------------------------
 
+export type CapacityStatus = 'HEALTHY' | 'NEAR_FULL' | 'FULL' | 'OVER' | 'NO_CAP'
+
 export interface SectionCapacityOut {
   section_id:   string
   section_name: string
@@ -369,6 +371,19 @@ export interface SectionCapacityOut {
   available:    number | null
   is_full:      boolean
   fill_pct:     number | null
+  // P1.2 Task A — academic-hierarchy context
+  school_id:        string | null
+  school_name:      string | null
+  department_id:    string | null
+  department_name:  string | null
+  program_id:       string | null
+  program_name:     string | null
+  program_code:     string | null
+  batch_id:         string | null
+  batch_name:       string | null
+  semester_number:  number | null
+  semester_label:   string | null
+  status:           CapacityStatus
 }
 
 // ---------------------------------------------------------------------------

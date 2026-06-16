@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.modules.m11_sis.capacity_schemas import SectionCapacityOut, SetCapacityIn
-from app.modules.m11_sis.capacity_service import CapacityError, CapacityService
+from app.modules.m11_sis.capacity_service import CapacityError, CapacityService, _build_out, _status
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +235,53 @@ def test_capacity_router_has_three_routes():
 # ---------------------------------------------------------------------------
 # 12. Total SIS route count — 176 after H64.6
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 13. P1.2 Task A — status buckets
+# ---------------------------------------------------------------------------
+
+def test_status_no_cap():
+    assert _status(None, 100) == "NO_CAP"
+
+
+def test_status_healthy():
+    assert _status(60, 30) == "HEALTHY"      # 50%
+    assert _status(60, 48) == "HEALTHY"      # exactly 80% → not "near full" (rule is >80%)
+
+
+def test_status_near_full():
+    assert _status(60, 49) == "NEAR_FULL"    # 81.6%
+    assert _status(100, 99) == "NEAR_FULL"
+
+
+def test_status_full():
+    assert _status(60, 60) == "FULL"
+
+
+def test_status_over():
+    assert _status(60, 61) == "OVER"
+
+
+def test_build_out_includes_context_and_status():
+    section = _make_section(max_strength=60)
+    ctx = {
+        "school_name": "School of CA", "program_name": "BCA",
+        "program_code": "BCA", "batch_name": "2026", "semester_number": 1,
+    }
+    out = _build_out(section, 61, ctx)
+    assert out.status == "OVER"
+    assert out.available == -1
+    assert out.school_name == "School of CA"
+    assert out.program_code == "BCA"
+    assert out.semester_number == 1
+
+
+def test_build_out_no_ctx_defaults():
+    section = _make_section(max_strength=None)
+    out = _build_out(section, 5)
+    assert out.status == "NO_CAP"
+    assert out.school_name is None
+
 
 def test_sis_router_total_routes_h646():
     from app.modules.m11_sis.router import router
