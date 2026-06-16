@@ -359,13 +359,13 @@ export default function RosterPage() {
       ) : (roster ?? []).length === 0 ? (
         <PageEmpty icon={Users} message="No students enrolled in this section yet." />
       ) : (
-        <div className="rounded-xl overflow-hidden"
-          style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="rounded-xl overflow-hidden bg-white"
+          style={{ border: '1px solid #E5E7EB' }}>
           <table className="w-full text-sm">
-            <thead style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <thead style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
               <tr>
                 {['Name', 'Email', 'ID / Reg. no.', 'Enrolled', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide" style={{ color: '#374151' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -374,15 +374,15 @@ export default function RosterPage() {
                 <tr
                   key={s.enrollment_id}
                   className="transition-colors cursor-pointer"
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)' }}
+                  style={{ borderBottom: '1px solid #F3F4F6' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#F9FAFB' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '' }}
                   onClick={() => navigate(`/sis/students/${s.student_id}`)}
                 >
-                  <td className="px-4 py-3 font-medium text-slate-200">{s.full_name}</td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">{s.email}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{s.identifier ?? '—'}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">
+                  <td className="px-4 py-3 font-semibold" style={{ color: '#111827' }}>{s.full_name}</td>
+                  <td className="px-4 py-3 text-xs" style={{ color: '#374151' }}>{s.email}</td>
+                  <td className="px-4 py-3 text-xs" style={{ color: '#374151' }}>{s.identifier ?? '—'}</td>
+                  <td className="px-4 py-3 text-xs" style={{ color: '#4B5563' }}>
                     {new Date(s.enrolled_at).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
@@ -407,7 +407,7 @@ export default function RosterPage() {
               ))}
             </tbody>
           </table>
-          <div className="px-4 py-2 text-xs text-slate-600 border-t border-white/5">
+          <div className="px-4 py-2 text-xs border-t border-gray-200" style={{ color: '#4B5563' }}>
             {(roster ?? []).length} student{(roster ?? []).length !== 1 ? 's' : ''} enrolled
           </div>
         </div>

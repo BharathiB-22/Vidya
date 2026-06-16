@@ -113,12 +113,12 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
 
   return (
     <div
-      className="rounded-2xl p-8 max-w-xl mx-auto space-y-6"
-      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+      className="rounded-2xl p-8 max-w-xl mx-auto space-y-6 bg-white"
+      style={{ border: '1px solid #E5E7EB' }}
     >
       <div>
-        <h2 className="text-base font-semibold text-slate-200 mb-1">Configure Rollover Scope</h2>
-        <p className="text-xs text-slate-400">
+        <h2 className="text-base font-semibold mb-1" style={{ color: '#0F172A' }}>Configure Rollover Scope</h2>
+        <p className="text-xs" style={{ color: '#4B5563' }}>
           Select which students to move. All active students in the selected scope will be
           analysed — preview shows row-level plan before any changes are made.
         </p>
@@ -126,7 +126,7 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
 
       <div className="space-y-4">
         <div>
-          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Scope</label>
+          <label className="block text-xs mb-1.5 font-medium" style={{ color: '#374151' }}>Scope</label>
           <Select
             value={scope}
             onValueChange={v => {
@@ -146,7 +146,7 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
 
         {(scope === 'program' || scope === 'batch' || scope === 'semester') && (
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5 font-medium">Program</label>
+            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#374151' }}>Program</label>
             <Select
               value={programId || undefined}
               onValueChange={v => { setProgramId(v); setBatchId(''); setSemesterId('') }}
@@ -163,7 +163,7 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
 
         {(scope === 'batch' || scope === 'semester') && (
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5 font-medium">Batch</label>
+            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#374151' }}>Batch</label>
             <Select
               value={batchId || undefined}
               onValueChange={v => { setBatchId(v); setSemesterId('') }}
@@ -180,7 +180,7 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
 
         {scope === 'semester' && (
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5 font-medium">Source Semester</label>
+            <label className="block text-xs mb-1.5 font-medium" style={{ color: '#374151' }}>Source Semester</label>
             <Select
               value={semesterId || undefined}
               onValueChange={setSemesterId}
@@ -199,10 +199,10 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
       </div>
 
       <div
-        className="rounded-lg p-3 flex gap-2 text-xs text-slate-400"
-        style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}
+        className="rounded-lg p-3 flex gap-2 text-xs"
+        style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: '#374151' }}
       >
-        <Info size={14} className="shrink-0 mt-0.5 text-indigo-400" />
+        <Info size={14} className="shrink-0 mt-0.5 text-indigo-500" />
         Students move from Semester N → Semester N+1 in the same batch. Section name must match
         (e.g. "Section A" → "Section A"). Missing target sections are shown as <strong>blocked</strong>.
       </div>
@@ -246,29 +246,29 @@ function PreviewPhase({ preview, onBack, onCommit, committing }: PreviewPhasePro
           className="rounded-xl px-5 py-3 flex-1 min-w-[140px]"
           style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}
         >
-          <p className="text-xs text-slate-400">Total</p>
-          <p className="text-2xl font-bold text-indigo-300">{summary.total}</p>
+          <p className="text-xs" style={{ color: '#4B5563' }}>Total</p>
+          <p className="text-2xl font-bold" style={{ color: '#4338CA' }}>{summary.total}</p>
         </div>
         <div
           className="rounded-xl px-5 py-3 flex-1 min-w-[140px]"
           style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}
         >
-          <p className="text-xs text-slate-400">Ready to move</p>
-          <p className="text-2xl font-bold text-green-400">{summary.ready}</p>
+          <p className="text-xs" style={{ color: '#4B5563' }}>Ready to move</p>
+          <p className="text-2xl font-bold" style={{ color: '#16A34A' }}>{summary.ready}</p>
         </div>
         <div
           className="rounded-xl px-5 py-3 flex-1 min-w-[140px]"
           style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)' }}
         >
-          <p className="text-xs text-slate-400">Blocked</p>
-          <p className="text-2xl font-bold text-yellow-400">{summary.blocked}</p>
+          <p className="text-xs" style={{ color: '#4B5563' }}>Blocked</p>
+          <p className="text-2xl font-bold" style={{ color: '#B45309' }}>{summary.blocked}</p>
         </div>
       </div>
 
       {summary.blocked > 0 && (
         <div
-          className="rounded-lg p-3 flex gap-2 text-xs text-yellow-300"
-          style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)' }}
+          className="rounded-lg p-3 flex gap-2 text-xs"
+          style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', color: '#B45309' }}
         >
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
           {summary.blocked} student{summary.blocked > 1 ? 's' : ''} will be skipped — target section missing or
@@ -277,12 +277,12 @@ function PreviewPhase({ preview, onBack, onCommit, committing }: PreviewPhasePro
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="overflow-x-auto rounded-xl bg-white" style={{ border: '1px solid #E5E7EB' }}>
         <table className="w-full text-sm">
           <thead>
-            <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
               {['Student', 'Program / Batch', 'Current Section', 'Target Section', 'Status'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400 whitespace-nowrap">{h}</th>
+                <th key={h} className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap" style={{ color: '#374151' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -290,24 +290,24 @@ function PreviewPhase({ preview, onBack, onCommit, committing }: PreviewPhasePro
             {rows.map((row: RolloverRowOut) => (
               <tr
                 key={row.enrollment_id}
-                style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                className="hover:bg-white/[0.02] transition-colors"
+                style={{ borderBottom: '1px solid #F3F4F6' }}
+                className="hover:bg-gray-50 transition-colors"
               >
                 <td className="px-4 py-3">
-                  <p className="text-slate-200 font-medium text-xs">{row.student_name}</p>
-                  <p className="text-slate-500 text-xs">{row.student_email}</p>
+                  <p className="font-semibold text-xs" style={{ color: '#111827' }}>{row.student_name}</p>
+                  <p className="text-xs" style={{ color: '#4B5563' }}>{row.student_email}</p>
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-400">
-                  <p>{row.program_name}</p>
-                  <p className="text-slate-500">{row.batch_name}</p>
+                <td className="px-4 py-3 text-xs">
+                  <p style={{ color: '#374151' }}>{row.program_name}</p>
+                  <p style={{ color: '#4B5563' }}>{row.batch_name}</p>
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">
+                <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: '#374151' }}>
                   Sem {row.current_semester_number} / {row.current_section_name}
                 </td>
-                <td className="px-4 py-3 text-xs text-slate-300 whitespace-nowrap">
+                <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: '#374151' }}>
                   {row.target_section_name
                     ? <>Sem {row.target_semester_number} / {row.target_section_name}</>
-                    : <span className="text-slate-500 italic">— not found —</span>
+                    : <span className="italic" style={{ color: '#6B7280' }}>— not found —</span>
                   }
                 </td>
                 <td className="px-4 py-3">
@@ -321,7 +321,7 @@ function PreviewPhase({ preview, onBack, onCommit, committing }: PreviewPhasePro
 
       {/* Actions */}
       <div className="flex items-center justify-between pt-1">
-        <Button variant="ghost" onClick={onBack} className="text-slate-400 hover:text-slate-200">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600 hover:text-gray-900">
           ← Back
         </Button>
         <Button
@@ -338,7 +338,7 @@ function PreviewPhase({ preview, onBack, onCommit, committing }: PreviewPhasePro
       </div>
 
       {!hasReady && (
-        <p className="text-center text-xs text-slate-500">No students are ready to move — all are blocked.</p>
+        <p className="text-center text-xs" style={{ color: '#4B5563' }}>No students are ready to move — all are blocked.</p>
       )}
     </div>
   )
@@ -355,9 +355,9 @@ function ResultPhase({ result, onDone }: { result: RolloverCommitResult; onDone:
         className="rounded-2xl p-6 text-center"
         style={{ background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)' }}
       >
-        <CheckCircle2 size={40} className="mx-auto mb-3 text-green-400" />
-        <h2 className="text-lg font-semibold text-slate-200 mb-1">Rollover Complete</h2>
-        <p className="text-xs text-slate-400">
+        <CheckCircle2 size={40} className="mx-auto mb-3" style={{ color: '#16A34A' }} />
+        <h2 className="text-lg font-semibold mb-1" style={{ color: '#0F172A' }}>Rollover Complete</h2>
+        <p className="text-xs" style={{ color: '#4B5563' }}>
           {result.moved} student{result.moved !== 1 ? 's' : ''} moved
           {result.skipped > 0 ? ` · ${result.skipped} skipped` : ''}
           {result.errors > 0 ? ` · ${result.errors} errors` : ''}
@@ -365,12 +365,12 @@ function ResultPhase({ result, onDone }: { result: RolloverCommitResult; onDone:
       </div>
 
       {/* Result rows */}
-      <div className="overflow-x-auto rounded-xl" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div className="overflow-x-auto rounded-xl bg-white" style={{ border: '1px solid #E5E7EB' }}>
         <table className="w-full text-sm">
           <thead>
-            <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
               {['Student', 'Outcome', 'Note'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-400">{h}</th>
+                <th key={h} className="px-4 py-3 text-left text-xs font-semibold" style={{ color: '#374151' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -378,12 +378,12 @@ function ResultPhase({ result, onDone }: { result: RolloverCommitResult; onDone:
             {result.rows.map(row => (
               <tr
                 key={row.enrollment_id}
-                style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                className="hover:bg-white/[0.02]"
+                style={{ borderBottom: '1px solid #F3F4F6' }}
+                className="hover:bg-gray-50"
               >
-                <td className="px-4 py-3 text-xs text-slate-200">{row.student_name}</td>
+                <td className="px-4 py-3 text-xs font-medium" style={{ color: '#111827' }}>{row.student_name}</td>
                 <td className="px-4 py-3"><OutcomeBadge outcome={row.outcome} /></td>
-                <td className="px-4 py-3 text-xs text-slate-400">{row.reason ?? '—'}</td>
+                <td className="px-4 py-3 text-xs" style={{ color: '#374151' }}>{row.reason ?? '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -391,7 +391,7 @@ function ResultPhase({ result, onDone }: { result: RolloverCommitResult; onDone:
       </div>
 
       <div className="flex justify-center">
-        <Button onClick={onDone} variant="outline" className="border-slate-600 text-slate-300">
+        <Button onClick={onDone} variant="outline" className="border-gray-300 text-gray-700">
           Done
         </Button>
       </div>
@@ -460,11 +460,11 @@ export default function SemesterRolloverPage() {
       />
 
       {/* Breadcrumb steps */}
-      <div className="flex items-center gap-2 mb-8 text-xs text-slate-500">
+      <div className="flex items-center gap-2 mb-8 text-xs" style={{ color: '#6B7280' }}>
         {(['scope', 'preview', 'result'] as Phase[]).map((p, i) => (
           <span key={p} className="flex items-center gap-2">
             {i > 0 && <ChevronRight size={12} />}
-            <span className={phase === p ? 'text-indigo-400 font-semibold' : ''}>
+            <span className={phase === p ? 'font-semibold' : ''} style={phase === p ? { color: '#4F46E5' } : undefined}>
               {p === 'scope' ? '1. Scope' : p === 'preview' ? '2. Preview' : '3. Done'}
             </span>
           </span>
@@ -473,8 +473,8 @@ export default function SemesterRolloverPage() {
 
       {error && (
         <div
-          className="mb-5 rounded-lg p-3 flex gap-2 text-sm text-red-300"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          className="mb-5 rounded-lg p-3 flex gap-2 text-sm"
+          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#B91C1C' }}
         >
           <AlertTriangle size={16} className="shrink-0 mt-0.5" />
           {error}

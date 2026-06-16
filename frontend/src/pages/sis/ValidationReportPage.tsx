@@ -35,8 +35,8 @@ function CheckCard({ check }: { check: CheckResult }) {
     <div
       className="rounded-xl border overflow-hidden"
       style={{
-        borderColor: hasItems ? `${meta.color}30` : 'rgba(255,255,255,0.06)',
-        background: hasItems ? meta.bg : 'rgba(255,255,255,0.02)',
+        borderColor: hasItems ? `${meta.color}40` : '#E5E7EB',
+        background: hasItems ? meta.bg : '#F9FAFB',
       }}
     >
       {/* Header row */}
@@ -44,10 +44,10 @@ function CheckCard({ check }: { check: CheckResult }) {
         className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
         onClick={() => setExpanded(v => !v)}
       >
-        <Icon size={17} style={{ color: hasItems ? meta.color : '#475569' }} className="flex-shrink-0" />
+        <Icon size={17} style={{ color: hasItems ? meta.color : '#9CA3AF' }} className="flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-medium ${hasItems ? 'text-slate-200' : 'text-slate-500'}`}>
+            <span className="text-sm font-semibold" style={{ color: hasItems ? '#111827' : '#6B7280' }}>
               {check.label}
             </span>
             {hasItems ? (
@@ -58,17 +58,17 @@ function CheckCard({ check }: { check: CheckResult }) {
                 {check.count}
               </span>
             ) : (
-              <span className="text-xs text-slate-600 flex items-center gap-1">
-                <CheckCircle2 size={12} className="text-emerald-700" /> Clean
+              <span className="text-xs flex items-center gap-1" style={{ color: '#16A34A' }}>
+                <CheckCircle2 size={12} /> Clean
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{check.description}</p>
+          <p className="text-xs mt-0.5 leading-relaxed" style={{ color: '#4B5563' }}>{check.description}</p>
         </div>
         {hasItems && (
           expanded
-            ? <ChevronDown size={15} className="text-slate-500 flex-shrink-0" />
-            : <ChevronRight size={15} className="text-slate-500 flex-shrink-0" />
+            ? <ChevronDown size={15} className="flex-shrink-0" style={{ color: '#6B7280' }} />
+            : <ChevronRight size={15} className="flex-shrink-0" style={{ color: '#6B7280' }} />
         )}
       </button>
 
@@ -77,12 +77,12 @@ function CheckCard({ check }: { check: CheckResult }) {
         <div className="border-t px-4 py-2 space-y-1" style={{ borderColor: `${meta.color}20` }}>
           {check.items.map((item, i) => (
             <div key={i} className="flex items-start gap-2 py-1">
-              <span className="text-slate-700 text-xs tabular-nums w-5 flex-shrink-0">{i + 1}.</span>
-              <span className="text-xs text-slate-400 break-all">{item.detail}</span>
+              <span className="text-xs tabular-nums w-5 flex-shrink-0" style={{ color: '#6B7280' }}>{i + 1}.</span>
+              <span className="text-xs break-all" style={{ color: '#111827' }}>{item.detail}</span>
             </div>
           ))}
           {check.count > check.items.length && (
-            <p className="text-xs text-slate-600 italic pt-1">
+            <p className="text-xs italic pt-1" style={{ color: '#4B5563' }}>
               … and {check.count - check.items.length} more (showing first {check.items.length})
             </p>
           )}
@@ -164,7 +164,7 @@ export default function ValidationReportPage() {
               </>
             )}
             {generatedAt && (
-              <span className="text-xs text-slate-600 ml-auto">Last run: {generatedAt}</span>
+              <span className="text-xs ml-auto" style={{ color: '#4B5563' }}>Last run: {generatedAt}</span>
             )}
           </div>
 
