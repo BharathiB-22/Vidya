@@ -25,8 +25,8 @@ function KpiCard({ label, value, icon: Icon, to, accentColor }: KpiCardProps) {
       onClick={() => to && navigate(to)}
       className="w-full text-left rounded-xl p-5 flex items-center gap-4 transition-all hover:scale-[1.01]"
       style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: '#ffffff',
+        border: '1px solid #E5E7EB',
         cursor: to ? 'pointer' : 'default',
       }}
     >
@@ -37,8 +37,8 @@ function KpiCard({ label, value, icon: Icon, to, accentColor }: KpiCardProps) {
         <Icon className="h-5 w-5" style={{ color: accentColor }} />
       </div>
       <div>
-        <p className="text-3xl font-bold text-slate-100 leading-tight">{value}</p>
-        <p className="text-sm font-medium text-slate-500 mt-0.5">{label}</p>
+        <p className="text-3xl font-bold leading-tight" style={{ color: '#0F172A' }}>{value}</p>
+        <p className="text-sm font-medium mt-0.5" style={{ color: '#374151' }}>{label}</p>
       </div>
     </button>
   )
@@ -107,14 +107,14 @@ export default function SisDashboardPage() {
         </div>
       )}
 
-      <div className="mt-4 rounded-xl p-4 text-sm text-slate-500"
-        style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-        <p className="font-medium text-slate-400 mb-2">Quick actions</p>
+      <div className="mt-4 rounded-xl p-4 text-sm"
+        style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', color: '#4B5563' }}>
+        <p className="font-medium mb-2" style={{ color: '#374151' }}>Quick actions</p>
         <ul className="space-y-1 text-xs">
-          <li>→ <span className="text-slate-300 cursor-pointer hover:underline"
+          <li>→ <span className="cursor-pointer hover:underline" style={{ color: '#374151' }}
             onClick={() => {}}>Enrollment Roster</span> — view or modify which students are in each section</li>
-          <li>→ <span className="text-slate-300">Academic Structure</span> — manage departments, programs, batches, semesters and sections under <em>Academic Structure</em> in the sidebar</li>
-          <li>→ <span className="text-slate-300">Bulk Onboarding</span> — import students and auto-assign them to sections via CSV</li>
+          <li>→ <span style={{ color: '#374151' }}>Academic Structure</span> — manage departments, programs, batches, semesters and sections under <em>Academic Structure</em> in the sidebar</li>
+          <li>→ <span style={{ color: '#374151' }}>Bulk Onboarding</span> — import students and auto-assign them to sections via CSV</li>
         </ul>
       </div>
     </PageShell>

@@ -5,6 +5,9 @@ import { CalendarDays, Plus, ChevronRight } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type { ExamSessionOut } from '@/lib/api/sis'
 import { academicsApi } from '@/lib/api/academics'
@@ -87,24 +90,27 @@ function CreateSessionModal({
         <div className="space-y-3">
           <div>
             <label className="block text-xs text-slate-400 mb-1">Semester</label>
-            <select value={form.semester_id} onChange={e => set('semester_id', e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
-              <option value="">— Select semester —</option>
-              {(semestersQ.data ?? []).map(s => (
-                <option key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</option>
-              ))}
-            </select>
+            <Select value={form.semester_id || undefined} onValueChange={v => set('semester_id', v)}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="— Select semester —" /></SelectTrigger>
+              <SelectContent>
+                {(semestersQ.data ?? []).map(s => (
+                  <SelectItem key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-400 mb-1">Session Type</label>
-              <select value={form.session_type} onChange={e => set('session_type', e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
-                {['REGULAR', 'SUPPLEMENTARY', 'REVALUATION', 'IMPROVEMENT'].map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
+              <Select value={form.session_type} onValueChange={v => set('session_type', v)}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['REGULAR', 'SUPPLEMENTARY', 'REVALUATION', 'IMPROVEMENT'].map(t => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Academic Year</label>
@@ -201,20 +207,24 @@ export default function ExamSessionsPage() {
 
       {/* Filters */}
       <div className="px-6 pt-3 pb-4 border-b border-white/6 flex gap-3 flex-wrap">
-        <select value={semFilter} onChange={e => setSemFilter(e.target.value)}
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white focus:outline-none">
-          <option value="">All Semesters</option>
-          {(semestersQ.data ?? []).map(s => (
-            <option key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</option>
-          ))}
-        </select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white focus:outline-none">
-          <option value="">All Status</option>
-          {['DRAFT', 'PUBLISHED', 'SEATING_ALLOCATED', 'LOCKED', 'COMPLETED'].map(s => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
+        <Select value={semFilter || 'ALL'} onValueChange={v => setSemFilter(v === 'ALL' ? '' : v)}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Semesters" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Semesters</SelectItem>
+            {(semestersQ.data ?? []).map(s => (
+              <SelectItem key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={statusFilter || 'ALL'} onValueChange={v => setStatusFilter(v === 'ALL' ? '' : v)}>
+          <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Status" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Status</SelectItem>
+            {['DRAFT', 'PUBLISHED', 'SEATING_ALLOCATED', 'LOCKED', 'COMPLETED'].map(s => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* List */}

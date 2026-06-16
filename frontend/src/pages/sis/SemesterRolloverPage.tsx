@@ -4,6 +4,9 @@ import { ChevronRight, ArrowRight, CheckCircle2, AlertTriangle, RefreshCw, Info 
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type {
   RolloverScope, RolloverScopeIn, RolloverPreviewResponse, RolloverRowOut,
@@ -108,9 +111,6 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
     return base
   }
 
-  const selectClass = "w-full rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
-  const selectStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }
-
   return (
     <div
       className="rounded-2xl p-8 max-w-xl mx-auto space-y-6"
@@ -127,72 +127,73 @@ function ScopeSelector({ onPreview, loading }: ScopeSelectorProps) {
       <div className="space-y-4">
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Scope</label>
-          <select
+          <Select
             value={scope}
-            onChange={e => {
-              setScope(e.target.value as RolloverScope)
+            onValueChange={v => {
+              setScope(v as RolloverScope)
               setProgramId(''); setBatchId(''); setSemesterId('')
             }}
-            className={selectClass}
-            style={selectStyle}
           >
-            <option value="all_programs">All Programs</option>
-            <option value="program">By Program</option>
-            <option value="batch">By Batch</option>
-            <option value="semester">By Semester (source)</option>
-          </select>
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all_programs">All Programs</SelectItem>
+              <SelectItem value="program">By Program</SelectItem>
+              <SelectItem value="batch">By Batch</SelectItem>
+              <SelectItem value="semester">By Semester (source)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {(scope === 'program' || scope === 'batch' || scope === 'semester') && (
           <div>
             <label className="block text-xs text-slate-400 mb-1.5 font-medium">Program</label>
-            <select
-              value={programId}
-              onChange={e => { setProgramId(e.target.value); setBatchId(''); setSemesterId('') }}
-              className={selectClass}
-              style={selectStyle}
+            <Select
+              value={programId || undefined}
+              onValueChange={v => { setProgramId(v); setBatchId(''); setSemesterId('') }}
             >
-              <option value="">— select program —</option>
-              {programs.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full"><SelectValue placeholder="— select program —" /></SelectTrigger>
+              <SelectContent>
+                {programs.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.name} ({p.code})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
         {(scope === 'batch' || scope === 'semester') && (
           <div>
             <label className="block text-xs text-slate-400 mb-1.5 font-medium">Batch</label>
-            <select
-              value={batchId}
-              onChange={e => { setBatchId(e.target.value); setSemesterId('') }}
-              className={selectClass}
-              style={selectStyle}
+            <Select
+              value={batchId || undefined}
+              onValueChange={v => { setBatchId(v); setSemesterId('') }}
             >
-              <option value="">— select batch —</option>
-              {batches.map(b => (
-                <option key={b.id} value={b.id}>{b.name} ({b.start_year}–{b.end_year})</option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full"><SelectValue placeholder="— select batch —" /></SelectTrigger>
+              <SelectContent>
+                {batches.map(b => (
+                  <SelectItem key={b.id} value={b.id}>{b.name} ({b.start_year}–{b.end_year})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
         {scope === 'semester' && (
           <div>
             <label className="block text-xs text-slate-400 mb-1.5 font-medium">Source Semester</label>
-            <select
-              value={semesterId}
-              onChange={e => setSemesterId(e.target.value)}
-              className={selectClass}
-              style={selectStyle}
+            <Select
+              value={semesterId || undefined}
+              onValueChange={setSemesterId}
             >
-              <option value="">— select semester —</option>
-              {semesters.map(s => (
-                <option key={s.id} value={s.id}>
-                  Semester {s.number}{s.label ? ` — ${s.label}` : ''}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full"><SelectValue placeholder="— select semester —" /></SelectTrigger>
+              <SelectContent>
+                {semesters.map(s => (
+                  <SelectItem key={s.id} value={s.id}>
+                    Semester {s.number}{s.label ? ` — ${s.label}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
       </div>

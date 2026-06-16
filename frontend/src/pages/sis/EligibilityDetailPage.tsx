@@ -8,6 +8,9 @@ import {
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 
 function EligibilityBadge({ status }: { status: string }) {
@@ -190,14 +193,16 @@ export default function EligibilityDetailPage() {
             </p>
 
             <label className="block text-xs text-slate-400 mb-1">New Status</label>
-            <select
+            <Select
               value={overrideStatus}
-              onChange={e => setOverrideStatus(e.target.value as 'ELIGIBLE' | 'CONDITIONAL')}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500 mb-3"
+              onValueChange={v => setOverrideStatus(v as 'ELIGIBLE' | 'CONDITIONAL')}
             >
-              <option value="ELIGIBLE">ELIGIBLE</option>
-              <option value="CONDITIONAL">CONDITIONAL</option>
-            </select>
+              <SelectTrigger className="w-full mb-3"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ELIGIBLE">ELIGIBLE</SelectItem>
+                <SelectItem value="CONDITIONAL">CONDITIONAL</SelectItem>
+              </SelectContent>
+            </Select>
 
             <label className="block text-xs text-slate-400 mb-1">Reason (min 20 characters)</label>
             <textarea

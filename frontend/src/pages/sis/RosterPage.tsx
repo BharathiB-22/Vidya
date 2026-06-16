@@ -7,6 +7,9 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
@@ -67,25 +70,24 @@ function EnrollDialog({
           />
           <div
             className="max-h-64 overflow-y-auto rounded-lg divide-y"
-            style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+            style={{ border: '1px solid #E5E7EB' }}
           >
             {isFetching ? (
-              <p className="px-4 py-3 text-sm text-slate-500">Searching…</p>
+              <p className="px-4 py-3 text-sm" style={{ color: '#4B5563' }}>Searching…</p>
             ) : (students ?? []).length === 0 ? (
-              <p className="px-4 py-3 text-sm text-slate-500">No students found.</p>
+              <p className="px-4 py-3 text-sm" style={{ color: '#4B5563' }}>No students found.</p>
             ) : (students ?? []).map(s => (
               <button
                 key={s.id}
                 onClick={() => setSelected(s)}
                 className="w-full text-left px-4 py-2.5 flex items-center justify-between transition-colors"
                 style={{
-                  background: selected?.id === s.id ? 'rgba(16,185,129,0.08)' : 'transparent',
-                  color: selected?.id === s.id ? '#34d399' : 'inherit',
+                  background: selected?.id === s.id ? 'rgba(16,185,129,0.10)' : 'transparent',
                 }}
               >
                 <div>
-                  <p className="text-sm font-medium text-slate-200">{s.full_name}</p>
-                  <p className="text-xs text-slate-500">{s.email}{s.identifier ? ` · ${s.identifier}` : ''}</p>
+                  <p className="text-sm font-medium" style={{ color: '#111827' }}>{s.full_name}</p>
+                  <p className="text-xs" style={{ color: '#4B5563' }}>{s.email}{s.identifier ? ` · ${s.identifier}` : ''}</p>
                 </div>
                 {s.is_enrolled && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
@@ -158,19 +160,17 @@ function MoveDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader><DialogTitle>Move {studentName}</DialogTitle></DialogHeader>
         <div className="space-y-3">
-          <label className="block text-xs font-medium text-slate-400">Target section</label>
-          <select
-            value={targetSectionId}
-            onChange={e => setTargetSectionId(e.target.value)}
-            className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200"
-          >
-            <option value="">Select section…</option>
-            {otherSections.map(s => (
-              <option key={s.id} value={s.id}>Section {s.name}</option>
-            ))}
-          </select>
+          <label className="block text-xs font-medium" style={{ color: '#374151' }}>Target section</label>
+          <Select value={targetSectionId || undefined} onValueChange={setTargetSectionId}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Select section…" /></SelectTrigger>
+            <SelectContent>
+              {otherSections.map(s => (
+                <SelectItem key={s.id} value={s.id}>Section {s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {otherSections.length === 0 && (
-            <p className="text-xs text-slate-500">No other active sections in this semester.</p>
+            <p className="text-xs" style={{ color: '#4B5563' }}>No other active sections in this semester.</p>
           )}
           {err && <p className="text-xs text-red-400">{err}</p>}
         </div>
@@ -263,8 +263,6 @@ export default function RosterPage() {
     onError: (e) => { addToast(getErrorMessage(e), 'error'); setLifecycleState(null) },
   })
 
-  const selStyles = 'px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 disabled:opacity-40'
-
   const selectedSection = (sections ?? []).find(s => s.id === selSection)
   const selectedSemester = (semesters ?? []).find(s => s.id === selSemester)
 
@@ -285,52 +283,65 @@ export default function RosterPage() {
 
       {/* ── Cascade filter bar ──────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <select value={selSchool} onChange={e => pickSchool(e.target.value)} className={selStyles}>
-          <option value="">All schools</option>
-          {(schools ?? []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <Select value={selSchool || 'ALL'} onValueChange={v => pickSchool(v === 'ALL' ? '' : v)}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="All schools" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All schools</SelectItem>
+            {(schools ?? []).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
 
-        <select value={selDept} onChange={e => pickDept(e.target.value)} className={selStyles}>
-          <option value="">Department…</option>
-          {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+        <Select value={selDept || undefined} onValueChange={pickDept}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="Department…" /></SelectTrigger>
+          <SelectContent>
+            {depts.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
 
-        <select value={selProgram} onChange={e => pickProgram(e.target.value)} className={selStyles} disabled={!selDept}>
-          <option value="">Program…</option>
-          {(programs ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <Select value={selProgram || undefined} onValueChange={pickProgram} disabled={!selDept}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="Program…" /></SelectTrigger>
+          <SelectContent>
+            {(programs ?? []).map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
 
-        <select value={selBatch} onChange={e => pickBatch(e.target.value)} className={selStyles} disabled={!selProgram}>
-          <option value="">Batch…</option>
-          {(batches ?? []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
+        <Select value={selBatch || undefined} onValueChange={pickBatch} disabled={!selProgram}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="Batch…" /></SelectTrigger>
+          <SelectContent>
+            {(batches ?? []).map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
 
-        <select value={selSemester} onChange={e => pickSemester(e.target.value)} className={selStyles} disabled={!selBatch}>
-          <option value="">Semester…</option>
-          {(semesters ?? []).map(s => (
-            <option key={s.id} value={s.id}>
-              Sem {s.number}{s.label ? ` – ${s.label}` : ''}
-            </option>
-          ))}
-        </select>
+        <Select value={selSemester || undefined} onValueChange={pickSemester} disabled={!selBatch}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="Semester…" /></SelectTrigger>
+          <SelectContent>
+            {(semesters ?? []).map(s => (
+              <SelectItem key={s.id} value={s.id}>
+                Sem {s.number}{s.label ? ` – ${s.label}` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select value={selSection} onChange={e => setSelSection(e.target.value)} className={selStyles} disabled={!selSemester}>
-          <option value="">Section…</option>
-          {(sections ?? []).filter(s => s.is_active).map(s => (
-            <option key={s.id} value={s.id}>Section {s.name}</option>
-          ))}
-        </select>
+        <Select value={selSection || undefined} onValueChange={setSelSection} disabled={!selSemester}>
+          <SelectTrigger className="w-full"><SelectValue placeholder="Section…" /></SelectTrigger>
+          <SelectContent>
+            {(sections ?? []).filter(s => s.is_active).map(s => (
+              <SelectItem key={s.id} value={s.id}>Section {s.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* ── Context label ─────────────────────────────────────────────── */}
       {selSection && selectedSection && (
-        <p className="text-sm text-slate-400">
-          Section <span className="text-slate-200 font-medium">{selectedSection.name}</span>
+        <p className="text-sm" style={{ color: '#4B5563' }}>
+          Section <span className="font-medium" style={{ color: '#111827' }}>{selectedSection.name}</span>
           {selectedSemester && (
-            <> · Semester <span className="text-slate-200 font-medium">{selectedSemester.number}{selectedSemester.label ? ` (${selectedSemester.label})` : ''}</span></>
+            <> · Semester <span className="font-medium" style={{ color: '#111827' }}>{selectedSemester.number}{selectedSemester.label ? ` (${selectedSemester.label})` : ''}</span></>
           )}
           {selectedSection.max_strength && (
-            <> · Capacity <span className="text-slate-200 font-medium">{selectedSection.max_strength}</span></>
+            <> · Capacity <span className="font-medium" style={{ color: '#111827' }}>{selectedSection.max_strength}</span></>
           )}
         </p>
       )}
@@ -338,8 +349,8 @@ export default function RosterPage() {
       {/* ── Roster table ──────────────────────────────────────────────── */}
       {!selSection ? (
         <div
-          className="rounded-xl p-12 text-center text-sm text-slate-500"
-          style={{ border: '1px dashed rgba(255,255,255,0.08)' }}
+          className="rounded-xl p-12 text-center text-sm"
+          style={{ border: '1px dashed #D1D5DB', color: '#4B5563' }}
         >
           Select a section above to view the roster
         </div>

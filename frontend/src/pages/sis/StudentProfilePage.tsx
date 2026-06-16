@@ -6,6 +6,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
@@ -107,16 +110,14 @@ function LifecyclePanel({
       {data.allowed_next.length > 0 && (
         <div className="space-y-2 pt-1">
           <p className="text-xs text-slate-500">Change status (human ratification required):</p>
-          <select
-            value={selectedStatus}
-            onChange={e => setSelectedStatus(e.target.value)}
-            className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200"
-          >
-            <option value="">Select new status…</option>
-            {data.allowed_next.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <Select value={selectedStatus || undefined} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Select new status…" /></SelectTrigger>
+            <SelectContent>
+              {data.allowed_next.map(s => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {selectedStatus && (
             <>
               <input
@@ -252,14 +253,12 @@ function MoveSectionDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader><DialogTitle>Move to another section</DialogTitle></DialogHeader>
         <div className="space-y-3">
-          <select
-            value={targetId}
-            onChange={e => setTargetId(e.target.value)}
-            className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200"
-          >
-            <option value="">Select section…</option>
-            {others.map(s => <option key={s.id} value={s.id}>Section {s.name}</option>)}
-          </select>
+          <Select value={targetId || undefined} onValueChange={setTargetId}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Select section…" /></SelectTrigger>
+            <SelectContent>
+              {others.map(s => <SelectItem key={s.id} value={s.id}>Section {s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
           {others.length === 0 && <p className="text-xs text-slate-500">No other active sections in this semester.</p>}
           {err && <p className="text-xs text-red-400">{err}</p>}
         </div>

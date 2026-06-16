@@ -7,6 +7,9 @@ import {
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type {
   AttendanceSessionOut, AttendanceRecordOut, AttendanceMarkEntry,
@@ -316,6 +319,7 @@ export default function AttendanceMarkPage() {
   const [selectedCourseId, setSelectedCourseId] = useState('')
   const [selectedSemesterId, setSelectedSemesterId] = useState('')
   const [selectedSectionId, setSelectedSectionId] = useState('')
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState('')
   const [showNewSession, setShowNewSession] = useState(false)
   const [markSession, setMarkSession] = useState<AttendanceSessionOut | null>(null)
   const qc = useQueryClient()
@@ -345,16 +349,14 @@ export default function AttendanceMarkPage() {
     enabled: !!selectedCourseId && !!selectedSectionId,
   })
 
-  function onAssignmentChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const item = items.find(i => i.id === e.target.value)
+  function onAssignmentChange(value: string) {
+    setSelectedAssignmentId(value)
+    const item = items.find(i => i.id === value)
     if (!item) { setSelectedCourseId(''); setSelectedSemesterId(''); return }
     setSelectedCourseId(item.course_id)
     setSelectedSemesterId(item.semester_id)
     setSelectedSectionId('')
   }
-
-  const selectClass = "w-full rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
-  const selectStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }
 
   return (
     <PageShell>
@@ -364,25 +366,28 @@ export default function AttendanceMarkPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6 mt-6 max-w-2xl">
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Course</label>
-          <select className={selectClass} style={selectStyle} onChange={onAssignmentChange} defaultValue="">
-            <option value="">— select course —</option>
-            {items.filter(i => i.is_active).map((i: any) => (
-              <option key={i.id} value={i.id}>
-                {i.course?.code} – {i.course?.title} ({i.role_in_course})
-              </option>
-            ))}
-          </select>
+          <Select value={selectedAssignmentId || undefined} onValueChange={onAssignmentChange}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="— select course —" /></SelectTrigger>
+            <SelectContent>
+              {items.filter(i => i.is_active).map((i: any) => (
+                <SelectItem key={i.id} value={i.id}>
+                  {i.course?.code} – {i.course?.title} ({i.role_in_course})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Section</label>
-          <select className={selectClass} style={selectStyle}
-            value={selectedSectionId} onChange={e => setSelectedSectionId(e.target.value)}
+          <Select value={selectedSectionId || undefined} onValueChange={setSelectedSectionId}
             disabled={!selectedSemesterId}>
-            <option value="">— select section —</option>
-            {sections.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full"><SelectValue placeholder="— select section —" /></SelectTrigger>
+            <SelectContent>
+              {sections.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

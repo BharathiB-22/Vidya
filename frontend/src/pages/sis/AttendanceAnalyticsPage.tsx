@@ -5,6 +5,9 @@ import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type { ShortageStudentOut, ShortageCourseGroup } from '@/lib/api/sis'
 import { academicsApi } from '@/lib/api/academics'
@@ -254,9 +257,6 @@ export default function AttendanceAnalyticsPage() {
     if (!isNaN(v) && v >= 0 && v <= 100) setThreshold(v)
   }
 
-  const selectClass = "rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500"
-  const selectStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }
-
   const atRisk = viewMode === 'flat'
     ? (shortage?.total_at_risk ?? 0)
     : (grouped?.total_students_at_risk ?? 0)
@@ -270,40 +270,46 @@ export default function AttendanceAnalyticsPage() {
       <div className="flex flex-wrap gap-3 mt-6 mb-5 items-end">
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Semester</label>
-          <select value={semesterId} onChange={e => setSemesterId(e.target.value)}
-            className={selectClass} style={selectStyle}>
-            <option value="">All Semesters</option>
-            {semesters.map(s => (
-              <option key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</option>
-            ))}
-          </select>
+          <Select value={semesterId || 'ALL'} onValueChange={v => setSemesterId(v === 'ALL' ? '' : v)}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Semesters" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Semesters</SelectItem>
+              {semesters.map(s => (
+                <SelectItem key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Program</label>
-          <select value={programId} onChange={e => { setProgramId(e.target.value); setBatchId('') }}
-            className={selectClass} style={selectStyle}>
-            <option value="">All Programs</option>
-            {programs.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <Select value={programId || 'ALL'} onValueChange={v => { setProgramId(v === 'ALL' ? '' : v); setBatchId('') }}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Programs" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Programs</SelectItem>
+              {programs.map(p => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Batch</label>
-          <select value={batchId} onChange={e => setBatchId(e.target.value)}
-            className={selectClass} style={selectStyle} disabled={!programId}>
-            <option value="">All Batches</option>
-            {batches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
-          </select>
+          <Select value={batchId || 'ALL'} onValueChange={v => setBatchId(v === 'ALL' ? '' : v)} disabled={!programId}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Batches" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Batches</SelectItem>
+              {batches.map(b => (
+                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="block text-xs text-slate-400 mb-1.5 font-medium">Shortage Threshold (%)</label>
           <div className="flex gap-2">
             <input type="number" min={0} max={100} value={thresholdInput}
               onChange={e => setThresholdInput(e.target.value)}
-              className={`${selectClass} w-24`} style={selectStyle} />
+              className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500" />
             <Button onClick={applyThreshold} variant="outline"
               className="border-slate-600 text-slate-300 text-sm">
               Apply

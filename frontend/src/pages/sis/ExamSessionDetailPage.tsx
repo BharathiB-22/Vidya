@@ -8,6 +8,9 @@ import {
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type { ExamScheduleOut } from '@/lib/api/sis'
 
@@ -107,13 +110,15 @@ function AddScheduleModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-400 mb-1">Exam Center (optional)</label>
-              <select value={form.center_id} onChange={e => set('center_id', e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
-                <option value="">— None —</option>
-                {(centersQ.data ?? []).map(c => (
-                  <option key={c.id} value={c.id}>{c.center_name}</option>
-                ))}
-              </select>
+              <Select value={form.center_id || 'NONE'} onValueChange={v => set('center_id', v === 'NONE' ? '' : v)}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="— None —" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">— None —</SelectItem>
+                  {(centersQ.data ?? []).map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.center_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Room Number (optional)</label>

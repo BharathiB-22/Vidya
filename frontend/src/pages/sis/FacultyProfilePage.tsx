@@ -6,6 +6,9 @@ import {
   Activity, ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { addToast } from '@/hooks/useToast'
@@ -132,14 +135,12 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
       {data.allowed_next.length > 0 && (
         <div className="space-y-2 pt-1">
           <p className="text-xs text-slate-500">Change status (human ratification required):</p>
-          <select
-            value={selectedStatus}
-            onChange={e => setSelectedStatus(e.target.value)}
-            className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200"
-          >
-            <option value="">Select new status…</option>
-            {data.allowed_next.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <Select value={selectedStatus || undefined} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="w-full"><SelectValue placeholder="Select new status…" /></SelectTrigger>
+            <SelectContent>
+              {data.allowed_next.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
           {selectedStatus && (
             <>
               <input
@@ -281,12 +282,18 @@ function EditProfileForm({
         </div>
         <div className="sm:col-span-2">
           <label className="block text-xs text-slate-500 mb-1">Primary Department</label>
-          <select {...field('primary_department_id')} className={inputCls}>
-            <option value="">None</option>
-            {(departments ?? []).map(d => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
+          <Select
+            value={String(form.primary_department_id ?? '') || 'NONE'}
+            onValueChange={v => setForm(prev => ({ ...prev, primary_department_id: v === 'NONE' ? '' : v }))}
+          >
+            <SelectTrigger className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="NONE">None</SelectItem>
+              {(departments ?? []).map(d => (
+                <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <div>

@@ -9,6 +9,9 @@ import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type { FacultyDirectoryItem } from '@/lib/api/sis'
 import { academicsApi } from '@/lib/api/academics'
@@ -102,8 +105,8 @@ function FacultyCard({
     <div
       className="w-full text-left rounded-xl p-4 flex items-start gap-3 transition-all cursor-pointer"
       style={{
-        background: selected ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)',
-        border: selected ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.08)',
+        background: selected ? 'rgba(16,185,129,0.08)' : '#ffffff',
+        border: selected ? '1px solid rgba(16,185,129,0.35)' : '1px solid #E5E7EB',
       }}
       onClick={selectMode ? onToggle : onClick}
     >
@@ -118,7 +121,7 @@ function FacultyCard({
       {!selectMode && <InitialsAvatar name={member.full_name} />}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-slate-200 truncate">{member.full_name}</p>
+          <p className="text-sm font-semibold truncate" style={{ color: '#111827' }}>{member.full_name}</p>
           {member.employee_id && (
             <span className="text-xs px-2 py-0.5 rounded font-mono"
               style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}>
@@ -130,11 +133,11 @@ function FacultyCard({
               style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171' }}>Inactive</span>
           )}
         </div>
-        <p className="text-xs text-slate-500 mt-0.5 truncate">{member.email}</p>
+        <p className="text-xs mt-0.5 truncate" style={{ color: '#4B5563' }}>{member.email}</p>
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-          {member.designation && <span className="text-xs text-slate-400">{member.designation}</span>}
-          {member.primary_department && <span className="text-xs text-slate-500">{member.primary_department.name}</span>}
-          {member.specialization && <span className="text-xs text-slate-500 italic">{member.specialization}</span>}
+          {member.designation && <span className="text-xs" style={{ color: '#374151' }}>{member.designation}</span>}
+          {member.primary_department && <span className="text-xs" style={{ color: '#4B5563' }}>{member.primary_department.name}</span>}
+          {member.specialization && <span className="text-xs italic" style={{ color: '#4B5563' }}>{member.specialization}</span>}
         </div>
       </div>
     </div>
@@ -238,30 +241,33 @@ export default function FacultyDirectoryPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[220px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: '#6B7280' }} />
           <input value={search} onChange={e => handleSearch(e.target.value)}
             placeholder="Search by name, email or employee ID…"
-            className="w-full pl-9 pr-4 py-2 rounded-lg text-sm bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+            style={{ color: '#111827' }}
+            className="w-full pl-9 pr-4 py-2 rounded-lg text-sm bg-white border border-gray-300 placeholder-gray-400 focus:outline-none focus:border-indigo-500" />
         </div>
-        <select value={deptId} onChange={e => { setDeptId(e.target.value); setPage(1) }}
-          className="px-3 py-2 rounded-lg text-sm bg-white/5 border border-white/10 text-slate-300">
-          <option value="">All departments</option>
-          {(departments ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+        <Select value={deptId || 'ALL'} onValueChange={v => { setDeptId(v === 'ALL' ? '' : v); setPage(1) }}>
+          <SelectTrigger className="w-[200px]"><SelectValue placeholder="All departments" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All departments</SelectItem>
+            {(departments ?? []).map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Select mode toolbar */}
       {selectMode && (
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
           style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)' }}>
-          <button onClick={toggleSelectAll} className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white">
+          <button onClick={toggleSelectAll} className="flex items-center gap-1.5 text-xs hover:opacity-80" style={{ color: '#374151' }}>
             {selected.size === items.length && items.length > 0
-              ? <CheckSquare size={14} style={{ color: '#34d399' }} />
-              : <Square size={14} className="text-slate-500" />
+              ? <CheckSquare size={14} style={{ color: '#10b981' }} />
+              : <Square size={14} style={{ color: '#6B7280' }} />
             }
             {selected.size === items.length && items.length > 0 ? 'Deselect all' : 'Select all on page'}
           </button>
-          <span className="text-xs text-slate-500">{selected.size} selected</span>
+          <span className="text-xs" style={{ color: '#4B5563' }}>{selected.size} selected</span>
           <div className="ml-auto flex items-center gap-2">
             {selected.size > 0 && (
               <>
@@ -287,8 +293,8 @@ export default function FacultyDirectoryPage() {
         <PageLoading message="Loading faculty directory…" />
       ) : items.length === 0 ? (
         <div className="py-16 text-center">
-          <UserCheck className="h-10 w-10 text-slate-700 mx-auto mb-3" />
-          <p className="text-slate-500 text-sm">No faculty members match your filters.</p>
+          <UserCheck className="h-10 w-10 mx-auto mb-3" style={{ color: '#9CA3AF' }} />
+          <p className="text-sm" style={{ color: '#4B5563' }}>No faculty members match your filters.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -312,7 +318,7 @@ export default function FacultyDirectoryPage() {
             className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 disabled:opacity-30">
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="text-xs text-slate-500">Page {page} of {totalPages} · {total} total</span>
+          <span className="text-xs" style={{ color: '#4B5563' }}>Page {page} of {totalPages} · {total} total</span>
           <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
             className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 disabled:opacity-30">
             <ChevronRight className="h-4 w-4" />

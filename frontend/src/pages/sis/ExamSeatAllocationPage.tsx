@@ -5,6 +5,9 @@ import { LayoutList, ChevronLeft, Plus, Trash2, CheckCircle2, Users } from 'luci
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 import type { SeatingAllocationResult } from '@/lib/api/sis'
 
@@ -84,13 +87,14 @@ export default function ExamSeatAllocationPage() {
 
           <div className="mb-3">
             <label className="block text-xs text-slate-400 mb-1">Exam Center</label>
-            <select value={centerId} onChange={e => setCenterId(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500">
-              <option value="">— Select center —</option>
-              {(centersQ.data ?? []).map(c => (
-                <option key={c.id} value={c.id}>{c.center_name} (cap: {c.capacity ?? '?'})</option>
-              ))}
-            </select>
+            <Select value={centerId || undefined} onValueChange={setCenterId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="— Select center —" /></SelectTrigger>
+              <SelectContent>
+                {(centersQ.data ?? []).map(c => (
+                  <SelectItem key={c.id} value={c.id}>{c.center_name} (cap: {c.capacity ?? '?'})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="mb-3">

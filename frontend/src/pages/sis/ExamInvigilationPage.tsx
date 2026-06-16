@@ -5,6 +5,9 @@ import { Users, ChevronLeft, Plus, Trash2, Clock } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
 import { sisApi } from '@/lib/api/sis'
 
 function AssignModal({
@@ -53,27 +56,31 @@ function AssignModal({
 
           <div>
             <label className="block text-xs text-slate-400 mb-1">Schedule (optional)</label>
-            <select value={scheduleId} onChange={e => setScheduleId(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none">
-              <option value="">— General duty (no specific schedule) —</option>
-              {(schedulesQ.data ?? []).map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.exam_date} · {s.course_code} · {s.section_name}
-                </option>
-              ))}
-            </select>
+            <Select value={scheduleId || 'NONE'} onValueChange={v => setScheduleId(v === 'NONE' ? '' : v)}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="— General duty (no specific schedule) —" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NONE">— General duty (no specific schedule) —</SelectItem>
+                {(schedulesQ.data ?? []).map(s => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.exam_date} · {s.course_code} · {s.section_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-slate-400 mb-1">Center (optional)</label>
-              <select value={centerId} onChange={e => setCenterId(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:outline-none">
-                <option value="">— None —</option>
-                {(centersQ.data ?? []).map(c => (
-                  <option key={c.id} value={c.id}>{c.center_name}</option>
-                ))}
-              </select>
+              <Select value={centerId || 'NONE'} onValueChange={v => setCenterId(v === 'NONE' ? '' : v)}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="— None —" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="NONE">— None —</SelectItem>
+                  {(centersQ.data ?? []).map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.center_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Room (optional)</label>
