@@ -144,6 +144,7 @@ async def commit_students_csv(
     default_password: str = Form(default="Student@123"),
     program_id: str | None = Form(None),
     section_id: str | None = Form(None),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
     db: AsyncSession = Depends(_admin_db),
 ) -> CSVCommitResult:
     _read_file_upload(file)
@@ -165,6 +166,7 @@ async def commit_students_csv(
         filename=file.filename or "students.csv",
         context_program_id=ctx_program,
         context_section_id=ctx_section,
+        actor_user_id=current_user.user_id,
     )
 
 

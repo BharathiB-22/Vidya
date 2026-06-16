@@ -634,6 +634,7 @@ class OnboardingService:
         filename: str = "students.csv",
         context_program_id: UUID | None = None,
         context_section_id: UUID | None = None,
+        actor_user_id: UUID | None = None,
     ) -> CSVCommitResult:
         preview = await OnboardingService.preview_students_csv(
             content, db,
@@ -684,6 +685,31 @@ class OnboardingService:
 
         # Mint USNs via UsnAllocator (only target users just created in this run).
         _, usns_assigned = await mint_usns(db, mint_items)
+
+        # Audit trail: record this import as a batch and stamp it onto the
+        # student profiles created in this run, so SIS → Import History shows
+        # onboarding imports and they remain rollback-capable (mirrors the
+        # bulk-import flow).  Skipped when nothing was created or no actor known.
+        if created > 0 and actor_user_id is not None:
+            from sqlalchemy import update as _sa_update
+            from app.modules.m11_sis.import_batch_service import ImportBatchService
+            from app.modules.m11_sis.models import SisStudentProfile
+
+            batch = await ImportBatchService.create_batch(
+                imported_by=actor_user_id,
+                record_type="STUDENT",
+                total_records=preview.total_rows,
+                success_count=created,
+                failed_count=preview.invalid_rows,
+                source_filename=filename,
+                db=db,
+            )
+            created_uids = [_uuid.UUID(r["id"]) for r in rows_to_insert]
+            await db.execute(
+                _sa_update(SisStudentProfile)
+                .where(SisStudentProfile.user_id.in_(created_uids))
+                .values(import_batch_id=batch.id)
+            )
 
         return CSVCommitResult(
             total=preview.total_rows,
@@ -922,6 +948,21 @@ class OnboardingService:
                         m_skipped += 1
                     else:
                         errors.append(f"Row {r.row_number}: program '{code}' — {e.message}")
+
+        # Audit trail: record the faculty import batch so SIS → Import History
+        # shows it.  This flow creates FACULTY users (and program mappings) but
+        # no sis_faculty_profiles rows, so there is nothing to stamp.
+        if created > 0 and actor_user_id is not None:
+            from app.modules.m11_sis.import_batch_service import ImportBatchService
+            await ImportBatchService.create_batch(
+                imported_by=actor_user_id,
+                record_type="FACULTY",
+                total_records=preview.total_rows,
+                success_count=created,
+                failed_count=preview.invalid_rows,
+                source_filename=filename,
+                db=db,
+            )
 
         return CSVCommitResult(
             total=preview.total_rows,

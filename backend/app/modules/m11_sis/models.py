@@ -48,6 +48,7 @@ class SisImportBatch(Base):
     imported_by    = Column(UUID(as_uuid=True), nullable=False)
     imported_at    = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     record_type    = Column(String(20),  nullable=False)   # STUDENT | FACULTY
+    source_filename = Column(String(255), nullable=True)   # uploaded CSV/XLSX file name
     total_records  = Column(Integer(),   nullable=False, default=0)
     success_count  = Column(Integer(),   nullable=False, default=0)
     failed_count   = Column(Integer(),   nullable=False, default=0)

@@ -59,6 +59,7 @@ class ImportBatchService:
         success_count: int,
         failed_count: int,
         db: AsyncSession,
+        source_filename: str | None = None,
     ) -> SisImportBatch:
         now = _datetime.now(_timezone.utc)
         # Generate a short human-readable ref: IMPORT-YYYYMMDD-XXXX
@@ -71,6 +72,7 @@ class ImportBatchService:
             imported_by   = imported_by,
             imported_at   = now,
             record_type   = record_type,
+            source_filename = source_filename,
             total_records = total_records,
             success_count = success_count,
             failed_count  = failed_count,

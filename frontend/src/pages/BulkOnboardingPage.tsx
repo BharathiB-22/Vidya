@@ -492,6 +492,55 @@ function TemplateDownloadBar({ role }: { role: 'students' | 'faculty' }) {
 }
 
 // ---------------------------------------------------------------------------
+// CSV format guide — required / optional columns + an example header row
+// ---------------------------------------------------------------------------
+
+interface CsvFormat {
+  required: string[]
+  optional: string[]
+  example: string
+}
+
+function ColChip({ name, required }: { name: string; required?: boolean }) {
+  return (
+    <code
+      className="font-mono text-[11px] px-1.5 py-0.5 rounded border"
+      style={
+        required
+          ? { background: '#EEF2FF', color: '#3730A3', borderColor: '#C7D2FE' }
+          : { background: '#F3F4F6', color: '#374151', borderColor: '#E5E7EB' }
+      }
+    >
+      {name}
+    </code>
+  )
+}
+
+function CsvFormatGuide({ fmt }: { fmt: CsvFormat }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 space-y-2">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-xs font-semibold" style={{ color: '#111827' }}>Required:</span>
+        {fmt.required.map((c) => <ColChip key={c} name={c} required />)}
+      </div>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-xs font-semibold" style={{ color: '#111827' }}>Optional:</span>
+        {fmt.optional.length
+          ? fmt.optional.map((c) => <ColChip key={c} name={c} />)
+          : <span className="text-xs" style={{ color: '#6B7280' }}>none</span>}
+      </div>
+      <div className="flex items-start gap-2">
+        <span className="text-xs font-semibold shrink-0 pt-1" style={{ color: '#111827' }}>Example:</span>
+        <code className="font-mono text-[11px] bg-white border border-gray-200 rounded px-2 py-1 overflow-x-auto whitespace-pre"
+          style={{ color: '#374151' }}>
+          {fmt.example}
+        </code>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Tab 1: Generate Students
 // ---------------------------------------------------------------------------
 
@@ -742,13 +791,25 @@ function CSVImportTab({ role }: { role: ImportRole }) {
       <TemplateDownloadBar role={role} />
 
       {/* Column guide */}
-      <p className="text-xs text-gray-500">
-        {role === 'students'
-          ? ctx.program
-            ? 'Required columns: full_name, email · Optional: identifier'
-            : 'Required columns: full_name, email, program_code · Optional: identifier, batch_year, section_name'
-          : 'Required columns: full_name, email · Optional: employee_id'}
-      </p>
+      <CsvFormatGuide
+        fmt={
+          role === 'students'
+            ? ctx.program
+              ? { required: ['full_name', 'email'], optional: ['identifier'],
+                  example: 'full_name,email,identifier' }
+              : { required: ['full_name', 'email', 'program_code'],
+                  optional: ['identifier', 'batch_year', 'section_name'],
+                  example: 'full_name,email,program_code,batch_year,section_name' }
+            : { required: ['full_name', 'email'], optional: ['employee_id', 'program_codes'],
+                example: 'full_name,email,program_codes' }
+        }
+      />
+      {role === 'students' && ctx.program && (
+        <p className="text-xs" style={{ color: '#6B7280' }}>
+          Students will be assigned to the selected program/section above — no
+          <code className="font-mono mx-1">program_code</code>column needed.
+        </p>
+      )}
 
       {/* File upload */}
       <DropZone file={file} onChange={(f) => { setFile(f); setPreview(null); setError(null) }} disabled={isLoading} />

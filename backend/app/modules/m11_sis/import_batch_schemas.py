@@ -14,6 +14,7 @@ class ImportBatchOut(BaseModel):
     imported_by:    UUID
     imported_at:    datetime
     record_type:    str
+    source_filename: Optional[str] = None
     total_records:  int
     success_count:  int
     failed_count:   int
