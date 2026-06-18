@@ -19,6 +19,7 @@ class TenantRepository:
         logo_url: str | None = None,
         primary_color: str | None = None,
         secondary_color: str | None = None,
+        institution_domain: str | None = None,
     ) -> Tenant:
         tenant = Tenant(
             name=name,
@@ -30,6 +31,7 @@ class TenantRepository:
             logo_url=logo_url,
             primary_color=primary_color,
             secondary_color=secondary_color,
+            institution_domain=institution_domain,
         )
         db.add(tenant)
         await db.flush()

@@ -10,6 +10,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.models import TenantStatus
 from app.core.auth.security import hash_password
 from app.core.tenants.provisioner import (
+    derive_institution_domain,
     derive_schema_name,
     generate_slug,
     run_tenant_migrations,
@@ -85,6 +86,7 @@ class TenantService:
 
         schema_name = derive_schema_name(slug)
         contact_email = str(body.contact_email) if body.contact_email else str(body.admin_email)
+        institution_domain = derive_institution_domain(slug)
 
         # Commit PROVISIONING record before running migrations so the row is
         # visible even if provisioning fails (enables retry / investigation).
@@ -97,6 +99,7 @@ class TenantService:
             logo_url=body.logo_url,
             primary_color=body.primary_color,
             secondary_color=body.secondary_color,
+            institution_domain=institution_domain,
         )
         await db.commit()
 

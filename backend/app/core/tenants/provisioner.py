@@ -34,6 +34,27 @@ def derive_schema_name(slug: str) -> str:
     return "tenant_" + slug.replace("-", "_")
 
 
+# Institutional suffixes stripped before appending .edu
+_INST_SUFFIXES = ("-university", "-college", "-institute", "-school", "-academy")
+
+
+def derive_institution_domain(slug: str) -> str:
+    """Auto-derive a default institution email domain from the tenant slug.
+
+    Examples:
+        lms-university   -> lms.edu
+        dsu-university   -> dsu.edu
+        innova-university-> innova.edu
+
+    For slugs without a known institutional suffix the full slug is used
+    (hyphens preserved), which is safe for dev/test tenants.
+    """
+    for suffix in _INST_SUFFIXES:
+        if slug.endswith(suffix):
+            return slug[: -len(suffix)] + ".edu"
+    return slug + ".edu"
+
+
 def _migrate_sync(schema_name: str) -> None:
     from alembic.config import Config
     from alembic import command
