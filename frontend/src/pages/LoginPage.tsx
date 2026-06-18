@@ -91,6 +91,10 @@ function isLight(hex: string): boolean {
 
 function classifyError(raw: string): string {
   const lower = raw.toLowerCase()
+  if (lower.includes('server encountered') || lower.includes('temporarily unavailable') || lower.includes('try again in a moment'))
+    return 'System temporarily unavailable. Please try again in a moment.'
+  if (lower.includes('unable to reach') || lower.includes('check your connection'))
+    return 'Unable to reach the server. Check your internet connection and try again.'
   if (lower.includes('workspace') || lower.includes('tenant not found') || lower.includes('not found'))
     return 'Invalid workspace. Check your university workspace ID and try again.'
   if (lower.includes('inactive') || lower.includes('disabled'))

@@ -56,7 +56,19 @@ api.interceptors.response.use(
 
 export function getErrorMessage(err: unknown): string {
   const axiosErr = err as AxiosError<BackendError & { detail?: BackendError | string | unknown[] }>
-  const data = axiosErr.response?.data
+  const status = axiosErr.response?.status
+  const data   = axiosErr.response?.data
+
+  // 500 / server errors — never expose internal stack traces to the user
+  if (!status || status >= 500) {
+    return 'The server encountered an error. Please try again in a moment.'
+  }
+
+  // Network / no response
+  if (!data) {
+    return 'Unable to reach the server. Check your connection and try again.'
+  }
+
   // Custom HTTPException handler returns exc.detail directly: { error, message }
   if (data && typeof data === 'object' && typeof (data as BackendError).message === 'string') {
     return (data as BackendError).message

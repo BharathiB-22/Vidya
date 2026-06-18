@@ -32,6 +32,7 @@ async def list_import_batches(
     current_user: CurrentUser = Depends(require_roles(*_ADMIN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ImportBatchListOut:
+    # list_batches returns dicts (raw SQL, schema-adaptive)
     rows, total = await ImportBatchService.list_batches(db, limit=limit, offset=offset)
     return ImportBatchListOut(
         items=[ImportBatchOut.model_validate(r) for r in rows],
@@ -46,10 +47,10 @@ async def get_import_batch(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ImportBatchOut:
     try:
-        batch = await ImportBatchService.get_batch(batch_id, db)
+        batch_dict = await ImportBatchService.get_batch(batch_id, db)
     except ImportBatchServiceError as e:
         raise _err(e)
-    return ImportBatchOut.model_validate(batch)
+    return ImportBatchOut.model_validate(batch_dict)
 
 
 @import_batch_router.post("/imports/{batch_id}/rollback", response_model=RollbackOut)

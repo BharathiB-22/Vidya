@@ -324,6 +324,44 @@ class OnboardingService:
         return int(val) if val is not None else None
 
     @staticmethod
+    async def _resolve_section_context(
+        section_id: UUID, db: AsyncSession
+    ) -> dict:
+        """
+        Return a dict with program/batch/semester/section UUIDs and display names
+        for stamping on SisImportBatch.  Returns empty dict when section not found.
+        """
+        row = await db.execute(
+            text(
+                "SELECT p.id AS program_id, p.name AS program_name, "
+                "       b.id AS batch_id,   b.name AS batch_name, "
+                "       sem.id AS semester_id, sem.number AS semester_number, "
+                "       sem.label AS semester_label, "
+                "       sec.id AS section_id, sec.name AS section_name "
+                "FROM acad_sections sec "
+                "JOIN acad_semesters sem ON sem.id = sec.semester_id "
+                "JOIN acad_batches   b   ON b.id   = sem.batch_id "
+                "JOIN acad_programs  p   ON p.id   = b.program_id "
+                "WHERE sec.id = :sid"
+            ),
+            {"sid": str(section_id)},
+        )
+        m = row.mappings().one_or_none()
+        if m is None:
+            return {}
+        sem_name = m["semester_label"] or f"Semester {m['semester_number']}"
+        return {
+            "program_id":   m["program_id"],
+            "program_name": m["program_name"],
+            "batch_id":     m["batch_id"],
+            "batch_name":   m["batch_name"],
+            "semester_id":  m["semester_id"],
+            "semester_name": sem_name,
+            "section_id":   m["section_id"],
+            "section_name": m["section_name"],
+        }
+
+    @staticmethod
     def _split_codes(raw_value: str) -> list[str]:
         """Parse a pipe/comma-delimited list of program codes (deduped, upper)."""
         parts = re.split(r"[|,]", raw_value or "")
@@ -342,6 +380,9 @@ class OnboardingService:
     async def generate_students(
         req: GenerateStudentsRequest,
         db: AsyncSession,
+        *,
+        actor_user_id: UUID | None = None,
+        schema_name: str | None = None,
     ) -> GenerateStudentsResult:
         if req.section_id is not None:
             if not await OnboardingService._validate_section_active(req.section_id, db):
@@ -384,6 +425,32 @@ class OnboardingService:
         if req.section_id is not None and rows_to_insert:
             pairs = [(row["id"], str(req.section_id)) for row in rows_to_insert]
             enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(pairs, db)
+
+        # Record in Import History when an actor is known.
+        if created > 0 and actor_user_id is not None:
+            from sqlalchemy import update as _sa_update
+            from app.modules.m11_sis.import_batch_service import ImportBatchService
+            from app.modules.m11_sis.models import SisStudentProfile
+
+            ctx: dict = {}
+            if req.section_id is not None:
+                ctx = await OnboardingService._resolve_section_context(req.section_id, db)
+
+            batch = await ImportBatchService.create_batch(
+                imported_by=actor_user_id,
+                record_type="STUDENT",
+                total_records=req.count,
+                success_count=created,
+                failed_count=req.count - created,
+                db=db,
+                **ctx,
+            )
+            created_uids = [_uuid.UUID(r["id"]) for r in rows_to_insert]
+            await db.execute(
+                _sa_update(SisStudentProfile)
+                .where(SisStudentProfile.user_id.in_(created_uids))
+                .values(import_batch_id=batch.id)
+            )
 
         return GenerateStudentsResult(
             created=created,
@@ -715,13 +782,16 @@ class OnboardingService:
                         institution_emails_assigned += 1
 
         # Audit trail: record this import as a batch and stamp it onto the
-        # student profiles created in this run, so SIS → Import History shows
-        # onboarding imports and they remain rollback-capable (mirrors the
-        # bulk-import flow).  Skipped when nothing was created or no actor known.
+        # student profiles created in this run.  Academic context (program/batch/
+        # semester/section) is resolved from context_section_id when available.
         if created > 0 and actor_user_id is not None:
             from sqlalchemy import update as _sa_update
             from app.modules.m11_sis.import_batch_service import ImportBatchService
             from app.modules.m11_sis.models import SisStudentProfile
+
+            ctx: dict = {}
+            if context_section_id is not None:
+                ctx = await OnboardingService._resolve_section_context(context_section_id, db)
 
             batch = await ImportBatchService.create_batch(
                 imported_by=actor_user_id,
@@ -731,6 +801,7 @@ class OnboardingService:
                 failed_count=preview.invalid_rows,
                 source_filename=filename,
                 db=db,
+                **ctx,
             )
             created_uids = [_uuid.UUID(r["id"]) for r in rows_to_insert]
             await db.execute(

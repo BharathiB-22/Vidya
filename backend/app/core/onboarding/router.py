@@ -107,10 +107,15 @@ def _parse_uuid_form(value: str | None, field: str) -> "UUID | None":
 @router.post("/generate-students", response_model=GenerateStudentsResult)
 async def generate_students(
     body: GenerateStudentsRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
     db: AsyncSession = Depends(_admin_db),
 ) -> GenerateStudentsResult:
     try:
-        return await OnboardingService.generate_students(body, db)
+        return await OnboardingService.generate_students(
+            body, db,
+            actor_user_id=current_user.user_id,
+            schema_name=current_user.schema_name,
+        )
     except OnboardingError as e:
         raise _onboarding_err(e)
 

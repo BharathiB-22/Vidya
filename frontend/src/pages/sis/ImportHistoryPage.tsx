@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { History, RefreshCw, CheckCircle2, XCircle, ChevronLeft, ChevronRight, RotateCcw, AlertTriangle } from 'lucide-react'
+import {
+  History, RefreshCw, CheckCircle2, XCircle,
+  ChevronLeft, ChevronRight, RotateCcw, AlertTriangle,
+} from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -8,6 +11,30 @@ import { sisApi } from '@/lib/api/sis'
 import type { ImportBatch } from '@/lib/api/sis'
 
 const PAGE_SIZE = 20
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleString(undefined, {
+    year:   'numeric',
+    month:  'short',
+    day:    '2-digit',
+    hour:   '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function detailLine(batch: ImportBatch): string {
+  const parts = [
+    batch.program_name  ?? 'Unknown Program',
+    batch.batch_name    ?? 'Unknown Batch',
+    batch.semester_name ?? 'Unknown Semester',
+    batch.section_name  ? `Section ${batch.section_name}` : 'Unknown Section',
+  ]
+  return parts.join(' • ')
+}
 
 // ---------------------------------------------------------------------------
 // Badges
@@ -34,29 +61,8 @@ function StatusBadge({ rolledBack }: { rolledBack: boolean }) {
   )
 }
 
-function RecordTypeBadge({ type }: { type: string }) {
-  return (
-    <span
-      className="inline-flex items-center text-xs font-medium px-2 py-0.5 rounded"
-      style={{ background: 'rgba(139,92,246,0.12)', color: '#6d28d9', border: '1px solid rgba(139,92,246,0.25)' }}
-    >
-      {type}
-    </span>
-  )
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, {
-    year:   'numeric',
-    month:  'short',
-    day:    '2-digit',
-    hour:   '2-digit',
-    minute: '2-digit',
-  })
-}
-
 // ---------------------------------------------------------------------------
-// Rollback confirmation modal
+// Rollback confirmation modal — P1.4: shows full academic context
 // ---------------------------------------------------------------------------
 
 interface RollbackModalProps {
@@ -78,12 +84,41 @@ function RollbackModal({ batch, onConfirm, onCancel, isPending, error }: Rollbac
           <AlertTriangle size={22} style={{ color: '#f87171' }} />
           <h2 className="text-base font-semibold">Roll Back Import Batch?</h2>
         </div>
+
         <p className="text-sm text-muted-foreground">
-          This will detach <strong>{batch.success_count} profile record{batch.success_count !== 1 ? 's' : ''}</strong> from
-          batch <span className="font-mono text-purple-400">{batch.batch_ref}</span>.
+          You are about to roll back batch{' '}
+          <span className="font-mono text-purple-400">{batch.batch_ref}</span>.
           The profiles themselves are kept — only the import tracking link is removed.
           This action <strong>cannot be undone</strong>.
         </p>
+
+        {/* Academic context summary */}
+        <div
+          className="rounded-lg px-4 py-3 text-sm space-y-1.5"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}
+        >
+          <div className="flex justify-between">
+            <span style={{ color: '#9CA3AF' }}>Program</span>
+            <span className="font-medium">{batch.program_name ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span style={{ color: '#9CA3AF' }}>Batch</span>
+            <span className="font-medium">{batch.batch_name ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span style={{ color: '#9CA3AF' }}>Semester</span>
+            <span className="font-medium">{batch.semester_name ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span style={{ color: '#9CA3AF' }}>Section</span>
+            <span className="font-medium">{batch.section_name ?? '—'}</span>
+          </div>
+          <div className="flex justify-between pt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <span style={{ color: '#9CA3AF' }}>Students affected</span>
+            <span className="font-semibold text-amber-400">{batch.success_count}</span>
+          </div>
+        </div>
+
         {error && (
           <div
             className="rounded px-3 py-2 text-xs"
@@ -92,6 +127,7 @@ function RollbackModal({ batch, onConfirm, onCancel, isPending, error }: Rollbac
             {error}
           </div>
         )}
+
         <div className="flex gap-3 justify-end pt-2">
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={isPending}>
             Cancel
@@ -117,7 +153,7 @@ function RollbackModal({ batch, onConfirm, onCancel, isPending, error }: Rollbac
 // ---------------------------------------------------------------------------
 
 export default function ImportHistoryPage() {
-  const [page, setPage]               = useState(0)
+  const [page, setPage]                     = useState(0)
   const [rollbackTarget, setRollbackTarget] = useState<ImportBatch | null>(null)
   const [rollbackError, setRollbackError]   = useState<string | null>(null)
   const queryClient = useQueryClient()
@@ -201,26 +237,22 @@ export default function ImportHistoryPage() {
 
         {data && data.items.length > 0 && (
           <>
-            {/* Summary bar */}
             <div className="flex items-center justify-between mb-4 text-sm" style={{ color: '#4B5563' }}>
               <span>{data.total} batch{data.total !== 1 ? 'es' : ''} total</span>
-              {totalPages > 1 && (
-                <span>Page {page + 1} of {totalPages}</span>
-              )}
+              {totalPages > 1 && <span>Page {page + 1} of {totalPages}</span>}
             </div>
 
-            {/* Table */}
             <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
                     <th className="text-left px-4 py-3 font-semibold" style={{ color: '#111827' }}>Batch Ref</th>
-                    <th className="text-left px-4 py-3 font-semibold" style={{ color: '#111827' }}>Type</th>
-                    <th className="text-left px-4 py-3 font-semibold" style={{ color: '#111827' }}>Date</th>
+                    <th className="text-left px-4 py-3 font-semibold" style={{ color: '#111827' }}>Details</th>
                     <th className="text-right px-4 py-3 font-semibold" style={{ color: '#111827' }}>Total</th>
                     <th className="text-right px-4 py-3 font-semibold" style={{ color: '#111827' }}>Success</th>
                     <th className="text-right px-4 py-3 font-semibold" style={{ color: '#111827' }}>Failed</th>
                     <th className="text-center px-4 py-3 font-semibold" style={{ color: '#111827' }}>Status</th>
+                    <th className="text-left px-4 py-3 font-semibold" style={{ color: '#111827' }}>Date</th>
                     <th className="text-center px-4 py-3 font-semibold" style={{ color: '#111827' }}>Actions</th>
                   </tr>
                 </thead>
@@ -233,15 +265,19 @@ export default function ImportHistoryPage() {
                         background: idx % 2 === 0 ? '#ffffff' : '#FAFAFA',
                       }}
                     >
-                      <td className="px-4 py-3 font-mono text-xs" style={{ color: '#6d28d9' }}>
+                      {/* Batch ref */}
+                      <td className="px-4 py-3 font-mono text-xs whitespace-nowrap" style={{ color: '#6d28d9' }}>
                         {batch.batch_ref}
                       </td>
+
+                      {/* Academic context — compact dot-separated detail line */}
                       <td className="px-4 py-3">
-                        <RecordTypeBadge type={batch.record_type} />
+                        <span className="text-xs" style={{ color: '#374151' }}>
+                          {detailLine(batch)}
+                        </span>
                       </td>
-                      <td className="px-4 py-3" style={{ color: '#4B5563' }}>
-                        {formatDate(batch.imported_at)}
-                      </td>
+
+                      {/* Counts */}
                       <td className="px-4 py-3 text-right tabular-nums" style={{ color: '#111827' }}>
                         {batch.total_records}
                       </td>
@@ -251,9 +287,18 @@ export default function ImportHistoryPage() {
                       <td className="px-4 py-3 text-right tabular-nums" style={{ color: batch.failed_count > 0 ? '#dc2626' : '#4B5563' }}>
                         {batch.failed_count}
                       </td>
+
+                      {/* Status */}
                       <td className="px-4 py-3 text-center">
                         <StatusBadge rolledBack={batch.is_rolled_back} />
                       </td>
+
+                      {/* Date */}
+                      <td className="px-4 py-3 whitespace-nowrap" style={{ color: '#4B5563' }}>
+                        {formatDate(batch.imported_at)}
+                      </td>
+
+                      {/* Actions */}
                       <td className="px-4 py-3 text-center">
                         {!batch.is_rolled_back && (
                           <button
@@ -272,7 +317,6 @@ export default function ImportHistoryPage() {
               </table>
             </div>
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-end gap-2 mt-4">
                 <Button

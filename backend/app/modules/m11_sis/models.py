@@ -48,13 +48,17 @@ class SisImportBatch(Base):
     imported_by    = Column(UUID(as_uuid=True), nullable=False)
     imported_at    = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     record_type    = Column(String(20),  nullable=False)   # STUDENT | FACULTY
-    source_filename = Column(String(255), nullable=True)   # uploaded CSV/XLSX file name
+    source_filename = Column(String(255), nullable=True)
     total_records  = Column(Integer(),   nullable=False, default=0)
     success_count  = Column(Integer(),   nullable=False, default=0)
     failed_count   = Column(Integer(),   nullable=False, default=0)
     is_rolled_back = Column(Boolean(),   nullable=False, default=False)
     rolled_back_by = Column(UUID(as_uuid=True), nullable=True)
     rolled_back_at = Column(DateTime(timezone=True), nullable=True)
+    # NOTE: P1.4 academic context columns (program_id/name, batch_id/name,
+    # semester_id/name, section_id/name) are intentionally NOT in the ORM model.
+    # They are created by migration 0054ten. ImportBatchService reads/writes them
+    # via raw SQL so that SELECT queries do not crash on pre-migration databases.
 
 
 # ---------------------------------------------------------------------------

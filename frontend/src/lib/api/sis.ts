@@ -258,6 +258,15 @@ export interface ImportBatch {
   is_rolled_back: boolean
   rolled_back_by: string | null
   rolled_back_at: string | null
+  // P1.4 academic context (null for older batches)
+  program_id:    string | null
+  program_name:  string | null
+  batch_id:      string | null
+  batch_name:    string | null
+  semester_id:   string | null
+  semester_name: string | null
+  section_id:    string | null
+  section_name:  string | null
 }
 
 export interface ImportBatchListOut {

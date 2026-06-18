@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -48,6 +47,9 @@ class Tenant(Base):
     contact_email = Column(String, nullable=True)
     # P1.2 Task C: email domain for generated institution emails ({usn}@{domain})
     institution_domain = Column(String, nullable=True)
+    # NOTE: default_student_password_pattern intentionally NOT in ORM model.
+    # The column is created by migration 0015pub. Add it here ONLY after that migration
+    # has been applied to the database, to prevent SELECT failures on older deployments.
     logo_url = Column(String, nullable=True)
     primary_color = Column(String(7), nullable=True)
     secondary_color = Column(String(7), nullable=True)
