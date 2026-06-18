@@ -86,30 +86,29 @@ function LifecyclePanel({
 
   if (!canManage) return null
   if (isLoading || !data) return (
-    <div className="rounded-xl px-6 py-4" style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <p className="text-sm text-slate-500">Loading lifecycle…</p>
+    <div className="rounded-xl px-6 py-4 bg-white border border-gray-200 shadow-sm">
+      <p className="text-sm text-gray-400">Loading lifecycle…</p>
     </div>
   )
 
   return (
-    <div className="rounded-xl px-6 py-4 space-y-3"
-      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
+    <div className="rounded-xl px-6 py-4 space-y-3 bg-white border border-gray-200 shadow-sm">
 
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <Activity className="h-4 w-4 text-slate-500" />
-        <h3 className="text-sm font-semibold text-slate-400">Lifecycle Status</h3>
+      <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+        <Activity className="h-4 w-4 text-gray-400" />
+        <h3 className="text-sm font-semibold text-gray-700">Lifecycle Status</h3>
       </div>
 
       {/* Current status */}
       <div className="flex items-center justify-between py-1">
-        <span className="text-sm text-slate-500">Current status</span>
+        <span className="text-sm text-gray-500">Current status</span>
         <LifecycleBadge status={data.current_status} />
       </div>
 
       {/* Transition picker */}
       {data.allowed_next.length > 0 && (
         <div className="space-y-2 pt-1">
-          <p className="text-xs text-slate-500">Change status (human ratification required):</p>
+          <p className="text-xs text-gray-500">Change status (human ratification required):</p>
           <Select value={selectedStatus || undefined} onValueChange={setSelectedStatus}>
             <SelectTrigger className="w-full"><SelectValue placeholder="Select new status…" /></SelectTrigger>
             <SelectContent>
@@ -125,7 +124,7 @@ function LifecyclePanel({
                 placeholder="Reason (optional)"
                 value={reason}
                 onChange={e => setReason(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 placeholder:text-slate-600"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-gray-50 border border-gray-200 text-gray-900 placeholder:text-gray-400"
               />
               <Button
                 size="sm"
@@ -141,7 +140,7 @@ function LifecyclePanel({
       )}
 
       {data.current_status === 'ARCHIVED' && (
-        <p className="text-xs text-slate-500 py-1">This student is archived. No further transitions available.</p>
+        <p className="text-xs text-gray-500 py-1">This student is archived. No further transitions available.</p>
       )}
 
       {/* History toggle */}
@@ -149,7 +148,7 @@ function LifecyclePanel({
         <div className="pt-2">
           <button
             onClick={() => setShowHistory(v => !v)}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
           >
             <ChevronDown size={12} className={showHistory ? 'rotate-180 transition-transform' : 'transition-transform'} />
             {showHistory ? 'Hide' : 'Show'} history ({data.history.length})
@@ -157,15 +156,14 @@ function LifecyclePanel({
           {showHistory && (
             <div className="mt-2 space-y-1">
               {data.history.map(h => (
-                <div key={h.id} className="text-xs text-slate-400 flex items-start gap-2 py-1"
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <span className="shrink-0 tabular-nums text-slate-600">{formatDt(h.changed_at)}</span>
+                <div key={h.id} className="text-xs text-gray-500 flex items-start gap-2 py-1 border-b border-gray-50 last:border-0">
+                  <span className="shrink-0 tabular-nums text-gray-400">{formatDt(h.changed_at)}</span>
                   <span>
                     {h.from_status
                       ? <><LifecycleBadge status={h.from_status} /> → <LifecycleBadge status={h.to_status} /></>
                       : <>Set to <LifecycleBadge status={h.to_status} /></>
                     }
-                    {h.reason && <span className="ml-1 text-slate-500">— {h.reason}</span>}
+                    {h.reason && <span className="ml-1 text-gray-400">— {h.reason}</span>}
                   </span>
                 </div>
               ))}
@@ -183,23 +181,19 @@ function LifecyclePanel({
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div
-      className="flex items-center justify-between py-3"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-    >
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className="text-sm text-slate-200 font-medium">{value}</span>
+    <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm font-semibold text-gray-900">{value}</span>
     </div>
   )
 }
 
 function Card({ title, icon: Icon, children }: { title: string; icon: typeof UserCircle2; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl px-6 py-4 space-y-1"
-      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <Icon className="h-4 w-4 text-slate-500" />
-        <h3 className="text-sm font-semibold text-slate-400">{title}</h3>
+    <div className="rounded-xl px-6 py-4 space-y-1 bg-white border border-gray-200 shadow-sm">
+      <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+        <Icon className="h-4 w-4 text-gray-400" />
+        <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
       </div>
       {children}
     </div>
@@ -318,18 +312,18 @@ export default function StudentProfilePage() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="p-1.5 rounded-lg text-slate-600 hover:bg-white/6 hover:text-slate-300 transition-colors"
+          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
-          <h2 className="text-xl font-semibold text-slate-100">{profile.full_name}</h2>
-          <p className="text-xs text-slate-500">{profile.email}</p>
+          <h2 className="text-xl font-bold text-gray-900">{profile.full_name}</h2>
+          <p className="text-sm text-gray-500">{profile.email}</p>
         </div>
         <Link
           to="/sis/roster"
-          className="ml-auto text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
         >
           ← Roster
         </Link>
@@ -337,17 +331,20 @@ export default function StudentProfilePage() {
 
       {/* Student info */}
       <Card title="Student" icon={UserCircle2}>
-        <InfoRow label="Full name"      value={profile.full_name} />
-        <InfoRow label="Email"          value={profile.email} />
+        <InfoRow label="Full name" value={
+          <span className="font-semibold text-gray-900">{profile.full_name}</span>
+        } />
+        <InfoRow label="Email" value={
+          <span className="text-gray-700">{profile.email}</span>
+        } />
         <InfoRow label="Institution email" value={
           profile.institution_email
-            ? <span className="font-mono" style={{ color: '#374151' }}>{profile.institution_email}</span>
-            : <span style={{ color: '#9CA3AF' }}>Not generated</span>
+            ? <span className="font-mono font-semibold text-indigo-600">{profile.institution_email}</span>
+            : <span className="text-xs text-amber-600 font-medium">Not generated yet</span>
         } />
-        <InfoRow label="Identifier"     value={profile.identifier ?? '—'} />
         {profile.usn && (
           <InfoRow label="USN" value={
-            <span className="font-mono text-indigo-300">{profile.usn}</span>
+            <span className="font-mono font-bold text-indigo-700">{profile.usn}</span>
           } />
         )}
         {profile.admission_year && (
@@ -394,21 +391,17 @@ export default function StudentProfilePage() {
 
       {/* Enrollment actions */}
       {hasEnrollment && (
-        <div
-          className="rounded-xl p-5 space-y-3"
-          style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          <h3 className="text-sm font-semibold text-slate-400">Enrollment actions</h3>
+        <div className="rounded-xl p-5 space-y-3 bg-white border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-700">Enrollment actions</h3>
 
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-200">Move to another section</p>
-              <p className="text-xs text-slate-500 mt-0.5">Transfer within the same semester.</p>
+              <p className="text-sm font-medium text-gray-800">Move to another section</p>
+              <p className="text-xs text-gray-500 mt-0.5">Transfer within the same semester.</p>
             </div>
             <button
               onClick={() => setShowMove(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium"
-              style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', color: '#a5b4fc' }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors"
             >
               <MoveRight className="h-3.5 w-3.5" /> Move
             </button>
@@ -416,13 +409,12 @@ export default function StudentProfilePage() {
 
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-200">Unenroll</p>
-              <p className="text-xs text-slate-500 mt-0.5">Remove from section. Record is kept; re-enrollment is possible.</p>
+              <p className="text-sm font-medium text-gray-800">Unenroll</p>
+              <p className="text-xs text-gray-500 mt-0.5">Remove from section. Record is kept; re-enrollment is possible.</p>
             </div>
             <button
               onClick={() => setShowUnenroll(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium"
-              style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
             >
               <UserMinus className="h-3.5 w-3.5" /> Unenroll
             </button>
