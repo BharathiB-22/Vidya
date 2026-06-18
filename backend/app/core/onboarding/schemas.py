@@ -141,6 +141,8 @@ class CSVCommitResult(BaseModel):
     enrollments_created: int = 0
     # Students: USNs minted via UsnAllocator during this commit
     usns_assigned: int = 0
+    # Students: institution emails auto-generated from minted USNs during this commit
+    institution_emails_assigned: int = 0
     # Faculty: program mappings applied via FacultyProgramService
     program_mappings_created: int = 0
     program_mappings_reactivated: int = 0

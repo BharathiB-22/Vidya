@@ -635,6 +635,7 @@ class OnboardingService:
         context_program_id: UUID | None = None,
         context_section_id: UUID | None = None,
         actor_user_id: UUID | None = None,
+        schema_name: str | None = None,
     ) -> CSVCommitResult:
         preview = await OnboardingService.preview_students_csv(
             content, db,
@@ -684,7 +685,34 @@ class OnboardingService:
         enrollments_created = await OnboardingRepository.bulk_upsert_enrollments(enroll_pairs, db)
 
         # Mint USNs via UsnAllocator (only target users just created in this run).
-        _, usns_assigned = await mint_usns(db, mint_items)
+        usn_map, usns_assigned = await mint_usns(db, mint_items)
+
+        # Auto-generate institution emails for students that received a USN.
+        # Silently skips when no domain is configured — the backfill endpoint
+        # handles the catch-up once the admin sets a domain.
+        institution_emails_assigned = 0
+        if schema_name and usn_map:
+            from sqlalchemy import text as _text
+            from app.core.onboarding.institution_email_service import format_email as _fmt_email
+            dom_row = await db.execute(
+                _text("SELECT institution_domain FROM public.tenants WHERE schema_name = :s"),
+                {"s": schema_name},
+            )
+            domain = dom_row.scalar_one_or_none()
+            if domain:
+                domain = domain.strip().lower().lstrip("@")
+                for user_id, usn in usn_map.items():
+                    inst_email = _fmt_email(usn, domain)
+                    res = await db.execute(
+                        _text(
+                            "UPDATE users SET institution_email = :inst,"
+                            " personal_email = COALESCE(personal_email, email)"
+                            " WHERE id = :uid AND institution_email IS NULL"
+                        ),
+                        {"inst": inst_email, "uid": str(user_id)},
+                    )
+                    if res.rowcount and res.rowcount > 0:
+                        institution_emails_assigned += 1
 
         # Audit trail: record this import as a batch and stamp it onto the
         # student profiles created in this run, so SIS → Import History shows
@@ -722,6 +750,7 @@ class OnboardingService:
             ],
             enrollments_created=enrollments_created,
             usns_assigned=usns_assigned,
+            institution_emails_assigned=institution_emails_assigned,
         )
 
     # ------------------------------------------------------------------ #

@@ -178,6 +178,7 @@ async def commit_students_csv(
         context_program_id=ctx_program,
         context_section_id=ctx_section,
         actor_user_id=current_user.user_id,
+        schema_name=current_user.schema_name,
     )
 
 
