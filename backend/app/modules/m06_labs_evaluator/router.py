@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_responsibility, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m06_labs_evaluator.evaluator_schemas import (
@@ -86,7 +86,9 @@ _WRITE    = require_roles(TenantRole.ADMIN, TenantRole.FACULTY)
 _READ     = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
 _EVALUATE = require_roles(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.EVALUATOR)
 _STUDENT  = require_roles(TenantRole.STUDENT)
-_EVAL_ONLY = require_roles(TenantRole.EVALUATOR)
+# Evaluator-scoped routes: legacy standalone EVALUATOR users OR a FACULTY
+# account granted the EVALUATOR responsibility (single login, multiple roles).
+_EVAL_ONLY = require_responsibility(TenantRole.EVALUATOR)
 _FULL     = require_roles(
     TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY,
     TenantRole.STUDENT, TenantRole.EVALUATOR,
@@ -526,13 +528,29 @@ async def list_tenant_evaluators(
     current_user: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
-    """Return all active EVALUATOR users in this tenant — for the faculty picker."""
-    from sqlalchemy import select
-    from app.core.auth.models import User
+    """Return all active users who can evaluate in this tenant — for the picker.
 
+    Includes legacy standalone EVALUATOR users AND FACULTY members granted the
+    EVALUATOR responsibility (single account, multiple responsibilities).
+    """
+    from sqlalchemy import or_, select
+    from app.core.auth.models import User
+    from app.modules.m_academics.models import FacultyRoleGrant
+
+    eval_grant_subq = (
+        select(FacultyRoleGrant.faculty_user_id)
+        .where(FacultyRoleGrant.role_code == "EVALUATOR", FacultyRoleGrant.is_active.is_(True))
+        .scalar_subquery()
+    )
     result = await db.execute(
         select(User)
-        .where(User.role == TenantRole.EVALUATOR, User.is_active.is_(True))
+        .where(
+            User.is_active.is_(True),
+            or_(
+                User.role == TenantRole.EVALUATOR,
+                User.id.in_(eval_grant_subq),
+            ),
+        )
         .order_by(User.full_name)
     )
     return [TenantEvaluatorUser.model_validate(u) for u in result.scalars().all()]

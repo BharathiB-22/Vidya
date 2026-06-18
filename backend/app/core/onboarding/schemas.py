@@ -68,6 +68,12 @@ class CSVRowResult(BaseModel):
     # Program mappings (faculty) — Phase 1 / Step 4
     resolved_program_codes: list[str] = Field(default_factory=list)
     unresolved_program_codes: list[str] = Field(default_factory=list)
+    # Responsibility grants (faculty) — Phase 1.5
+    resolved_roles: list[str] = Field(default_factory=list)
+    unresolved_roles: list[str] = Field(default_factory=list)
+    # Generated faculty identity (faculty) — Phase 1.5 (projected in preview)
+    projected_faculty_code: Optional[str] = None
+    projected_institution_email: Optional[str] = None
 
 
 class ImportUsnRange(BaseModel):
@@ -110,6 +116,12 @@ class FacultySummaryMeta(BaseModel):
     unique_programs: int
     new_program_assignments: int
     reactivated_assignments: int
+    # Responsibility grants (Phase 1.5)
+    new_role_grants: int = 0
+    reactivated_role_grants: int = 0
+    # Generated identity (Phase 1.5)
+    faculty_codes_to_assign: int = 0
+    institution_emails_to_assign: int = 0
 
 
 class ProgramAssignmentCount(BaseModel):
@@ -147,6 +159,13 @@ class CSVCommitResult(BaseModel):
     program_mappings_created: int = 0
     program_mappings_reactivated: int = 0
     program_mappings_skipped: int = 0
+    # Faculty: responsibility grants applied via FacultyRoleGrantService (Phase 1.5)
+    role_grants_created: int = 0
+    role_grants_reactivated: int = 0
+    role_grants_skipped: int = 0
+    # Faculty: generated identity (Phase 1.5)
+    faculty_codes_assigned: int = 0
+    faculty_institution_emails_assigned: int = 0
 
 
 # ---------------------------------------------------------------------------

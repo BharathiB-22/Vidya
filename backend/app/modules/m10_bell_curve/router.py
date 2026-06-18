@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_context_dep, require_roles
+from app.core.auth.dependencies import get_tenant_context_dep, require_responsibility, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m10_bell_curve.schemas import (
@@ -73,8 +73,10 @@ _BOARD_ADMIN = [TenantRole.BOARD, TenantRole.ADMIN]
 _READ        = [TenantRole.BOARD, TenantRole.ADMIN, TenantRole.DEAN]
 
 
-def _board_admin_dep(): return require_roles(*_BOARD_ADMIN)
-def _read_dep():        return require_roles(*_READ)
+# BOARD responsibility may be held by a FACULTY account via an active grant
+# (single login, multiple responsibilities) as well as a standalone BOARD user.
+def _board_admin_dep(): return require_responsibility(*_BOARD_ADMIN)
+def _read_dep():        return require_responsibility(*_READ)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +301,7 @@ async def preview_normalisation(
 async def ratify_analysis(
     analysis_id:  UUID,
     payload:      RatifyRequest,
-    current_user: CurrentUser = Depends(require_roles(TenantRole.BOARD)),
+    current_user: CurrentUser = Depends(require_responsibility(TenantRole.BOARD)),
     db_info=Depends(get_tenant_context_dep),
 ):
     """

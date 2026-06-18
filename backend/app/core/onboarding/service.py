@@ -21,6 +21,12 @@ from app.core.onboarding.schemas import (
     StudentSummaryMeta,
 )
 from app.core.onboarding.usn_mint import MintItem, ProjectItem, mint_usns, project_usns
+from app.core.onboarding.faculty_code_allocator import (
+    DEFAULT_FACULTY_PREFIX as _FACULTY_CODE_PREFIX,
+    FacultyCodeAllocator,
+)
+from app.core.onboarding.faculty_institution_email import build_faculty_email
+from app.core.onboarding.faculty_role_grant_schemas import GRANTABLE_ROLES as _GRANTABLE_ROLES
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$")
 
@@ -835,13 +841,24 @@ class OnboardingService:
         *,
         filename: str = "faculty.csv",
     ) -> CSVPreviewResponse:
-        raw_rows, err = OnboardingService._parse_file(content, filename, required_cols=["full_name", "email"])
+        # Phase 1.5: employee_id is no longer collected; the canonical login
+        # column is `personal_email` (legacy `email` header still accepted).
+        raw_rows, err = OnboardingService._parse_file(content, filename, required_cols=["full_name"])
         if err:
             return CSVPreviewResponse(
                 total_rows=0, valid_rows=0, invalid_rows=0,
                 rows=[CSVRowResult(
                     row_number=0, full_name="", email="", identifier=None,
                     is_valid=False, errors=[err],
+                )],
+            )
+        if raw_rows and not any(k in raw_rows[0] for k in ("email", "personal_email")):
+            return CSVPreviewResponse(
+                total_rows=0, valid_rows=0, invalid_rows=0,
+                rows=[CSVRowResult(
+                    row_number=0, full_name="", email="", identifier=None,
+                    is_valid=False,
+                    errors=["Missing required column: 'personal_email'"],
                 )],
             )
 
@@ -851,6 +868,8 @@ class OnboardingService:
 
         rows: list[CSVRowResult] = []
         for i, raw in enumerate(raw_rows):
+            # personal_email is the login identity; alias the legacy `email` header.
+            raw["email"] = (raw.get("email") or raw.get("personal_email") or "").strip()
             row = OnboardingService._validate_common(i + 1, raw, "employee_id", seen_emails, seen_ids)
 
             # Resolve optional program mappings (pipe/comma-delimited).
@@ -864,38 +883,46 @@ class OnboardingService:
                     row.unresolved_program_codes.append(code)
                     row.warnings.append(f"Program not found (mapping skipped): '{code}'")
 
+            # Resolve responsibility grants (pipe/comma-delimited).
+            for rc in OnboardingService._split_codes(raw.get("roles", "")):
+                if rc in _GRANTABLE_ROLES:
+                    row.resolved_roles.append(rc)
+                else:
+                    row.unresolved_roles.append(rc)
+                    row.warnings.append(f"Unknown responsibility (grant skipped): '{rc}'")
+
             rows.append(row)
 
         rows = await OnboardingService._check_db_duplicates(rows, db)
         valid = sum(1 for r in rows if r.is_valid)
         dup_file, dup_db = OnboardingService._count_duplicates(rows)
 
-        # ---- Dashboard rollup: predict the mappings commit would apply ----
+        # ---- Dashboard rollup: predict the mappings/grants commit would apply ----
         unique_programs: set[str] = set()
         faculty_emails: set[str] = set()
         prog_faculty: dict[str, set[str]] = {}   # program_code -> set(faculty email)
         new_assignments = reactivated = 0
+        new_role_grants = reactivated_role_grants = 0
+        valid_new_rows: list[CSVRowResult] = []
 
         for r in rows:
-            if not r.resolved_program_codes:
-                # A valid faculty row with no mappings still counts as onboarded.
-                if r.is_valid:
-                    faculty_emails.add(r.email.lower())
-                continue
-
             # Resolve the faculty identity this row would map to.
             faculty_id: UUID | None = None
             is_new = False
             if r.is_valid:
                 is_new = True                       # brand-new faculty (created on commit)
-            else:
+                valid_new_rows.append(r)
+                faculty_emails.add(r.email.lower())
+            elif r.email:
                 existing = await OnboardingService._get_user_by_email(r.email, db)
                 if existing is not None and existing[1].upper() == "FACULTY":
                     faculty_id = existing[0]
+                    faculty_emails.add(r.email.lower())
                 else:
                     continue                        # not creatable, not existing faculty
+            else:
+                continue
 
-            faculty_emails.add(r.email.lower())
             for code in r.resolved_program_codes:
                 unique_programs.add(code)
                 prog_faculty.setdefault(code, set()).add(r.email.lower())
@@ -904,12 +931,37 @@ class OnboardingService:
                     continue
                 pid = _program_cache.get(code)
                 state = await OnboardingService._assignment_state(faculty_id, pid, db) if pid else "none"
-                if state == "active":
-                    pass                            # duplicate — skipped
-                elif state == "revoked":
+                if state == "revoked":
                     reactivated += 1
-                else:
-                    new_assignments += 1
+                elif state == "none":
+                    new_assignments += 1            # else 'active' → duplicate, skipped
+
+            for rc in r.resolved_roles:
+                if is_new:
+                    new_role_grants += 1
+                    continue
+                gstate = await OnboardingService._grant_state(faculty_id, rc, db)
+                if gstate == "revoked":
+                    reactivated_role_grants += 1
+                elif gstate == "none":
+                    new_role_grants += 1            # else 'active' → duplicate, skipped
+
+        # ---- Project generated identity for brand-new faculty (Phase 1.5) ----
+        domain = await OnboardingService._get_institution_domain(db)
+        taken = await OnboardingService._existing_institution_emails(db)
+        code_start = await OnboardingService._faculty_code_effective_next(db)
+        emails_projected = 0
+        for idx, r in enumerate(valid_new_rows):
+            r.projected_faculty_code = FacultyCodeAllocator.format_code(
+                _FACULTY_CODE_PREFIX, code_start + idx
+            )
+            if domain:
+                proj = build_faculty_email(r.full_name, domain, taken)
+                if proj:
+                    r.projected_institution_email = proj
+                    emails_projected += 1
+            else:
+                r.warnings.append("No institution domain configured — institution email will be skipped")
 
         summary = FacultySummaryMeta(
             total_rows=len(rows), valid_rows=valid, invalid_rows=len(rows) - valid,
@@ -917,6 +969,10 @@ class OnboardingService:
             unique_programs=len(unique_programs),
             new_program_assignments=new_assignments,
             reactivated_assignments=reactivated,
+            new_role_grants=new_role_grants,
+            reactivated_role_grants=reactivated_role_grants,
+            faculty_codes_to_assign=len(valid_new_rows),
+            institution_emails_to_assign=emails_projected,
         )
         program_assignment_summary = [
             ProgramAssignmentCount(program_code=code, faculty_count=len(emails))
@@ -962,6 +1018,78 @@ class OnboardingService:
         return "active" if m["has_active"] else "revoked"
 
     @staticmethod
+    async def _grant_state(faculty_id: UUID, role_code: str, db: AsyncSession) -> str:
+        """Current state for a (faculty, role_code) grant: active|revoked|none."""
+        row = await db.execute(
+            text(
+                "SELECT bool_or(is_active) AS has_active, count(*) AS n "
+                "FROM faculty_role_grants "
+                "WHERE faculty_user_id = :f AND role_code = :r"
+            ),
+            {"f": str(faculty_id), "r": role_code},
+        )
+        m = row.mappings().one()
+        if not m["n"]:
+            return "none"
+        return "active" if m["has_active"] else "revoked"
+
+    @staticmethod
+    async def _get_institution_domain(db: AsyncSession) -> str | None:
+        """Read this tenant's institution_domain from public.tenants.
+
+        The _admin_db search_path is `<schema>, public`, so current_schema()
+        resolves to the tenant schema that keys its public.tenants row.
+        """
+        row = await db.execute(
+            text(
+                "SELECT institution_domain FROM public.tenants "
+                "WHERE schema_name = current_schema()"
+            )
+        )
+        return row.scalar_one_or_none()
+
+    @staticmethod
+    async def _existing_institution_emails(db: AsyncSession) -> set[str]:
+        """All institution emails already taken in this tenant (faculty + students)."""
+        taken: set[str] = set()
+        for tbl, col in (
+            ("sis_faculty_profiles", "institution_email"),
+            ("users", "institution_email"),
+        ):
+            res = await db.execute(
+                text(f"SELECT {col} FROM {tbl} WHERE {col} IS NOT NULL")
+            )
+            taken.update((v or "").strip().lower() for v in res.scalars().all())
+        return taken
+
+    @staticmethod
+    async def _faculty_code_effective_next(db: AsyncSession, prefix: str = _FACULTY_CODE_PREFIX) -> int:
+        """Projection-only: the next FAC sequence number without reserving it.
+
+        max(live counter, highest-existing-code + 1, 1).  Mint-on-commit reserves
+        the real block atomically; this is advisory for the preview.
+        """
+        counter = (
+            await db.execute(
+                text("SELECT next_value FROM faculty_code_counters WHERE prefix = :p"),
+                {"p": prefix},
+            )
+        ).scalar_one_or_none()
+        existing_max = (
+            await db.execute(
+                text(
+                    "SELECT COALESCE(MAX("
+                    "  CAST(SUBSTRING(faculty_code FROM (char_length(:p) + 1)) AS INTEGER)"
+                    "), 0) "
+                    "FROM sis_faculty_profiles "
+                    "WHERE faculty_code ~ ('^' || :p || '[0-9]+$')"
+                ),
+                {"p": prefix},
+            )
+        ).scalar_one()
+        return max(int(counter or 1), int(existing_max or 0) + 1, 1)
+
+    @staticmethod
     async def commit_faculty_csv(
         content: bytes,
         default_password: str,
@@ -977,52 +1105,93 @@ class OnboardingService:
             FacultyProgramService,
             FacultyProgramServiceError,
         )
+        from app.core.onboarding.faculty_role_grant_service import (
+            FacultyRoleGrantService,
+            FacultyRoleGrantServiceError,
+        )
 
         preview = await OnboardingService.preview_faculty_csv(content, db, filename=filename)
         pw_hash = hash_password(default_password)
 
-        # Create valid (new) faculty users; remember email -> new uid.
+        # Create valid (new) faculty users; remember email -> new uid (ordered).
         rows_to_insert: list[dict] = []
         new_uid_by_email: dict[str, UUID] = {}
+        new_rows: list[tuple[UUID, CSVRowResult]] = []
         for r in preview.rows:
             if not r.is_valid:
                 continue
             uid_obj = _uuid.uuid4()
             new_uid_by_email[r.email.lower()] = uid_obj
+            new_rows.append((uid_obj, r))
             rows_to_insert.append({
                 "id":              str(uid_obj),
-                "email":           r.email,
+                "email":           r.email,      # personal_email is the login identity
                 "pw_hash":         pw_hash,
                 "role":            "FACULTY",
                 "full_name":       r.full_name,
-                "identifier":      r.identifier,
+                "identifier":      None,         # employee_id no longer collected
                 "acad_program_id": None,
             })
         created = await OnboardingRepository.bulk_insert_users(rows_to_insert, db)
 
-        # Apply program mappings via FacultyProgramService.  Covers both the
-        # faculty just created AND faculty that already exist (matched by email)
-        # — the latter is where reactivation / duplicate-prevention is exercised.
-        m_created = m_reactivated = m_skipped = 0
+        # personal_email = the login email for the created faculty (login unchanged).
+        if rows_to_insert:
+            await db.execute(
+                text("UPDATE users SET personal_email = email WHERE id = ANY(:ids)"),
+                {"ids": [r["id"] for r in rows_to_insert]},
+            )
+
+        # Mint faculty_code (atomic) + generate institution_email; create profiles.
+        codes_assigned = inst_emails_assigned = 0
+        created_uids: list[str] = []
+        if new_rows:
+            await FacultyCodeAllocator.seed_counter_from_existing(db, prefix=_FACULTY_CODE_PREFIX)
+            codes = await FacultyCodeAllocator.allocate_codes(
+                db, prefix=_FACULTY_CODE_PREFIX, count=len(new_rows)
+            )
+            domain = await OnboardingService._get_institution_domain(db)
+            taken = await OnboardingService._existing_institution_emails(db)
+            for (uid_obj, r), code in zip(new_rows, codes):
+                inst_email = build_faculty_email(r.full_name, domain, taken) if domain else None
+                await db.execute(
+                    text(
+                        "INSERT INTO sis_faculty_profiles "
+                        "    (user_id, faculty_code, institution_email, is_active, lifecycle_status) "
+                        "VALUES (:uid, :code, :inst, true, 'ACTIVE')"
+                    ),
+                    {"uid": str(uid_obj), "code": code, "inst": inst_email},
+                )
+                created_uids.append(str(uid_obj))
+                codes_assigned += 1
+                if inst_email:
+                    inst_emails_assigned += 1
+
         errors = [
             f"Row {r.row_number}: {', '.join(r.errors)}"
             for r in preview.rows
             if not r.is_valid
         ]
-        _prog_id_cache: dict[str, UUID | None] = {}
 
+        # Resolve the faculty user id for a row: brand-new, or an existing FACULTY.
+        async def _resolve_faculty_uid(r: CSVRowResult) -> UUID | None:
+            uid = new_uid_by_email.get(r.email.lower())
+            if uid is not None:
+                return uid
+            existing = await OnboardingService._get_user_by_email(r.email, db)
+            if existing is None or existing[1].upper() != "FACULTY":
+                return None
+            return existing[0]
+
+        # Apply program mappings via FacultyProgramService.  Covers both faculty
+        # just created AND existing-by-email faculty (reactivation path).
+        m_created = m_reactivated = m_skipped = 0
+        _prog_id_cache: dict[str, UUID | None] = {}
         for r in preview.rows:
             if not r.resolved_program_codes:
                 continue
-
-            # Resolve the faculty user id: a brand-new row, or an existing user.
-            faculty_uid: UUID | None = new_uid_by_email.get(r.email.lower())
+            faculty_uid = await _resolve_faculty_uid(r)
             if faculty_uid is None:
-                existing = await OnboardingService._get_user_by_email(r.email, db)
-                if existing is None or existing[1].upper() != "FACULTY":
-                    continue  # not creatable here and not an existing faculty
-                faculty_uid = existing[0]
-
+                continue
             for code in r.resolved_program_codes:
                 if code not in _prog_id_cache:
                     _prog_id_cache[code] = await OnboardingRepository.resolve_program_by_code(code, db)
@@ -1039,22 +1208,46 @@ class OnboardingService:
                         tenant_id=tenant_id,
                         schema_name=schema_name,
                     )
-                    if out.reactivated:
-                        m_reactivated += 1
-                    else:
-                        m_created += 1
+                    m_reactivated += 1 if out.reactivated else 0
+                    m_created += 0 if out.reactivated else 1
                 except FacultyProgramServiceError as e:
                     if e.code == "DUPLICATE_ASSIGNMENT":
                         m_skipped += 1
                     else:
                         errors.append(f"Row {r.row_number}: program '{code}' — {e.message}")
 
-        # Audit trail: record the faculty import batch so SIS → Import History
-        # shows it.  This flow creates FACULTY users (and program mappings) but
-        # no sis_faculty_profiles rows, so there is nothing to stamp.
+        # Apply responsibility grants via FacultyRoleGrantService (same pattern).
+        g_created = g_reactivated = g_skipped = 0
+        for r in preview.rows:
+            if not r.resolved_roles:
+                continue
+            faculty_uid = await _resolve_faculty_uid(r)
+            if faculty_uid is None:
+                continue
+            for rc in r.resolved_roles:
+                try:
+                    out = await FacultyRoleGrantService.grant(
+                        db,
+                        faculty_user_id=faculty_uid,
+                        role_code=rc,
+                        granted_by=actor_user_id or faculty_uid,
+                        actor_role=actor_role,
+                        tenant_id=tenant_id,
+                        schema_name=schema_name,
+                    )
+                    g_reactivated += 1 if out.reactivated else 0
+                    g_created += 0 if out.reactivated else 1
+                except FacultyRoleGrantServiceError as e:
+                    if e.code == "DUPLICATE_GRANT":
+                        g_skipped += 1
+                    else:
+                        errors.append(f"Row {r.row_number}: responsibility '{rc}' — {e.message}")
+
+        # Audit trail: record the faculty import batch (SIS → Import History) and
+        # stamp it on the profiles just created.
         if created > 0 and actor_user_id is not None:
             from app.modules.m11_sis.import_batch_service import ImportBatchService
-            await ImportBatchService.create_batch(
+            batch = await ImportBatchService.create_batch(
                 imported_by=actor_user_id,
                 record_type="FACULTY",
                 total_records=preview.total_rows,
@@ -1063,6 +1256,14 @@ class OnboardingService:
                 source_filename=filename,
                 db=db,
             )
+            if created_uids:
+                await db.execute(
+                    text(
+                        "UPDATE sis_faculty_profiles SET import_batch_id = :bid "
+                        "WHERE user_id = ANY(:ids)"
+                    ),
+                    {"bid": str(batch.id), "ids": created_uids},
+                )
 
         return CSVCommitResult(
             total=preview.total_rows,
@@ -1072,4 +1273,9 @@ class OnboardingService:
             program_mappings_created=m_created,
             program_mappings_reactivated=m_reactivated,
             program_mappings_skipped=m_skipped,
+            role_grants_created=g_created,
+            role_grants_reactivated=g_reactivated,
+            role_grants_skipped=g_skipped,
+            faculty_codes_assigned=codes_assigned,
+            faculty_institution_emails_assigned=inst_emails_assigned,
         )

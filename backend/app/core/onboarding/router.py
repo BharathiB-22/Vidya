@@ -27,6 +27,16 @@ from app.core.onboarding.faculty_program_service import (
     FacultyProgramService,
     FacultyProgramServiceError,
 )
+from app.core.onboarding.faculty_role_grant_schemas import (
+    FacultyRoleGrantListResponse,
+    FacultyRoleGrantOut,
+    FacultyRoleGrantRequest,
+    FacultyRoleRevokeRequest,
+)
+from app.core.onboarding.faculty_role_grant_service import (
+    FacultyRoleGrantService,
+    FacultyRoleGrantServiceError,
+)
 from app.core.onboarding.institution_email_schemas import (
     InstitutionDomainOut,
     InstitutionEmailCommitResult,
@@ -38,6 +48,11 @@ from app.core.onboarding.institution_email_service import (
     InstitutionEmailError,
     InstitutionEmailService,
 )
+from app.core.onboarding.faculty_backfill_schemas import (
+    FacultyBackfillCommitResult,
+    FacultyBackfillPreviewResponse,
+)
+from app.core.onboarding.faculty_backfill_service import FacultyBackfillService
 from app.core.onboarding.service import OnboardingError, OnboardingService
 from app.core.onboarding.usn_backfill_service import UsnBackfillService
 from app.database import AsyncSessionLocal
@@ -195,7 +210,7 @@ async def commit_students_csv(
 async def preview_faculty_csv(
     file: UploadFile = File(
         ...,
-        description="CSV or XLSX with columns: full_name, email, employee_id (opt)",
+        description="CSV or XLSX with columns: full_name, personal_email, program_codes (opt), roles (opt)",
     ),
     db: AsyncSession = Depends(_admin_db),
 ) -> CSVPreviewResponse:
@@ -263,6 +278,30 @@ async def usn_backfill_commit(
     Idempotent and atomic.  Existing USNs are never modified.
     """
     return await UsnBackfillService.commit(db, actor_user_id=current_user.user_id)
+
+
+# ---------------------------------------------------------------------------
+# Faculty identity backfill (Phase 1.5) — faculty_code + institution_email
+# ---------------------------------------------------------------------------
+
+@router.post("/faculty-backfill/preview", response_model=FacultyBackfillPreviewResponse)
+async def faculty_backfill_preview(
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyBackfillPreviewResponse:
+    """Read-only: project faculty_code + institution_email for existing faculty."""
+    return await FacultyBackfillService.preview(db)
+
+
+@router.post("/faculty-backfill/commit", response_model=FacultyBackfillCommitResult)
+async def faculty_backfill_commit(
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyBackfillCommitResult:
+    """Assign faculty_code + institution_email where missing. Idempotent, atomic.
+
+    Never modifies login email, password, or admin accounts.
+    """
+    return await FacultyBackfillService.commit(db, actor_user_id=current_user.user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +446,89 @@ async def list_faculty_for_program(
 
 
 # ---------------------------------------------------------------------------
+# Faculty responsibility grants (Phase 1.5) — GUIDE / EVALUATOR / BOARD / DEAN
+# ---------------------------------------------------------------------------
+
+def _faculty_grant_err(e: FacultyRoleGrantServiceError) -> HTTPException:
+    return HTTPException(
+        status_code=e.status_code,
+        detail={"error": e.code, "message": e.message},
+    )
+
+
+@router.post("/faculty-roles/grant", response_model=FacultyRoleGrantOut)
+async def grant_faculty_role(
+    body: FacultyRoleGrantRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyRoleGrantOut:
+    """Grant a responsibility to a FACULTY account (reactivates if revoked).
+
+    A faculty may hold multiple active grants simultaneously — single account,
+    single login, multiple responsibilities.
+    """
+    try:
+        return await FacultyRoleGrantService.grant(
+            db,
+            faculty_user_id=body.faculty_user_id,
+            role_code=body.role_code,
+            granted_by=current_user.user_id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+        )
+    except FacultyRoleGrantServiceError as e:
+        raise _faculty_grant_err(e)
+
+
+@router.post("/faculty-roles/revoke", response_model=FacultyRoleGrantOut)
+async def revoke_faculty_role(
+    body: FacultyRoleRevokeRequest,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyRoleGrantOut:
+    """Soft-revoke the active grant for (faculty, role_code)."""
+    try:
+        return await FacultyRoleGrantService.revoke(
+            db,
+            faculty_user_id=body.faculty_user_id,
+            role_code=body.role_code,
+            revoked_by=current_user.user_id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+        )
+    except FacultyRoleGrantServiceError as e:
+        raise _faculty_grant_err(e)
+
+
+@router.get("/faculty-roles/by-faculty/{faculty_user_id}", response_model=FacultyRoleGrantListResponse)
+async def list_roles_for_faculty(
+    faculty_user_id: str,
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyRoleGrantListResponse:
+    fid = _parse_uuid_form(faculty_user_id, "faculty_user_id")
+    return await FacultyRoleGrantService.list_grants(
+        db, faculty_user_id=fid, include_inactive=include_inactive
+    )
+
+
+@router.get("/faculty-roles/by-role/{role_code}", response_model=FacultyRoleGrantListResponse)
+async def list_faculty_for_role(
+    role_code: str,
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(_admin_db),
+) -> FacultyRoleGrantListResponse:
+    try:
+        return await FacultyRoleGrantService.list_faculty_for_role(
+            db, role_code=role_code, include_inactive=include_inactive
+        )
+    except FacultyRoleGrantServiceError as e:
+        raise _faculty_grant_err(e)
+
+
+# ---------------------------------------------------------------------------
 # Sample template downloads
 # ---------------------------------------------------------------------------
 
@@ -432,9 +554,10 @@ _STUDENTS_CSV_SAMPLE = (
 )
 
 _FACULTY_CSV_SAMPLE = (
-    "full_name,email,employee_id,program_codes\n"
-    "Dr. John Smith,john.smith@university.edu,EMP001,MCA|BCA\n"
-    "Dr. Jane Doe,jane.doe@university.edu,EMP002,MCA\n"
+    "full_name,personal_email,program_codes,roles\n"
+    "Dr Kavya,kavya@gmail.com,BCA|MCA|BSCDS,GUIDE|EVALUATOR\n"
+    "Dr Arun,arun@yahoo.com,MCA,DEAN\n"
+    "Dr Meena,meena@gmail.com,BCA|MCA,BOARD\n"
 )
 
 
@@ -475,10 +598,11 @@ async def sample_students_xlsx() -> Response:
 @router.get("/sample-xlsx/faculty")
 async def sample_faculty_xlsx() -> Response:
     content = _make_xlsx(
-        headers=["full_name", "email", "employee_id", "program_codes"],
+        headers=["full_name", "personal_email", "program_codes", "roles"],
         rows=[
-            ["Dr. John Smith", "john.smith@university.edu", "EMP001", "MCA|BCA"],
-            ["Dr. Jane Doe", "jane.doe@university.edu", "EMP002", "MCA"],
+            ["Dr Kavya", "kavya@gmail.com", "BCA|MCA|BSCDS", "GUIDE|EVALUATOR"],
+            ["Dr Arun", "arun@yahoo.com", "MCA", "DEAN"],
+            ["Dr Meena", "meena@gmail.com", "BCA|MCA", "BOARD"],
         ],
     )
     return Response(

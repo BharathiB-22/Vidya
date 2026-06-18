@@ -800,14 +800,23 @@ function CSVImportTab({ role }: { role: ImportRole }) {
               : { required: ['full_name', 'email', 'program_code'],
                   optional: ['identifier', 'batch_year', 'section_name'],
                   example: 'full_name,email,program_code,batch_year,section_name' }
-            : { required: ['full_name', 'email'], optional: ['employee_id', 'program_codes'],
-                example: 'full_name,email,program_codes' }
+            : { required: ['full_name', 'personal_email'], optional: ['program_codes', 'roles'],
+                example: 'full_name,personal_email,program_codes,roles' }
         }
       />
       {role === 'students' && ctx.program && (
         <p className="text-xs" style={{ color: '#6B7280' }}>
           Students will be assigned to the selected program/section above — no
           <code className="font-mono mx-1">program_code</code>column needed.
+        </p>
+      )}
+      {role === 'faculty' && (
+        <p className="text-xs" style={{ color: '#6B7280' }}>
+          Login is the <code className="font-mono mx-1">personal_email</code>. A
+          <code className="font-mono mx-1">faculty_code</code>(e.g. FAC0001) and an
+          institution email are generated automatically.
+          <code className="font-mono mx-1">roles</code>accepts GUIDE, EVALUATOR, BOARD, DEAN
+          (pipe-separated) — one account can hold several.
         </p>
       )}
 

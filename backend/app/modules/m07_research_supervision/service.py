@@ -73,16 +73,24 @@ class ProblemService:
         db: AsyncSession,
     ):
         """Create a student-proposed research problem and queue evaluation."""
-        # Validate guide: must exist in tenant, role=GUIDE, is_active
+        # Validate guide: must be active and hold the GUIDE responsibility —
+        # either as a legacy standalone GUIDE role, or as a FACULTY account with
+        # an active GUIDE grant (single account, multiple responsibilities).
         from sqlalchemy import select
         from app.core.auth.models import User, TenantRole
+        from app.core.auth.dependencies import user_has_grant
         row = await db.execute(select(User).where(User.id == payload.guide_user_id))
         guide = row.scalar_one_or_none()
-        if guide is None or guide.role != TenantRole.GUIDE or not guide.is_active:
+        is_guide = guide is not None and guide.is_active and (
+            guide.role == TenantRole.GUIDE
+            or (guide.role == TenantRole.FACULTY and await user_has_grant(db, guide.id, "GUIDE"))
+        )
+        if not is_guide:
             raise ResearchServiceError(
                 "INVALID_GUIDE",
-                "Guide not found or is not an active GUIDE in this institution. "
-                "Please verify the UUID from Admin → Users.",
+                "Guide not found or does not hold the GUIDE responsibility in this "
+                "institution. Please verify from Admin → Users (role GUIDE or a FACULTY "
+                "member granted the GUIDE responsibility).",
                 400,
             )
 

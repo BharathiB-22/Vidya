@@ -9,6 +9,22 @@ export interface CurrentUser {
   tenantSlug: string
   schemaName: string | null
   firstLogin: boolean
+  /** Active responsibility grants (GUIDE / EVALUATOR / BOARD / DEAN). A single
+   *  FACULTY account may hold several — single login, multiple responsibilities. */
+  responsibilities: string[]
+}
+
+/** Roles a user effectively acts as: base login role + active grants. */
+export function effectiveRoles(user: CurrentUser | null): Set<string> {
+  if (!user) return new Set()
+  return new Set([user.role, ...user.responsibilities])
+}
+
+/** True if the user may access something gated to any of `allowed` (role or grant). */
+export function hasAnyRole(user: CurrentUser | null, allowed: string[]): boolean {
+  if (!user) return false
+  const eff = effectiveRoles(user)
+  return allowed.some((r) => eff.has(r))
 }
 
 interface AuthContextType {
@@ -22,7 +38,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
-function _meToUser(me: Record<string, unknown>, tenantSlug: string): CurrentUser {
+function _meToUser(
+  me: Record<string, unknown>,
+  tenantSlug: string,
+  responsibilities: string[] = [],
+): CurrentUser {
   return {
     id: String(me.id),
     email: me.email as string,
@@ -31,6 +51,18 @@ function _meToUser(me: Record<string, unknown>, tenantSlug: string): CurrentUser
     tenantSlug,
     schemaName: (me.schema_name as string) ?? null,
     firstLogin: (me.first_login as boolean) ?? false,
+    responsibilities,
+  }
+}
+
+/** Fetch the signed-in user's active responsibility grants. Best-effort:
+ *  returns [] for non-faculty or on any error (access stays role-driven). */
+async function _loadResponsibilities(): Promise<string[]> {
+  try {
+    const { data } = await api.get('/sis/me/responsibilities')
+    return (data?.responsibilities as string[]) ?? []
+  } catch {
+    return []
   }
 }
 
@@ -47,11 +79,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     api
       .get('/auth/me')
-      .then((res) => {
+      .then(async (res) => {
         const me = res.data
         const tenantSlug = localStorage.getItem('vidya_tenant_slug') ?? ''
         localStorage.setItem('vidya_role', me.role)
-        setUser(_meToUser(me, tenantSlug))
+        const responsibilities = await _loadResponsibilities()
+        setUser(_meToUser(me, tenantSlug, responsibilities))
         setIsAuthenticated(true)
       })
       .catch(() => {
@@ -76,7 +109,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: me } = await api.get('/auth/me')
     localStorage.setItem('vidya_role', me.role)
-    setUser(_meToUser(me, tenantSlug))
+    const responsibilities = await _loadResponsibilities()
+    setUser(_meToUser(me, tenantSlug, responsibilities))
     setIsAuthenticated(true)
   }
 
@@ -84,7 +118,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const tenantSlug = localStorage.getItem('vidya_tenant_slug') ?? ''
     const { data: me } = await api.get('/auth/me')
     localStorage.setItem('vidya_role', me.role)
-    setUser(_meToUser(me, tenantSlug))
+    const responsibilities = await _loadResponsibilities()
+    setUser(_meToUser(me, tenantSlug, responsibilities))
   }
 
   async function logout(): Promise<void> {

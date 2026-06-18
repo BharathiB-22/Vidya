@@ -939,6 +939,8 @@ class TestCreateStudentProposalValidation:
         mock_db = AsyncMock(spec=AsyncSession)
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = fake_user
+        # user_has_grant(...) does db.execute(...).first(); None ⇒ no GUIDE grant.
+        mock_result.first.return_value = None
         mock_db.execute.return_value = mock_result
 
         with pytest.raises(ResearchServiceError) as exc_info:

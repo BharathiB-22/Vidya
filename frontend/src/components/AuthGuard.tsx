@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
-import { useAuth } from '@/lib/auth'
+import { useAuth, hasAnyRole } from '@/lib/auth'
 import UnauthorizedPage from '@/pages/UnauthorizedPage'
 
 interface AuthGuardProps {
@@ -32,7 +32,9 @@ export function AuthGuard({ allowedRoles }: AuthGuardProps = {}) {
   // The outer AuthGuard (no allowedRoles) already verified authentication,
   // so user should be non-null here; treat null defensively.
   if (allowedRoles) {
-    if (!user || !allowedRoles.includes(user.role)) {
+    // Access is granted by the base login role OR an active responsibility grant
+    // (single FACULTY account may act as GUIDE / EVALUATOR / BOARD / DEAN).
+    if (!hasAnyRole(user, allowedRoles)) {
       return <UnauthorizedPage />
     }
   }

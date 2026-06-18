@@ -133,7 +133,13 @@ class SisFacultyProfile(Base):
     )
 
     user_id               = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    employee_id           = Column(String(30), nullable=False)
+    # Phase 1.5: faculty_code is the official internal identifier (FAC0001…),
+    # generated automatically and immutable; replaces employee_id usage.
+    # employee_id is no longer collected — kept nullable for legacy data only.
+    faculty_code          = Column(String(20), nullable=True)
+    # Phase 1.5: generated directory / future-SSO address; NOT a login identity.
+    institution_email     = Column(String(255), nullable=True)
+    employee_id           = Column(String(30), nullable=True)
     designation           = Column(String(100), nullable=True)
     qualifications        = Column(Text, nullable=True)
     bio                   = Column(Text, nullable=True)

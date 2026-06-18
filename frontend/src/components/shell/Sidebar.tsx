@@ -9,7 +9,7 @@ import {
   Activity, PenLine, Scale, ShieldCheck, ScanSearch,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { useAuth } from '@/lib/auth'
+import { useAuth, effectiveRoles } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 
 type LucideIconType = typeof LayoutDashboard
@@ -274,6 +274,9 @@ export function Sidebar({ onClose }: SidebarProps) {
   const { user: authUser } = useAuth()
   const { branding } = useBranding()
   const role = user?.role ?? ''
+  // Visibility is driven by base role + active responsibility grants, so a
+  // single FACULTY account surfaces the Guide / Evaluator / Board dashboards.
+  const roleSet = effectiveRoles(user)
 
   // Use the registered institution name from branding; fall back to slug-derived label
   const institution = branding.name || prettifySlug(user?.tenantSlug ?? '')
@@ -342,7 +345,9 @@ export function Sidebar({ onClose }: SidebarProps) {
       {/* ── Nav ──────────────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0">
         {NAV_SECTIONS.map((section) => {
-          const visibleItems = section.items.filter((item) => item.roles.includes(role))
+          const visibleItems = section.items.filter((item) =>
+            item.roles.some((r) => roleSet.has(r)),
+          )
           if (visibleItems.length === 0) return null
 
           return (

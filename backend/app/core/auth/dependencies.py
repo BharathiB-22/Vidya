@@ -202,6 +202,81 @@ def require_roles(*allowed_roles: TenantRole) -> Callable:
     return _dependency
 
 
+# ---------------------------------------------------------------------------
+# Faculty responsibility grants (ERP Onboarding Phase 1.5)
+#
+# A single FACULTY account may hold multiple active responsibilities (GUIDE /
+# EVALUATOR / BOARD / DEAN) via faculty_role_grants — no separate accounts.
+# Visibility/access for those responsibilities is driven by active grants, not
+# by a hardcoded users.role check.
+# ---------------------------------------------------------------------------
+
+async def user_active_grants(user_id: UUID, schema_name: str | None) -> set[str]:
+    """Active responsibility role_codes held by a user (own session, tenant-scoped)."""
+    if not schema_name or not re.match(r"^tenant_[a-z0-9_]+$", schema_name):
+        return set()
+    _ctx = _tenant_schema_ctx.set(None)
+    try:
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                await session.execute(text(f"SET LOCAL search_path = {schema_name}, public"))
+                res = await session.execute(
+                    text(
+                        "SELECT role_code FROM faculty_role_grants "
+                        "WHERE faculty_user_id = :u AND is_active = true"
+                    ),
+                    {"u": str(user_id)},
+                )
+                return {r[0] for r in res.fetchall()}
+    except SQLAlchemyError:
+        return set()
+    finally:
+        _tenant_schema_ctx.reset(_ctx)
+
+
+async def user_has_grant(db: AsyncSession, user_id: UUID, role_code: str) -> bool:
+    """True if ``user_id`` holds an active grant for ``role_code``.
+
+    Uses the caller's session (search_path already set) — for use inside services.
+    """
+    res = await db.execute(
+        text(
+            "SELECT 1 FROM faculty_role_grants "
+            "WHERE faculty_user_id = :u AND role_code = :r AND is_active = true LIMIT 1"
+        ),
+        {"u": str(user_id), "r": role_code.upper()},
+    )
+    return res.first() is not None
+
+
+def require_responsibility(*allowed: "TenantRole | str") -> Callable:
+    """Pass if the user holds one of ``allowed`` as a base role OR an active grant.
+
+    Backward-compatible superset of ``require_roles``: a legacy standalone
+    GUIDE/EVALUATOR/BOARD/DEAN user (users.role) still passes, AND a FACULTY user
+    with the matching active grant now passes too — same account, single login.
+    """
+    allowed_codes = {a.value if isinstance(a, TenantRole) else str(a).upper() for a in allowed}
+
+    async def _dependency(
+        current_user: CurrentUser = Depends(get_current_user),
+    ) -> CurrentUser:
+        if current_user.is_super_admin:
+            return current_user
+        if current_user.role in allowed_codes:
+            return current_user
+        if current_user.role == TenantRole.FACULTY.value:
+            grants = await user_active_grants(current_user.user_id, current_user.schema_name)
+            if grants & allowed_codes:
+                return current_user
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Insufficient permissions"},
+        )
+
+    return _dependency
+
+
 async def require_super_admin(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CurrentUser:

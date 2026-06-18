@@ -575,8 +575,11 @@ async def test_sample_csv_faculty(http_client, admin_headers):
     resp = await http_client.get("/admin/onboarding/sample-csv/faculty", headers=admin_headers)
     assert resp.status_code == 200
     lines = resp.text.strip().splitlines()
+    # Phase 1.5 contract: personal_email is the login; employee_id no longer collected.
     assert "full_name" in lines[0]
-    assert "employee_id" in lines[0]
+    assert "personal_email" in lines[0]
+    assert "roles" in lines[0]
+    assert "employee_id" not in lines[0]
 
 
 @pytest.mark.asyncio

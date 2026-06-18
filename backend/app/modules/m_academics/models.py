@@ -255,3 +255,61 @@ class FacultyProgramAssignment(Base):
     assigned_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     revoked_by      = Column(UUID(as_uuid=True), nullable=True)
     revoked_at      = Column(DateTime(timezone=True), nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# ERP Onboarding (Phase 1.5): Faculty responsibility grants + FAC code counter
+# ---------------------------------------------------------------------------
+
+class FacultyRoleGrant(Base):
+    """Responsibilities a single FACULTY account holds simultaneously.
+
+    role_code ∈ {GUIDE, EVALUATOR, BOARD, DEAN} (validated at the service layer).
+    The faculty's base login role stays `users.role = FACULTY`; responsibilities
+    are grants, never separate accounts.  Soft-revoke only — rows are never
+    deleted; revocation stamps `is_active=False`, `revoked_by`, `revoked_at`.
+    A partial-unique index enforces at most one ACTIVE grant per
+    (faculty_user_id, role_code), while permitting historical revoked rows and
+    re-granting (reactivation in place) after revocation.
+
+    Mirrors the FacultyProgramAssignment soft-revoke/audit pattern exactly.
+    """
+    __tablename__ = "faculty_role_grants"
+    __table_args__ = (
+        Index(
+            "uq_frg_active_faculty_role",
+            "faculty_user_id", "role_code",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+        Index("ix_frg_role",           "role_code", "is_active"),
+        Index("ix_frg_faculty_active", "faculty_user_id", "is_active"),
+    )
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    faculty_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role_code       = Column(String(20), nullable=False)
+    is_active       = Column(Boolean, nullable=False, default=True)
+    granted_by      = Column(UUID(as_uuid=True), nullable=False)
+    granted_at      = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    revoked_by      = Column(UUID(as_uuid=True), nullable=True)
+    revoked_at      = Column(DateTime(timezone=True), nullable=True)
+    created_at      = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at      = Column(DateTime(timezone=True), nullable=True)
+
+
+class FacultyCodeCounter(Base):
+    """Per-prefix monotonic counter for faculty-code allocation (e.g. FAC0001).
+
+    `next_value` is the next sequence number to hand out (starts at 1).  Blocks
+    are reserved atomically via INSERT ... ON CONFLICT DO UPDATE ... RETURNING,
+    mirroring UsnSequenceCounter, so issued codes are contiguous, gap-free, and
+    never double-assigned under concurrency.  Default prefix is `FAC`
+    (tenant-global); a per-school prefix (e.g. `SCAFAC`) is also supported.
+    """
+    __tablename__ = "faculty_code_counters"
+
+    prefix     = Column(String(15), primary_key=True)
+    next_value = Column(Integer, nullable=False, server_default=text("1"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True)
