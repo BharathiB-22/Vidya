@@ -53,6 +53,45 @@ async def _domain(db: AsyncSession) -> str | None:
     return row.scalar_one_or_none()
 
 
+# Faculty whose home department can be derived: an active program assignment to a
+# program that has a department, where the profile's primary_department_id is
+# still NULL (or no profile exists yet).  NULL-only — never overwrites a value.
+_DEPT_PREVIEW_SQL = text(
+    """
+    SELECT COUNT(DISTINCT fpa.faculty_user_id)
+    FROM faculty_program_assignments fpa
+    JOIN acad_programs ap ON ap.id = fpa.program_id
+    JOIN users u ON u.id = fpa.faculty_user_id
+    LEFT JOIN sis_faculty_profiles p ON p.user_id = fpa.faculty_user_id
+    WHERE fpa.is_active = true
+      AND ap.department_id IS NOT NULL
+      AND u.role = 'FACULTY' AND u.is_active = true
+      AND p.primary_department_id IS NULL
+    """
+)
+
+# Derive primary_department_id from the EARLIEST active program assignment that
+# resolves to a department.  Touches only profiles with a NULL department.
+_DEPT_COMMIT_SQL = text(
+    """
+    UPDATE sis_faculty_profiles p
+    SET primary_department_id = sub.department_id,
+        updated_at = now()
+    FROM (
+        SELECT DISTINCT ON (fpa.faculty_user_id)
+               fpa.faculty_user_id,
+               ap.department_id
+        FROM faculty_program_assignments fpa
+        JOIN acad_programs ap ON ap.id = fpa.program_id
+        WHERE fpa.is_active = true AND ap.department_id IS NOT NULL
+        ORDER BY fpa.faculty_user_id, fpa.assigned_at
+    ) sub
+    WHERE p.user_id = sub.faculty_user_id
+      AND p.primary_department_id IS NULL
+    """
+)
+
+
 async def _existing_emails(db: AsyncSession) -> set[str]:
     taken: set[str] = set()
     for tbl, col in (("sis_faculty_profiles", "institution_email"), ("users", "institution_email")):
@@ -96,6 +135,7 @@ class FacultyBackfillService:
         taken = await _existing_emails(db)
         counter, existing_max = await _counter_and_max(db, prefix)
         next_seq = _effective_next(counter, existing_max)
+        departments_to_derive = (await db.execute(_DEPT_PREVIEW_SQL)).scalar_one() or 0
 
         out: list[FacultyBackfillRow] = []
         codes_to_assign = emails_to_assign = already = 0
@@ -137,6 +177,7 @@ class FacultyBackfillService:
             codes_to_assign=codes_to_assign,
             emails_to_assign=emails_to_assign,
             already_complete=already,
+            departments_to_derive=int(departments_to_derive),
             rows=out,
         )
 
@@ -203,8 +244,14 @@ class FacultyBackfillService:
         )
         personal_backfilled = pe.rowcount or 0
 
+        # Derive home department from active program assignments — NULL-only, so an
+        # existing primary_department_id is never overwritten.  Runs after the
+        # profile upserts above so newly-created profiles are also covered.
+        dep_res = await db.execute(_DEPT_COMMIT_SQL)
+        departments_derived = dep_res.rowcount or 0
+
         batch_ref = None
-        if codes_assigned or emails_assigned:
+        if codes_assigned or emails_assigned or departments_derived:
             batch = await ImportBatchService.create_batch(
                 imported_by=actor_user_id,
                 record_type="FACULTY_BACKFILL",
@@ -222,6 +269,7 @@ class FacultyBackfillService:
             emails_assigned=emails_assigned,
             personal_emails_backfilled=personal_backfilled,
             profiles_created=profiles_created,
+            departments_derived=departments_derived,
             batch_ref=batch_ref,
             errors=errors,
         )

@@ -10,7 +10,7 @@ import logging
 import math
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("vidya.sis.directory")
@@ -105,19 +105,52 @@ def _build_student_item(row) -> StudentDirectoryItem:
     )
 
 
-def _build_faculty_item(row) -> FacultyDirectoryItem:
+def _build_faculty_item(row, responsibilities: list[str] | None = None) -> FacultyDirectoryItem:
     user, profile, dept = row
     return FacultyDirectoryItem(
         user_id=user.id,
         full_name=user.full_name,
         email=user.email,
         employee_id=profile.employee_id if profile else None,
+        faculty_code=profile.faculty_code if profile else None,
         designation=profile.designation if profile else None,
         specialization=profile.specialization if profile else None,
         primary_department=DeptMini(id=dept.id, name=dept.name, code=dept.code) if dept else None,
         photo_url=profile.photo_url if profile else None,
+        responsibilities=responsibilities or [],
         is_active=user.is_active,
     )
+
+
+async def _active_grants_for(user_id: UUID, db: AsyncSession) -> list[str]:
+    """Active responsibility role_codes held by a single faculty user (sorted)."""
+    rows = await db.execute(
+        text(
+            "SELECT role_code FROM faculty_role_grants "
+            "WHERE faculty_user_id = :u AND is_active = true"
+        ),
+        {"u": str(user_id)},
+    )
+    return sorted({r[0] for r in rows.fetchall()})
+
+
+async def _active_grants_for_many(
+    user_ids: list[UUID], db: AsyncSession
+) -> dict[str, list[str]]:
+    """Active grants keyed by user-id (string) for a batch of faculty — one query."""
+    if not user_ids:
+        return {}
+    rows = await db.execute(
+        text(
+            "SELECT faculty_user_id::text AS uid, role_code FROM faculty_role_grants "
+            "WHERE faculty_user_id = ANY(:ids) AND is_active = true"
+        ),
+        {"ids": [str(u) for u in user_ids]},
+    )
+    out: dict[str, list[str]] = {}
+    for uid, role_code in rows.fetchall():
+        out.setdefault(uid, []).append(role_code)
+    return {uid: sorted(set(v)) for uid, v in out.items()}
 
 
 def _semester_label(sem) -> str:
@@ -320,7 +353,9 @@ class FacultyDirectoryService:
             department_id=department_id,
             is_active=is_active,
         )
-        return _make_page([_build_faculty_item(r) for r in rows], total, page, page_size)
+        grants = await _active_grants_for_many([r[0].id for r in rows], db)
+        items = [_build_faculty_item(r, grants.get(str(r[0].id), [])) for r in rows]
+        return _make_page(items, total, page, page_size)
 
     @staticmethod
     async def get_detail(user_id: UUID, db: AsyncSession) -> FacultyDetailOut:
@@ -344,12 +379,17 @@ class FacultyDirectoryService:
                 role=sa_row.role_in_course,
             ))
 
+        responsibilities = await _active_grants_for(user_id, db)
+
         return FacultyDetailOut(
             user_id=user.id,
             full_name=user.full_name,
             email=user.email,
             identifier=user.identifier,
             employee_id=profile.employee_id if profile else None,
+            faculty_code=profile.faculty_code if profile else None,
+            institution_email=profile.institution_email if profile else None,
+            responsibilities=responsibilities,
             designation=profile.designation if profile else None,
             qualifications=profile.qualifications if profile else None,
             bio=profile.bio if profile else None,

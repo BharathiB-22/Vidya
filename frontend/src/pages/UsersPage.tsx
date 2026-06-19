@@ -26,8 +26,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
+// All roles a user may currently hold — used for filtering and display badges
+// (legacy standalone GUIDE/EVALUATOR/BOARD accounts still exist).
 const ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE', 'EVALUATOR'] as const
 type Role = typeof ROLES[number]
+
+// Roles assignable as a PRIMARY account role. GUIDE / EVALUATOR / BOARD are now
+// responsibilities (granted from the Faculty Profile via faculty_role_grants),
+// not primary roles, so they are no longer offered when creating/editing a user.
+const PRIMARY_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT'] as const
 
 const ROLE_COLORS: Record<string, string> = {
   ADMIN:     'bg-indigo-100 text-indigo-800',
@@ -178,9 +185,12 @@ function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogPr
             <Select value={role} onValueChange={(v) => { setRole(v as Role); if (v !== 'STUDENT') setProgramId('') }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                {PRIMARY_ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
               </SelectContent>
             </Select>
+            <p className="text-xs text-gray-500">
+              GUIDE / EVALUATOR / BOARD are responsibilities — assign them from the faculty member's profile.
+            </p>
           </div>
           {role === 'STUDENT' && (
             <ProgramSelect
@@ -306,9 +316,18 @@ function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps)
               <Select value={role} onValueChange={(v) => { setRole(v as Role); if (v !== 'STUDENT') setProgramId('') }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  {/* Primary roles + this user's current role, so legacy standalone
+                      GUIDE/EVALUATOR/BOARD accounts still display and can be migrated. */}
+                  {Array.from(new Set<string>([...PRIMARY_ROLES, user.role])).map((r) => (
+                    <SelectItem key={r} value={r}>{r}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {!(PRIMARY_ROLES as readonly string[]).includes(user.role) && (
+                <p className="text-xs text-amber-600">
+                  This is a legacy standalone “{user.role}” account. Consider switching it to FACULTY and granting {user.role} as a responsibility from the faculty profile.
+                </p>
+              )}
             </div>
             {role === 'STUDENT' && (
               <ProgramSelect

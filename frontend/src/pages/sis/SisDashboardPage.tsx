@@ -60,7 +60,7 @@ export default function SisDashboardPage() {
       value: counts?.departments ?? '–', accentColor: '#8b5cf6',
     },
     {
-      key: 'programs', label: 'Programs', icon: GraduationCap,
+      key: 'programs', label: 'Programs', icon: GraduationCap, to: '/programs',
       value: counts?.programs ?? '–', accentColor: '#3b82f6',
     },
     {

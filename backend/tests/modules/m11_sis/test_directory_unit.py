@@ -203,6 +203,22 @@ def test_faculty_detail_fields():
     fields = set(FacultyDetailOut.model_fields.keys())
     assert {"employee_id", "designation", "qualifications", "bio",
             "office_location", "active_assignments"} <= fields
+    # Phase 1.5 identity + responsibilities exposure (governance refinement pass).
+    assert {"faculty_code", "institution_email", "responsibilities"} <= fields
+
+
+def test_faculty_directory_item_has_identity_and_responsibilities():
+    from app.modules.m11_sis.directory_schemas import FacultyDirectoryItem
+    fields = set(FacultyDirectoryItem.model_fields.keys())
+    assert {"faculty_code", "responsibilities"} <= fields
+    # responsibilities defaults to an empty list when omitted.
+    from uuid import uuid4
+    item = FacultyDirectoryItem(
+        user_id=uuid4(), full_name="Bob", email="b@test.com",
+        employee_id=None, designation=None, specialization=None,
+        primary_department=None, photo_url=None, is_active=True,
+    )
+    assert item.responsibilities == [] and item.faculty_code is None
 
 
 def test_faculty_detail_assignments_is_list():
@@ -374,10 +390,19 @@ def test_faculty_profile_pk_is_user_id():
     assert pk_cols == ["user_id"]
 
 
-def test_faculty_employee_id_not_nullable():
+def test_faculty_employee_id_nullable_since_phase_1_5():
+    # Phase 1.5 (faculty identity) replaced employee_id with the auto-generated
+    # faculty_code and stopped collecting employee_id, so it is now nullable.
     from app.modules.m11_sis.models import SisFacultyProfile
     col = SisFacultyProfile.__table__.c["employee_id"]
-    assert col.nullable is False
+    assert col.nullable is True
+
+
+def test_faculty_code_and_institution_email_present():
+    from app.modules.m11_sis.models import SisFacultyProfile
+    cols = SisFacultyProfile.__table__.c
+    assert "faculty_code" in cols and cols["faculty_code"].nullable is True
+    assert "institution_email" in cols and cols["institution_email"].nullable is True
 
 
 # ---------------------------------------------------------------------------

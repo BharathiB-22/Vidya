@@ -1186,6 +1186,10 @@ class OnboardingService:
         # just created AND existing-by-email faculty (reactivation path).
         m_created = m_reactivated = m_skipped = 0
         _prog_id_cache: dict[str, UUID | None] = {}
+        _dept_id_cache: dict[str, UUID | None] = {}   # program_id -> department_id
+        # First resolved program's department per faculty — used to derive the
+        # faculty's home department (primary_department_id) below.
+        dept_by_faculty: dict[str, UUID] = {}
         for r in preview.rows:
             if not r.resolved_program_codes:
                 continue
@@ -1198,6 +1202,17 @@ class OnboardingService:
                 pid = _prog_id_cache[code]
                 if pid is None:
                     continue
+                # Remember the first resolved program's department for this faculty.
+                fuid_str = str(faculty_uid)
+                if fuid_str not in dept_by_faculty:
+                    pid_str = str(pid)
+                    if pid_str not in _dept_id_cache:
+                        _dept_id_cache[pid_str] = (
+                            await OnboardingRepository.resolve_department_by_program(pid, db)
+                        )
+                    dep = _dept_id_cache[pid_str]
+                    if dep is not None:
+                        dept_by_faculty[fuid_str] = dep
                 try:
                     out = await FacultyProgramService.assign_program(
                         db,
@@ -1215,6 +1230,21 @@ class OnboardingService:
                         m_skipped += 1
                     else:
                         errors.append(f"Row {r.row_number}: program '{code}' — {e.message}")
+
+        # Derive each faculty's home department (primary_department_id) from their
+        # first resolved program — but ONLY when the profile has none, so a
+        # Dean-set department is never overwritten (Faculty Directory Option 1).
+        depts_derived = 0
+        for fuid_str, dep in dept_by_faculty.items():
+            res = await db.execute(
+                text(
+                    "UPDATE sis_faculty_profiles "
+                    "SET primary_department_id = :dep, updated_at = now() "
+                    "WHERE user_id = :uid AND primary_department_id IS NULL"
+                ),
+                {"dep": str(dep), "uid": fuid_str},
+            )
+            depts_derived += res.rowcount or 0
 
         # Apply responsibility grants via FacultyRoleGrantService (same pattern).
         g_created = g_reactivated = g_skipped = 0
@@ -1278,4 +1308,5 @@ class OnboardingService:
             role_grants_skipped=g_skipped,
             faculty_codes_assigned=codes_assigned,
             faculty_institution_emails_assigned=inst_emails_assigned,
+            faculty_primary_departments_derived=depts_derived,
         )

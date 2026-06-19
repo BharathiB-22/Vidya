@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, UserCheck, BookOpen, Building2, Phone, MapPin, Calendar, Pencil, X, Save,
-  Activity, ChevronDown,
+  Activity, ChevronDown, BadgeCheck, Mail, KeyRound, ShieldCheck, Plus, Minus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,30 +15,26 @@ import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import { sisApi } from '@/lib/api/sis'
 import type { FacultyDetailOut, FacultyProfileUpsert, FacultyLifecycleStatusOut } from '@/lib/api/sis'
+import { onboardingApi } from '@/lib/api/onboarding'
+import type { GrantableRole } from '@/lib/api/onboarding'
 import { academicsApi } from '@/lib/api/academics'
 import { useAuth } from '@/lib/auth'
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div
-      className="flex items-start justify-between py-3 gap-4"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-    >
-      <span className="text-sm text-slate-500 flex-shrink-0">{label}</span>
-      <span className="text-sm text-slate-200 font-medium text-right">{value || '—'}</span>
+    <div className="flex items-start justify-between py-3 gap-4 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500 flex-shrink-0">{label}</span>
+      <span className="text-sm text-gray-900 font-medium text-right">{value || '—'}</span>
     </div>
   )
 }
 
 function Card({ title, icon: Icon, children }: { title: string; icon: typeof UserCheck; children: React.ReactNode }) {
   return (
-    <div
-      className="rounded-xl px-6 py-4 space-y-1"
-      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-    >
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <Icon className="h-4 w-4 text-slate-500" />
-        <h3 className="text-sm font-semibold text-slate-400">{title}</h3>
+    <div className="rounded-xl px-6 py-4 space-y-1 bg-white border border-gray-200 shadow-sm">
+      <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+        <Icon className="h-4 w-4 text-gray-400" />
+        <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
       </div>
       {children}
     </div>
@@ -61,13 +57,122 @@ function RoleChip({ role }: { role: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Responsibility (grant) chips — GUIDE / EVALUATOR / BOARD / DEAN
+// ---------------------------------------------------------------------------
+
+const RESPONSIBILITY_COLORS: Record<string, string> = {
+  GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b', DEAN: '#ec4899',
+}
+
+function ResponsibilityChip({ role }: { role: string }) {
+  const c = RESPONSIBILITY_COLORS[role] ?? '#64748b'
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full"
+      style={{ background: `${c}1A`, color: c, border: `1px solid ${c}40` }}
+    >
+      <ShieldCheck className="h-3 w-3" />
+      {role}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Responsibilities card — display + ADMIN/DEAN grant management
+// ---------------------------------------------------------------------------
+
+/** Which responsibilities the signed-in actor may assign/remove.
+ *  ADMIN owns all responsibilities incl. BOARD; a DEAN may manage only
+ *  GUIDE/EVALUATOR.  DEAN itself is a primary role (Users page), not a grant. */
+function assignableRoles(actorRole: string | undefined): GrantableRole[] {
+  if (actorRole === 'ADMIN') return ['GUIDE', 'EVALUATOR', 'BOARD']
+  if (actorRole === 'DEAN') return ['GUIDE', 'EVALUATOR']
+  return []
+}
+
+function ResponsibilitiesCard({
+  facultyUserId,
+  responsibilities,
+}: {
+  facultyUserId: string
+  responsibilities: string[]
+}) {
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  const manageable = assignableRoles(user?.role)
+  const held = new Set(responsibilities)
+
+  const mut = useMutation({
+    mutationFn: ({ role, action }: { role: GrantableRole; action: 'grant' | 'revoke' }) =>
+      action === 'grant'
+        ? onboardingApi.grantFacultyRole(facultyUserId, role)
+        : onboardingApi.revokeFacultyRole(facultyUserId, role),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['sis-faculty-detail', facultyUserId] })
+      qc.invalidateQueries({ queryKey: ['sis-faculty-directory'] })
+      addToast(
+        `${vars.role} ${vars.action === 'grant' ? 'assigned' : 'removed'}.`,
+        'success',
+      )
+    },
+    onError: (e) => addToast(getErrorMessage(e), 'error'),
+  })
+
+  return (
+    <Card title="Responsibilities" icon={ShieldCheck}>
+      <div className="py-3">
+        {responsibilities.length === 0 ? (
+          <p className="text-sm text-gray-500">No responsibilities assigned.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {responsibilities.map(r => <ResponsibilityChip key={r} role={r} />)}
+          </div>
+        )}
+      </div>
+
+      {manageable.length > 0 && (
+        <div className="pt-1 space-y-2">
+          <p className="text-xs text-gray-500">
+            {user?.role === 'DEAN'
+              ? 'Assign academic responsibilities (Dean): GUIDE / EVALUATOR.'
+              : 'Manage responsibilities (Admin). BOARD membership is Admin-only.'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {manageable.map(role => {
+              const has = held.has(role)
+              const c = RESPONSIBILITY_COLORS[role]
+              return (
+                <button
+                  key={role}
+                  disabled={mut.isPending}
+                  onClick={() => mut.mutate({ role, action: has ? 'revoke' : 'grant' })}
+                  className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50"
+                  style={{
+                    background: has ? '#FEF2F2' : `${c}14`,
+                    color: has ? '#dc2626' : c,
+                    border: `1px solid ${has ? '#FECACA' : `${c}40`}`,
+                  }}
+                >
+                  {has ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                  {has ? `Remove ${role}` : `Add ${role}`}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Faculty lifecycle panel — H64.4
 // ---------------------------------------------------------------------------
 
 const FACULTY_STATUS_COLORS: Record<string, { bg: string; color: string; border: string }> = {
-  ACTIVE:   { bg: 'rgba(34,197,94,0.12)',   color: '#4ade80', border: 'rgba(34,197,94,0.25)'   },
-  INACTIVE: { bg: 'rgba(251,191,36,0.12)',  color: '#fbbf24', border: 'rgba(251,191,36,0.25)'  },
-  ARCHIVED: { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
+  ACTIVE:   { bg: 'rgba(34,197,94,0.12)',   color: '#16a34a', border: 'rgba(34,197,94,0.30)'   },
+  INACTIVE: { bg: 'rgba(217,119,6,0.12)',   color: '#d97706', border: 'rgba(217,119,6,0.30)'   },
+  ARCHIVED: { bg: 'rgba(100,116,139,0.12)', color: '#64748b', border: 'rgba(100,116,139,0.30)' },
 }
 
 function FacultyStatusBadge({ status }: { status: string }) {
@@ -113,28 +218,27 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
 
   if (!canManage) return null
   if (isLoading || !data) return (
-    <div className="rounded-xl px-6 py-4" style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
-      <p className="text-sm text-slate-500">Loading lifecycle…</p>
+    <div className="rounded-xl px-6 py-4 bg-white border border-gray-200 shadow-sm">
+      <p className="text-sm text-gray-500">Loading lifecycle…</p>
     </div>
   )
 
   return (
-    <div className="rounded-xl px-6 py-4 space-y-3"
-      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}>
+    <div className="rounded-xl px-6 py-4 space-y-3 bg-white border border-gray-200 shadow-sm">
 
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <Activity className="h-4 w-4 text-slate-500" />
-        <h3 className="text-sm font-semibold text-slate-400">Lifecycle Status</h3>
+      <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+        <Activity className="h-4 w-4 text-gray-400" />
+        <h3 className="text-sm font-semibold text-gray-700">Lifecycle Status</h3>
       </div>
 
       <div className="flex items-center justify-between py-1">
-        <span className="text-sm text-slate-500">Current status</span>
+        <span className="text-sm text-gray-500">Current status</span>
         <FacultyStatusBadge status={data.current_status} />
       </div>
 
       {data.allowed_next.length > 0 && (
         <div className="space-y-2 pt-1">
-          <p className="text-xs text-slate-500">Change status (human ratification required):</p>
+          <p className="text-xs text-gray-500">Change status (human ratification required):</p>
           <Select value={selectedStatus || undefined} onValueChange={setSelectedStatus}>
             <SelectTrigger className="w-full"><SelectValue placeholder="Select new status…" /></SelectTrigger>
             <SelectContent>
@@ -148,7 +252,7 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
                 placeholder="Reason (optional)"
                 value={reason}
                 onChange={e => setReason(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 placeholder:text-slate-600"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
               />
               <Button
                 size="sm"
@@ -164,14 +268,14 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
       )}
 
       {data.current_status === 'ARCHIVED' && (
-        <p className="text-xs text-slate-500 py-1">This faculty member is archived. No further transitions available.</p>
+        <p className="text-xs text-gray-500 py-1">This faculty member is archived. No further transitions available.</p>
       )}
 
       {data.history.length > 0 && (
         <div className="pt-2">
           <button
             onClick={() => setShowHistory(v => !v)}
-            className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
           >
             <ChevronDown size={12} className={showHistory ? 'rotate-180 transition-transform' : 'transition-transform'} />
             {showHistory ? 'Hide' : 'Show'} history ({data.history.length})
@@ -179,15 +283,14 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
           {showHistory && (
             <div className="mt-2 space-y-1">
               {data.history.map(h => (
-                <div key={h.id} className="text-xs text-slate-400 flex items-start gap-2 py-1"
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                  <span className="shrink-0 tabular-nums text-slate-600">{formatDt(h.changed_at)}</span>
+                <div key={h.id} className="text-xs text-gray-500 flex items-start gap-2 py-1 border-b border-gray-100">
+                  <span className="shrink-0 tabular-nums text-gray-400">{formatDt(h.changed_at)}</span>
                   <span>
                     {h.from_status
                       ? <><FacultyStatusBadge status={h.from_status} /> → <FacultyStatusBadge status={h.to_status} /></>
                       : <>Set to <FacultyStatusBadge status={h.to_status} /></>
                     }
-                    {h.reason && <span className="ml-1 text-slate-500">— {h.reason}</span>}
+                    {h.reason && <span className="ml-1 text-gray-500">— {h.reason}</span>}
                   </span>
                 </div>
               ))}
@@ -251,37 +354,37 @@ function EditProfileForm({
     onSave(body)
   }
 
-  const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 focus:outline-none focus:border-indigo-500"
+  const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Employee ID *</label>
-          <input required {...field('employee_id')} className={inputCls} placeholder="EMP-001" />
+          <label className="block text-xs text-gray-500 mb-1">Employee ID (legacy)</label>
+          <input {...field('employee_id')} className={inputCls} placeholder="Optional" />
         </div>
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Designation</label>
+          <label className="block text-xs text-gray-500 mb-1">Designation</label>
           <input {...field('designation')} className={inputCls} placeholder="Associate Professor" />
         </div>
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Specialization</label>
+          <label className="block text-xs text-gray-500 mb-1">Specialization</label>
           <input {...field('specialization')} className={inputCls} placeholder="Machine Learning" />
         </div>
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Phone</label>
+          <label className="block text-xs text-gray-500 mb-1">Phone</label>
           <input {...field('phone')} className={inputCls} placeholder="+91 98765 43210" />
         </div>
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Office Location</label>
+          <label className="block text-xs text-gray-500 mb-1">Office Location</label>
           <input {...field('office_location')} className={inputCls} placeholder="Block A, Room 204" />
         </div>
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Joining Date</label>
+          <label className="block text-xs text-gray-500 mb-1">Joining Date</label>
           <input type="date" {...field('joining_date')} className={inputCls} />
         </div>
         <div className="sm:col-span-2">
-          <label className="block text-xs text-slate-500 mb-1">Primary Department</label>
+          <label className="block text-xs text-gray-500 mb-1">Primary Department</label>
           <Select
             value={String(form.primary_department_id ?? '') || 'NONE'}
             onValueChange={v => setForm(prev => ({ ...prev, primary_department_id: v === 'NONE' ? '' : v }))}
@@ -297,14 +400,14 @@ function EditProfileForm({
         </div>
       </div>
       <div>
-        <label className="block text-xs text-slate-500 mb-1">Qualifications</label>
+        <label className="block text-xs text-gray-500 mb-1">Qualifications</label>
         <textarea
           rows={2} {...field('qualifications')} className={inputCls}
           placeholder="Ph.D. Computer Science, IIT Bombay"
         />
       </div>
       <div>
-        <label className="block text-xs text-slate-500 mb-1">Bio</label>
+        <label className="block text-xs text-gray-500 mb-1">Bio</label>
         <textarea rows={3} {...field('bio')} className={inputCls} placeholder="Short biography…" />
       </div>
 
@@ -352,7 +455,7 @@ export default function FacultyProfilePage() {
   if (isLoading) return <PageLoading message="Loading faculty profile…" />
   if (!profile) return (
     <PageShell>
-      <p className="text-center py-16 text-slate-500">Faculty member not found.</p>
+      <p className="text-center py-16 text-gray-500">Faculty member not found.</p>
     </PageShell>
   )
 
@@ -365,13 +468,13 @@ export default function FacultyProfilePage() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="p-1.5 rounded-lg text-slate-600 hover:bg-white/6 hover:text-slate-300 transition-colors"
+          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-xl font-semibold text-slate-100 truncate">{profile.full_name}</h2>
-          <p className="text-xs text-slate-500">{profile.email}</p>
+          <h2 className="text-xl font-semibold text-gray-900 truncate">{profile.full_name}</h2>
+          <p className="text-xs text-gray-500">{profile.email}</p>
         </div>
         {canEdit && !editing && (
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
@@ -381,42 +484,36 @@ export default function FacultyProfilePage() {
       </div>
 
       {/* Avatar strip */}
-      <div
-        className="rounded-xl p-5 flex items-center gap-4"
-        style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-      >
+      <div className="rounded-xl p-5 flex items-center gap-4 bg-white border border-gray-200 shadow-sm">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
-          style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}
+          style={{ background: 'rgba(16,185,129,0.12)', color: '#059669', border: '1px solid rgba(16,185,129,0.30)' }}
         >
           {initials}
         </div>
         <div>
-          <p className="text-lg font-semibold text-slate-100">{profile.full_name}</p>
+          <p className="text-lg font-semibold text-gray-900">{profile.full_name}</p>
           {profile.designation && (
-            <p className="text-sm text-slate-400">{profile.designation}</p>
+            <p className="text-sm text-gray-600">{profile.designation}</p>
           )}
           {profile.primary_department && (
-            <p className="text-xs text-slate-500">{profile.primary_department.name}</p>
+            <p className="text-xs text-gray-500">{profile.primary_department.name}</p>
           )}
         </div>
-        {profile.employee_id && (
+        {profile.faculty_code && (
           <span
             className="ml-auto text-xs px-2 py-1 rounded font-mono"
-            style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}
+            style={{ background: 'rgba(16,185,129,0.12)', color: '#059669', border: '1px solid rgba(16,185,129,0.25)' }}
           >
-            {profile.employee_id}
+            {profile.faculty_code}
           </span>
         )}
       </div>
 
       {/* Edit form */}
       {editing && (
-        <div
-          className="rounded-xl px-6 py-5"
-          style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          <h3 className="text-sm font-semibold text-slate-400 mb-4">Edit faculty profile</h3>
+        <div className="rounded-xl px-6 py-5 bg-white border border-gray-200 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Edit faculty profile</h3>
           <EditProfileForm
             profile={profile}
             onSave={body => saveMut.mutate(body)}
@@ -425,12 +522,40 @@ export default function FacultyProfilePage() {
         </div>
       )}
 
+      {/* Faculty Identity */}
+      <Card title="Faculty Identity" icon={BadgeCheck}>
+        <InfoRow
+          label="Faculty Code"
+          value={profile.faculty_code
+            ? <span className="font-mono">{profile.faculty_code}</span>
+            : <span className="text-gray-400">Not assigned</span>}
+        />
+        <InfoRow
+          label="Institution Email"
+          value={profile.institution_email
+            ? <span className="flex items-center gap-1 justify-end"><Mail className="h-3 w-3 text-gray-400" />{profile.institution_email}</span>
+            : <span className="text-gray-400">Not assigned</span>}
+        />
+        <InfoRow
+          label="Personal Login"
+          value={<span className="flex items-center gap-1 justify-end"><KeyRound className="h-3 w-3 text-gray-400" />{profile.email}</span>}
+        />
+      </Card>
+
+      {/* Responsibilities (display + management) */}
+      {user_id && (
+        <ResponsibilitiesCard
+          facultyUserId={user_id}
+          responsibilities={profile.responsibilities ?? []}
+        />
+      )}
+
       {/* Contact & Basics */}
       <Card title="Contact & Basics" icon={UserCheck}>
         <InfoRow label="Email"          value={profile.email} />
-        {profile.phone    && <InfoRow label="Phone"     value={<span className="flex items-center gap-1"><Phone className="h-3 w-3 text-slate-500" />{profile.phone}</span>} />}
-        {profile.office_location && <InfoRow label="Office" value={<span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-slate-500" />{profile.office_location}</span>} />}
-        {profile.joining_date && <InfoRow label="Joined" value={<span className="flex items-center gap-1"><Calendar className="h-3 w-3 text-slate-500" />{profile.joining_date}</span>} />}
+        {profile.phone    && <InfoRow label="Phone"     value={<span className="flex items-center gap-1 justify-end"><Phone className="h-3 w-3 text-gray-400" />{profile.phone}</span>} />}
+        {profile.office_location && <InfoRow label="Office" value={<span className="flex items-center gap-1 justify-end"><MapPin className="h-3 w-3 text-gray-400" />{profile.office_location}</span>} />}
+        {profile.joining_date && <InfoRow label="Joined" value={<span className="flex items-center gap-1 justify-end"><Calendar className="h-3 w-3 text-gray-400" />{profile.joining_date}</span>} />}
       </Card>
 
       {/* Academic */}
@@ -439,12 +564,12 @@ export default function FacultyProfilePage() {
         {profile.specialization  && <InfoRow label="Specialization"  value={profile.specialization} />}
         {profile.bio && (
           <div className="py-3">
-            <p className="text-xs text-slate-500 mb-1">Bio</p>
-            <p className="text-sm text-slate-300 leading-relaxed">{profile.bio}</p>
+            <p className="text-xs text-gray-500 mb-1">Bio</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{profile.bio}</p>
           </div>
         )}
         {!profile.qualifications && !profile.specialization && !profile.bio && (
-          <p className="py-3 text-sm text-slate-500">No academic profile added yet.</p>
+          <p className="py-3 text-sm text-gray-500">No academic profile added yet.</p>
         )}
       </Card>
 
@@ -464,18 +589,17 @@ export default function FacultyProfilePage() {
       {/* Course assignments */}
       <Card title="Active Course Assignments" icon={BookOpen}>
         {profile.active_assignments.length === 0 ? (
-          <p className="py-3 text-sm text-slate-500">No active assignments.</p>
+          <p className="py-3 text-sm text-gray-500">No active assignments.</p>
         ) : (
           <div className="space-y-2 pt-1">
             {profile.active_assignments.map((a, i) => (
               <div
                 key={i}
-                className="flex items-start justify-between gap-3 py-2"
-                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                className="flex items-start justify-between gap-3 py-2 border-b border-gray-100 last:border-0"
               >
                 <div>
-                  <p className="text-sm text-slate-200">{a.course.name}</p>
-                  <p className="text-xs text-slate-500 font-mono">{a.course.code} · {a.semester_label}</p>
+                  <p className="text-sm text-gray-900">{a.course.name}</p>
+                  <p className="text-xs text-gray-500 font-mono">{a.course.code} · {a.semester_label}</p>
                 </div>
                 <RoleChip role={a.role} />
               </div>

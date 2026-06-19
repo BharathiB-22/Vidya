@@ -68,10 +68,50 @@ export interface ImportContext {
 }
 
 // ---------------------------------------------------------------------------
+// Faculty responsibility grants (Phase 1.5) — GUIDE / EVALUATOR / BOARD / DEAN
+// ADMIN may manage any responsibility; DEAN may manage only GUIDE / EVALUATOR.
+// ---------------------------------------------------------------------------
+
+// DEAN is a primary role (Users page), not a grantable responsibility.
+export type GrantableRole = 'GUIDE' | 'EVALUATOR' | 'BOARD'
+
+export interface FacultyRoleGrantOut {
+  id: string
+  faculty_user_id: string
+  role_code: string
+  is_active: boolean
+  granted_by: string
+  granted_at: string
+  revoked_by: string | null
+  revoked_at: string | null
+  reactivated: boolean
+}
+
+export interface FacultyRoleGrantListResponse {
+  total: number
+  items: FacultyRoleGrantOut[]
+}
+
+// ---------------------------------------------------------------------------
 // API client
 // ---------------------------------------------------------------------------
 
 export const onboardingApi = {
+
+  // Faculty responsibility grants
+  grantFacultyRole: (facultyUserId: string, roleCode: GrantableRole): Promise<FacultyRoleGrantOut> =>
+    api.post('/admin/onboarding/faculty-roles/grant', {
+      faculty_user_id: facultyUserId, role_code: roleCode,
+    }).then((r) => r.data),
+
+  revokeFacultyRole: (facultyUserId: string, roleCode: GrantableRole): Promise<FacultyRoleGrantOut> =>
+    api.post('/admin/onboarding/faculty-roles/revoke', {
+      faculty_user_id: facultyUserId, role_code: roleCode,
+    }).then((r) => r.data),
+
+  listFacultyRoles: (facultyUserId: string): Promise<FacultyRoleGrantListResponse> =>
+    api.get(`/admin/onboarding/faculty-roles/by-faculty/${facultyUserId}`).then((r) => r.data),
+
   // Bulk generation
   generateStudents: (payload: GenerateStudentsPayload): Promise<GenerateStudentsResult> =>
     api.post('/admin/onboarding/generate-students', payload).then((r) => r.data),

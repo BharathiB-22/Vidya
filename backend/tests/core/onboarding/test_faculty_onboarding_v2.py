@@ -88,6 +88,20 @@ async def _profile(schema, email):
             return r.mappings().one_or_none()
 
 
+async def _dept(schema, email):
+    """Return the profile's primary_department_id (as str) for a faculty email."""
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            r = await s.execute(text(
+                "SELECT p.primary_department_id::text AS dept "
+                "FROM users u JOIN sis_faculty_profiles p ON p.user_id = u.id "
+                "WHERE LOWER(u.email) = :e"
+            ), {"e": email.lower()})
+            row = r.mappings().one_or_none()
+            return row["dept"] if row else None
+
+
 async def _grants(schema, email):
     async with _Session() as s:
         async with s.begin():
@@ -123,9 +137,14 @@ async def test_preview_projects_identity_and_roles(test_tenant_a):
     assert kavya.projected_faculty_code == "FAC0001"
     assert kavya.projected_institution_email == "kavya@lms.edu"
     assert set(kavya.resolved_roles) == {"GUIDE", "EVALUATOR"}
+    # DEAN is a primary role, not a grantable responsibility — it is skipped.
+    arun = next(r for r in preview.rows if r.full_name == "Dr Arun")
+    assert arun.resolved_roles == []
+    assert arun.unresolved_roles == ["DEAN"]
+    assert any("DEAN" in w for w in arun.warnings)
     sm = preview.summary_meta
     assert sm["faculty_codes_to_assign"] == 3
-    assert sm["new_role_grants"] == 4   # GUIDE+EVALUATOR + DEAN + BOARD
+    assert sm["new_role_grants"] == 3   # GUIDE+EVALUATOR + BOARD (DEAN skipped)
 
 
 @pytest.mark.asyncio
@@ -155,7 +174,7 @@ async def test_commit_creates_identity_programs_grants(test_tenant_a):
     assert result.faculty_codes_assigned == 3
     assert result.faculty_institution_emails_assigned == 3
     assert result.program_mappings_created == 5   # Kavya BCA+MCA, Arun MCA, Meena BCA+MCA
-    assert result.role_grants_created == 4
+    assert result.role_grants_created == 3         # DEAN skipped (primary role)
 
     kavya = await _profile(schema, "kavya@gmail.com")
     assert kavya["role"] == "FACULTY"
@@ -164,8 +183,139 @@ async def test_commit_creates_identity_programs_grants(test_tenant_a):
     assert kavya["faculty_code"] == "FAC0001"
     assert kavya["institution_email"] == "kavya@lms.edu"
     assert await _grants(schema, "kavya@gmail.com") == {"GUIDE", "EVALUATOR"}
-    assert await _grants(schema, "arun@yahoo.com") == {"DEAN"}
+    assert await _grants(schema, "arun@yahoo.com") == set()      # DEAN skipped
     assert await _grants(schema, "meena@gmail.com") == {"BOARD"}
+
+
+# ===========================================================================
+# Faculty Directory Option 1 — derive primary_department_id from program codes
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_commit_derives_primary_department_from_programs(test_tenant_a):
+    schema = test_tenant_a["schema_name"]
+    ids = await _setup(schema)
+    admin = await _admin(schema)
+    # All three faculty map to programs (BCA/MCA) under the single dept "CA".
+    result = await _commit(schema, _CSV, admin)
+
+    assert result.faculty_primary_departments_derived == 3
+    assert await _dept(schema, "kavya@gmail.com") == str(ids["dept"])
+    assert await _dept(schema, "arun@yahoo.com") == str(ids["dept"])
+    assert await _dept(schema, "meena@gmail.com") == str(ids["dept"])
+
+
+@pytest.mark.asyncio
+async def test_commit_does_not_overwrite_existing_department(test_tenant_a):
+    schema = test_tenant_a["schema_name"]
+    ids = await _setup(schema)
+    admin = await _admin(schema)
+    # An existing FACULTY whose profile already has a (different) home department.
+    other_dept = uuid.uuid4()
+    fac_id = uuid.uuid4()
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            await s.execute(text(
+                "INSERT INTO acad_departments (id, school_id, name, code, is_active) "
+                "VALUES (:id, :sch, 'Mathematics', 'MA', true)"
+            ), {"id": str(other_dept), "sch": str(ids["school"])})
+            await s.execute(text(
+                "INSERT INTO users (id, email, password_hash, role, full_name, is_active) "
+                "VALUES (:id, 'pre@t.edu', 'x', 'FACULTY', 'Dr Pre', true)"
+            ), {"id": str(fac_id)})
+            await s.execute(text(
+                "INSERT INTO sis_faculty_profiles "
+                "(user_id, faculty_code, institution_email, primary_department_id, is_active, lifecycle_status) "
+                "VALUES (:uid, 'FAC9999', 'pre@lms.edu', :dep, true, 'ACTIVE')"
+            ), {"uid": str(fac_id), "dep": str(other_dept)})
+
+    content = "full_name,personal_email,program_codes\nDr Pre,pre@t.edu,MCA\n".encode()
+    result = await _commit(schema, content, admin)
+
+    # MCA lives under dept CA, but the Dean-set Mathematics dept must survive.
+    assert result.faculty_primary_departments_derived == 0
+    assert await _dept(schema, "pre@t.edu") == str(other_dept)
+
+
+@pytest.mark.asyncio
+async def test_backfill_derives_department_for_existing_faculty(test_tenant_a):
+    schema = test_tenant_a["schema_name"]
+    ids = await _setup(schema)
+    admin = await _admin(schema)
+    # Existing FACULTY with NO profile but an active program assignment (MCA → CA).
+    fac_id = uuid.uuid4()
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            await s.execute(text(
+                "INSERT INTO users (id, email, password_hash, role, full_name, is_active) "
+                "VALUES (:id, 'leg2@t.edu', 'x', 'FACULTY', 'Legacy Two', true)"
+            ), {"id": str(fac_id)})
+            await s.execute(text(
+                "INSERT INTO faculty_program_assignments "
+                "(id, faculty_user_id, program_id, is_active, assigned_by) "
+                "VALUES (:id, :f, :p, true, :by)"
+            ), {"id": str(uuid.uuid4()), "f": str(fac_id), "p": str(ids["mca"]), "by": str(admin)})
+
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            preview = await FacultyBackfillService.preview(s)
+    assert preview.departments_to_derive == 1
+
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            result = await FacultyBackfillService.commit(s, actor_user_id=admin)
+    assert result.departments_derived == 1
+    assert await _dept(schema, "leg2@t.edu") == str(ids["dept"])
+
+    # Idempotent: a second pass derives nothing more.
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            again = await FacultyBackfillService.commit(s, actor_user_id=admin)
+    assert again.departments_derived == 0
+
+
+@pytest.mark.asyncio
+async def test_backfill_does_not_overwrite_existing_department(test_tenant_a):
+    schema = test_tenant_a["schema_name"]
+    ids = await _setup(schema)
+    admin = await _admin(schema)
+    other_dept = uuid.uuid4()
+    fac_id = uuid.uuid4()
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            await s.execute(text(
+                "INSERT INTO acad_departments (id, school_id, name, code, is_active) "
+                "VALUES (:id, :sch, 'Physics', 'PH', true)"
+            ), {"id": str(other_dept), "sch": str(ids["school"])})
+            await s.execute(text(
+                "INSERT INTO users (id, email, password_hash, role, full_name, is_active) "
+                "VALUES (:id, 'leg3@t.edu', 'x', 'FACULTY', 'Legacy Three', true)"
+            ), {"id": str(fac_id)})
+            await s.execute(text(
+                "INSERT INTO sis_faculty_profiles "
+                "(user_id, faculty_code, institution_email, primary_department_id, is_active, lifecycle_status) "
+                "VALUES (:uid, 'FAC8888', 'leg3@lms.edu', :dep, true, 'ACTIVE')"
+            ), {"uid": str(fac_id), "dep": str(other_dept)})
+            await s.execute(text(
+                "INSERT INTO faculty_program_assignments "
+                "(id, faculty_user_id, program_id, is_active, assigned_by) "
+                "VALUES (:id, :f, :p, true, :by)"
+            ), {"id": str(uuid.uuid4()), "f": str(fac_id), "p": str(ids["mca"]), "by": str(admin)})
+
+    async with _Session() as s:
+        async with s.begin():
+            await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
+            preview = await FacultyBackfillService.preview(s)
+            result = await FacultyBackfillService.commit(s, actor_user_id=admin)
+    assert preview.departments_to_derive == 0
+    assert result.departments_derived == 0
+    assert await _dept(schema, "leg3@t.edu") == str(other_dept)
 
 
 @pytest.mark.asyncio

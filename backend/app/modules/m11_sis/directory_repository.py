@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.models import TenantRole, User
@@ -23,8 +23,35 @@ from app.modules.m_academics.models import (
     AcadProgram,
     AcadSection,
     AcadSemester,
+    FacultyProgramAssignment,
     SubjectAssignment,
 )
+
+
+def _faculty_in_department(department_id):
+    """Department-membership predicate for a faculty row.
+
+    A faculty belongs to a department if their profile ``primary_department_id``
+    points to it OR they have an active program assignment to a program in that
+    department.  ``primary_department_id`` is frequently NULL (it is not set by
+    CSV import), so relying on it alone makes the directory's department filter
+    return zero rows — deriving membership from real program relationships fixes
+    that.  Correlates on the outer ``User`` row.
+    """
+    via_assignment = (
+        select(FacultyProgramAssignment.id)
+        .join(AcadProgram, AcadProgram.id == FacultyProgramAssignment.program_id)
+        .where(
+            FacultyProgramAssignment.faculty_user_id == User.id,
+            FacultyProgramAssignment.is_active.is_(True),
+            AcadProgram.department_id == department_id,
+        )
+        .exists()
+    )
+    return or_(
+        SisFacultyProfile.primary_department_id == department_id,
+        via_assignment,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +203,7 @@ class FacultyDirectoryRepository:
                 )
             )
         if department_id is not None:
-            stmt = stmt.where(SisFacultyProfile.primary_department_id == department_id)
+            stmt = stmt.where(_faculty_in_department(department_id))
         if is_active is not None:
             stmt = stmt.where(User.is_active.is_(is_active))
 
@@ -214,9 +241,7 @@ class FacultyDirectoryRepository:
     async def list_by_department(
         department_id: UUID, db: AsyncSession
     ) -> tuple[list[Any], int]:
-        stmt = _faculty_base_stmt().where(
-            SisFacultyProfile.primary_department_id == department_id
-        )
+        stmt = _faculty_base_stmt().where(_faculty_in_department(department_id))
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = (await db.execute(count_stmt)).scalar() or 0
         rows = (await db.execute(stmt.order_by(User.full_name))).all()

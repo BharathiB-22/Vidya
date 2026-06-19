@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
@@ -81,19 +82,31 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Academic Operations',
     items: [
       { label: 'Attendance Analytics', to: '/sis/attendance/analytics', icon: CalendarCheck, roles: ['DEAN'] },
-      { label: 'Internal Marks',       to: '/sis/marks/report',         icon: BookMarked,    roles: ['DEAN'] },
+      { label: 'Internal Marks Report', to: '/sis/marks/report',        icon: BookMarked,    roles: ['DEAN'] },
     ],
   },
 
-  // ── DEAN: Examinations ────────────────────────────────────────────────────
+  // ── DEAN: Examinations & Evaluation ───────────────────────────────────────
   {
     heading: 'Examinations',
     items: [
-      { label: 'Hall Tickets',  to: '/sis/hall-tickets',   icon: Ticket,      roles: ['DEAN'] },
-      { label: 'Exam Sessions', to: '/sis/exam/sessions',  icon: CalendarDays, roles: ['DEAN'] },
-      { label: 'Exam Centers',  to: '/sis/exam/centers',   icon: MapPin,       roles: ['DEAN'] },
       { label: 'Results',       to: '/sis/results',        icon: ClipboardList, roles: ['DEAN'] },
       { label: 'Evaluation Assignments', to: '/dean/evaluation-assignments', icon: ClipboardCheck, roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Examination Control (Controller of Examinations / Exam Cell) ─────
+  // Hall tickets, exam sessions and exam centres are COE / exam-cell operational
+  // functions. They sit under DEAN only because VIDYA has no dedicated
+  // Controller-of-Examinations role yet; they are grouped separately from Dean
+  // academic governance so the boundary stays explicit and is easy to reassign
+  // to a future COE role.
+  {
+    heading: 'Examination Control',
+    items: [
+      { label: 'Hall Tickets',  to: '/sis/hall-tickets',   icon: Ticket,       roles: ['DEAN'] },
+      { label: 'Exam Sessions', to: '/sis/exam/sessions',  icon: CalendarDays, roles: ['DEAN'] },
+      { label: 'Exam Centers',  to: '/sis/exam/centers',   icon: MapPin,       roles: ['DEAN'] },
     ],
   },
 
@@ -116,10 +129,14 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── DEAN: Academic View ────────────────────────────────────────────────────
+  // ── DEAN: Academic Governance ──────────────────────────────────────────────
+  // The Program Advisor (create / curriculum / approve) is Dean-owned in the
+  // backend (m01 _WRITE=ADMIN,DEAN; approve=DEAN) but previously had no nav
+  // entry — this restores that visibility without changing backend ownership.
   {
-    heading: 'Academic View',
+    heading: 'Academic Governance',
     items: [
+      { label: 'Programs',        to: '/programs',     icon: BookMarked,     roles: ['DEAN'] },
       { label: 'Syllabus Review', to: '/dean-review',  icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'Syllabuses',      to: '/syllabuses',   icon: GraduationCap,  roles: ['DEAN'] },
     ],
@@ -149,7 +166,6 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Import Users',      to: '/users/bulk-onboarding',   icon: UserPlus,      roles: ['ADMIN'] },
       { label: 'Import History',    to: '/sis/imports',             icon: History,       roles: ['ADMIN'] },
       { label: 'Section Capacity',  to: '/sis/capacity',            icon: Gauge,         roles: ['ADMIN'] },
-      { label: 'Data Validation',   to: '/sis/validation',          icon: ShieldAlert,   roles: ['ADMIN', 'DEAN'] },
       { label: 'Semester Rollover', to: '/sis/rollover',            icon: RefreshCw,     roles: ['ADMIN'] },
     ],
   },
@@ -171,8 +187,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Administration',
     items: [
-      { label: 'Branding', to: '/settings/branding', icon: Palette,  roles: ['ADMIN'] },
-      { label: 'Settings', to: '/settings',           icon: Settings, roles: ['ADMIN'] },
+      { label: 'Branding',         to: '/settings/branding', icon: Palette,     roles: ['ADMIN'] },
+      { label: 'Settings',         to: '/settings',          icon: Settings,    roles: ['ADMIN'] },
+      { label: 'Data Validation',  to: '/sis/validation',    icon: ShieldAlert, roles: ['ADMIN'] },
     ],
   },
 
@@ -264,6 +281,48 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+/** Sample a logo's average luminance so we can keep it visible on the dark
+ *  sidebar.  Returns 'dark' (needs a light chip behind it), 'light' (fine on the
+ *  dark sidebar), or null while loading.  On any read failure (e.g. a
+ *  CORS-tainted canvas) we assume 'dark' — the safe choice that guarantees the
+ *  logo never blends into the background. */
+function useLogoLuminance(url: string | null | undefined): 'dark' | 'light' | null {
+  const [tone, setTone] = useState<'dark' | 'light' | null>(null)
+  useEffect(() => {
+    if (!url) { setTone(null); return }
+    let cancelled = false
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        const w = (canvas.width = 32)
+        const h = (canvas.height = 32)
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, 0, 0, w, h)
+        const { data } = ctx.getImageData(0, 0, w, h)
+        let sum = 0, count = 0
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3]
+          if (a < 16) continue // ignore (near-)transparent pixels
+          sum += (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) * (a / 255)
+          count++
+        }
+        if (cancelled) return
+        // All-transparent (e.g. a glyph-only mark) → treat as dark to be safe.
+        setTone(count === 0 ? 'dark' : (sum / count) < 110 ? 'dark' : 'light')
+      } catch {
+        if (!cancelled) setTone('dark')
+      }
+    }
+    img.onerror = () => { if (!cancelled) setTone('dark') }
+    img.src = url
+    return () => { cancelled = true }
+  }, [url])
+  return tone
+}
+
 interface SidebarProps {
   onClose: () => void
 }
@@ -287,6 +346,8 @@ export function Sidebar({ onClose }: SidebarProps) {
 
   const savedLogo    = branding.logoUrl
   const primaryColor = branding.primaryColor
+  // Logo-aware: a dark logo gets a light chip so it never blends into the sidebar.
+  const logoTone     = useLogoLuminance(savedLogo)
 
   function isActive(to: string, exact?: boolean): boolean {
     if (exact) return location.pathname === to
@@ -303,7 +364,13 @@ export function Sidebar({ onClose }: SidebarProps) {
 
         <div className="relative flex items-center gap-2.5 min-w-0">
           {savedLogo ? (
-            <div className="relative h-9 w-9 flex-shrink-0 rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
+            <div
+              className={`relative h-9 w-9 flex-shrink-0 rounded-xl backdrop-blur-sm transition-colors ${
+                logoTone === 'dark'
+                  ? 'bg-white border border-black/5 shadow-sm'
+                  : 'bg-white/5 border border-white/10'
+              }`}
+            >
               <img
                 src={savedLogo}
                 alt="Institution logo"

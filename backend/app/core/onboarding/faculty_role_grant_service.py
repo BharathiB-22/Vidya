@@ -28,6 +28,16 @@ from app.core.onboarding.faculty_role_grant_schemas import (
 )
 from app.modules.m_academics.models import FacultyRoleGrant
 
+# Governance: who may grant/revoke which responsibilities.  Grantable
+# responsibilities are GUIDE / EVALUATOR / BOARD (DEAN is a primary role, not a
+# grant — see GRANTABLE_ROLES).
+#   ADMIN (and SUPER_ADMIN) → any grantable responsibility, including BOARD.
+#   DEAN  → academic responsibilities inside their department only (GUIDE/EVALUATOR).
+# BOARD members run examination governance / highly sensitive workflows, so BOARD
+# stays ADMIN-only.  This mirrors the PRD: "AI advises, humans decide" —
+# consequential authority changes need the right human.
+DEAN_GRANTABLE: frozenset[str] = frozenset({"GUIDE", "EVALUATOR"})
+
 
 class FacultyRoleGrantServiceError(Exception):
     def __init__(self, code: str, message: str, status_code: int = 400) -> None:
@@ -35,6 +45,32 @@ class FacultyRoleGrantServiceError(Exception):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+def _authorize_actor(actor_role: str | None, role_code: str) -> None:
+    """Enforce who may grant/revoke a given responsibility.
+
+    ADMIN / SUPER_ADMIN may manage any grantable role.  DEAN may manage only
+    GUIDE / EVALUATOR.  Anything else is forbidden.  ``role_code`` must already
+    be normalised + validated against ``GRANTABLE_ROLES``.
+    """
+    role = (actor_role or "").strip().upper()
+    if role in {"ADMIN", "SUPER_ADMIN"}:
+        return
+    if role == "DEAN":
+        if role_code in DEAN_GRANTABLE:
+            return
+        raise FacultyRoleGrantServiceError(
+            "FORBIDDEN",
+            f"A Dean may only assign or remove {', '.join(sorted(DEAN_GRANTABLE))}. "
+            f"'{role_code}' requires an Administrator.",
+            403,
+        )
+    raise FacultyRoleGrantServiceError(
+        "FORBIDDEN",
+        "You do not have permission to manage faculty responsibilities.",
+        403,
+    )
 
 
 async def _validate_faculty(faculty_user_id: UUID, db: AsyncSession) -> FacultyInfo:
@@ -103,6 +139,7 @@ class FacultyRoleGrantService:
         * Otherwise a new row is inserted.
         """
         rc = _validate_role_code(role_code)
+        _authorize_actor(actor_role, rc)
         faculty = await _validate_faculty(faculty_user_id, db)
 
         existing = (
@@ -174,6 +211,7 @@ class FacultyRoleGrantService:
     ) -> FacultyRoleGrantOut:
         """Soft-revoke the active grant for (faculty, role_code)."""
         rc = _validate_role_code(role_code)
+        _authorize_actor(actor_role, rc)
         faculty = await _validate_faculty(faculty_user_id, db)
 
         row = (

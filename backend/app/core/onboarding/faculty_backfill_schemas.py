@@ -30,6 +30,9 @@ class FacultyBackfillPreviewResponse(BaseModel):
     codes_to_assign: int
     emails_to_assign: int
     already_complete: int
+    # Faculty whose home department (primary_department_id) is still NULL but can
+    # be derived from an active program assignment — NULL-only, never overwrites.
+    departments_to_derive: int = 0
     rows: list[FacultyBackfillRow]
 
 
@@ -40,5 +43,7 @@ class FacultyBackfillCommitResult(BaseModel):
     emails_assigned: int
     personal_emails_backfilled: int
     profiles_created: int
+    # Home departments derived from active program assignments (NULL-only).
+    departments_derived: int = 0
     batch_ref: Optional[str] = None
     errors: list[str] = Field(default_factory=list)

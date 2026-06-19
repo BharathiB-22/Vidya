@@ -81,6 +81,30 @@ async def _admin_db(
             yield session
 
 
+async def _admin_or_dean_db(
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN, TenantRole.DEAN)),
+) -> AsyncGenerator[AsyncSession, None]:
+    """Tenant session for endpoints both ADMIN and DEAN may reach.
+
+    Per-role authority (e.g. DEAN may grant only GUIDE/EVALUATOR) is enforced in
+    the service layer; this dependency only widens who may reach the handler.
+    """
+    if current_user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "FORBIDDEN",
+                "message": "SUPER_ADMIN cannot use tenant /admin/ endpoints",
+            },
+        )
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(
+                text(f"SET LOCAL search_path = {current_user.schema_name}, public")
+            )
+            yield session
+
+
 def _onboarding_err(e: OnboardingError) -> HTTPException:
     return HTTPException(
         status_code=e.status_code,
@@ -459,13 +483,14 @@ def _faculty_grant_err(e: FacultyRoleGrantServiceError) -> HTTPException:
 @router.post("/faculty-roles/grant", response_model=FacultyRoleGrantOut)
 async def grant_faculty_role(
     body: FacultyRoleGrantRequest,
-    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
-    db: AsyncSession = Depends(_admin_db),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN, TenantRole.DEAN)),
+    db: AsyncSession = Depends(_admin_or_dean_db),
 ) -> FacultyRoleGrantOut:
     """Grant a responsibility to a FACULTY account (reactivates if revoked).
 
     A faculty may hold multiple active grants simultaneously — single account,
-    single login, multiple responsibilities.
+    single login, multiple responsibilities.  ADMIN may grant any responsibility;
+    a DEAN may grant only GUIDE / EVALUATOR (enforced in the service layer).
     """
     try:
         return await FacultyRoleGrantService.grant(
@@ -484,10 +509,13 @@ async def grant_faculty_role(
 @router.post("/faculty-roles/revoke", response_model=FacultyRoleGrantOut)
 async def revoke_faculty_role(
     body: FacultyRoleRevokeRequest,
-    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
-    db: AsyncSession = Depends(_admin_db),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN, TenantRole.DEAN)),
+    db: AsyncSession = Depends(_admin_or_dean_db),
 ) -> FacultyRoleGrantOut:
-    """Soft-revoke the active grant for (faculty, role_code)."""
+    """Soft-revoke the active grant for (faculty, role_code).
+
+    ADMIN may revoke any responsibility; a DEAN may revoke only GUIDE / EVALUATOR
+    (enforced in the service layer)."""
     try:
         return await FacultyRoleGrantService.revoke(
             db,
@@ -506,7 +534,7 @@ async def revoke_faculty_role(
 async def list_roles_for_faculty(
     faculty_user_id: str,
     include_inactive: bool = False,
-    db: AsyncSession = Depends(_admin_db),
+    db: AsyncSession = Depends(_admin_or_dean_db),
 ) -> FacultyRoleGrantListResponse:
     fid = _parse_uuid_form(faculty_user_id, "faculty_user_id")
     return await FacultyRoleGrantService.list_grants(
@@ -553,10 +581,13 @@ _STUDENTS_CSV_SAMPLE = (
     "Jane Smith,jane.smith@university.edu,ABC26MCA002\n"
 )
 
+# roles = responsibilities only: GUIDE / EVALUATOR / BOARD (optional; leave blank
+# for a plain faculty member).  DEAN is a primary role set on the Users page, not
+# a responsibility, so it is not a valid value here.
 _FACULTY_CSV_SAMPLE = (
     "full_name,personal_email,program_codes,roles\n"
     "Dr Kavya,kavya@gmail.com,BCA|MCA|BSCDS,GUIDE|EVALUATOR\n"
-    "Dr Arun,arun@yahoo.com,MCA,DEAN\n"
+    "Dr Arun,arun@yahoo.com,MCA,\n"
     "Dr Meena,meena@gmail.com,BCA|MCA,BOARD\n"
 )
 
@@ -601,7 +632,7 @@ async def sample_faculty_xlsx() -> Response:
         headers=["full_name", "personal_email", "program_codes", "roles"],
         rows=[
             ["Dr Kavya", "kavya@gmail.com", "BCA|MCA|BSCDS", "GUIDE|EVALUATOR"],
-            ["Dr Arun", "arun@yahoo.com", "MCA", "DEAN"],
+            ["Dr Arun", "arun@yahoo.com", "MCA", ""],
             ["Dr Meena", "meena@gmail.com", "BCA|MCA", "BOARD"],
         ],
     )

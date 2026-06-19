@@ -19,6 +19,11 @@ import { useAuth } from '@/lib/auth'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 
+// Responsibility-chip colors (GUIDE / EVALUATOR / BOARD / DEAN)
+const RESP_COLORS: Record<string, string> = {
+  GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b', DEAN: '#ec4899',
+}
+
 // ---------------------------------------------------------------------------
 // Bulk confirm modal
 // ---------------------------------------------------------------------------
@@ -122,15 +127,15 @@ function FacultyCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold truncate" style={{ color: '#111827' }}>{member.full_name}</p>
-          {member.employee_id && (
+          {member.faculty_code && (
             <span className="text-xs px-2 py-0.5 rounded font-mono"
-              style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}>
-              {member.employee_id}
+              style={{ background: 'rgba(16,185,129,0.12)', color: '#059669', border: '1px solid rgba(16,185,129,0.25)' }}>
+              {member.faculty_code}
             </span>
           )}
           {!member.is_active && (
             <span className="text-xs px-2 py-0.5 rounded"
-              style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171' }}>Inactive</span>
+              style={{ background: 'rgba(239,68,68,0.1)', color: '#dc2626' }}>Inactive</span>
           )}
         </div>
         <p className="text-xs mt-0.5 truncate" style={{ color: '#4B5563' }}>{member.email}</p>
@@ -139,6 +144,19 @@ function FacultyCard({
           {member.primary_department && <span className="text-xs" style={{ color: '#4B5563' }}>{member.primary_department.name}</span>}
           {member.specialization && <span className="text-xs italic" style={{ color: '#4B5563' }}>{member.specialization}</span>}
         </div>
+        {member.responsibilities && member.responsibilities.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {member.responsibilities.map(r => {
+              const c = RESP_COLORS[r] ?? '#64748b'
+              return (
+                <span key={r} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                  style={{ background: `${c}18`, color: c, border: `1px solid ${c}33` }}>
+                  {r}
+                </span>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

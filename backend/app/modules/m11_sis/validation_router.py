@@ -1,6 +1,11 @@
 """SIS Validation Report Router — H64.8.
 
-GET /validation/report  — ADMIN / DEAN only
+GET /validation/report  — ADMIN only
+
+Data Validation is a data-integrity / registrar tool (orphan records, USN gaps,
+etc.), not Dean academic governance.  Per the Dean Governance Matrix it is
+classified ADMIN ONLY; DEAN is intentionally excluded here and from the Dean
+sidebar.
 """
 from __future__ import annotations
 
@@ -15,7 +20,7 @@ from app.modules.m11_sis.validation_service import ValidationService
 
 validation_router = APIRouter(tags=["SIS Validation"])
 
-_ROLES = (TenantRole.ADMIN, TenantRole.DEAN)
+_ROLES = (TenantRole.ADMIN,)
 
 
 @validation_router.get("/validation/report", response_model=ValidationReportOut)

@@ -12,9 +12,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-# The only responsibilities that may be granted.  FACULTY is the base login
-# role (not a grant); STUDENT / ADMIN are never grantable here.
-GRANTABLE_ROLES: frozenset[str] = frozenset({"GUIDE", "EVALUATOR", "BOARD", "DEAN"})
+# The only responsibilities that may be granted.  DEAN is a PRIMARY role (set on
+# the Users page, like ADMIN / FACULTY / STUDENT) — it owns institutional
+# governance and is NOT a switchable responsibility.  STUDENT / ADMIN / FACULTY
+# are never grantable here either.
+GRANTABLE_ROLES: frozenset[str] = frozenset({"GUIDE", "EVALUATOR", "BOARD"})
 
 
 def normalize_role_code(value: str) -> str:
@@ -23,7 +25,7 @@ def normalize_role_code(value: str) -> str:
 
 class FacultyRoleGrantRequest(BaseModel):
     faculty_user_id: UUID = Field(..., description="Target FACULTY user")
-    role_code: str = Field(..., description="One of GUIDE / EVALUATOR / BOARD / DEAN")
+    role_code: str = Field(..., description="One of GUIDE / EVALUATOR / BOARD")
 
     @field_validator("role_code", mode="before")
     @classmethod

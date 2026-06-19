@@ -166,6 +166,9 @@ class CSVCommitResult(BaseModel):
     # Faculty: generated identity (Phase 1.5)
     faculty_codes_assigned: int = 0
     faculty_institution_emails_assigned: int = 0
+    # Faculty: home department (primary_department_id) derived from program codes
+    # during this commit — NULL-only, never overwrites a Dean-set value.
+    faculty_primary_departments_derived: int = 0
 
 
 # ---------------------------------------------------------------------------

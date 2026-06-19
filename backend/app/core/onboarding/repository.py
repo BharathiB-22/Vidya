@@ -46,6 +46,16 @@ class OnboardingRepository:
         )
         return result.scalar_one_or_none()
 
+    @staticmethod
+    async def resolve_department_by_program(program_id: UUID, db: AsyncSession) -> UUID | None:
+        """Department that owns a program — used to derive a faculty's home
+        department (``primary_department_id``) from their program codes."""
+        result = await db.execute(
+            text("SELECT department_id FROM acad_programs WHERE id = :pid"),
+            {"pid": str(program_id)},
+        )
+        return result.scalar_one_or_none()
+
     # ------------------------------------------------------------------ #
     # Bulk user insert (raw SQL to avoid asyncpg native-enum OID issues)  #
     # ------------------------------------------------------------------ #

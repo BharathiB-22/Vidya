@@ -153,15 +153,19 @@ export interface FacultyDirectoryItem {
   full_name: string
   email: string
   employee_id: string | null
+  faculty_code: string | null
   designation: string | null
   specialization: string | null
   primary_department: { id: string; name: string; code: string } | null
   photo_url: string | null
+  /** Active responsibility grants (GUIDE / EVALUATOR / BOARD / DEAN). */
+  responsibilities: string[]
   is_active: boolean
 }
 
 export interface FacultyDetailOut extends FacultyDirectoryItem {
   identifier: string | null
+  institution_email: string | null
   qualifications: string | null
   bio: string | null
   office_location: string | null

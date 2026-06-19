@@ -29,6 +29,11 @@ import type {
 // Shared display helpers
 // ---------------------------------------------------------------------------
 
+// Responsibility-chip colors (GUIDE / EVALUATOR / BOARD / DEAN)
+const MY_RESP_COLORS: Record<string, string> = {
+  GUIDE: '#818cf8', EVALUATOR: '#34d399', BOARD: '#fbbf24', DEAN: '#f472b6',
+}
+
 function InfoRow({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div
@@ -287,11 +292,37 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
       {/* Admin-managed identity — read-only */}
       <Card title="Academic Identity" icon={UserCircle2} locked>
         <InfoRow label="Email"         value={profile.email} />
-        {profile.employee_id  && <InfoRow label="Employee ID"  value={profile.employee_id} mono />}
+        {profile.faculty_code && <InfoRow label="Faculty code" value={profile.faculty_code} mono />}
+        {profile.institution_email && <InfoRow label="Institution email" value={profile.institution_email} />}
         {profile.designation  && <InfoRow label="Designation"  value={profile.designation} />}
         {profile.qualifications && <InfoRow label="Qualifications" value={profile.qualifications} />}
         {profile.joining_date && <InfoRow label="Joining date" value={profile.joining_date} />}
         {profile.primary_department && <InfoRow label="Department" value={profile.primary_department.name} />}
+      </Card>
+
+      {/* My Responsibilities — explains why certain dashboards are visible */}
+      <Card title="My Responsibilities" icon={Shield} locked>
+        {(profile.responsibilities ?? []).length === 0 ? (
+          <p className="py-2 text-xs text-slate-500">
+            No additional responsibilities. You have the base Faculty role.
+          </p>
+        ) : (
+          <div className="py-2 flex flex-wrap gap-2">
+            {profile.responsibilities.map(r => {
+              const c = MY_RESP_COLORS[r] ?? '#94a3b8'
+              return (
+                <span key={r}
+                  className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full"
+                  style={{ background: `${c}1F`, color: c, border: `1px solid ${c}40` }}>
+                  <Shield className="h-3 w-3" />{r}
+                </span>
+              )
+            })}
+          </div>
+        )}
+        <p className="pt-1 pb-1 text-[11px] text-slate-600">
+          Responsibilities are granted by your Dean or Admin and control which dashboards you can access.
+        </p>
       </Card>
 
       {/* Editable contact + bio */}

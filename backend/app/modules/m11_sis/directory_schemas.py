@@ -159,10 +159,13 @@ class FacultyDirectoryItem(BaseModel):
     full_name: str
     email: str
     employee_id: Optional[str]
+    faculty_code: Optional[str] = None
     designation: Optional[str]
     specialization: Optional[str]
     primary_department: Optional[DeptMini]
     photo_url: Optional[str]
+    # Active responsibility grants (GUIDE / EVALUATOR / BOARD / DEAN).
+    responsibilities: list[str] = []
     is_active: bool
 
 
@@ -176,6 +179,13 @@ class FacultyDetailOut(BaseModel):
     email: str
     identifier: Optional[str]
     employee_id: Optional[str]
+    # Faculty identity (ERP Onboarding Phase 1.5). faculty_code is the official
+    # internal id (FAC0001); institution_email is the directory/SSO address;
+    # `email` above is the personal login identity.
+    faculty_code: Optional[str] = None
+    institution_email: Optional[str] = None
+    # Active responsibility grants (GUIDE / EVALUATOR / BOARD / DEAN).
+    responsibilities: list[str] = []
     designation: Optional[str]
     qualifications: Optional[str]
     bio: Optional[str]

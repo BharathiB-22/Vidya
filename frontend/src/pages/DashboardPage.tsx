@@ -179,6 +179,20 @@ const MODULE_SECTIONS = [
   { key: 'evaluate', label: 'Evaluation' },
 ]
 
+// Responsibility-chip colors (GUIDE / EVALUATOR / BOARD)
+const DASH_RESP_COLORS: Record<string, string> = {
+  GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b',
+}
+
+// Entry route for each responsibility's EXISTING workflow (role switching —
+// no rebuild). A FACULTY account with these grants switches into the same
+// Guide / Evaluator / Board screens a standalone account would use.
+const RESP_ROUTES: Record<string, string> = {
+  GUIDE:     '/research/problems',
+  EVALUATOR: '/evaluator',
+  BOARD:     '/exams/board/pending',
+}
+
 const ROLE_SUBTITLE: Record<string, string> = {
   ADMIN:     'Manage your institution\'s academic structure, people, and settings.',
   DEAN:      'Oversee academic operations, examinations, results, and institutional analytics.',
@@ -680,6 +694,35 @@ export default function DashboardPage() {
               <StatCard label="Workspace"         value={institution}  icon={Building2} />
             </>
           )}
+        </div>
+      )}
+
+      {/* ── My Responsibilities — role-switch into existing workflows ── */}
+      {role === 'FACULTY' && (authUser?.responsibilities?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 shadow-sm">
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <ShieldCheck className="h-3.5 w-3.5 text-sv-primary" />
+            <span className="text-xs font-semibold text-gray-600">My Responsibilities</span>
+            <span className="text-[11px] text-gray-400">— one login, switch into each workflow.</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {authUser!.responsibilities.map((r) => {
+              const c     = DASH_RESP_COLORS[r] ?? '#64748b'
+              const route = RESP_ROUTES[r]
+              return (
+                <button
+                  key={r}
+                  disabled={!route}
+                  onClick={() => route && navigate(route)}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold px-3.5 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                  style={{ background: `${c}14`, color: c, border: `1px solid ${c}40` }}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {r}
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 

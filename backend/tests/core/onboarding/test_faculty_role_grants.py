@@ -1,7 +1,8 @@
 """Faculty responsibility-grant tests — ERP Onboarding Phase 1.5.
 
 A single FACULTY account may hold multiple active grants simultaneously
-(GUIDE / EVALUATOR / BOARD / DEAN).  Integration tests against a real
+(GUIDE / EVALUATOR / BOARD).  DEAN is a primary role, not a grant.
+Integration tests against a real
 PostgreSQL tenant schema; exercise grant / revoke / reactivate / list and the
 soft-delete + multi-grant invariants.
 """
@@ -38,21 +39,23 @@ async def _make_user(schema: str, name: str, role: str = "FACULTY") -> uuid.UUID
     return uid
 
 
-async def _grant(schema, faculty, role_code, actor):
+async def _grant(schema, faculty, role_code, actor, actor_role="ADMIN"):
     async with _Session() as s:
         async with s.begin():
             await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
             return await FacultyRoleGrantService.grant(
                 s, faculty_user_id=faculty, role_code=role_code, granted_by=actor,
+                actor_role=actor_role,
             )
 
 
-async def _revoke(schema, faculty, role_code, actor):
+async def _revoke(schema, faculty, role_code, actor, actor_role="ADMIN"):
     async with _Session() as s:
         async with s.begin():
             await s.execute(text(f"SET LOCAL search_path = {schema}, public"))
             return await FacultyRoleGrantService.revoke(
                 s, faculty_user_id=faculty, role_code=role_code, revoked_by=actor,
+                actor_role=actor_role,
             )
 
 
@@ -114,11 +117,11 @@ async def test_duplicate_grant_prevented(test_tenant_a):
     fac = await _make_user(schema, "Dr Arun")
     admin = await _make_user(schema, "Admin A", role="ADMIN")
 
-    await _grant(schema, fac, "DEAN", admin)
+    await _grant(schema, fac, "EVALUATOR", admin)
     with pytest.raises(FacultyRoleGrantServiceError) as exc:
-        await _grant(schema, fac, "DEAN", admin)
+        await _grant(schema, fac, "EVALUATOR", admin)
     assert exc.value.code == "DUPLICATE_GRANT"
-    assert await _row_count(schema, fac, "DEAN") == (1, 1)
+    assert await _row_count(schema, fac, "EVALUATOR") == (1, 1)
 
 
 @pytest.mark.asyncio
@@ -154,7 +157,8 @@ async def test_invalid_role_code_rejected(test_tenant_a):
     schema = test_tenant_a["schema_name"]
     fac = await _make_user(schema, "Dr X")
     admin = await _make_user(schema, "Admin X", role="ADMIN")
-    for bad in ("HOD", "PLACEMENT", "STUDENT", "ADMIN"):
+    # DEAN is a primary role, not a grantable responsibility.
+    for bad in ("HOD", "PLACEMENT", "STUDENT", "ADMIN", "DEAN"):
         with pytest.raises(FacultyRoleGrantServiceError) as exc:
             await _grant(schema, fac, bad, admin)
         assert exc.value.code == "INVALID_ROLE_CODE"
@@ -184,3 +188,94 @@ async def test_soft_delete_persists_row(test_tenant_a):
     assert active_list.total == 0
     all_list = await _list(schema, fac, include_inactive=True)
     assert all_list.total == 1
+
+
+# ===========================================================================
+# Governance: who may grant/revoke which responsibility
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_dean_can_grant_guide_and_evaluator(test_tenant_a):
+    """A Dean may assign GUIDE and EVALUATOR inside their department."""
+    schema = test_tenant_a["schema_name"]
+    fac = await _make_user(schema, "Dr Aishu")
+    dean = await _make_user(schema, "Dean D", role="DEAN")
+
+    g = await _grant(schema, fac, "GUIDE", dean, actor_role="DEAN")
+    e = await _grant(schema, fac, "EVALUATOR", dean, actor_role="DEAN")
+    assert g.is_active and e.is_active
+    assert {i.role_code for i in (await _list(schema, fac)).items} == {"GUIDE", "EVALUATOR"}
+
+    # Dean may also revoke what it can grant.
+    rev = await _revoke(schema, fac, "GUIDE", dean, actor_role="DEAN")
+    assert rev.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_dean_cannot_grant_board(test_tenant_a):
+    """BOARD is ADMIN-only — a Dean is forbidden (403)."""
+    schema = test_tenant_a["schema_name"]
+    fac = await _make_user(schema, "Dr Aishu")
+    dean = await _make_user(schema, "Dean D", role="DEAN")
+
+    with pytest.raises(FacultyRoleGrantServiceError) as exc:
+        await _grant(schema, fac, "BOARD", dean, actor_role="DEAN")
+    assert exc.value.code == "FORBIDDEN"
+    assert exc.value.status_code == 403
+    assert (await _list(schema, fac)).total == 0
+
+
+@pytest.mark.asyncio
+async def test_dean_is_not_a_grantable_responsibility(test_tenant_a):
+    """DEAN is a primary role — granting it is rejected as an invalid code,
+    for ADMIN and DEAN alike."""
+    schema = test_tenant_a["schema_name"]
+    fac = await _make_user(schema, "Dr Aishu")
+    admin = await _make_user(schema, "Admin A", role="ADMIN")
+    dean = await _make_user(schema, "Dean D", role="DEAN")
+    for actor, actor_role in ((admin, "ADMIN"), (dean, "DEAN")):
+        with pytest.raises(FacultyRoleGrantServiceError) as exc:
+            await _grant(schema, fac, "DEAN", actor, actor_role=actor_role)
+        assert exc.value.code == "INVALID_ROLE_CODE"
+    assert (await _list(schema, fac)).total == 0
+
+
+@pytest.mark.asyncio
+async def test_dean_cannot_revoke_board(test_tenant_a):
+    """A Dean cannot revoke a BOARD grant an Admin created."""
+    schema = test_tenant_a["schema_name"]
+    fac = await _make_user(schema, "Dr Aishu")
+    admin = await _make_user(schema, "Admin A", role="ADMIN")
+    dean = await _make_user(schema, "Dean D", role="DEAN")
+
+    await _grant(schema, fac, "BOARD", admin)  # admin grants BOARD
+    with pytest.raises(FacultyRoleGrantServiceError) as exc:
+        await _revoke(schema, fac, "BOARD", dean, actor_role="DEAN")
+    assert exc.value.code == "FORBIDDEN"
+    assert await _row_count(schema, fac, "BOARD") == (1, 1)  # still active
+
+
+@pytest.mark.asyncio
+async def test_admin_can_grant_all_responsibilities(test_tenant_a):
+    """ADMIN may grant every grantable responsibility, including BOARD."""
+    schema = test_tenant_a["schema_name"]
+    fac = await _make_user(schema, "Dr Full")
+    admin = await _make_user(schema, "Admin F", role="ADMIN")
+
+    for rc in ("GUIDE", "EVALUATOR", "BOARD"):
+        out = await _grant(schema, fac, rc, admin, actor_role="ADMIN")
+        assert out.is_active and out.role_code == rc
+    assert {i.role_code for i in (await _list(schema, fac)).items} == {
+        "GUIDE", "EVALUATOR", "BOARD",
+    }
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_actor_role_forbidden(test_tenant_a):
+    """A non-admin / non-dean actor cannot manage responsibilities at all."""
+    schema = test_tenant_a["schema_name"]
+    fac = await _make_user(schema, "Dr Z")
+    actor = await _make_user(schema, "Faculty Z", role="FACULTY")
+    with pytest.raises(FacultyRoleGrantServiceError) as exc:
+        await _grant(schema, fac, "GUIDE", actor, actor_role="FACULTY")
+    assert exc.value.code == "FORBIDDEN"
