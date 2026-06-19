@@ -581,14 +581,15 @@ _STUDENTS_CSV_SAMPLE = (
     "Jane Smith,jane.smith@university.edu,ABC26MCA002\n"
 )
 
-# roles = responsibilities only: GUIDE / EVALUATOR / BOARD (optional; leave blank
-# for a plain faculty member).  DEAN is a primary role set on the Users page, not
-# a responsibility, so it is not a valid value here.
+# roles = ONE optional primary role (FACULTY default, or DEAN / BOARD) plus
+# FACULTY-only responsibilities (GUIDE / EVALUATOR). e.g. FACULTY|GUIDE|EVALUATOR.
+# DEAN and BOARD are standalone primary accounts — they receive no faculty_code,
+# no institution_email, and cannot carry responsibilities (GUIDE/EVALUATOR).
 _FACULTY_CSV_SAMPLE = (
     "full_name,personal_email,program_codes,roles\n"
     "Dr Kavya,kavya@gmail.com,BCA|MCA|BSCDS,GUIDE|EVALUATOR\n"
     "Dr Arun,arun@yahoo.com,MCA,\n"
-    "Dr Meena,meena@gmail.com,BCA|MCA,BOARD\n"
+    "Dr Meena,meena@gmail.com,,DEAN\n"
 )
 
 
@@ -633,7 +634,7 @@ async def sample_faculty_xlsx() -> Response:
         rows=[
             ["Dr Kavya", "kavya@gmail.com", "BCA|MCA|BSCDS", "GUIDE|EVALUATOR"],
             ["Dr Arun", "arun@yahoo.com", "MCA", ""],
-            ["Dr Meena", "meena@gmail.com", "BCA|MCA", "BOARD"],
+            ["Dr Meena", "meena@gmail.com", "", "DEAN"],
         ],
     )
     return Response(

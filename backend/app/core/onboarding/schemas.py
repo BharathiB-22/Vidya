@@ -71,6 +71,10 @@ class CSVRowResult(BaseModel):
     # Responsibility grants (faculty) — Phase 1.5
     resolved_roles: list[str] = Field(default_factory=list)
     unresolved_roles: list[str] = Field(default_factory=list)
+    # Primary account role derived from the CSV `roles` column — Phase 1.7.
+    # One of ADMIN / DEAN / FACULTY / BOARD; defaults to FACULTY. DEAN/BOARD/ADMIN
+    # are standalone accounts and never receive a faculty_code / institution_email.
+    primary_role: str = "FACULTY"
     # Generated faculty identity (faculty) — Phase 1.5 (projected in preview)
     projected_faculty_code: Optional[str] = None
     projected_institution_email: Optional[str] = None

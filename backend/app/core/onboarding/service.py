@@ -26,9 +26,18 @@ from app.core.onboarding.faculty_code_allocator import (
     FacultyCodeAllocator,
 )
 from app.core.onboarding.faculty_institution_email import build_faculty_email
-from app.core.onboarding.faculty_role_grant_schemas import GRANTABLE_ROLES as _GRANTABLE_ROLES
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$")
+
+# Faculty CSV `roles` column governance (Phase 1.7).
+# A row may declare exactly ONE primary role plus FACULTY-only responsibilities.
+#   * Primary roles  → become users.role directly. DEAN / BOARD / ADMIN are
+#     standalone accounts and never receive a faculty_code / institution_email /
+#     sis_faculty_profile.
+#   * Responsibilities (GUIDE / EVALUATOR) → faculty_role_grants on a FACULTY
+#     account only; invalid on any non-FACULTY primary role.
+_FACULTY_PRIMARY_ROLES = frozenset({"ADMIN", "DEAN", "FACULTY", "BOARD"})
+_FACULTY_RESPONSIBILITIES = frozenset({"GUIDE", "EVALUATOR"})
 
 
 class OnboardingError(Exception):
@@ -377,6 +386,56 @@ class OnboardingService:
             if c and c not in seen:
                 seen.append(c)
         return seen
+
+    @staticmethod
+    def _resolve_faculty_roles(row: CSVRowResult, raw_roles: str) -> None:
+        """Split the faculty CSV `roles` column into one primary role + grants.
+
+        Governance (Phase 1.7):
+          * Exactly one primary role (ADMIN / DEAN / FACULTY / BOARD). When none
+            is given the row defaults to FACULTY (this is the faculty importer).
+          * GUIDE / EVALUATOR are responsibilities — valid ONLY when the primary
+            role is FACULTY. Declared on a DEAN / BOARD / ADMIN row, they make the
+            row invalid (a Dean/Board account is never a faculty grant holder).
+          * More than one primary role is ambiguous → invalid.
+          * Unknown tokens are ignored with a warning.
+
+        Mutates ``row`` in place: sets ``primary_role`` / ``resolved_roles`` and,
+        on a rule violation, flips ``is_valid`` to False with an explanatory error.
+        """
+        codes = OnboardingService._split_codes(raw_roles)
+        primaries = [c for c in codes if c in _FACULTY_PRIMARY_ROLES]
+        responsibilities = [c for c in codes if c in _FACULTY_RESPONSIBILITIES]
+        unknown = [
+            c for c in codes
+            if c not in _FACULTY_PRIMARY_ROLES and c not in _FACULTY_RESPONSIBILITIES
+        ]
+
+        for c in unknown:
+            row.unresolved_roles.append(c)
+            row.warnings.append(f"Unknown role (ignored): '{c}'")
+
+        if len(primaries) > 1:
+            row.is_valid = False
+            row.errors.append(
+                f"Multiple primary roles ({', '.join(primaries)}). Exactly one of "
+                "ADMIN / DEAN / FACULTY / BOARD is allowed per row."
+            )
+            return
+
+        primary = primaries[0] if primaries else "FACULTY"
+        row.primary_role = primary
+
+        if responsibilities and primary != "FACULTY":
+            row.is_valid = False
+            row.errors.append(
+                f"{primary} cannot hold responsibilities "
+                f"({', '.join(responsibilities)}). GUIDE / EVALUATOR are grants on "
+                "a FACULTY account only."
+            )
+            return
+
+        row.resolved_roles = responsibilities
 
     # ------------------------------------------------------------------ #
     # Bulk student generation                                              #
@@ -883,13 +942,8 @@ class OnboardingService:
                     row.unresolved_program_codes.append(code)
                     row.warnings.append(f"Program not found (mapping skipped): '{code}'")
 
-            # Resolve responsibility grants (pipe/comma-delimited).
-            for rc in OnboardingService._split_codes(raw.get("roles", "")):
-                if rc in _GRANTABLE_ROLES:
-                    row.resolved_roles.append(rc)
-                else:
-                    row.unresolved_roles.append(rc)
-                    row.warnings.append(f"Unknown responsibility (grant skipped): '{rc}'")
+            # Resolve the `roles` column into ONE primary role + responsibilities.
+            OnboardingService._resolve_faculty_roles(row, raw.get("roles", ""))
 
             rows.append(row)
 
@@ -910,6 +964,12 @@ class OnboardingService:
             faculty_id: UUID | None = None
             is_new = False
             if r.is_valid:
+                # DEAN / BOARD / ADMIN are standalone primary accounts — they are
+                # created with their own role but are NOT faculty, so they never
+                # contribute a faculty_code / institution_email / program mapping /
+                # responsibility grant.
+                if (r.primary_role or "FACULTY") != "FACULTY":
+                    continue
                 is_new = True                       # brand-new faculty (created on commit)
                 valid_new_rows.append(r)
                 faculty_emails.add(r.email.lower())
@@ -1127,7 +1187,9 @@ class OnboardingService:
                 "id":              str(uid_obj),
                 "email":           r.email,      # personal_email is the login identity
                 "pw_hash":         pw_hash,
-                "role":            "FACULTY",
+                # Phase 1.7: honour the primary role declared in the CSV. DEAN /
+                # BOARD / ADMIN become standalone accounts; FACULTY is the default.
+                "role":            r.primary_role or "FACULTY",
                 "full_name":       r.full_name,
                 "identifier":      None,         # employee_id no longer collected
                 "acad_program_id": None,
@@ -1142,16 +1204,19 @@ class OnboardingService:
             )
 
         # Mint faculty_code (atomic) + generate institution_email; create profiles.
+        # ONLY for rows whose primary role is FACULTY — DEAN / BOARD / ADMIN are
+        # standalone accounts and must never receive a faculty identity.
         codes_assigned = inst_emails_assigned = 0
         created_uids: list[str] = []
-        if new_rows:
+        faculty_new_rows = [(uid, r) for uid, r in new_rows if (r.primary_role or "FACULTY") == "FACULTY"]
+        if faculty_new_rows:
             await FacultyCodeAllocator.seed_counter_from_existing(db, prefix=_FACULTY_CODE_PREFIX)
             codes = await FacultyCodeAllocator.allocate_codes(
-                db, prefix=_FACULTY_CODE_PREFIX, count=len(new_rows)
+                db, prefix=_FACULTY_CODE_PREFIX, count=len(faculty_new_rows)
             )
             domain = await OnboardingService._get_institution_domain(db)
             taken = await OnboardingService._existing_institution_emails(db)
-            for (uid_obj, r), code in zip(new_rows, codes):
+            for (uid_obj, r), code in zip(faculty_new_rows, codes):
                 inst_email = build_faculty_email(r.full_name, domain, taken) if domain else None
                 await db.execute(
                     text(
@@ -1173,7 +1238,11 @@ class OnboardingService:
         ]
 
         # Resolve the faculty user id for a row: brand-new, or an existing FACULTY.
+        # Non-FACULTY primary rows (DEAN / BOARD / ADMIN) never receive program
+        # mappings or responsibility grants, so they resolve to None.
         async def _resolve_faculty_uid(r: CSVRowResult) -> UUID | None:
+            if (r.primary_role or "FACULTY") != "FACULTY":
+                return None
             uid = new_uid_by_email.get(r.email.lower())
             if uid is not None:
                 return uid

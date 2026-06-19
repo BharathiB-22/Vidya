@@ -133,18 +133,25 @@ async def test_preview_projects_identity_and_roles(test_tenant_a):
     preview = await _preview(schema, _CSV)
 
     assert preview.valid_rows == 3
+    # Kavya has no explicit primary → defaults to FACULTY, gets a code + grants.
     kavya = next(r for r in preview.rows if r.full_name == "Dr Kavya")
+    assert kavya.primary_role == "FACULTY"
     assert kavya.projected_faculty_code == "FAC0001"
     assert kavya.projected_institution_email == "kavya@lms.edu"
     assert set(kavya.resolved_roles) == {"GUIDE", "EVALUATOR"}
-    # DEAN is a primary role, not a grantable responsibility — it is skipped.
+    # DEAN is a primary role → standalone account, NO faculty code / grants.
     arun = next(r for r in preview.rows if r.full_name == "Dr Arun")
+    assert arun.primary_role == "DEAN"
     assert arun.resolved_roles == []
-    assert arun.unresolved_roles == ["DEAN"]
-    assert any("DEAN" in w for w in arun.warnings)
+    assert arun.projected_faculty_code is None
+    # BOARD is a primary role → standalone account, NO faculty code / grants.
+    meena = next(r for r in preview.rows if r.full_name == "Dr Meena")
+    assert meena.primary_role == "BOARD"
+    assert meena.resolved_roles == []
+    assert meena.projected_faculty_code is None
     sm = preview.summary_meta
-    assert sm["faculty_codes_to_assign"] == 3
-    assert sm["new_role_grants"] == 3   # GUIDE+EVALUATOR + BOARD (DEAN skipped)
+    assert sm["faculty_codes_to_assign"] == 1   # only Kavya (FACULTY)
+    assert sm["new_role_grants"] == 2           # GUIDE + EVALUATOR (DEAN/BOARD primary)
 
 
 @pytest.mark.asyncio
@@ -154,9 +161,46 @@ async def test_preview_unknown_role_warns(test_tenant_a):
     content = "full_name,personal_email,roles\nDr Z,z@gmail.com,HOD|GUIDE\n".encode()
     preview = await _preview(schema, content)
     row = preview.rows[0]
+    assert row.primary_role == "FACULTY"        # no primary token → FACULTY default
     assert row.resolved_roles == ["GUIDE"]
     assert row.unresolved_roles == ["HOD"]
     assert any("HOD" in w for w in row.warnings)
+
+
+@pytest.mark.asyncio
+async def test_preview_rejects_responsibility_on_dean(test_tenant_a):
+    """Example 7: roles=DEAN|GUIDE is invalid — DEAN is not a grant holder."""
+    schema = test_tenant_a["schema_name"]
+    await _setup(schema)
+    content = "full_name,personal_email,roles\nDr D,d@gmail.com,DEAN|GUIDE\n".encode()
+    preview = await _preview(schema, content)
+    row = preview.rows[0]
+    assert row.is_valid is False
+    assert any("DEAN" in e and "GUIDE" in e for e in row.errors)
+
+
+@pytest.mark.asyncio
+async def test_preview_rejects_responsibility_on_board(test_tenant_a):
+    """Example 8: roles=BOARD|GUIDE is invalid — BOARD is a primary role."""
+    schema = test_tenant_a["schema_name"]
+    await _setup(schema)
+    content = "full_name,personal_email,roles\nDr B,b@gmail.com,BOARD|GUIDE\n".encode()
+    preview = await _preview(schema, content)
+    row = preview.rows[0]
+    assert row.is_valid is False
+    assert any("BOARD" in e for e in row.errors)
+
+
+@pytest.mark.asyncio
+async def test_preview_rejects_multiple_primary_roles(test_tenant_a):
+    """Two primary roles in one row is ambiguous → invalid."""
+    schema = test_tenant_a["schema_name"]
+    await _setup(schema)
+    content = "full_name,personal_email,roles\nDr M,m@gmail.com,DEAN|BOARD\n".encode()
+    preview = await _preview(schema, content)
+    row = preview.rows[0]
+    assert row.is_valid is False
+    assert any("primary role" in e.lower() for e in row.errors)
 
 
 # ===========================================================================
@@ -170,12 +214,13 @@ async def test_commit_creates_identity_programs_grants(test_tenant_a):
     admin = await _admin(schema)
     result = await _commit(schema, _CSV, admin)
 
-    assert result.created == 3
-    assert result.faculty_codes_assigned == 3
-    assert result.faculty_institution_emails_assigned == 3
-    assert result.program_mappings_created == 5   # Kavya BCA+MCA, Arun MCA, Meena BCA+MCA
-    assert result.role_grants_created == 3         # DEAN skipped (primary role)
+    assert result.created == 3                     # FACULTY + DEAN + BOARD all created
+    assert result.faculty_codes_assigned == 1      # only Kavya (FACULTY)
+    assert result.faculty_institution_emails_assigned == 1
+    assert result.program_mappings_created == 2    # Kavya BCA+MCA (DEAN/BOARD skipped)
+    assert result.role_grants_created == 2         # GUIDE + EVALUATOR
 
+    # Kavya → FACULTY workspace, with code, institution email and grants.
     kavya = await _profile(schema, "kavya@gmail.com")
     assert kavya["role"] == "FACULTY"
     assert kavya["email"] == "kavya@gmail.com"          # login identity = personal email
@@ -183,8 +228,45 @@ async def test_commit_creates_identity_programs_grants(test_tenant_a):
     assert kavya["faculty_code"] == "FAC0001"
     assert kavya["institution_email"] == "kavya@lms.edu"
     assert await _grants(schema, "kavya@gmail.com") == {"GUIDE", "EVALUATOR"}
-    assert await _grants(schema, "arun@yahoo.com") == set()      # DEAN skipped
-    assert await _grants(schema, "meena@gmail.com") == {"BOARD"}
+
+    # Arun → DEAN workspace: primary role DEAN, NO faculty code / profile / grants.
+    arun = await _profile(schema, "arun@yahoo.com")
+    assert arun["role"] == "DEAN"
+    assert arun["faculty_code"] is None
+    assert arun["institution_email"] is None
+    assert await _grants(schema, "arun@yahoo.com") == set()
+
+    # Meena → BOARD workspace: primary role BOARD, NO faculty code / profile / grants.
+    meena = await _profile(schema, "meena@gmail.com")
+    assert meena["role"] == "BOARD"
+    assert meena["faculty_code"] is None
+    assert meena["institution_email"] is None
+    assert await _grants(schema, "meena@gmail.com") == set()
+
+
+@pytest.mark.asyncio
+async def test_commit_explicit_faculty_responsibilities(test_tenant_a):
+    """Examples 4 & 5: FACULTY|GUIDE and FACULTY|EVALUATOR → FACULTY + single grant."""
+    schema = test_tenant_a["schema_name"]
+    await _setup(schema)
+    admin = await _admin(schema)
+    content = (
+        "full_name,personal_email,roles\n"
+        "Faculty Guide,fg@gmail.com,FACULTY|GUIDE\n"
+        "Faculty Evaluator,fe@gmail.com,FACULTY|EVALUATOR\n"
+        "Plain Faculty,pf@gmail.com,FACULTY\n"
+    ).encode()
+    result = await _commit(schema, content, admin)
+
+    assert result.created == 3
+    assert result.faculty_codes_assigned == 3            # all three are FACULTY
+    assert result.role_grants_created == 2               # one GUIDE + one EVALUATOR
+
+    fg = await _profile(schema, "fg@gmail.com")
+    assert fg["role"] == "FACULTY" and fg["faculty_code"] is not None
+    assert await _grants(schema, "fg@gmail.com") == {"GUIDE"}
+    assert await _grants(schema, "fe@gmail.com") == {"EVALUATOR"}
+    assert await _grants(schema, "pf@gmail.com") == set()
 
 
 # ===========================================================================
@@ -196,13 +278,14 @@ async def test_commit_derives_primary_department_from_programs(test_tenant_a):
     schema = test_tenant_a["schema_name"]
     ids = await _setup(schema)
     admin = await _admin(schema)
-    # All three faculty map to programs (BCA/MCA) under the single dept "CA".
+    # Only Kavya is FACULTY (with programs under dept "CA"); Arun=DEAN, Meena=BOARD
+    # are standalone accounts with no profile, so no department is derived for them.
     result = await _commit(schema, _CSV, admin)
 
-    assert result.faculty_primary_departments_derived == 3
+    assert result.faculty_primary_departments_derived == 1
     assert await _dept(schema, "kavya@gmail.com") == str(ids["dept"])
-    assert await _dept(schema, "arun@yahoo.com") == str(ids["dept"])
-    assert await _dept(schema, "meena@gmail.com") == str(ids["dept"])
+    assert await _dept(schema, "arun@yahoo.com") is None
+    assert await _dept(schema, "meena@gmail.com") is None
 
 
 @pytest.mark.asyncio

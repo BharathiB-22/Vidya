@@ -812,11 +812,12 @@ function CSVImportTab({ role }: { role: ImportRole }) {
       )}
       {role === 'faculty' && (
         <p className="text-xs" style={{ color: '#6B7280' }}>
-          Login is the <code className="font-mono mx-1">personal_email</code>. A
+          Login is the <code className="font-mono mx-1">personal_email</code>. For FACULTY a
           <code className="font-mono mx-1">faculty_code</code>(e.g. FAC0001) and an
           institution email are generated automatically.
-          <code className="font-mono mx-1">roles</code>accepts the responsibilities GUIDE, EVALUATOR, BOARD
-          (pipe-separated) — one account can hold several. DEAN is a primary role, set on the Users page.
+          <code className="font-mono mx-1">roles</code>takes one primary role (FACULTY default, or DEAN / BOARD)
+          plus FACULTY-only responsibilities GUIDE / EVALUATOR (pipe-separated, e.g. FACULTY|GUIDE|EVALUATOR).
+          DEAN and BOARD are standalone accounts — no faculty code, and they cannot carry responsibilities.
         </p>
       )}
 
