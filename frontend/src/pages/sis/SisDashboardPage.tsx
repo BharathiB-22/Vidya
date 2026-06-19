@@ -60,19 +60,19 @@ export default function SisDashboardPage() {
       value: counts?.departments ?? '–', accentColor: '#8b5cf6',
     },
     {
-      key: 'programs', label: 'Programs', icon: GraduationCap, to: '/programs',
+      key: 'programs', label: 'Degree Programs', icon: GraduationCap, to: '/academics/programs',
       value: counts?.programs ?? '–', accentColor: '#3b82f6',
     },
     {
-      key: 'batches', label: 'Active Batches', icon: CalendarRange,
+      key: 'batches', label: 'Active Batches', icon: CalendarRange, to: '/academics/batches',
       value: counts?.active_batches ?? '–', accentColor: '#10b981',
     },
     {
-      key: 'semesters', label: 'Semesters', icon: Calendar,
+      key: 'semesters', label: 'Semesters', icon: Calendar, to: '/academics/semesters',
       value: counts?.semesters ?? '–', accentColor: '#f59e0b',
     },
     {
-      key: 'sections', label: 'Sections', icon: LayoutList,
+      key: 'sections', label: 'Sections', icon: LayoutList, to: '/academics/sections',
       value: counts?.sections ?? '–', accentColor: '#ec4899',
     },
     {

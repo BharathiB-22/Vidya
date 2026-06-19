@@ -26,10 +26,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-// All roles a user may currently hold — used for filtering and display badges
-// (legacy standalone GUIDE/EVALUATOR/BOARD accounts still exist).
+// Every role value that may appear on a user row — drives badge colors and the
+// Role type. Legacy standalone GUIDE/EVALUATOR/BOARD accounts still exist, so
+// their badges must continue to render.
 const ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD', 'GUIDE', 'EVALUATOR'] as const
 type Role = typeof ROLES[number]
+
+// Roles offered in the filter dropdown. GUIDE / EVALUATOR are responsibilities
+// (granted from the faculty profile via faculty_role_grants), never primary
+// roles, so they are not offered as account filters. BOARD is retained for now
+// pending the Phase 1.7 governance audit and because legacy standalone BOARD
+// accounts may still exist and need to be located.
+const FILTER_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 
 // Roles assignable as a PRIMARY account role. GUIDE / EVALUATOR / BOARD are now
 // responsibilities (granted from the Faculty Profile via faculty_role_grants),
@@ -447,7 +455,7 @@ export default function UsersPage() {
           <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All roles</SelectItem>
-            {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+            {FILTER_ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={filterProgram} onValueChange={setFilterProgram}>
