@@ -105,8 +105,16 @@ def _build_student_item(row) -> StudentDirectoryItem:
     )
 
 
+_FACULTY_LIKE_ROLES = frozenset({TenantRole.FACULTY, TenantRole.BOARD, TenantRole.DEAN})
+
+
 def _build_faculty_item(row, responsibilities: list[str] | None = None) -> FacultyDirectoryItem:
     user, profile, dept = row
+    # Surface the primary governance role as a responsibility chip so BOARD/DEAN
+    # members display their role badge in the Faculty Directory card.
+    resps: list[str] = list(responsibilities or [])
+    if user.role in (TenantRole.BOARD, TenantRole.DEAN) and user.role not in resps:
+        resps = [user.role] + resps
     return FacultyDirectoryItem(
         user_id=user.id,
         full_name=user.full_name,
@@ -117,7 +125,7 @@ def _build_faculty_item(row, responsibilities: list[str] | None = None) -> Facul
         specialization=profile.specialization if profile else None,
         primary_department=DeptMini(id=dept.id, name=dept.name, code=dept.code) if dept else None,
         photo_url=profile.photo_url if profile else None,
-        responsibilities=responsibilities or [],
+        responsibilities=resps,
         is_active=user.is_active,
     )
 
@@ -363,7 +371,7 @@ class FacultyDirectoryService:
         if row is None:
             raise DirectoryServiceError("NOT_FOUND", "Faculty member not found.", 404)
         user, profile, dept = row
-        if user.role != TenantRole.FACULTY:
+        if user.role not in _FACULTY_LIKE_ROLES:
             raise DirectoryServiceError("NOT_FOUND", "Faculty member not found.", 404)
 
         assignment_rows = await FacultyDirectoryRepository.get_active_assignments(user_id, db)
@@ -380,6 +388,9 @@ class FacultyDirectoryService:
             ))
 
         responsibilities = await _active_grants_for(user_id, db)
+        # Surface primary governance role as a chip for BOARD/DEAN users
+        if user.role in (TenantRole.BOARD, TenantRole.DEAN) and user.role not in responsibilities:
+            responsibilities = [user.role] + responsibilities
 
         return FacultyDetailOut(
             user_id=user.id,
@@ -417,7 +428,7 @@ class FacultyDirectoryService:
     ) -> FacultyDetailOut:
         result = await db.execute(select(User).where(User.id == user_id))
         target = result.scalar_one_or_none()
-        if target is None or target.role != TenantRole.FACULTY:
+        if target is None or target.role not in _FACULTY_LIKE_ROLES:
             raise DirectoryServiceError("NOT_FOUND", "Faculty member not found.", 404)
 
         # employee_id uniqueness check

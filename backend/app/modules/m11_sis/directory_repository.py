@@ -85,13 +85,16 @@ _LEGACY_GOVERNANCE_ROLES = ("BOARD", "DEAN")
 def _faculty_base_stmt():
     """Core SELECT joining users → profile → primary_department.
 
-    Excludes pre-Phase-1.7 accounts that have ``users.role=FACULTY`` but
-    hold an active BOARD or DEAN grant — those are governance users who were
-    mis-imported before BOARD/DEAN became primary roles.  After running
-    ``scripts/repair_board_dean_roles.py`` this subquery returns an empty
-    set and has zero cost.
+    Includes FACULTY, BOARD, and DEAN users. BOARD/DEAN primary-role users are
+    always included — they are faculty-level members (board examiners, deans)
+    who must appear in the Faculty Directory.
+
+    Legacy FACULTY accounts that still carry an active BOARD or DEAN grant (pre-
+    Phase-1.7, not yet repaired by migration 0056ten) are excluded to avoid
+    double-counting: those accounts will be repaired to a proper primary role the
+    next time migrations run, after which the subquery has zero cost.
     """
-    legacy_ids = (
+    legacy_faculty_ids = (
         select(FacultyRoleGrant.faculty_user_id)
         .where(
             FacultyRoleGrant.role_code.in_(_LEGACY_GOVERNANCE_ROLES),
@@ -100,8 +103,15 @@ def _faculty_base_stmt():
     )
     return (
         select(User, SisFacultyProfile, AcadDepartment)
-        .where(User.role == TenantRole.FACULTY)
-        .where(User.id.not_in(legacy_ids))
+        .where(
+            or_(
+                and_(
+                    User.role == TenantRole.FACULTY,
+                    User.id.not_in(legacy_faculty_ids),
+                ),
+                User.role.in_([TenantRole.BOARD, TenantRole.DEAN]),
+            )
+        )
         .outerjoin(SisFacultyProfile, SisFacultyProfile.user_id == User.id)
         .outerjoin(AcadDepartment, AcadDepartment.id == SisFacultyProfile.primary_department_id)
     )

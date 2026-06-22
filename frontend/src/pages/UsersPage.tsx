@@ -259,7 +259,10 @@ function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps)
     if (user) {
       setFullName(user.full_name)
       setEmail(user.email)
-      setRole(user.role as Role)
+      // Use the effective role (displayRole) so legacy FACULTY+BOARD/DEAN-grant users
+      // see and save the correct role. On save, role !== user.role triggers the
+      // backend update that repairs the DB role to match.
+      setRole(displayRole(user) as Role)
       setIsActive(user.is_active)
       setIdentifier(user.identifier ?? '')
       setProgramId(user.acad_program_id ?? '')
