@@ -44,6 +44,14 @@ const FILTER_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 // not primary roles. BOARD is a primary role (leadership/governance accounts).
 const PRIMARY_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 
+// Legacy FACULTY users with a BOARD grant pre-date Phase 1.7 governance where
+// BOARD became a primary role. Display their effective role as BOARD so the
+// Users page shows a consistent picture regardless of import vintage.
+function displayRole(u: UserRecord): string {
+  if (u.role === 'FACULTY' && u.grants?.includes('BOARD')) return 'BOARD'
+  return u.role
+}
+
 const ROLE_COLORS: Record<string, string> = {
   ADMIN:     'bg-indigo-100 text-indigo-800',
   DEAN:      'bg-purple-100 text-purple-800',
@@ -407,7 +415,7 @@ export default function UsersPage() {
   }, [])
 
   const filtered = users.filter((u) => {
-    const matchRole    = filterRole    === 'ALL' || u.role === filterRole
+    const matchRole    = filterRole    === 'ALL' || displayRole(u) === filterRole
     const matchProgram = filterProgram === 'ALL' || u.acad_program_id === filterProgram
     const q = search.toLowerCase()
     const matchSearch = !q ||
@@ -510,8 +518,8 @@ export default function UsersPage() {
                   <td className="px-4 py-3 font-medium text-gray-900">{u.full_name}</td>
                   <td className="px-4 py-3 text-gray-600">{u.email}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[u.role] ?? 'bg-gray-100 text-gray-700'}`}>
-                      {u.role}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[displayRole(u)] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {displayRole(u)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs">

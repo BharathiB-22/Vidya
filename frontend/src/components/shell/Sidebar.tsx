@@ -187,6 +187,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Administration',
     items: [
+      { label: 'My Profile',       to: '/my-profile',        icon: UserCircle2, roles: ['ADMIN'] },
       { label: 'Branding',         to: '/settings/branding', icon: Palette,     roles: ['ADMIN'] },
       { label: 'Settings',         to: '/settings',          icon: Settings,    roles: ['ADMIN'] },
       { label: 'Data Validation',  to: '/sis/validation',    icon: ShieldAlert, roles: ['ADMIN'] },

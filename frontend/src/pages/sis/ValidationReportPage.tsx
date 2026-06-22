@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ShieldAlert, AlertTriangle, Info, CheckCircle2,
   ChevronDown, ChevronRight, RefreshCw,
+  GraduationCap, UserCheck, Users, Layers, Activity,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
@@ -10,6 +11,44 @@ import { PageLoading } from '@/components/shared/PageLoading'
 import { Button } from '@/components/ui/button'
 import { sisApi } from '@/lib/api/sis'
 import type { CheckResult, ValidationSeverity } from '@/lib/api/sis'
+
+// ---------------------------------------------------------------------------
+// Summary cards
+// ---------------------------------------------------------------------------
+
+interface SummaryCardProps {
+  icon: React.ElementType
+  label: string
+  count: number | null
+  ok: boolean
+  color: string
+}
+
+function SummaryCard({ icon: Icon, label, count, ok, color }: SummaryCardProps) {
+  return (
+    <div
+      className="flex-1 min-w-[140px] rounded-xl p-4 flex flex-col gap-2"
+      style={{
+        background: ok ? 'rgba(16,185,129,0.06)' : `${color}0f`,
+        border: `1px solid ${ok ? 'rgba(16,185,129,0.2)' : color + '30'}`,
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <Icon size={15} style={{ color: ok ? '#10b981' : color }} />
+        <span className="text-xs font-semibold" style={{ color: ok ? '#059669' : '#111827' }}>{label}</span>
+      </div>
+      {count === null ? (
+        <span className="text-xs text-gray-400">—</span>
+      ) : ok ? (
+        <span className="text-xs flex items-center gap-1" style={{ color: '#10b981' }}>
+          <CheckCircle2 size={11} /> Clean
+        </span>
+      ) : (
+        <span className="text-2xl font-black" style={{ color }}>{count}</span>
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Severity helpers
@@ -108,6 +147,16 @@ export default function ValidationReportPage() {
   const infos    = data?.checks.filter(c => c.severity === 'INFO'    && c.count > 0).length ?? 0
   const clean    = data ? data.checks.every(c => c.count === 0) : false
 
+  const byId = (id: string) => data?.checks.find(c => c.check_id === id)
+  const countOf = (...ids: string[]) =>
+    ids.reduce((sum, id) => sum + (byId(id)?.count ?? 0), 0)
+
+  const usnIssues       = data ? countOf('students_without_usn') : null
+  const facultyNoProf   = data ? countOf('faculty_without_profile') : null
+  const enrollmentIssues= data ? countOf('students_not_enrolled', 'enrolled_inactive_section') : null
+  const capacityIssues  = data ? countOf('sections_over_capacity') : null
+  const overallOk       = data ? clean : null
+
   const generatedAt = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString()
     : null
@@ -125,6 +174,21 @@ export default function ValidationReportPage() {
           </Button>
         }
       />
+
+      {/* Summary cards — always visible */}
+      <div className="flex flex-wrap gap-3">
+        <SummaryCard icon={GraduationCap} label="Students without USN"
+          count={usnIssues} ok={usnIssues === 0} color="#f87171" />
+        <SummaryCard icon={UserCheck} label="Faculty without profile"
+          count={facultyNoProf} ok={facultyNoProf === 0} color="#fbbf24" />
+        <SummaryCard icon={Users} label="Enrollment issues"
+          count={enrollmentIssues} ok={enrollmentIssues === 0} color="#f87171" />
+        <SummaryCard icon={Layers} label="Capacity issues"
+          count={capacityIssues} ok={capacityIssues === 0} color="#fbbf24" />
+        <SummaryCard icon={Activity} label="Validation health"
+          count={overallOk === null ? null : overallOk ? 0 : errors + warnings}
+          ok={overallOk === true} color="#f87171" />
+      </div>
 
       {isLoading ? (
         <PageLoading message="Running validation checks…" />

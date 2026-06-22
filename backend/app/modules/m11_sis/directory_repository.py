@@ -31,23 +31,27 @@ from app.modules.m_academics.models import (
 def _faculty_in_department(department_id):
     """Department-membership predicate for a faculty row.
 
-    A faculty belongs to a department if their profile ``primary_department_id``
-    points to it OR they have an active program assignment to a program in that
-    department.  ``primary_department_id`` is frequently NULL (it is not set by
-    CSV import), so relying on it alone makes the directory's department filter
-    return zero rows — deriving membership from real program relationships fixes
-    that.  Correlates on the outer ``User`` row.
+    Two-path check: (1) profile's primary_department_id, or (2) active
+    program assignment to a program in the requested department.
+    ``primary_department_id`` may be NULL for faculty without a profile,
+    so the assignment path is the reliable fallback.
+
+    The EXISTS is written as a raw SQL text clause to avoid SQLAlchemy
+    auto-correlation edge-cases when the outer query is wrapped in a
+    subquery (e.g. for the count query).  ``users.id`` in the text
+    correlates against the ``users`` table already present in
+    ``_faculty_base_stmt()``.
     """
-    via_assignment = (
-        select(FacultyProgramAssignment.id)
-        .join(AcadProgram, AcadProgram.id == FacultyProgramAssignment.program_id)
-        .where(
-            FacultyProgramAssignment.faculty_user_id == User.id,
-            FacultyProgramAssignment.is_active.is_(True),
-            AcadProgram.department_id == department_id,
-        )
-        .exists()
-    )
+    from sqlalchemy import text as _text
+    via_assignment = _text(
+        "EXISTS ("
+        " SELECT 1 FROM faculty_program_assignments fpa"
+        " JOIN acad_programs ap ON ap.id = fpa.program_id"
+        " WHERE fpa.faculty_user_id = users.id"
+        " AND fpa.is_active = true"
+        " AND ap.department_id = :fpa_dept_id"
+        ")"
+    ).bindparams(fpa_dept_id=str(department_id))
     return or_(
         SisFacultyProfile.primary_department_id == department_id,
         via_assignment,

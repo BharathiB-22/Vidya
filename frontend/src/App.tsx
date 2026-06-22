@@ -61,6 +61,7 @@ import ForgotPasswordPage from '@/pages/ForgotPasswordPage'
 import UsersPage from '@/pages/UsersPage'
 import BulkOnboardingPage from '@/pages/BulkOnboardingPage'
 import SettingsPage from '@/pages/SettingsPage'
+import InstitutionAdminProfilePage from '@/pages/InstitutionAdminProfilePage'
 import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
@@ -350,6 +351,7 @@ export default function App() {
             <Route path="/users/bulk-onboarding" element={<BulkOnboardingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/settings/branding" element={<SettingsBrandingPage />} />
+            <Route path="/my-profile" element={<InstitutionAdminProfilePage />} />
           </Route>
 
           {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}

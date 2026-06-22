@@ -139,24 +139,32 @@ function FacultyCard({
           )}
         </div>
         <p className="text-xs mt-0.5 truncate" style={{ color: '#4B5563' }}>{member.email}</p>
-        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-          {member.designation && <span className="text-xs" style={{ color: '#374151' }}>{member.designation}</span>}
-          {member.primary_department && <span className="text-xs" style={{ color: '#4B5563' }}>{member.primary_department.name}</span>}
-          {member.specialization && <span className="text-xs italic" style={{ color: '#4B5563' }}>{member.specialization}</span>}
-        </div>
-        {member.responsibilities && member.responsibilities.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {member.responsibilities.map(r => {
-              const c = RESP_COLORS[r] ?? '#64748b'
-              return (
-                <span key={r} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                  style={{ background: `${c}18`, color: c, border: `1px solid ${c}33` }}>
-                  {r}
-                </span>
-              )
-            })}
-          </div>
+        {member.designation && (
+          <p className="text-xs mt-0.5" style={{ color: '#374151' }}>{member.designation}</p>
         )}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {member.primary_department && (
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(99,102,241,0.1)', color: '#4f46e5', border: '1px solid rgba(99,102,241,0.2)' }}>
+              {member.primary_department.name}
+            </span>
+          )}
+          {member.specialization && (
+            <span className="text-[10px] italic px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(107,114,128,0.08)', color: '#4B5563', border: '1px solid rgba(107,114,128,0.15)' }}>
+              {member.specialization}
+            </span>
+          )}
+          {member.responsibilities?.map(r => {
+            const c = RESP_COLORS[r] ?? '#64748b'
+            return (
+              <span key={r} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                style={{ background: `${c}18`, color: c, border: `1px solid ${c}33` }}>
+                {r}
+              </span>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

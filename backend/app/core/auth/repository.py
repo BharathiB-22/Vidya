@@ -351,10 +351,25 @@ class TenantRepository:
             stmt = stmt.where(User.acad_program_id == acad_program_id)
         result = await db.execute(stmt)
         rows = result.all()
-        # Attach program_name as a transient attribute so service can read it
+        # Fetch all active grants in one query, keyed by user_id string.
+        user_ids = [str(u.id) for u, _ in rows]
+        grants_map: dict[str, list[str]] = {}
+        if user_ids:
+            grants_rows = await db.execute(
+                text(
+                    "SELECT faculty_user_id::text, role_code "
+                    "FROM faculty_role_grants "
+                    "WHERE is_active = true AND faculty_user_id = ANY(:ids)"
+                ),
+                {"ids": user_ids},
+            )
+            for uid, code in grants_rows.fetchall():
+                grants_map.setdefault(uid, []).append(code)
+        # Attach program_name and grants as transient attributes.
         users = []
         for user, program_name in rows:
             user._program_name = program_name
+            user._grants = sorted(grants_map.get(str(user.id), []))
             users.append(user)
         return users
 

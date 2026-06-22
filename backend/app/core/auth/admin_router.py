@@ -77,6 +77,7 @@ async def list_users(
     for u in users:
         resp = UserResponse.model_validate(u)
         resp.acad_program_name = getattr(u, "_program_name", None)
+        resp.grants = getattr(u, "_grants", [])
         result.append(resp)
     return result
 

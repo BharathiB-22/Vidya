@@ -195,6 +195,7 @@ class UserResponse(BaseModel):
     is_active: bool
     must_change_password: bool = False
     created_at: datetime
+    grants: list[str] = []
 
     model_config = {"from_attributes": True}
 

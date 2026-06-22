@@ -10,6 +10,7 @@ export interface UserRecord {
   acad_program_name: string | null
   is_active: boolean
   created_at: string
+  grants?: string[]
 }
 
 export interface CreateUserPayload {
