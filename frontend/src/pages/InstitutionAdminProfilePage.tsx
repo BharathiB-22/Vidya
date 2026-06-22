@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { UserCircle2, Lock, Pencil, Check, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { UserCircle2, Pencil, Check, X, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
-import api, { getErrorMessage } from '@/lib/api'
+import { getErrorMessage } from '@/lib/api'
 import { usersApi } from '@/lib/api/users'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,13 +38,6 @@ export default function InstitutionAdminProfilePage() {
   const [emailValue,   setEmailValue]   = useState(user?.email ?? '')
   const [emailLoading, setEmailLoading] = useState(false)
 
-  // Password change
-  const [currentPw,  setCurrentPw]  = useState('')
-  const [newPw,      setNewPw]      = useState('')
-  const [confirmPw,  setConfirmPw]  = useState('')
-  const [pwError,    setPwError]    = useState('')
-  const [pwLoading,  setPwLoading]  = useState(false)
-
   async function saveName() {
     if (!user?.id || !nameValue.trim()) return
     setNameLoading(true)
@@ -71,25 +65,6 @@ export default function InstitutionAdminProfilePage() {
       addToast(getErrorMessage(err), 'error')
     } finally {
       setEmailLoading(false)
-    }
-  }
-
-  async function handleChangePassword(e: React.FormEvent) {
-    e.preventDefault()
-    setPwError('')
-    if (newPw !== confirmPw) { setPwError('New passwords do not match.'); return }
-    if (newPw.length < 8)    { setPwError('Password must be at least 8 characters.'); return }
-    if (newPw === currentPw) { setPwError('New password must differ from current.'); return }
-    setPwLoading(true)
-    try {
-      await api.post('/auth/change-password', { current_password: currentPw, new_password: newPw })
-      await refreshUser()
-      setCurrentPw(''); setNewPw(''); setConfirmPw('')
-      addToast('Password changed successfully.', 'success')
-    } catch (err) {
-      setPwError(getErrorMessage(err))
-    } finally {
-      setPwLoading(false)
     }
   }
 
@@ -189,32 +164,18 @@ export default function InstitutionAdminProfilePage() {
           </div>
         </section>
 
-        {/* Change password */}
+        {/* Security — link to Settings */}
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-            <Lock className="h-4 w-4 text-gray-400" />
-            <h2 className="text-sm font-semibold text-gray-800">Change password</h2>
+            <ShieldCheck className="h-4 w-4 text-gray-400" />
+            <h2 className="text-sm font-semibold text-gray-800">Security</h2>
           </div>
-          <form onSubmit={handleChangePassword} className="px-6 py-5 space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-600">Current password</label>
-              <Input type="password" value={currentPw} onChange={e => setCurrentPw(e.target.value)} required />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-600">New password</label>
-              <Input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} required minLength={8} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-600">Confirm new password</label>
-              <Input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)} required minLength={8} />
-            </div>
-            {pwError && (
-              <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{pwError}</p>
-            )}
-            <Button type="submit" disabled={pwLoading} size="sm">
-              {pwLoading ? 'Saving…' : 'Update password'}
+          <div className="px-6 py-5 flex items-center justify-between">
+            <p className="text-sm text-gray-600">Password and security settings are managed in Settings.</p>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/settings">Go to Settings</Link>
             </Button>
-          </form>
+          </div>
         </section>
 
       </div>

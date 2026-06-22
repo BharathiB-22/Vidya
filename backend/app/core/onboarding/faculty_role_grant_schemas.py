@@ -12,11 +12,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-# The only responsibilities that may be granted.  DEAN is a PRIMARY role (set on
-# the Users page, like ADMIN / FACULTY / STUDENT) — it owns institutional
-# governance and is NOT a switchable responsibility.  STUDENT / ADMIN / FACULTY
-# are never grantable here either.
-GRANTABLE_ROLES: frozenset[str] = frozenset({"GUIDE", "EVALUATOR", "BOARD"})
+# The only responsibilities that may be granted to FACULTY accounts.
+# BOARD and DEAN are PRIMARY roles (set on users.role, like ADMIN/FACULTY/STUDENT)
+# and are never grantable here.  Pre-Phase 1.7 databases may still have legacy
+# BOARD grants — run scripts/repair_board_dean_roles.py to clean those up.
+GRANTABLE_ROLES: frozenset[str] = frozenset({"GUIDE", "EVALUATOR"})
 
 
 def normalize_role_code(value: str) -> str:

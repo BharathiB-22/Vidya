@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.models import TenantRole, User
@@ -24,6 +24,7 @@ from app.modules.m_academics.models import (
     AcadSection,
     AcadSemester,
     FacultyProgramAssignment,
+    FacultyRoleGrant,
     SubjectAssignment,
 )
 
@@ -31,30 +32,21 @@ from app.modules.m_academics.models import (
 def _faculty_in_department(department_id):
     """Department-membership predicate for a faculty row.
 
-    Two-path check: (1) profile's primary_department_id, or (2) active
-    program assignment to a program in the requested department.
-    ``primary_department_id`` may be NULL for faculty without a profile,
-    so the assignment path is the reliable fallback.
-
-    The EXISTS is written as a raw SQL text clause to avoid SQLAlchemy
-    auto-correlation edge-cases when the outer query is wrapped in a
-    subquery (e.g. for the count query).  ``users.id`` in the text
-    correlates against the ``users`` table already present in
-    ``_faculty_base_stmt()``.
+    Uses a non-correlated IN subquery rather than a correlated EXISTS so the
+    predicate survives being wrapped in a count subquery
+    (``select(func.count()).select_from(stmt.subquery())``).
     """
-    from sqlalchemy import text as _text
-    via_assignment = _text(
-        "EXISTS ("
-        " SELECT 1 FROM faculty_program_assignments fpa"
-        " JOIN acad_programs ap ON ap.id = fpa.program_id"
-        " WHERE fpa.faculty_user_id = users.id"
-        " AND fpa.is_active = true"
-        " AND ap.department_id = :fpa_dept_id"
-        ")"
-    ).bindparams(fpa_dept_id=str(department_id))
+    via_assignment = (
+        select(FacultyProgramAssignment.faculty_user_id)
+        .join(AcadProgram, AcadProgram.id == FacultyProgramAssignment.program_id)
+        .where(
+            FacultyProgramAssignment.is_active.is_(True),
+            AcadProgram.department_id == department_id,
+        )
+    )
     return or_(
         SisFacultyProfile.primary_department_id == department_id,
-        via_assignment,
+        User.id.in_(via_assignment),
     )
 
 
@@ -87,11 +79,29 @@ def _student_base_stmt():
     )
 
 
+_LEGACY_GOVERNANCE_ROLES = ("BOARD", "DEAN")
+
+
 def _faculty_base_stmt():
-    """Core SELECT joining users → profile → primary_department."""
+    """Core SELECT joining users → profile → primary_department.
+
+    Excludes pre-Phase-1.7 accounts that have ``users.role=FACULTY`` but
+    hold an active BOARD or DEAN grant — those are governance users who were
+    mis-imported before BOARD/DEAN became primary roles.  After running
+    ``scripts/repair_board_dean_roles.py`` this subquery returns an empty
+    set and has zero cost.
+    """
+    legacy_ids = (
+        select(FacultyRoleGrant.faculty_user_id)
+        .where(
+            FacultyRoleGrant.role_code.in_(_LEGACY_GOVERNANCE_ROLES),
+            FacultyRoleGrant.is_active.is_(True),
+        )
+    )
     return (
         select(User, SisFacultyProfile, AcadDepartment)
         .where(User.role == TenantRole.FACULTY)
+        .where(User.id.not_in(legacy_ids))
         .outerjoin(SisFacultyProfile, SisFacultyProfile.user_id == User.id)
         .outerjoin(AcadDepartment, AcadDepartment.id == SisFacultyProfile.primary_department_id)
     )

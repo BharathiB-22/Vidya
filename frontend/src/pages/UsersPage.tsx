@@ -44,11 +44,12 @@ const FILTER_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 // not primary roles. BOARD is a primary role (leadership/governance accounts).
 const PRIMARY_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 
-// Legacy FACULTY users with a BOARD grant pre-date Phase 1.7 governance where
-// BOARD became a primary role. Display their effective role as BOARD so the
-// Users page shows a consistent picture regardless of import vintage.
+// Pre-Phase 1.7 users may have role=FACULTY + a BOARD or DEAN grant instead of
+// the proper primary role.  Display the grant as the effective role so the Users
+// page is consistent regardless of import vintage.
 function displayRole(u: UserRecord): string {
   if (u.role === 'FACULTY' && u.grants?.includes('BOARD')) return 'BOARD'
+  if (u.role === 'FACULTY' && u.grants?.includes('DEAN'))  return 'DEAN'
   return u.role
 }
 
