@@ -24,6 +24,10 @@ import os
 import sys
 
 DRY_RUN = "--dry-run" in sys.argv
+
+# Force UTF-8 stdout so arrow/dash characters don't crash on Windows cp1252
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 REPAIR_GRANTS = ["BOARD", "DEAN"]
 
 
@@ -123,10 +127,20 @@ async def main() -> None:
         print("ERROR: DATABASE_URL is not set.", file=sys.stderr)
         sys.exit(1)
 
-    # Strip SQLAlchemy dialect prefix if present
+    # Strip SQLAlchemy dialect prefix and parse ssl= query param
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
     pg_url = raw_url.replace("postgresql+asyncpg://", "postgresql://")
+    parsed = urlparse(pg_url)
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    ssl_val = qs.pop("ssl", [""])[0].lower()
+    ssl_kwarg: dict = {}
+    if ssl_val in ("disable", "false", "0", "no", "off"):
+        ssl_kwarg["ssl"] = False
+    elif ssl_val in ("require", "true", "1", "yes", "on"):
+        ssl_kwarg["ssl"] = True
+    clean_url = urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
 
-    conn = await asyncpg.connect(pg_url)
+    conn = await asyncpg.connect(clean_url, **ssl_kwarg)
     try:
         tenants = await conn.fetch(
             "SELECT name, schema_name FROM public.tenants ORDER BY name"
@@ -146,17 +160,23 @@ async def main() -> None:
     print(f"Scanning {len(tenants)} tenant(s)…\n")
 
     total = 0
+    skipped = 0
     for t in tenants:
         schema = t["schema_name"]
         name   = t["name"]
         print(f"[{name}]  schema={schema}")
-        async with conn.transaction():
-            count = await repair_schema(conn, schema, name)
-            total += count
+        try:
+            async with conn.transaction():
+                count = await repair_schema(conn, schema, name)
+                total += count
+        except Exception as exc:
+            print(f"  SKIP — schema error: {exc}")
+            skipped += 1
         print()
 
     verb = "Would update" if DRY_RUN else "Updated"
-    print(f"{verb} {total} user(s) across {len(tenants)} tenant(s).")
+    scanned = len(tenants) - skipped
+    print(f"{verb} {total} user(s) across {scanned} tenant(s). ({skipped} skipped — stale/missing schemas)")
 
     if DRY_RUN and total > 0:
         print("\nRe-run without --dry-run to apply changes.")
