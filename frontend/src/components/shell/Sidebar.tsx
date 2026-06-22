@@ -7,7 +7,7 @@ import {
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
-  Activity, PenLine, Scale, ShieldCheck, ScanSearch,
+  Activity, PenLine, Scale, ShieldCheck, ScanSearch, Crown,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
@@ -72,8 +72,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Account',
     items: [
-      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
-      { label: 'Faculty Directory', to: '/sis/directory/faculty', icon: UserCheck, roles: ['FACULTY'] },
+      { label: 'My Profile',            to: '/sis/me/profile',      icon: UserCircle2, roles: ['FACULTY'] },
+      { label: 'Faculty Directory',      to: '/sis/directory/faculty', icon: UserCheck, roles: ['FACULTY'] },
+      { label: 'Governance Directory',   to: '/sis/governance',      icon: Crown,       roles: ['FACULTY'] },
     ],
   },
 
@@ -124,8 +125,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Faculty Oversight',
     items: [
-      { label: 'Faculty Directory',   to: '/sis/directory/faculty', icon: UserCheck,      roles: ['DEAN'] },
-      { label: 'Course Assignments',  to: '/course-assignments',    icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'My Profile',           to: '/sis/me/profile',        icon: UserCircle2,    roles: ['DEAN'] },
+      { label: 'Faculty Directory',    to: '/sis/directory/faculty', icon: UserCheck,      roles: ['DEAN'] },
+      { label: 'Governance Directory', to: '/sis/governance',        icon: Crown,          roles: ['DEAN'] },
+      { label: 'Course Assignments',   to: '/course-assignments',    icon: ClipboardCheck, roles: ['DEAN'] },
     ],
   },
 
@@ -160,8 +163,9 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'People',
     items: [
       { label: 'Users',             to: '/users',                   icon: Users,         roles: ['ADMIN'] },
-      { label: 'Student Directory', to: '/sis/directory/students',  icon: GraduationCap, roles: ['ADMIN'] },
-      { label: 'Faculty Directory', to: '/sis/directory/faculty',   icon: UserCheck,     roles: ['ADMIN'] },
+      { label: 'Student Directory',    to: '/sis/directory/students', icon: GraduationCap, roles: ['ADMIN'] },
+      { label: 'Faculty Directory',    to: '/sis/directory/faculty',  icon: UserCheck,     roles: ['ADMIN'] },
+      { label: 'Governance Directory', to: '/sis/governance',          icon: Crown,         roles: ['ADMIN'] },
       { label: 'Enrollment Roster', to: '/sis/roster',              icon: UsersRound,    roles: ['ADMIN'] },
       { label: 'Import Users',      to: '/users/bulk-onboarding',   icon: UserPlus,      roles: ['ADMIN'] },
       { label: 'Import History',    to: '/sis/imports',             icon: History,       roles: ['ADMIN'] },
@@ -187,10 +191,9 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Administration',
     items: [
-      { label: 'My Profile',       to: '/my-profile',        icon: UserCircle2, roles: ['ADMIN'] },
-      { label: 'Branding',         to: '/settings/branding', icon: Palette,     roles: ['ADMIN'] },
-      { label: 'Settings',         to: '/settings',          icon: Settings,    roles: ['ADMIN'] },
-      { label: 'Data Validation',  to: '/sis/validation',    icon: ShieldAlert, roles: ['ADMIN'] },
+      { label: 'Branding',        to: '/settings/branding', icon: Palette,     roles: ['ADMIN'] },
+      { label: 'Settings',        to: '/settings',          icon: Settings,    roles: ['ADMIN'] },
+      { label: 'Data Validation', to: '/sis/validation',    icon: ShieldAlert, roles: ['ADMIN'] },
     ],
   },
 

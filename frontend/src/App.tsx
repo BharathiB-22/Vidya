@@ -82,6 +82,7 @@ import StudentProfilePage from '@/pages/sis/StudentProfilePage'
 import StudentDirectoryPage from '@/pages/sis/StudentDirectoryPage'
 import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
+import GovernanceDirectoryPage from '@/pages/sis/GovernanceDirectoryPage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
@@ -343,6 +344,7 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN', 'FACULTY']} />}>
             <Route path="/sis/directory/faculty"                 element={<FacultyDirectoryPage />} />
             <Route path="/sis/directory/faculty/:user_id"        element={<FacultyProfilePage />} />
+            <Route path="/sis/governance"                        element={<GovernanceDirectoryPage />} />
           </Route>
 
           {/* User management & settings — ADMIN only */}

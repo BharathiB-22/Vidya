@@ -180,6 +180,42 @@ export interface FacultyDetailOut extends FacultyDirectoryItem {
   profile_updated_at: string | null
 }
 
+// Governance Directory (P1.9A)
+export interface GovernanceDeptInfo {
+  id: string
+  name: string
+  code: string
+}
+
+export interface GovernanceDeanItem {
+  user_id: string
+  full_name: string
+  email: string
+  designation: string | null
+  department: GovernanceDeptInfo | null
+  responsibilities: string[]
+  is_active: boolean
+}
+
+export interface GovernanceBoardItem {
+  user_id: string
+  full_name: string
+  email: string
+  designation: string | null
+  department: GovernanceDeptInfo | null
+  is_active: boolean
+}
+
+export interface GovernanceDeanListResponse {
+  total: number
+  items: GovernanceDeanItem[]
+}
+
+export interface GovernanceBoardListResponse {
+  total: number
+  items: GovernanceBoardItem[]
+}
+
 export interface StudentProfileUpsert {
   usn?: string
   admission_year?: number
@@ -1244,6 +1280,16 @@ export const sisApi = {
 
   getMyTimetable: (session_id: string): Promise<StudentTimetableOut> =>
     api.get<StudentTimetableOut>('/sis/exam/my-timetable', { params: { session_id } }).then(r => r.data),
+
+  // ---------------------------------------------------------------------------
+  // Governance Directory (P1.9A)
+  // ---------------------------------------------------------------------------
+
+  listGovernanceDeans: (): Promise<GovernanceDeanListResponse> =>
+    api.get<GovernanceDeanListResponse>('/sis/governance/deans').then(r => r.data),
+
+  listGovernanceBoard: (): Promise<GovernanceBoardListResponse> =>
+    api.get<GovernanceBoardListResponse>('/sis/governance/board').then(r => r.data),
 }
 
 // ---------------------------------------------------------------------------

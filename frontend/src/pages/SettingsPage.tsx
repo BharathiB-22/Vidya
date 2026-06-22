@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
 import api, { getErrorMessage } from '@/lib/api'
+import { usersApi } from '@/lib/api/users'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Building2, ShieldCheck, Palette, Mail, Database, Lock } from 'lucide-react'
+import { Building2, ShieldCheck, Palette, Mail, Database, Lock, Pencil, X, Check } from 'lucide-react'
 
 function prettifySlug(slug: string): string {
   if (!slug) return 'Unknown institution'
@@ -16,6 +17,31 @@ export default function SettingsPage() {
   useEffect(() => {
     localStorage.setItem('vidya_onboarding_settings', '1')
   }, [])
+
+  const [editingName,  setEditingName]  = useState(false)
+  const [nameValue,    setNameValue]    = useState(user?.fullName ?? '')
+  const [nameSaving,   setNameSaving]   = useState(false)
+  const [nameError,    setNameError]    = useState('')
+
+  useEffect(() => {
+    setNameValue(user?.fullName ?? '')
+  }, [user?.fullName])
+
+  async function handleSaveName() {
+    const trimmed = nameValue.trim()
+    if (!trimmed || trimmed === user?.fullName) { setEditingName(false); return }
+    setNameSaving(true)
+    setNameError('')
+    try {
+      await usersApi.update(user!.id, { full_name: trimmed })
+      await refreshUser()
+      setEditingName(false)
+    } catch (err) {
+      setNameError(getErrorMessage(err))
+    } finally {
+      setNameSaving(false)
+    }
+  }
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword,     setNewPassword]     = useState('')
@@ -186,15 +212,55 @@ export default function SettingsPage() {
               </div>
 
               <div className="grid gap-4 text-sm sm:grid-cols-2">
-                <div>
-                  <p className="text-slate-500">Name</p>
-                  <p className="mt-0.5 font-medium text-slate-900">{user?.fullName ?? '—'}</p>
+                <div className="sm:col-span-2">
+                  <p className="text-slate-500 mb-1">Name</p>
+                  {editingName ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={nameValue}
+                        onChange={e => setNameValue(e.target.value)}
+                        className="h-9 text-sm rounded-lg border-slate-200 max-w-xs"
+                        autoFocus
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleSaveName()
+                          if (e.key === 'Escape') { setEditingName(false); setNameValue(user?.fullName ?? '') }
+                        }}
+                      />
+                      <button
+                        onClick={handleSaveName}
+                        disabled={nameSaving}
+                        className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                        title="Save"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => { setEditingName(false); setNameValue(user?.fullName ?? '') }}
+                        className="p-1.5 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        title="Cancel"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      {nameError && <p className="text-xs text-red-500">{nameError}</p>}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-slate-900">{user?.fullName ?? '—'}</p>
+                      <button
+                        onClick={() => setEditingName(true)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                        title="Edit name"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p className="text-slate-500">Role</p>
                   <p className="mt-0.5 font-medium text-slate-900">{user?.role ?? '—'}</p>
                 </div>
-                <div className="sm:col-span-2">
+                <div>
                   <p className="text-slate-500">Email</p>
                   <div className="mt-0.5 inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
                     <Mail className="h-3.5 w-3.5 text-slate-400" />

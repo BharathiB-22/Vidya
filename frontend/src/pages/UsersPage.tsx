@@ -564,6 +564,7 @@ export default function UsersPage() {
         programs={programs}
       />
       <EditUserDialog
+        key={editingUser?.id}
         user={editingUser}
         onClose={() => setEditingUser(null)}
         onUpdated={handleUpdated}
