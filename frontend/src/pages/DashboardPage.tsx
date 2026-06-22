@@ -353,7 +353,7 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// Admin ERP workspace sections
+// Admin workspace sections
 // ---------------------------------------------------------------------------
 
 interface AdminCard {
@@ -731,7 +731,7 @@ export default function DashboardPage() {
         <AdminOnboarding passwordChanged={!authUser.firstLogin} />
       )}
 
-      {/* ── Admin ERP workspace ────────────────────────────────── */}
+      {/* ── Admin workspace ─────────────────────────────────────── */}
       {role === 'ADMIN' && (
         <div className="space-y-8">
           {ADMIN_SECTIONS.map((section) => (

@@ -374,12 +374,10 @@ async def upload_branding_logo(
             Body=_io.BytesIO(content),
             ContentType=ct,
         )
-        presigned = client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.S3_BUCKET, "Key": object_key},
-            ExpiresIn=86_400,  # 24 h
-        )
-        return presigned
+        # Store a permanent direct URL so the logo survives beyond presigned-URL
+        # expiry (24 h) and backend restarts.  The S3_ENDPOINT is accessible from
+        # the browser in both dev (MinIO) and prod (S3 / CloudFront).
+        return f"{settings.S3_ENDPOINT.rstrip('/')}/{settings.S3_BUCKET}/{object_key}"
 
     loop = asyncio.get_event_loop()
     logo_url = await loop.run_in_executor(None, _upload)

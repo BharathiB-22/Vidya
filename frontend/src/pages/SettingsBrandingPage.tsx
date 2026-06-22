@@ -78,11 +78,7 @@ function SidebarPreview({
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-white/5" style={{ backgroundColor: '#0f2044' }}>
-        <p className="text-[8px] text-slate-600 font-bold tracking-widest uppercase">
-          Powered by VIDYA AI
-        </p>
-      </div>
+      <div className="px-3 py-2 border-t border-white/5" style={{ backgroundColor: '#0f2044' }} />
     </div>
   )
 }

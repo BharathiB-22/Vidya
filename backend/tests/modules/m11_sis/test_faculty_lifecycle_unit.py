@@ -269,7 +269,7 @@ def test_sis_router_has_faculty_lifecycle_routes():
 
 def test_sis_router_total_routes_h644():
     from app.modules.m11_sis.router import router
-    assert len(router.routes) == 178
+    assert len(router.routes) == 179
 
 
 # ---------------------------------------------------------------------------

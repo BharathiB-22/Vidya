@@ -159,9 +159,9 @@ async def test_import_history_endpoint_returns_onboarding_batch(test_tenant_a):
     rows, total = await _list_batches(schema)
     assert total == 1
     assert len(rows) == 1
-    assert rows[0].record_type == "STUDENT"
-    assert rows[0].source_filename == "students_batch1.csv"
-    assert rows[0].success_count == 2
+    assert rows[0]["record_type"] == "STUDENT"
+    assert rows[0]["source_filename"] == "students_batch1.csv"
+    assert rows[0]["success_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_two_onboarding_imports_produce_two_batches(test_tenant_a):
 
     rows, total = await _list_batches(schema)
     assert total == 2
-    files = {r.source_filename for r in rows}
+    files = {r["source_filename"] for r in rows}
     assert files == {"first.csv", "second.csv"}
 
 
@@ -202,5 +202,5 @@ async def test_onboarding_faculty_import_creates_batch(test_tenant_a):
 
     rows, total = await _list_batches(schema)
     assert total == 1
-    assert rows[0].record_type == "FACULTY"
-    assert rows[0].source_filename == "faculty1.csv"
+    assert rows[0]["record_type"] == "FACULTY"
+    assert rows[0]["source_filename"] == "faculty1.csv"

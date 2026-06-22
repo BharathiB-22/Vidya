@@ -39,10 +39,10 @@ type Role = typeof ROLES[number]
 // accounts may still exist and need to be located.
 const FILTER_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 
-// Roles assignable as a PRIMARY account role. GUIDE / EVALUATOR / BOARD are now
+// Roles assignable as a PRIMARY account role. GUIDE / EVALUATOR are
 // responsibilities (granted from the Faculty Profile via faculty_role_grants),
-// not primary roles, so they are no longer offered when creating/editing a user.
-const PRIMARY_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT'] as const
+// not primary roles. BOARD is a primary role (leadership/governance accounts).
+const PRIMARY_ROLES = ['ADMIN', 'DEAN', 'FACULTY', 'STUDENT', 'BOARD'] as const
 
 const ROLE_COLORS: Record<string, string> = {
   ADMIN:     'bg-indigo-100 text-indigo-800',

@@ -811,14 +811,35 @@ function CSVImportTab({ role }: { role: ImportRole }) {
         </p>
       )}
       {role === 'faculty' && (
-        <p className="text-xs" style={{ color: '#6B7280' }}>
-          Login is the <code className="font-mono mx-1">personal_email</code>. For FACULTY a
-          <code className="font-mono mx-1">faculty_code</code>(e.g. FAC0001) and an
-          institution email are generated automatically.
-          <code className="font-mono mx-1">roles</code>takes one primary role (FACULTY default, or DEAN / BOARD)
-          plus FACULTY-only responsibilities GUIDE / EVALUATOR (pipe-separated, e.g. FACULTY|GUIDE|EVALUATOR).
-          DEAN and BOARD are standalone accounts — no faculty code, and they cannot carry responsibilities.
-        </p>
+        <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-xs space-y-2" style={{ color: '#374151' }}>
+          <p>
+            Login is the <code className="font-mono bg-white border border-gray-200 rounded px-1">personal_email</code>.
+            For FACULTY a faculty code (e.g. FAC0001) and institution email are auto-generated.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="font-semibold text-green-700 mb-1">Valid role values</p>
+              <ul className="space-y-0.5 font-mono">
+                <li className="text-green-700">FACULTY</li>
+                <li className="text-green-700">DEAN</li>
+                <li className="text-green-700">BOARD</li>
+                <li className="text-green-700">FACULTY|GUIDE</li>
+                <li className="text-green-700">FACULTY|EVALUATOR</li>
+                <li className="text-green-700">FACULTY|GUIDE|EVALUATOR</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold text-red-600 mb-1">Invalid (rejected)</p>
+              <ul className="space-y-0.5 font-mono">
+                <li className="text-red-600">DEAN|GUIDE</li>
+                <li className="text-red-600">DEAN|EVALUATOR</li>
+                <li className="text-red-600">BOARD|GUIDE</li>
+                <li className="text-red-600">BOARD|EVALUATOR</li>
+              </ul>
+            </div>
+          </div>
+          <p className="text-gray-400">DEAN and BOARD are standalone roles — they cannot carry GUIDE or EVALUATOR responsibilities.</p>
+        </div>
       )}
 
       {/* File upload */}

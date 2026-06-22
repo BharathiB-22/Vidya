@@ -281,7 +281,7 @@ def test_sis_router_includes_lifecycle():
 def test_sis_router_total_routes_h643():
     from app.modules.m11_sis.router import router
     # 167 (H64.1/H64.2) + 2 student lifecycle + 2 faculty lifecycle = 171
-    assert len(router.routes) == 178
+    assert len(router.routes) == 179
 
 
 # ---------------------------------------------------------------------------

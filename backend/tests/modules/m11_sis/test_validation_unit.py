@@ -223,4 +223,4 @@ def test_validation_router_has_one_route():
 def test_sis_router_total_routes_h648():
     from app.modules.m11_sis.router import router
     # 177 (H64.7) + 1 validation = 178
-    assert len(router.routes) == 178
+    assert len(router.routes) == 179

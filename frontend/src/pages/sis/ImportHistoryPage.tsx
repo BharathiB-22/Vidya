@@ -27,13 +27,23 @@ function formatDate(iso: string) {
 }
 
 function detailLine(batch: ImportBatch): string {
-  const parts = [
-    batch.program_name  ?? 'Unknown Program',
-    batch.batch_name    ?? 'Unknown Batch',
-    batch.semester_name ?? 'Unknown Semester',
-    batch.section_name  ? `Section ${batch.section_name}` : 'Unknown Section',
-  ]
-  return parts.join(' • ')
+  const rt = batch.record_type ?? ''
+
+  if (rt === 'FACULTY' || rt === 'FACULTY_BACKFILL') {
+    const n = batch.success_count
+    return `Faculty Import · ${n} ${n === 1 ? 'Faculty Member' : 'Faculty Members'} Imported`
+  }
+
+  if (rt === 'USN_BACKFILL') return 'USN Backfill'
+  if (rt === 'INSTITUTION_EMAIL_BACKFILL') return 'Institution Email Backfill'
+
+  // Student imports — show academic context when available
+  const parts: string[] = []
+  if (batch.program_name)  parts.push(batch.program_name)
+  if (batch.batch_name)    parts.push(batch.batch_name)
+  if (batch.semester_name) parts.push(batch.semester_name)
+  if (batch.section_name)  parts.push(`Section ${batch.section_name}`)
+  return parts.length > 0 ? parts.join(' • ') : 'Student Import'
 }
 
 // ---------------------------------------------------------------------------
@@ -92,29 +102,50 @@ function RollbackModal({ batch, onConfirm, onCancel, isPending, error }: Rollbac
           This action <strong>cannot be undone</strong>.
         </p>
 
-        {/* Academic context summary */}
+        {/* Context summary — adapts to import type */}
         <div
           className="rounded-lg px-4 py-3 text-sm space-y-1.5"
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}
         >
-          <div className="flex justify-between">
-            <span style={{ color: '#9CA3AF' }}>Program</span>
-            <span className="font-medium">{batch.program_name ?? '—'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span style={{ color: '#9CA3AF' }}>Batch</span>
-            <span className="font-medium">{batch.batch_name ?? '—'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span style={{ color: '#9CA3AF' }}>Semester</span>
-            <span className="font-medium">{batch.semester_name ?? '—'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span style={{ color: '#9CA3AF' }}>Section</span>
-            <span className="font-medium">{batch.section_name ?? '—'}</span>
-          </div>
+          {batch.record_type === 'FACULTY' || batch.record_type === 'FACULTY_BACKFILL' ? (
+            <div className="flex justify-between">
+              <span style={{ color: '#9CA3AF' }}>Import type</span>
+              <span className="font-medium">Faculty Import</span>
+            </div>
+          ) : (
+            <>
+              {batch.program_name && (
+                <div className="flex justify-between">
+                  <span style={{ color: '#9CA3AF' }}>Program</span>
+                  <span className="font-medium">{batch.program_name}</span>
+                </div>
+              )}
+              {batch.batch_name && (
+                <div className="flex justify-between">
+                  <span style={{ color: '#9CA3AF' }}>Batch</span>
+                  <span className="font-medium">{batch.batch_name}</span>
+                </div>
+              )}
+              {batch.semester_name && (
+                <div className="flex justify-between">
+                  <span style={{ color: '#9CA3AF' }}>Semester</span>
+                  <span className="font-medium">{batch.semester_name}</span>
+                </div>
+              )}
+              {batch.section_name && (
+                <div className="flex justify-between">
+                  <span style={{ color: '#9CA3AF' }}>Section</span>
+                  <span className="font-medium">{batch.section_name}</span>
+                </div>
+              )}
+            </>
+          )}
           <div className="flex justify-between pt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <span style={{ color: '#9CA3AF' }}>Students affected</span>
+            <span style={{ color: '#9CA3AF' }}>
+              {batch.record_type === 'FACULTY' || batch.record_type === 'FACULTY_BACKFILL'
+                ? 'Faculty affected'
+                : 'Students affected'}
+            </span>
             <span className="font-semibold text-amber-400">{batch.success_count}</span>
           </div>
         </div>

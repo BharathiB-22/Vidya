@@ -493,9 +493,6 @@ export function Sidebar({ onClose }: SidebarProps) {
             </p>
           </div>
         </div>
-        <p className="text-[8px] text-slate-600 mt-2.5 font-extrabold tracking-[0.2em] uppercase">
-          Powered by VIDYA AI
-        </p>
       </div>
 
     </div>
