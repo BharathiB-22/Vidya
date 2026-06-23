@@ -105,16 +105,16 @@ def _build_student_item(row) -> StudentDirectoryItem:
     )
 
 
-_FACULTY_LIKE_ROLES = frozenset({TenantRole.FACULTY, TenantRole.BOARD, TenantRole.DEAN})
+_FACULTY_LIKE_ROLES = frozenset({TenantRole.FACULTY, TenantRole.DEAN})
 
 
 def _build_faculty_item(row, responsibilities: list[str] | None = None) -> FacultyDirectoryItem:
     user, profile, dept = row
-    # Surface the primary governance role as a responsibility chip so BOARD/DEAN
-    # members display their role badge in the Faculty Directory card.
+    # Surface DEAN role as a chip so deans display their role badge in the
+    # Faculty Directory card alongside GUIDE/EVALUATOR grants.
     resps: list[str] = list(responsibilities or [])
-    if user.role in (TenantRole.BOARD, TenantRole.DEAN) and user.role not in resps:
-        resps = [user.role] + resps
+    if user.role == TenantRole.DEAN and "DEAN" not in resps:
+        resps = ["DEAN"] + resps
     return FacultyDirectoryItem(
         user_id=user.id,
         full_name=user.full_name,
@@ -388,9 +388,9 @@ class FacultyDirectoryService:
             ))
 
         responsibilities = await _active_grants_for(user_id, db)
-        # Surface primary governance role as a chip for BOARD/DEAN users
-        if user.role in (TenantRole.BOARD, TenantRole.DEAN) and user.role not in responsibilities:
-            responsibilities = [user.role] + responsibilities
+        # Surface DEAN as a chip so deans show their role badge in the detail view.
+        if user.role == TenantRole.DEAN and "DEAN" not in responsibilities:
+            responsibilities = ["DEAN"] + responsibilities
 
         return FacultyDetailOut(
             user_id=user.id,

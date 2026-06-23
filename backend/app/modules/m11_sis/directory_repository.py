@@ -79,25 +79,20 @@ def _student_base_stmt():
     )
 
 
-_LEGACY_GOVERNANCE_ROLES = ("BOARD", "DEAN")
-
-
 def _faculty_base_stmt():
     """Core SELECT joining users → profile → primary_department.
 
-    Includes FACULTY, BOARD, and DEAN users. BOARD/DEAN primary-role users are
-    always included — they are faculty-level members (board examiners, deans)
-    who must appear in the Faculty Directory.
+    Faculty Directory shows FACULTY and DEAN users only (P1.9A).
+    BOARD is governance-only and appears in the Governance Directory instead.
 
-    Legacy FACULTY accounts that still carry an active BOARD or DEAN grant (pre-
-    Phase-1.7, not yet repaired by migration 0056ten) are excluded to avoid
-    double-counting: those accounts will be repaired to a proper primary role the
-    next time migrations run, after which the subquery has zero cost.
+    Legacy FACULTY accounts still carrying an active BOARD grant (pre-0056ten)
+    are excluded to avoid duplication — migration 0056ten promotes them to the
+    correct primary role and the subquery becomes zero-cost once applied.
     """
-    legacy_faculty_ids = (
+    legacy_board_faculty_ids = (
         select(FacultyRoleGrant.faculty_user_id)
         .where(
-            FacultyRoleGrant.role_code.in_(_LEGACY_GOVERNANCE_ROLES),
+            FacultyRoleGrant.role_code == "BOARD",
             FacultyRoleGrant.is_active.is_(True),
         )
     )
@@ -107,9 +102,9 @@ def _faculty_base_stmt():
             or_(
                 and_(
                     User.role == TenantRole.FACULTY,
-                    User.id.not_in(legacy_faculty_ids),
+                    User.id.not_in(legacy_board_faculty_ids),
                 ),
-                User.role.in_([TenantRole.BOARD, TenantRole.DEAN]),
+                User.role == TenantRole.DEAN,
             )
         )
         .outerjoin(SisFacultyProfile, SisFacultyProfile.user_id == User.id)

@@ -5,7 +5,7 @@ import {
   ClipboardCheck, Cpu, ShieldCheck, Building2, Users,
   School2, CalendarRange, Calendar, LayoutList, UserCheck, UsersRound,
   CalendarCheck, BookMarked, Ticket, CalendarDays, MapPin,
-  Palette, Settings,
+  Palette, Settings, ExternalLink,
 } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageEmpty } from '@/components/shared/PageEmpty'
@@ -753,6 +753,30 @@ export default function DashboardPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Dean: Faculty Activities ───────────────────────────── */}
+      {role === 'DEAN' && (
+        <div className="rounded-xl border border-sv-primary/20 bg-sv-light px-5 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold text-sv-primary uppercase tracking-widest mb-1">
+                Faculty Activities
+              </p>
+              <p className="text-sm text-gray-600">
+                Access teaching tools, course materials, labs, and research supervision.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/faculty-workspace')}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-sv-primary text-white hover:bg-sv-primary/90 transition-colors flex-shrink-0 shadow-sm"
+            >
+              <BookOpen className="h-4 w-4" />
+              Open Faculty Workspace
+              <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+            </button>
+          </div>
         </div>
       )}
 

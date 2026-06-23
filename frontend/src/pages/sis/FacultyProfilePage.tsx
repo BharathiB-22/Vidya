@@ -57,11 +57,11 @@ function RoleChip({ role }: { role: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Responsibility (grant) chips — GUIDE / EVALUATOR / BOARD / DEAN
+// Responsibility (grant) chips — GUIDE / EVALUATOR / DEAN badge
 // ---------------------------------------------------------------------------
 
 const RESPONSIBILITY_COLORS: Record<string, string> = {
-  GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b', DEAN: '#ec4899',
+  GUIDE: '#6366f1', EVALUATOR: '#10b981', DEAN: '#ec4899',
 }
 
 function ResponsibilityChip({ role }: { role: string }) {
@@ -82,11 +82,10 @@ function ResponsibilityChip({ role }: { role: string }) {
 // ---------------------------------------------------------------------------
 
 /** Which responsibilities the signed-in actor may assign/remove.
- *  ADMIN owns all responsibilities incl. BOARD; a DEAN may manage only
- *  GUIDE/EVALUATOR.  DEAN itself is a primary role (Users page), not a grant. */
+ *  Only GUIDE and EVALUATOR are grantable (P1.9).
+ *  BOARD and DEAN are primary roles set on the Users page, never grants. */
 function assignableRoles(actorRole: string | undefined): GrantableRole[] {
-  if (actorRole === 'ADMIN') return ['GUIDE', 'EVALUATOR', 'BOARD']
-  if (actorRole === 'DEAN') return ['GUIDE', 'EVALUATOR']
+  if (actorRole === 'ADMIN' || actorRole === 'DEAN') return ['GUIDE', 'EVALUATOR']
   return []
 }
 
@@ -133,9 +132,7 @@ function ResponsibilitiesCard({
       {manageable.length > 0 && (
         <div className="pt-1 space-y-2">
           <p className="text-xs text-gray-500">
-            {user?.role === 'DEAN'
-              ? 'Assign academic responsibilities (Dean): GUIDE / EVALUATOR.'
-              : 'Manage responsibilities (Admin). BOARD membership is Admin-only.'}
+            Assign GUIDE or EVALUATOR responsibilities. BOARD accounts are managed from the Users page.
           </p>
           <div className="flex flex-wrap gap-2">
             {manageable.map(role => {

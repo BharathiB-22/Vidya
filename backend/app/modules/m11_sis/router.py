@@ -16,6 +16,7 @@ from app.modules.m11_sis.validation_router import validation_router
 from app.modules.m11_sis.import_batch_router import import_batch_router
 from app.modules.m11_sis.lifecycle_router import lifecycle_router
 from app.modules.m11_sis.directory_router import directory_router
+from app.modules.m11_sis.governance_router import governance_router
 from app.modules.m11_sis.enrollment_router import enrollment_router
 from app.modules.m11_sis.exam_router import exam_router
 from app.modules.m11_sis.hallticket_router import hallticket_router
@@ -37,6 +38,7 @@ router.include_router(import_batch_router)
 router.include_router(lifecycle_router)
 router.include_router(enrollment_router)
 router.include_router(directory_router)
+router.include_router(governance_router)
 router.include_router(me_router)
 router.include_router(rollover_router)
 router.include_router(attendance_router)

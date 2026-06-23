@@ -83,6 +83,7 @@ import StudentDirectoryPage from '@/pages/sis/StudentDirectoryPage'
 import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import GovernanceDirectoryPage from '@/pages/sis/GovernanceDirectoryPage'
+import FacultyWorkspacePage from '@/pages/FacultyWorkspacePage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
@@ -189,6 +190,11 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/course-assignments" element={<CourseAssignmentsPage />} />
             <Route path="/dean-review"        element={<DeanReviewPage />} />
+          </Route>
+
+          {/* Faculty Workspace — DEAN accesses faculty tools */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
+            <Route path="/faculty-workspace" element={<FacultyWorkspacePage />} />
           </Route>
 
           {/* Dean Digital Exam Analytics — DEAN, ADMIN, BOARD */}

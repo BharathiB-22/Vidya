@@ -84,11 +84,11 @@ async def _validate_faculty(faculty_user_id: UUID, db: AsyncSession) -> FacultyI
         raise FacultyRoleGrantServiceError("USER_NOT_FOUND", "Faculty user not found.", 404)
     if not row["is_active"]:
         raise FacultyRoleGrantServiceError("USER_INACTIVE", "Faculty user is inactive.")
-    if row["role"] != "FACULTY":
+    if row["role"] not in ("FACULTY", "DEAN"):
         raise FacultyRoleGrantServiceError(
             "INVALID_ROLE",
-            f"User role is '{row['role']}'; only FACULTY users may hold responsibility grants. "
-            "Responsibilities are grants on a single FACULTY account, never separate roles.",
+            f"User role is '{row['role']}'; only FACULTY and DEAN users may hold "
+            "responsibility grants (GUIDE / EVALUATOR).",
         )
     return FacultyInfo(id=row["id"], full_name=row["full_name"], email=row["email"])
 

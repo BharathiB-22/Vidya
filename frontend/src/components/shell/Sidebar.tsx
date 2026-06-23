@@ -121,6 +121,14 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
+  // ── DEAN: Faculty Workspace ───────────────────────────────────────────────
+  {
+    heading: 'Faculty Activities',
+    items: [
+      { label: 'Faculty Workspace', to: '/faculty-workspace', icon: BookOpen, roles: ['DEAN'] },
+    ],
+  },
+
   // ── DEAN: Faculty Oversight ────────────────────────────────────────────────
   {
     heading: 'Faculty Oversight',

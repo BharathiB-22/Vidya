@@ -29,15 +29,23 @@ from app.core.onboarding.faculty_institution_email import build_faculty_email
 
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9.\-]+$")
 
-# Faculty CSV `roles` column governance (Phase 1.7).
-# A row may declare exactly ONE primary role plus FACULTY-only responsibilities.
-#   * Primary roles  → become users.role directly. DEAN / BOARD / ADMIN are
-#     standalone accounts and never receive a faculty_code / institution_email /
-#     sis_faculty_profile.
-#   * Responsibilities (GUIDE / EVALUATOR) → faculty_role_grants on a FACULTY
-#     account only; invalid on any non-FACULTY primary role.
+# Faculty CSV `roles` column governance (P1.9A).
+# A row may declare exactly ONE primary role plus responsibilities.
+#
+#   Primary roles → set on users.role directly.
+#     FACULTY — teacher; gets faculty_code, institution_email, sis_faculty_profile.
+#     DEAN    — academic leadership; also gets faculty_code, institution_email,
+#               sis_faculty_profile; may hold GUIDE/EVALUATOR responsibilities.
+#     BOARD   — governance only; stub profile only, no faculty_code/email,
+#               cannot hold GUIDE/EVALUATOR.
+#     ADMIN   — tenant admin; no faculty profile.
+#
+#   Responsibilities (GUIDE / EVALUATOR) → faculty_role_grants on FACULTY or
+#     DEAN accounts only; invalid on BOARD / ADMIN rows.
 _FACULTY_PRIMARY_ROLES = frozenset({"ADMIN", "DEAN", "FACULTY", "BOARD"})
 _FACULTY_RESPONSIBILITIES = frozenset({"GUIDE", "EVALUATOR"})
+# Roles that may hold GUIDE/EVALUATOR responsibility grants.
+_ROLES_THAT_ACCEPT_RESPONSIBILITIES = frozenset({"FACULTY", "DEAN"})
 
 
 class OnboardingError(Exception):
@@ -426,12 +434,12 @@ class OnboardingService:
         primary = primaries[0] if primaries else "FACULTY"
         row.primary_role = primary
 
-        if responsibilities and primary != "FACULTY":
+        if responsibilities and primary not in _ROLES_THAT_ACCEPT_RESPONSIBILITIES:
             row.is_valid = False
             row.errors.append(
                 f"{primary} cannot hold responsibilities "
                 f"({', '.join(responsibilities)}). GUIDE / EVALUATOR are grants on "
-                "a FACULTY account only."
+                "FACULTY or DEAN accounts only."
             )
             return
 
@@ -964,22 +972,23 @@ class OnboardingService:
             faculty_id: UUID | None = None
             is_new = False
             if r.is_valid:
-                # DEAN / BOARD / ADMIN are standalone primary accounts — they are
-                # created with their own role but are NOT faculty, so they never
+                # BOARD and ADMIN are standalone governance/admin accounts — they never
                 # contribute a faculty_code / institution_email / program mapping /
                 # responsibility grant.
-                if (r.primary_role or "FACULTY") != "FACULTY":
+                # DEAN behaves like FACULTY for identity: it gets faculty_code,
+                # institution_email, profile, program assignments, and grants.
+                if (r.primary_role or "FACULTY") not in _ROLES_THAT_ACCEPT_RESPONSIBILITIES:
                     continue
                 is_new = True                       # brand-new faculty (created on commit)
                 valid_new_rows.append(r)
                 faculty_emails.add(r.email.lower())
             elif r.email:
                 existing = await OnboardingService._get_user_by_email(r.email, db)
-                if existing is not None and existing[1].upper() == "FACULTY":
+                if existing is not None and existing[1].upper() in ("FACULTY", "DEAN"):
                     faculty_id = existing[0]
                     faculty_emails.add(r.email.lower())
                 else:
-                    continue                        # not creatable, not existing faculty
+                    continue                        # not creatable, not existing faculty/dean
             else:
                 continue
 
@@ -1204,11 +1213,14 @@ class OnboardingService:
             )
 
         # Mint faculty_code (atomic) + generate institution_email; create profiles.
-        # ONLY for rows whose primary role is FACULTY — DEAN / BOARD / ADMIN are
-        # standalone accounts and must never receive a faculty identity.
+        # Applies to FACULTY and DEAN rows — both get a full faculty identity.
+        # BOARD and ADMIN are governance/admin accounts and must never receive one.
         codes_assigned = inst_emails_assigned = 0
         created_uids: list[str] = []
-        faculty_new_rows = [(uid, r) for uid, r in new_rows if (r.primary_role or "FACULTY") == "FACULTY"]
+        faculty_new_rows = [
+            (uid, r) for uid, r in new_rows
+            if (r.primary_role or "FACULTY") in _ROLES_THAT_ACCEPT_RESPONSIBILITIES
+        ]
         if faculty_new_rows:
             await FacultyCodeAllocator.seed_counter_from_existing(db, prefix=_FACULTY_CODE_PREFIX)
             codes = await FacultyCodeAllocator.allocate_codes(
@@ -1237,17 +1249,17 @@ class OnboardingService:
             if not r.is_valid
         ]
 
-        # Resolve the faculty user id for a row: brand-new, or an existing FACULTY.
-        # Non-FACULTY primary rows (DEAN / BOARD / ADMIN) never receive program
-        # mappings or responsibility grants, so they resolve to None.
+        # Resolve the faculty-like user id for a row: brand-new, or an existing
+        # FACULTY/DEAN.  BOARD and ADMIN rows never receive program mappings or
+        # responsibility grants, so they resolve to None.
         async def _resolve_faculty_uid(r: CSVRowResult) -> UUID | None:
-            if (r.primary_role or "FACULTY") != "FACULTY":
+            if (r.primary_role or "FACULTY") not in _ROLES_THAT_ACCEPT_RESPONSIBILITIES:
                 return None
             uid = new_uid_by_email.get(r.email.lower())
             if uid is not None:
                 return uid
             existing = await OnboardingService._get_user_by_email(r.email, db)
-            if existing is None or existing[1].upper() != "FACULTY":
+            if existing is None or existing[1].upper() not in ("FACULTY", "DEAN"):
                 return None
             return existing[0]
 

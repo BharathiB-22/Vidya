@@ -390,6 +390,64 @@ class PlatformAuthService:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# DEAN faculty-profile helper
+# ---------------------------------------------------------------------------
+
+async def _ensure_faculty_profile(
+    user_id: UUID,
+    full_name: str,
+    db: AsyncSession,
+) -> None:
+    """Create a sis_faculty_profiles row for a DEAN if one does not exist.
+
+    Allocates a faculty_code from the per-tenant counter and builds an
+    institution_email when the tenant has a domain configured.  Uses
+    ON CONFLICT DO NOTHING so repeated calls are safe.
+    """
+    from app.core.onboarding.faculty_code_allocator import (
+        DEFAULT_FACULTY_PREFIX,
+        FacultyCodeAllocator,
+    )
+    from app.core.onboarding.faculty_institution_email import build_faculty_email
+
+    await FacultyCodeAllocator.seed_counter_from_existing(db, prefix=DEFAULT_FACULTY_PREFIX)
+    codes = await FacultyCodeAllocator.allocate_codes(db, prefix=DEFAULT_FACULTY_PREFIX, count=1)
+    faculty_code = codes[0] if codes else None
+
+    domain_row = await db.execute(
+        text(
+            "SELECT institution_domain FROM public.tenants "
+            "WHERE schema_name = current_schema()"
+        )
+    )
+    domain = domain_row.scalar_one_or_none()
+
+    institution_email: str | None = None
+    if domain:
+        taken_res = await db.execute(
+            text(
+                "SELECT institution_email FROM sis_faculty_profiles "
+                "WHERE institution_email IS NOT NULL "
+                "UNION ALL "
+                "SELECT institution_email FROM users "
+                "WHERE institution_email IS NOT NULL"
+            )
+        )
+        taken = {(v or "").strip().lower() for v in taken_res.scalars().all()}
+        institution_email = build_faculty_email(full_name, domain, taken)
+
+    await db.execute(
+        text(
+            "INSERT INTO sis_faculty_profiles "
+            "    (user_id, faculty_code, institution_email, is_active, lifecycle_status) "
+            "VALUES (:uid, :code, :email, true, 'ACTIVE') "
+            "ON CONFLICT (user_id) DO NOTHING"
+        ),
+        {"uid": str(user_id), "code": faculty_code, "email": institution_email},
+    )
+
+
 # Tenant user auth flows (schema-scoped)
 # ---------------------------------------------------------------------------
 
@@ -732,6 +790,12 @@ class TenantAuthService:
             payload.email, pw_hash, payload.role, payload.full_name, payload.identifier, db,
             acad_program_id=payload.acad_program_id,
         )
+
+        # DEAN is also a faculty member — create their SIS profile immediately.
+        from app.core.auth.models import TenantRole as _Role
+        if payload.role == _Role.DEAN:
+            await _ensure_faculty_profile(user.id, user.full_name, db)
+
         await AuditService.log(
             AuditEventType.USER_CREATED,
             actor_user_id=actor_user_id, actor_role=actor_role,
@@ -787,6 +851,10 @@ class TenantAuthService:
         user = await TenantRepository.update_user(user_id, updates, db)
         if not user:
             raise AuthError("USER_NOT_FOUND", "User not found", 404)
+
+        # DEAN role assigned (create or promote) — ensure faculty profile exists.
+        if updates.get("role") == _Role.DEAN:
+            await _ensure_faculty_profile(user.id, user.full_name, db)
 
         # Resolve program name for response if not already fetched
         if program_name is None and user.acad_program_id:

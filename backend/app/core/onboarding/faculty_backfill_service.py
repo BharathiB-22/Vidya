@@ -40,7 +40,7 @@ _LOAD_SQL = text(
            p.institution_email AS institution_email
     FROM users u
     LEFT JOIN sis_faculty_profiles p ON p.user_id = u.id
-    WHERE u.is_active = true AND u.role = 'FACULTY'
+    WHERE u.is_active = true AND u.role IN ('FACULTY', 'DEAN')
     ORDER BY u.full_name, u.id
     """
 )
@@ -239,7 +239,7 @@ class FacultyBackfillService:
         pe = await db.execute(
             text(
                 "UPDATE users SET personal_email = email "
-                "WHERE role = 'FACULTY' AND is_active = true AND personal_email IS NULL"
+                "WHERE role IN ('FACULTY', 'DEAN') AND is_active = true AND personal_email IS NULL"
             )
         )
         personal_backfilled = pe.rowcount or 0
