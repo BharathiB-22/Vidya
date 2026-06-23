@@ -13,9 +13,12 @@ from app.core.tenants.schemas import (
     PermanentDeleteTenantRequest,
     PlatformSettingsResponse,
     PlatformStatsResponse,
+    TenantMigrationResult,
+    TenantMigrationStatus,
     TenantResponse,
     TenantUpdateRequest,
 )
+from app.core.tenants.repository import TenantRepository
 from app.core.tenants.service import TenantError, TenantService
 
 router = APIRouter(tags=["tenants"])
@@ -193,6 +196,36 @@ async def restore_tenant(
         )
     except TenantError as e:
         raise _tenant_error(e)
+
+
+# ---------------------------------------------------------------------------
+# Tenant migration status and retry
+# ---------------------------------------------------------------------------
+
+@router.get("/migrations", response_model=list[TenantMigrationStatus])
+async def list_tenant_migration_status(
+    _: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[TenantMigrationStatus]:
+    """Return schema migration status for every non-deleted tenant."""
+    from app.core.tenants.migration_runner import get_all_migration_status
+    rows = await get_all_migration_status(db)
+    return [TenantMigrationStatus(**r) for r in rows]
+
+
+@router.post("/{tenant_id}/migrations/retry", response_model=TenantMigrationResult)
+async def retry_tenant_migration(
+    tenant_id: UUID,
+    _: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> TenantMigrationResult:
+    """Immediately run pending migrations for a single tenant schema."""
+    from app.core.tenants.migration_runner import migrate_tenant
+    tenant = await TenantRepository.get_tenant_by_id(tenant_id, db)
+    if not tenant:
+        raise HTTPException(404, detail={"error": "NOT_FOUND", "message": "Tenant not found"})
+    result = await migrate_tenant(tenant.schema_name, tenant_id=tenant_id)
+    return TenantMigrationResult(**result)
 
 
 @router.delete("/{tenant_id}/permanent", response_model=TenantResponse)

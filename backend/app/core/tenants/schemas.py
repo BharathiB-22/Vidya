@@ -197,6 +197,28 @@ class PlatformStatsResponse(BaseModel):
     generated_at:   datetime
 
 
+class TenantMigrationStatus(BaseModel):
+    """Per-tenant migration state, returned by GET /tenants/migrations."""
+    tenant_id: str
+    tenant_name: str
+    schema_name: str
+    current_revision: Optional[str]
+    head_revision: str
+    is_current: bool
+    last_status: Optional[str] = None       # 'success' | 'failed' | None
+    last_migration_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+
+
+class TenantMigrationResult(BaseModel):
+    """Returned by POST /tenants/{id}/migrations/retry."""
+    schema_name: str
+    status: str                             # 'success' | 'failed' | 'current'
+    from_revision: Optional[str] = None
+    to_revision: Optional[str] = None
+    error: Optional[str] = None
+
+
 class PlatformSettingsResponse(BaseModel):
     # Platform profile
     platform_name:  str

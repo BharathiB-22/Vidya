@@ -85,3 +85,37 @@ export async function permanentlyDeleteTenant(id: string, confirmSlug: string): 
   })
   return data
 }
+
+// ---------------------------------------------------------------------------
+// Tenant migration status
+// ---------------------------------------------------------------------------
+
+export interface TenantMigrationStatus {
+  tenant_id: string
+  tenant_name: string
+  schema_name: string
+  current_revision: string | null
+  head_revision: string
+  is_current: boolean
+  last_status: 'success' | 'failed' | null
+  last_migration_at: string | null
+  last_error: string | null
+}
+
+export interface TenantMigrationResult {
+  schema_name: string
+  status: 'success' | 'failed' | 'current'
+  from_revision: string | null
+  to_revision: string | null
+  error?: string
+}
+
+export async function listTenantMigrations(): Promise<TenantMigrationStatus[]> {
+  const { data } = await adminApi.get<TenantMigrationStatus[]>('/tenants/migrations')
+  return data
+}
+
+export async function retryTenantMigration(tenantId: string): Promise<TenantMigrationResult> {
+  const { data } = await adminApi.post<TenantMigrationResult>(`/tenants/${tenantId}/migrations/retry`)
+  return data
+}

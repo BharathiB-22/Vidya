@@ -63,11 +63,17 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize storage bucket on app startup."""
+    """Initialize storage and run pending tenant schema migrations on startup."""
     try:
         await ensure_bucket_exists()
     except Exception as e:
         logger.warning("Storage bucket unavailable at startup (MinIO not running?): %s", e)
+
+    try:
+        from app.core.tenants.migration_runner import run_all_tenant_migrations
+        await run_all_tenant_migrations()
+    except Exception as e:
+        logger.error("Tenant auto-migration startup hook failed: %s", e)
 
 
 # ---------------------------------------------------------------------------

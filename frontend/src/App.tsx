@@ -18,6 +18,7 @@ import HealthPage from '@/pages/admin/HealthPage'
 import ProfilePage from '@/pages/admin/ProfilePage'
 import PlatformBrandingPage from '@/pages/admin/PlatformBrandingPage'
 import DeletedTenantsPage from '@/pages/admin/DeletedTenantsPage'
+import TenantMigrationsPage from '@/pages/admin/TenantMigrationsPage'
 import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
@@ -172,7 +173,8 @@ export default function App() {
           <Route path="/admin/health"           element={<HealthPage />} />
           <Route path="/admin/profile"          element={<ProfilePage />} />
           <Route path="/admin/branding"         element={<PlatformBrandingPage />} />
-          <Route path="/admin/deleted-tenants"  element={<DeletedTenantsPage />} />
+          <Route path="/admin/deleted-tenants"    element={<DeletedTenantsPage />} />
+          <Route path="/admin/tenant-migrations" element={<TenantMigrationsPage />} />
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
       </Route>

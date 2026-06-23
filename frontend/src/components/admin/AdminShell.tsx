@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom'
 import {
   Building2, PlusCircle, ScrollText, Activity, BarChart2,
   Settings, LogOut, X, Shield, LayoutDashboard, Bell, Search, ChevronRight,
-  User, Palette, Trash2,
+  User, Palette, Trash2, Database,
 } from 'lucide-react'
 import { useAdminAuth } from '@/lib/adminAuth'
 
@@ -33,9 +33,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Operations',
     items: [
-      { label: 'Monitoring',      to: '/admin/monitoring',  icon: BarChart2  },
-      { label: 'Platform Health', to: '/admin/health',      icon: Activity   },
-      { label: 'Audit Logs',      to: '/admin/audit-logs',  icon: ScrollText },
+      { label: 'Monitoring',         to: '/admin/monitoring',          icon: BarChart2  },
+      { label: 'Platform Health',    to: '/admin/health',              icon: Activity   },
+      { label: 'Audit Logs',         to: '/admin/audit-logs',          icon: ScrollText },
+      { label: 'Tenant Migrations',  to: '/admin/tenant-migrations',   icon: Database   },
     ],
   },
   {
@@ -58,7 +59,8 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/admin/settings':        'Settings',
   '/admin/health':          'Platform Health',
   '/admin/profile':         'My Profile',
-  '/admin/branding':        'Platform Branding',
+  '/admin/branding':            'Platform Branding',
+  '/admin/tenant-migrations':  'Tenant Migrations',
 }
 
 function getBreadcrumb(pathname: string): string {
