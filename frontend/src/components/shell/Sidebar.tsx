@@ -72,9 +72,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Account',
     items: [
-      { label: 'My Profile',            to: '/sis/me/profile',      icon: UserCircle2, roles: ['FACULTY'] },
-      { label: 'Faculty Directory',      to: '/sis/directory/faculty', icon: UserCheck, roles: ['FACULTY'] },
-      { label: 'Governance Directory',   to: '/sis/governance',      icon: Crown,       roles: ['FACULTY'] },
+      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
     ],
   },
 
@@ -121,22 +119,14 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── DEAN: Faculty Workspace ───────────────────────────────────────────────
+  // ── DEAN: My Department ───────────────────────────────────────────────────
   {
-    heading: 'Faculty Activities',
+    heading: 'My Department',
     items: [
-      { label: 'Faculty Workspace', to: '/faculty-workspace', icon: BookOpen, roles: ['DEAN'] },
-    ],
-  },
-
-  // ── DEAN: Faculty Oversight ────────────────────────────────────────────────
-  {
-    heading: 'Faculty Oversight',
-    items: [
-      { label: 'My Profile',           to: '/sis/me/profile',        icon: UserCircle2,    roles: ['DEAN'] },
-      { label: 'Faculty Directory',    to: '/sis/directory/faculty', icon: UserCheck,      roles: ['DEAN'] },
-      { label: 'Governance Directory', to: '/sis/governance',        icon: Crown,          roles: ['DEAN'] },
-      { label: 'Course Assignments',   to: '/course-assignments',    icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'My Faculty',         to: '/dean/my-faculty',       icon: UserCheck,      roles: ['DEAN'] },
+      { label: 'My Students',        to: '/dean/my-students',      icon: UsersRound,     roles: ['DEAN'] },
+      { label: 'Course Assignments', to: '/course-assignments',    icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'My Profile',         to: '/sis/me/profile',        icon: UserCircle2,    roles: ['DEAN'] },
     ],
   },
 

@@ -398,12 +398,14 @@ async def _ensure_faculty_profile(
     user_id: UUID,
     full_name: str,
     db: AsyncSession,
+    department_id: UUID | None = None,
 ) -> None:
-    """Create a sis_faculty_profiles row for a DEAN if one does not exist.
+    """Create a sis_faculty_profiles row for a FACULTY/DEAN if one does not exist.
 
     Allocates a faculty_code from the per-tenant counter and builds an
     institution_email when the tenant has a domain configured.  Uses
-    ON CONFLICT DO NOTHING so repeated calls are safe.
+    ON CONFLICT DO NOTHING so repeated calls are safe.  If department_id is
+    given it is written to primary_department_id when set for the first time.
     """
     from app.core.onboarding.faculty_code_allocator import (
         DEFAULT_FACULTY_PREFIX,
@@ -440,11 +442,13 @@ async def _ensure_faculty_profile(
     await db.execute(
         text(
             "INSERT INTO sis_faculty_profiles "
-            "    (user_id, faculty_code, institution_email, is_active, lifecycle_status) "
-            "VALUES (:uid, :code, :email, true, 'ACTIVE') "
-            "ON CONFLICT (user_id) DO NOTHING"
+            "    (user_id, faculty_code, institution_email, primary_department_id, is_active, lifecycle_status) "
+            "VALUES (:uid, :code, :email, :dept, true, 'ACTIVE') "
+            "ON CONFLICT (user_id) DO UPDATE "
+            "    SET primary_department_id = COALESCE(EXCLUDED.primary_department_id, sis_faculty_profiles.primary_department_id)"
         ),
-        {"uid": str(user_id), "code": faculty_code, "email": institution_email},
+        {"uid": str(user_id), "code": faculty_code, "email": institution_email,
+         "dept": str(department_id) if department_id else None},
     )
 
 
@@ -791,10 +795,13 @@ class TenantAuthService:
             acad_program_id=payload.acad_program_id,
         )
 
-        # DEAN is also a faculty member — create their SIS profile immediately.
+        # FACULTY and DEAN both get a SIS profile; department is set if provided.
         from app.core.auth.models import TenantRole as _Role
-        if payload.role == _Role.DEAN:
-            await _ensure_faculty_profile(user.id, user.full_name, db)
+        if payload.role in (_Role.FACULTY, _Role.DEAN):
+            await _ensure_faculty_profile(
+                user.id, user.full_name, db,
+                department_id=payload.department_id,
+            )
 
         await AuditService.log(
             AuditEventType.USER_CREATED,
@@ -848,13 +855,20 @@ class TenantAuthService:
             if not effective_program:
                 raise AuthError("PROGRAM_REQUIRED", "acad_program_id is required when assigning STUDENT role", 422)
 
+        # Strip department_id from user-table updates (stored on faculty profile)
+        dept_id_update = updates.pop("department_id", None)
+
         user = await TenantRepository.update_user(user_id, updates, db)
         if not user:
             raise AuthError("USER_NOT_FOUND", "User not found", 404)
 
-        # DEAN role assigned (create or promote) — ensure faculty profile exists.
-        if updates.get("role") == _Role.DEAN:
-            await _ensure_faculty_profile(user.id, user.full_name, db)
+        # FACULTY/DEAN role assigned or department changed — sync faculty profile.
+        new_role = updates.get("role")
+        if new_role in (_Role.FACULTY, _Role.DEAN) or dept_id_update is not None:
+            await _ensure_faculty_profile(
+                user.id, user.full_name, db,
+                department_id=dept_id_update,
+            )
 
         # Resolve program name for response if not already fetched
         if program_name is None and user.acad_program_id:

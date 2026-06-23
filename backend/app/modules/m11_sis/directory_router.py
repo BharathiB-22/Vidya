@@ -4,8 +4,9 @@ SIS Directory Router — H50.
 Routes mounted at /sis/directory/* by the main SIS router.
 
 RBAC:
-  _WRITE  = ADMIN, DEAN          (profile upserts, bulk import)
-  _READ   = ADMIN, DEAN, FACULTY (all list and detail endpoints)
+  _WRITE      = ADMIN, DEAN  (profile upserts, bulk import, dept faculty list)
+  _READ       = ADMIN        (global directory listings — Deans use /dean/* scoped endpoints)
+  DEAN-scoped = GET /dean/faculty and /dean/students auto-filter to Dean's primary department
 """
 from __future__ import annotations
 
@@ -33,6 +34,7 @@ from app.modules.m11_sis.directory_schemas import (
     StudentDirectoryItem,
     StudentProfileUpsert,
 )
+from app.modules.m11_sis.directory_repository import FacultyDirectoryRepository
 from app.modules.m11_sis.directory_service import (
     DirectoryServiceError,
     FacultyDirectoryService,
@@ -42,7 +44,7 @@ from app.modules.m11_sis.directory_service import (
 directory_router = APIRouter(tags=["M11 SIS Directory"])
 
 _WRITE = (TenantRole.ADMIN, TenantRole.DEAN)
-_READ  = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
+_READ  = (TenantRole.ADMIN,)  # Global directories are admin-only; Deans use /dean/* scoped endpoints
 
 
 def _err(e: DirectoryServiceError) -> HTTPException:
@@ -177,10 +179,64 @@ async def upsert_faculty_profile(
 @directory_router.get("/departments/{dept_id}/faculty", response_model=DirectoryPage[FacultyDirectoryItem])
 async def list_department_faculty(
     dept_id:      UUID,
-    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ):
     return await FacultyDirectoryService.list_by_department(dept_id, db)
+
+
+# ---------------------------------------------------------------------------
+# Dean-scoped directory endpoints (auto-scope to Dean's primary department)
+# ---------------------------------------------------------------------------
+
+@directory_router.get("/dean/faculty", response_model=DirectoryPage[FacultyDirectoryItem])
+async def list_dean_faculty(
+    page:      int        = Query(1,  ge=1),
+    page_size: int        = Query(20, ge=1, le=100),
+    search:    str | None = Query(None),
+    is_active: bool | None = Query(None),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Faculty in the Dean's own department (primary dept OR active teaching assignment)."""
+    profile = await FacultyDirectoryRepository.get_profile(current_user.user_id, db)
+    if not profile or not profile.primary_department_id:
+        return DirectoryPage(items=[], total=0, page=page, page_size=page_size, total_pages=0)
+    return await FacultyDirectoryService.list_directory(
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        department_id=profile.primary_department_id,
+        is_active=is_active,
+    )
+
+
+@directory_router.get("/dean/students", response_model=DirectoryPage[StudentDirectoryItem])
+async def list_dean_students(
+    page:       int        = Query(1,  ge=1),
+    page_size:  int        = Query(20, ge=1, le=100),
+    search:     str | None = Query(None),
+    batch_id:   UUID | None = Query(None),
+    section_id: UUID | None = Query(None),
+    is_active:  bool | None = Query(None),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Students in the Dean's department (via their program's department)."""
+    profile = await FacultyDirectoryRepository.get_profile(current_user.user_id, db)
+    if not profile or not profile.primary_department_id:
+        return DirectoryPage(items=[], total=0, page=page, page_size=page_size, total_pages=0)
+    return await StudentDirectoryService.list_directory(
+        db,
+        page=page,
+        page_size=page_size,
+        search=search,
+        department_id=profile.primary_department_id,
+        batch_id=batch_id,
+        section_id=section_id,
+        is_active=is_active,
+    )
 
 
 # ---------------------------------------------------------------------------

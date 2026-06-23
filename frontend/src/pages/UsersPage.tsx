@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Users, UserPlus } from 'lucide-react'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { usersApi, UserRecord, CreateUserPayload, UpdateUserPayload } from '@/lib/api/users'
-import { academicsApi, AcadProgram } from '@/lib/api/academics'
+import { academicsApi, AcadProgram, Department } from '@/lib/api/academics'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
 import { Button } from '@/components/ui/button'
@@ -124,6 +124,39 @@ function ProgramSelect({ value, onChange, programs, required }: ProgramSelectPro
 }
 
 // ---------------------------------------------------------------------------
+// Department dropdown (Faculty/Dean creation)
+// ---------------------------------------------------------------------------
+
+interface DepartmentSelectProps {
+  value: string
+  onChange: (v: string) => void
+  departments: Department[]
+  required?: boolean
+}
+
+function DepartmentSelect({ value, onChange, departments, required }: DepartmentSelectProps) {
+  return (
+    <div className="space-y-1">
+      <label className="text-sm font-medium text-gray-700">
+        Department {required && <span className="text-red-500">*</span>}
+      </label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder="Select department…" />
+        </SelectTrigger>
+        <SelectContent>
+          {departments.map((d) => (
+            <SelectItem key={d.id} value={d.id}>
+              {d.name} <span className="text-gray-400 text-xs">({d.code})</span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Create dialog
 // ---------------------------------------------------------------------------
 
@@ -132,21 +165,23 @@ interface CreateDialogProps {
   onClose: () => void
   onCreated: (user: UserRecord) => void
   programs: AcadProgram[]
+  departments: Department[]
 }
 
-function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogProps) {
-  const [email,      setEmail]      = useState('')
-  const [fullName,   setFullName]   = useState('')
-  const [password,   setPassword]   = useState('')
-  const [role,       setRole]       = useState<Role>('FACULTY')
-  const [identifier, setIdentifier] = useState('')
-  const [programId,  setProgramId]  = useState('')
-  const [error,      setError]      = useState('')
-  const [loading,    setLoading]    = useState(false)
+function CreateUserDialog({ open, onClose, onCreated, programs, departments }: CreateDialogProps) {
+  const [email,        setEmail]        = useState('')
+  const [fullName,     setFullName]     = useState('')
+  const [password,     setPassword]     = useState('')
+  const [role,         setRole]         = useState<Role>('FACULTY')
+  const [identifier,   setIdentifier]   = useState('')
+  const [programId,    setProgramId]    = useState('')
+  const [departmentId, setDepartmentId] = useState('')
+  const [error,        setError]        = useState('')
+  const [loading,      setLoading]      = useState(false)
 
   function reset() {
     setEmail(''); setFullName(''); setPassword(''); setRole('FACULTY')
-    setIdentifier(''); setProgramId(''); setError('')
+    setIdentifier(''); setProgramId(''); setDepartmentId(''); setError('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -154,6 +189,10 @@ function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogPr
     setError('')
     if (role === 'STUDENT' && !programId) {
       setError('Program is required for students.')
+      return
+    }
+    if ((role === 'FACULTY' || role === 'DEAN') && !departmentId) {
+      setError('Department is required for Faculty and Dean accounts.')
       return
     }
     setLoading(true)
@@ -165,6 +204,7 @@ function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogPr
         role,
         ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
         ...(programId ? { acad_program_id: programId } : {}),
+        ...(departmentId ? { department_id: departmentId } : {}),
       }
       const user = await usersApi.create(payload)
       addToast(`${payload.full_name} added successfully.`, 'success')
@@ -199,7 +239,7 @@ function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogPr
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Role</label>
-            <Select value={role} onValueChange={(v) => { setRole(v as Role); if (v !== 'STUDENT') setProgramId('') }}>
+            <Select value={role} onValueChange={(v) => { setRole(v as Role); if (v !== 'STUDENT') setProgramId(''); if (v !== 'FACULTY' && v !== 'DEAN') setDepartmentId('') }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {PRIMARY_ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
@@ -214,6 +254,14 @@ function CreateUserDialog({ open, onClose, onCreated, programs }: CreateDialogPr
               value={programId}
               onChange={setProgramId}
               programs={programs}
+              required
+            />
+          )}
+          {(role === 'FACULTY' || role === 'DEAN') && (
+            <DepartmentSelect
+              value={departmentId}
+              onChange={setDepartmentId}
+              departments={departments}
               required
             />
           )}
@@ -243,29 +291,29 @@ interface EditDialogProps {
   onClose: () => void
   onUpdated: (user: UserRecord) => void
   programs: AcadProgram[]
+  departments: Department[]
 }
 
-function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps) {
-  const [fullName,   setFullName]   = useState('')
-  const [email,      setEmail]      = useState('')
-  const [role,       setRole]       = useState<Role>('FACULTY')
-  const [isActive,   setIsActive]   = useState(true)
-  const [identifier, setIdentifier] = useState('')
-  const [programId,  setProgramId]  = useState('')
-  const [error,      setError]      = useState('')
-  const [loading,    setLoading]    = useState(false)
+function EditUserDialog({ user, onClose, onUpdated, programs, departments }: EditDialogProps) {
+  const [fullName,     setFullName]     = useState('')
+  const [email,        setEmail]        = useState('')
+  const [role,         setRole]         = useState<Role>('FACULTY')
+  const [isActive,     setIsActive]     = useState(true)
+  const [identifier,   setIdentifier]   = useState('')
+  const [programId,    setProgramId]    = useState('')
+  const [departmentId, setDepartmentId] = useState('')
+  const [error,        setError]        = useState('')
+  const [loading,      setLoading]      = useState(false)
 
   useEffect(() => {
     if (user) {
       setFullName(user.full_name)
       setEmail(user.email)
-      // Use the effective role (displayRole) so legacy FACULTY+BOARD/DEAN-grant users
-      // see and save the correct role. On save, role !== user.role triggers the
-      // backend update that repairs the DB role to match.
       setRole(displayRole(user) as Role)
       setIsActive(user.is_active)
       setIdentifier(user.identifier ?? '')
       setProgramId(user.acad_program_id ?? '')
+      setDepartmentId('')
       setError('')
     }
   }, [user])
@@ -287,6 +335,7 @@ function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps)
       if (isActive !== user.is_active) payload.is_active = isActive
       if (identifier.trim() !== (user.identifier ?? '')) payload.identifier = identifier.trim() || undefined
       if (programId !== (user.acad_program_id ?? '')) payload.acad_program_id = programId || undefined
+      if (departmentId) payload.department_id = departmentId
       const updated = await usersApi.update(user.id, payload)
       addToast('User updated successfully.', 'success')
       onUpdated(updated)
@@ -345,7 +394,7 @@ function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps)
               </Select>
               {!(PRIMARY_ROLES as readonly string[]).includes(user.role) && (
                 <p className="text-xs text-amber-600">
-                  This is a legacy standalone “{user.role}” account. Consider switching it to FACULTY and granting {user.role} as a responsibility from the faculty profile.
+                  This is a legacy standalone "{user.role}" account. Consider switching it to FACULTY and granting {user.role} as a responsibility from the faculty profile.
                 </p>
               )}
             </div>
@@ -355,6 +404,13 @@ function EditUserDialog({ user, onClose, onUpdated, programs }: EditDialogProps)
                 onChange={setProgramId}
                 programs={programs}
                 required
+              />
+            )}
+            {(role === 'FACULTY' || role === 'DEAN') && (
+              <DepartmentSelect
+                value={departmentId}
+                onChange={setDepartmentId}
+                departments={departments}
               />
             )}
             <div className="space-y-1">
@@ -399,6 +455,7 @@ export default function UsersPage() {
   const [searchParams] = useSearchParams()
   const [users,        setUsers]        = useState<UserRecord[]>([])
   const [programs,     setPrograms]     = useState<AcadProgram[]>([])
+  const [departments,  setDepartments]  = useState<Department[]>([])
   const [loading,      setLoading]      = useState(true)
   const [error,        setError]        = useState('')
   const [showCreate,   setShowCreate]   = useState(false)
@@ -412,8 +469,9 @@ export default function UsersPage() {
     Promise.all([
       usersApi.list(),
       academicsApi.listPrograms(),
+      academicsApi.listDepartments(),
     ])
-      .then(([u, p]) => { setUsers(u); setPrograms(p) })
+      .then(([u, p, d]) => { setUsers(u); setPrograms(p); setDepartments(d) })
       .catch((err) => setError(getErrorMessage(err)))
       .finally(() => setLoading(false))
   }, [])
@@ -562,6 +620,7 @@ export default function UsersPage() {
         onClose={() => setShowCreate(false)}
         onCreated={handleCreated}
         programs={programs}
+        departments={departments}
       />
       <EditUserDialog
         key={editingUser?.id}
@@ -569,6 +628,7 @@ export default function UsersPage() {
         onClose={() => setEditingUser(null)}
         onUpdated={handleUpdated}
         programs={programs}
+        departments={departments}
       />
     </PageShell>
   )

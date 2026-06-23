@@ -193,6 +193,7 @@ class StudentDirectoryService:
         program_id: UUID | None = None,
         batch_id: UUID | None = None,
         section_id: UUID | None = None,
+        department_id: UUID | None = None,
         is_active: bool | None = None,
     ) -> DirectoryPage[StudentDirectoryItem]:
         rows, total = await StudentDirectoryRepository.list_paginated(
@@ -203,6 +204,7 @@ class StudentDirectoryService:
             program_id=program_id,
             batch_id=batch_id,
             section_id=section_id,
+            department_id=department_id,
             is_active=is_active,
         )
         return _make_page([_build_student_item(r) for r in rows], total, page, page_size)

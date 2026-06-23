@@ -416,7 +416,7 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
 export default function MyProfilePage() {
   const { user } = useAuth()
   const isStudent = user?.role === 'STUDENT'
-  const isFaculty = user?.role === 'FACULTY'
+  const isFaculty = user?.role === 'FACULTY' || user?.role === 'DEAN'
 
   const studentQ = useQuery<StudentDetailOut>({
     queryKey: ['my-student-profile'],

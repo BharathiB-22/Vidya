@@ -128,6 +128,7 @@ class StudentDirectoryRepository:
         program_id: UUID | None,
         batch_id: UUID | None,
         section_id: UUID | None,
+        department_id: UUID | None = None,
         is_active: bool | None,
     ) -> tuple[list[Any], int]:
         stmt = _student_base_stmt()
@@ -147,6 +148,8 @@ class StudentDirectoryRepository:
             stmt = stmt.where(AcadBatch.id == batch_id)
         if section_id is not None:
             stmt = stmt.where(AcadSection.id == section_id)
+        if department_id is not None:
+            stmt = stmt.where(AcadDepartment.id == department_id)
         if is_active is not None:
             stmt = stmt.where(User.is_active.is_(is_active))
 

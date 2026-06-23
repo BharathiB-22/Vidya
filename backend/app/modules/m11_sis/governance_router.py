@@ -26,7 +26,7 @@ from app.modules.m11_sis.governance_schemas import (
 
 governance_router = APIRouter(tags=["M11 SIS Governance"])
 
-_READ = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
+_READ = (TenantRole.ADMIN,)
 
 _DEAN_SQL = text(
     """

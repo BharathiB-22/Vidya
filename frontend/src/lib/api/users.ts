@@ -20,6 +20,7 @@ export interface CreateUserPayload {
   role: string
   identifier?: string
   acad_program_id?: string
+  department_id?: string
 }
 
 export interface UpdateUserPayload {
@@ -29,6 +30,7 @@ export interface UpdateUserPayload {
   identifier?: string
   email?: string
   acad_program_id?: string
+  department_id?: string
 }
 
 export interface AcademicOverviewEntry {

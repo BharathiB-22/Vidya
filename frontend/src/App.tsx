@@ -83,7 +83,8 @@ import StudentDirectoryPage from '@/pages/sis/StudentDirectoryPage'
 import FacultyDirectoryPage from '@/pages/sis/FacultyDirectoryPage'
 import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import GovernanceDirectoryPage from '@/pages/sis/GovernanceDirectoryPage'
-import FacultyWorkspacePage from '@/pages/FacultyWorkspacePage'
+import DeanMyFacultyPage from '@/pages/dean/DeanMyFacultyPage'
+import DeanMyStudentsPage from '@/pages/dean/DeanMyStudentsPage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
@@ -192,9 +193,10 @@ export default function App() {
             <Route path="/dean-review"        element={<DeanReviewPage />} />
           </Route>
 
-          {/* Faculty Workspace — DEAN accesses faculty tools */}
+          {/* Dean department-scoped pages */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
-            <Route path="/faculty-workspace" element={<FacultyWorkspacePage />} />
+            <Route path="/dean/my-faculty"   element={<DeanMyFacultyPage />} />
+            <Route path="/dean/my-students"  element={<DeanMyStudentsPage />} />
           </Route>
 
           {/* Dean Digital Exam Analytics — DEAN, ADMIN, BOARD */}
@@ -236,14 +238,17 @@ export default function App() {
             <Route path="/academics/sections"    element={<SectionsPage />} />
           </Route>
 
-          {/* SIS — ADMIN and DEAN */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+          {/* SIS — ADMIN only */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
             <Route path="/sis"                                   element={<SisDashboardPage />} />
             <Route path="/sis/roster"                            element={<RosterPage />} />
-            <Route path="/sis/students/:student_id"              element={<StudentProfilePage />} />
             <Route path="/sis/schools"                           element={<SchoolsPage />} />
             <Route path="/sis/departments"                       element={<SisDepartmentsPage />} />
             <Route path="/sis/directory/students"                element={<StudentDirectoryPage />} />
+          </Route>
+          {/* Student profile — ADMIN + DEAN (Dean reaches it from My Students) */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/students/:student_id"              element={<StudentProfilePage />} />
             <Route path="/sis/directory/students/:student_id"    element={<StudentProfilePage />} />
           </Route>
 
@@ -346,11 +351,14 @@ export default function App() {
             <Route path="/student/exams/digital/attempts/:attemptId/result" element={<ExamResultPage />} />
           </Route>
 
-          {/* SIS Faculty Directory — ADMIN, DEAN, FACULTY (read-only for FACULTY) */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN', 'FACULTY']} />}>
-            <Route path="/sis/directory/faculty"                 element={<FacultyDirectoryPage />} />
-            <Route path="/sis/directory/faculty/:user_id"        element={<FacultyProfilePage />} />
-            <Route path="/sis/governance"                        element={<GovernanceDirectoryPage />} />
+          {/* SIS Faculty Directory — ADMIN only (Deans use /dean/my-faculty) */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
+            <Route path="/sis/directory/faculty"          element={<FacultyDirectoryPage />} />
+            <Route path="/sis/governance"                 element={<GovernanceDirectoryPage />} />
+          </Route>
+          {/* Faculty profile detail — ADMIN + DEAN (Dean reaches it from My Faculty) */}
+          <Route element={<AuthGuard allowedRoles={['ADMIN', 'DEAN']} />}>
+            <Route path="/sis/directory/faculty/:user_id" element={<FacultyProfilePage />} />
           </Route>
 
           {/* User management & settings — ADMIN only */}
@@ -399,8 +407,8 @@ export default function App() {
             <Route path="/student/viva/:token" element={<StudentVivaPage />} />
           </Route>
 
-          {/* Self-service profile — STUDENT and FACULTY */}
-          <Route element={<AuthGuard allowedRoles={['STUDENT', 'FACULTY']} />}>
+          {/* Self-service profile — STUDENT, FACULTY, DEAN */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT', 'FACULTY', 'DEAN']} />}>
             <Route path="/sis/me/profile" element={<MyProfilePage />} />
           </Route>
 

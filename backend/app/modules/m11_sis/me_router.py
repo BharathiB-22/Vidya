@@ -111,7 +111,7 @@ async def update_my_student_profile(
 
 @me_router.get("/me/faculty-profile", response_model=FacultyDetailOut)
 async def get_my_faculty_profile(
-    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY)),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY, TenantRole.DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:

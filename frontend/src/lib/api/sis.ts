@@ -1282,7 +1282,7 @@ export const sisApi = {
     api.get<StudentTimetableOut>('/sis/exam/my-timetable', { params: { session_id } }).then(r => r.data),
 
   // ---------------------------------------------------------------------------
-  // Governance Directory (P1.9A)
+  // Governance Directory (P1.9A) — Admin-only
   // ---------------------------------------------------------------------------
 
   listGovernanceDeans: (): Promise<GovernanceDeanListResponse> =>
@@ -1290,6 +1290,28 @@ export const sisApi = {
 
   listGovernanceBoard: (): Promise<GovernanceBoardListResponse> =>
     api.get<GovernanceBoardListResponse>('/sis/governance/board').then(r => r.data),
+
+  // ---------------------------------------------------------------------------
+  // Dean department-scoped directory endpoints
+  // ---------------------------------------------------------------------------
+
+  listDeanFaculty: (params: {
+    page?: number
+    page_size?: number
+    search?: string
+    is_active?: boolean
+  }): Promise<DirectoryPage<FacultyDirectoryItem>> =>
+    api.get<DirectoryPage<FacultyDirectoryItem>>('/sis/dean/faculty', { params }).then(r => r.data),
+
+  listDeanStudents: (params: {
+    page?: number
+    page_size?: number
+    search?: string
+    batch_id?: string
+    section_id?: string
+    is_active?: boolean
+  }): Promise<DirectoryPage<StudentDirectoryItem>> =>
+    api.get<DirectoryPage<StudentDirectoryItem>>('/sis/dean/students', { params }).then(r => r.data),
 }
 
 // ---------------------------------------------------------------------------

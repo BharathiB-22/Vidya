@@ -56,6 +56,7 @@ class CreateUserRequest(BaseModel):
     role: TenantRole
     identifier: Optional[str] = None
     acad_program_id: Optional[UUID] = None
+    department_id: Optional[UUID] = None
 
     @field_validator("password")
     @classmethod
@@ -78,6 +79,7 @@ class UpdateUserRequest(BaseModel):
     identifier: Optional[str] = None
     email: Optional[EmailStr] = None
     acad_program_id: Optional[UUID] = None
+    department_id: Optional[UUID] = None
 
 
 class ChangePasswordRequest(BaseModel):
