@@ -43,8 +43,9 @@ from app.modules.m11_sis.directory_service import (
 
 directory_router = APIRouter(tags=["M11 SIS Directory"])
 
-_WRITE = (TenantRole.ADMIN, TenantRole.DEAN)
-_READ  = (TenantRole.ADMIN,)  # Global directories are admin-only; Deans use /dean/* scoped endpoints
+_WRITE  = (TenantRole.ADMIN, TenantRole.DEAN)
+_READ   = (TenantRole.ADMIN,)           # Global list endpoints — admin-only
+_DETAIL = (TenantRole.ADMIN, TenantRole.DEAN)  # Individual profile detail — deans need this to open cards
 
 
 def _err(e: DirectoryServiceError) -> HTTPException:
@@ -85,7 +86,7 @@ async def list_student_directory(
 @directory_router.get("/directory/students/{user_id}", response_model=StudentDetailOut)
 async def get_student_detail(
     user_id:      UUID,
-    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    current_user: CurrentUser = Depends(require_roles(*_DETAIL)),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ):
     try:
@@ -142,7 +143,7 @@ async def list_faculty_directory(
 @directory_router.get("/directory/faculty/{user_id}", response_model=FacultyDetailOut)
 async def get_faculty_detail(
     user_id:      UUID,
-    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    current_user: CurrentUser = Depends(require_roles(*_DETAIL)),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ):
     try:

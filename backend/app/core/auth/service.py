@@ -444,8 +444,10 @@ async def _ensure_faculty_profile(
             "INSERT INTO sis_faculty_profiles "
             "    (user_id, faculty_code, institution_email, primary_department_id, is_active, lifecycle_status) "
             "VALUES (:uid, :code, :email, :dept, true, 'ACTIVE') "
-            "ON CONFLICT (user_id) DO UPDATE "
-            "    SET primary_department_id = COALESCE(EXCLUDED.primary_department_id, sis_faculty_profiles.primary_department_id)"
+            "ON CONFLICT (user_id) DO UPDATE SET "
+            "    primary_department_id = COALESCE(EXCLUDED.primary_department_id, sis_faculty_profiles.primary_department_id), "
+            "    faculty_code          = COALESCE(sis_faculty_profiles.faculty_code, EXCLUDED.faculty_code), "
+            "    institution_email     = COALESCE(sis_faculty_profiles.institution_email, EXCLUDED.institution_email)"
         ),
         {"uid": str(user_id), "code": faculty_code, "email": institution_email,
          "dept": str(department_id) if department_id else None},
@@ -782,6 +784,8 @@ class TenantAuthService:
         if existing:
             raise AuthError("EMAIL_EXISTS", "Email already registered", 409)
 
+        from app.core.auth.models import TenantRole as _Role
+
         program_name: str | None = None
         if payload.acad_program_id:
             prog = await TenantRepository.get_program_by_id(payload.acad_program_id, db)
@@ -789,14 +793,21 @@ class TenantAuthService:
                 raise AuthError("PROGRAM_NOT_FOUND", "Academic program not found or inactive", 422)
             program_name = prog.name
 
+        # Department is mandatory for FACULTY and DEAN — without it their dashboards are empty.
+        if payload.role in (_Role.FACULTY, _Role.DEAN) and not payload.department_id:
+            raise AuthError(
+                "DEPARTMENT_REQUIRED",
+                "department_id is required when creating a FACULTY or DEAN account",
+                422,
+            )
+
         pw_hash = hash_password(payload.password)
         user = await TenantRepository.create_user(
             payload.email, pw_hash, payload.role, payload.full_name, payload.identifier, db,
             acad_program_id=payload.acad_program_id,
         )
 
-        # FACULTY and DEAN both get a SIS profile; department is set if provided.
-        from app.core.auth.models import TenantRole as _Role
+        # FACULTY and DEAN both get a SIS profile with department, faculty_code, and institution_email.
         if payload.role in (_Role.FACULTY, _Role.DEAN):
             await _ensure_faculty_profile(
                 user.id, user.full_name, db,

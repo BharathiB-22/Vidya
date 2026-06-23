@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, UserCheck, ChevronLeft, ChevronRight, Building2 } from 'lucide-react'
+import { Search, UserCheck, ChevronLeft, ChevronRight, Building2, AlertTriangle } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
@@ -73,6 +73,14 @@ export default function DeanMyFacultyPage() {
   const [page, setPage] = useState(1)
   const pageSize = 20
 
+  const { data: profile, isLoading: profileLoading } = useQuery({
+    queryKey: ['dean-my-profile'],
+    queryFn: () => sisApi.getMyFacultyProfile(),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const noDepartment = !profileLoading && !profile?.primary_department
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['dean-faculty', page, search],
     queryFn: () => sisApi.listDeanFaculty({
@@ -80,6 +88,7 @@ export default function DeanMyFacultyPage() {
       page_size: pageSize,
       search: search || undefined,
     }),
+    enabled: !noDepartment,
     placeholderData: prev => prev,
   })
 
@@ -94,29 +103,42 @@ export default function DeanMyFacultyPage() {
         icon={UserCheck}
       />
 
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1) }}
-            placeholder="Search by name or email…"
-            className="pl-9"
-          />
-        </div>
-      </div>
-
-      {isLoading && <PageLoading />}
-
-      {error && (
-        <div className="text-center py-16 text-red-400 text-sm">
-          {(error as Error).message?.includes('No faculty profile')
-            ? 'Your faculty profile has no department set. Ask your administrator to assign your department.'
-            : 'Failed to load faculty. Please refresh.'}
+      {noDepartment && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Department not assigned</p>
+            <p className="text-sm text-amber-700 mt-0.5">
+              Your account has no department set. Ask an administrator to assign your department
+              via <strong>Settings → Users</strong>, then edit your account.
+            </p>
+          </div>
         </div>
       )}
 
-      {!isLoading && !error && items.length === 0 && (
+      {!noDepartment && (
+        <div className="flex gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder="Search by name or email…"
+              className="pl-9"
+            />
+          </div>
+        </div>
+      )}
+
+      {(isLoading || profileLoading) && <PageLoading />}
+
+      {error && (
+        <div className="text-center py-16 text-red-400 text-sm">
+          Failed to load faculty. Please refresh.
+        </div>
+      )}
+
+      {!isLoading && !profileLoading && !error && !noDepartment && items.length === 0 && (
         <div className="text-center py-16 text-gray-400 text-sm">
           No faculty found in your department.
         </div>

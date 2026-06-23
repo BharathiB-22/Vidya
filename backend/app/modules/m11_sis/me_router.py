@@ -6,9 +6,9 @@ Each user can read and edit only their own profile.
 
 RBAC:
   /me/student-profile  — TenantRole.STUDENT only
-  /me/faculty-profile  — TenantRole.FACULTY only
+  /me/faculty-profile  — TenantRole.FACULTY and TenantRole.DEAN (GET + PUT)
 
-Admin/Dean profile management remains on /sis/directory/* endpoints.
+Admin profile management of others remains on /sis/directory/* endpoints.
 """
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ async def get_my_faculty_profile(
 @me_router.put("/me/faculty-profile", response_model=FacultyDetailOut)
 async def update_my_faculty_profile(
     body: FacultySelfServiceUpdate,
-    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY)),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY, TenantRole.DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
