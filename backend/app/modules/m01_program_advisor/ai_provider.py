@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, Protocol, runtime_checkable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.config import settings
 
@@ -29,23 +29,36 @@ class ProgramGenerationContext:
 
 @dataclasses.dataclass
 class ProgramStructureResult:
-    outcomes:   list[dict]  # keys: code, description, bloom_level, display_order
-    courses:    list[dict]  # keys: code, title, credits, semester, is_elective,
-                            #       hours_lecture, hours_tutorial, hours_practical,
-                            #       description, prerequisite_codes
-    model_used: str
-    prompt_hash: str        # SHA-256 of sent prompt — stored in AuditLog
+    outcomes:      list[dict]  # keys: code, description, bloom_level, display_order
+    courses:       list[dict]  # keys: code, title, credits, semester, is_elective,
+                               #       hours_lecture, hours_tutorial, hours_practical,
+                               #       description, prerequisite_codes
+    model_used:    str
+    provider_name: str         # "gemini" | "groq" | "deepseek"
+    prompt_hash:   str         # SHA-256 of sent prompt — stored in AuditLog
 
 
 # ---------------------------------------------------------------------------
 # Private Pydantic models — used as response schema
 # ---------------------------------------------------------------------------
 
+_VALID_BLOOM = frozenset(
+    {"Remember", "Understand", "Apply", "Analyse", "Evaluate", "Create"}
+)
+
+
 class _OutcomeAI(BaseModel):
     code:          str
     description:   str
-    bloom_level:   str   # Remember | Understand | Apply | Analyse | Evaluate | Create
+    bloom_level:   str = "Apply"
     display_order: int
+
+    @field_validator("bloom_level", mode="before")
+    @classmethod
+    def coerce_bloom_level(cls, v: object) -> str:
+        """Default to 'Apply' when the field is missing, blank, or unrecognised."""
+        s = str(v).strip() if v else ""
+        return s if s in _VALID_BLOOM else "Apply"
 
 
 class _CourseAI(BaseModel):
@@ -84,11 +97,14 @@ class ProgramStructureProvider(Protocol):
 
 def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
     system = (
-        "You are an expert academic curriculum designer for Indian universities. "
-        "You create semester-wise program structures that comply with UGC and AICTE norms: "
-        "balanced credit loads per semester, at least 20% elective courses, "
-        "course credits between 1 and 6, and acyclic prerequisite chains. "
-        "Programme Outcomes must align with NBA/NAAC accreditation criteria. "
+        "You are an expert academic curriculum designer. "
+        "You create semester-wise program structures following outcome-based education principles "
+        "and Bloom's revised taxonomy, with balanced credit loads and acyclic prerequisite chains. "
+        "Adapt the structure, credit distribution, elective ratio, and programme outcomes "
+        "to the university framework specified in the generation guidance — this may include "
+        "NEP 2020, VTU norms, autonomous university models, NBA/NAAC outcome-based frameworks, "
+        "industry-integrated, research-oriented, practical-oriented, or skill-based curricula. "
+        "When no specific framework is given, apply broadly accepted academic norms. "
         "Return only valid JSON matching the provided schema — no prose, no markdown fences."
     )
 
@@ -100,7 +116,7 @@ def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
         )
 
     hint_clause = (
-        f"\nAdditional guidance from the Dean: {ctx.prompt_hint}"
+        f"\nUniversity framework / generation guidance: {ctx.prompt_hint}"
         if ctx.prompt_hint else ""
     )
 
@@ -113,11 +129,13 @@ def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
         f"  Total credits : {ctx.total_credits}\n"
         f"{outcomes_clause}"
         f"{hint_clause}\n\n"
-        f"Hard constraints:\n"
+        f"Guidelines (adapt to the university framework and generation guidance above):\n"
         f"- Distribute {ctx.total_credits} credits across "
-        f"{ctx.duration_years * 2} semesters with no semester below 12 or above 30 credits.\n"
-        f"- At least 20% of courses must be elective (is_elective: true).\n"
-        f"- Each course credit must be between 1 and 6.\n"
+        f"{ctx.duration_years * 2} semesters with balanced per-semester loads.\n"
+        f"- Include an appropriate mix of core and elective courses; "
+        f"mark elective courses with is_elective: true.\n"
+        f"- Each course credit should typically be between 1 and 6 "
+        f"unless the framework requires otherwise.\n"
         f"- prerequisite_codes must only reference codes of other courses in the same list.\n"
         f"- bloom_level must be exactly one of: "
         f"Remember, Understand, Apply, Analyse, Evaluate, Create.\n"
@@ -132,7 +150,7 @@ def _prompt_hash(system: str, user: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Groq response normalizer
+# OpenAI-compatible response normalizer (shared by Groq and DeepSeek)
 # ---------------------------------------------------------------------------
 
 def _infer_semester(code: str) -> int:
@@ -153,10 +171,7 @@ def _synthesise_fallback_outcomes(
     department: str = "",
     degree_type: str = "",
 ) -> list[dict[str, Any]]:
-    """
-    Return 4 generic programme outcomes when Groq omits them entirely.
-    Descriptions reference department/degree_type when provided.
-    """
+    """Return 4 generic programme outcomes when the provider omits them entirely."""
     discipline = f"{degree_type} {department}".strip() or "the discipline"
     return [
         {
@@ -198,64 +213,42 @@ def _synthesise_fallback_outcomes(
     ]
 
 
-def _normalize_groq_structure(
+def _normalize_openai_compatible_structure(
     raw: str,
+    provider: str = "openai-compatible",
     *,
     department: str = "",
     degree_type: str = "",
 ) -> dict[str, Any]:
     """
-    Map observed Groq output aliases to canonical _ProgramStructureAI field names.
-    Raises ValueError on non-JSON input.
+    Normalise JSON from any OpenAI-compatible provider (Groq, DeepSeek, etc.).
 
-    Wrapper unwrapping (applied first):
-      {"program_structure": {...}}  -> inner dict becomes the working document
-
-    Semester-wise course flattening (applied after unwrap):
-      {"semesters": [{"semester_number": N, "courses": [...]}]}
-      -> flat "courses" list; each course is stamped with semester=N when absent
-
-    Top-level aliases:
-      programme_outcomes / program_outcomes  -> outcomes
-      program_courses / course_list          -> courses
-
-    Missing outcomes fallback:
-      when outcomes is absent or empty, 4 fallback POs are synthesised using
-      department and degree_type for context
-
-    Per outcome:
-      order             -> display_order  (when display_order absent)
-
-    Per course:
-      name                                                -> title
-      prerequisites / prerequisite_course_codes / prereqs -> prerequisite_codes
-      hours_lab / lab_hours / practical_hours             -> hours_practical
-      (missing semester)     -> inferred from code digits, e.g. CS501 -> 5
-      (missing description)  -> synthesised from title
-      (missing prerequisite_codes) -> []
-      (missing hours_*)            -> 0
+    Handles common response shape variations:
+      - {"program_structure": {...}}  wrapper unwrap
+      - semester-wise course lists  (semesters / semester_wise_courses)
+      - top-level key aliases       (programme_outcomes, program_courses, …)
+      - missing outcomes            → synthesise 4 fallback POs
+      - missing bloom_level         → "Apply"  (also enforced by _OutcomeAI validator)
+      - missing / aliased course fields
     """
     try:
         data: dict[str, Any] = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ValueError(
-            f"Groq response is not valid JSON: {exc}\n"
+            f"{provider} response is not valid JSON: {exc}\n"
             f"Raw (first 300 chars): {raw[:300]}"
         ) from exc
 
     if not isinstance(data, dict):
         raise ValueError(
-            f"Groq response is not a JSON object (got {type(data).__name__})."
+            f"{provider} response is not a JSON object (got {type(data).__name__})."
         )
 
     # --- unwrap program_structure wrapper ---
     if "program_structure" in data and isinstance(data["program_structure"], dict):
         data = data["program_structure"]
 
-    # --- flatten semester-wise courses into a flat list ---
-    # Handles:
-    #   {"semesters": [{"semester_number": N, "courses": [...]}]}
-    #   {"semester_wise_courses": [{"semester": N, "courses": [...]}]}
+    # --- flatten semester-wise courses ---
     _sem_key = None
     if "semesters" in data and "courses" not in data:
         _sem_key = "semesters"
@@ -284,12 +277,12 @@ def _normalize_groq_structure(
             data["courses"] = data.pop(alias)
             break
 
-    # --- synthesise fallback outcomes when Groq omits them entirely ---
+    # --- synthesise fallback outcomes when provider omits them ---
     if not data.get("outcomes"):
         logger.warning(
-            "Groq response has no outcomes — synthesising 4 fallback POs "
+            "%s response has no outcomes — synthesising 4 fallback POs "
             "(department=%r, degree_type=%r).",
-            department, degree_type,
+            provider, department, degree_type,
         )
         data["outcomes"] = _synthesise_fallback_outcomes(department, degree_type)
 
@@ -299,24 +292,27 @@ def _normalize_groq_structure(
             continue
         if "display_order" not in o:
             o["display_order"] = o.pop("order", i + 1)
+        # Ensure bloom_level is present — _OutcomeAI validator will default it to "Apply"
+        if not o.get("bloom_level"):
+            o["bloom_level"] = "Apply"
 
     # --- course normalization ---
     for c in data.get("courses", []):
         if not isinstance(c, dict):
             continue
 
-        # name -> title (must happen before description synthesis)
+        # name -> title
         if "title" not in c and "name" in c:
             c["title"] = c.pop("name")
 
-        # clamp AI-generated credits to valid range [1, 6]
+        # clamp credits to [1, 6]
         raw_credits = c.get("credits")
         if isinstance(raw_credits, (int, float)):
             clamped = max(1, min(6, int(raw_credits)))
             if clamped != int(raw_credits):
                 logger.warning(
-                    "Groq course %r: credits %s out of range [1, 6], clamped to %d.",
-                    c.get("code", "?"), raw_credits, clamped,
+                    "%s course %r: credits %s out of range [1, 6], clamped to %d.",
+                    provider, c.get("code", "?"), raw_credits, clamped,
                 )
                 c["credits"] = clamped
 
@@ -324,7 +320,7 @@ def _normalize_groq_structure(
         if not c.get("semester"):
             c["semester"] = _infer_semester(str(c.get("code", "")))
 
-        # synthesise description from title when absent or blank
+        # synthesise description when absent
         if not c.get("description"):
             label = c.get("title") or c.get("code", "this course")
             c["description"] = f"Course covering topics in {label}."
@@ -350,73 +346,12 @@ def _normalize_groq_structure(
     return data
 
 
-# ---------------------------------------------------------------------------
-# Groq implementation (OpenAI-compatible API)
-# ---------------------------------------------------------------------------
-
-class GroqStructureProvider:
-    """Groq llama-3.3-70b-versatile via the OpenAI-compatible API."""
-
-    async def generate_structure(
-        self,
-        ctx: ProgramGenerationContext,
-    ) -> ProgramStructureResult:
-        if not settings.GROQ_API_KEY:
-            raise ValueError(
-                "GROQ_API_KEY is not configured — cannot use Groq. "
-                "Set GROQ_API_KEY in your .env file."
-            )
-
-        # Deferred import — keeps module loadable without openai installed in tests.
-        from openai import AsyncOpenAI
-
-        system, user = _build_prompt(ctx)
-        phash = _prompt_hash(system, user)
-
-        client = AsyncOpenAI(
-            api_key=settings.GROQ_API_KEY,
-            base_url="https://api.groq.com/openai/v1",
-        )
-
-        response = await client.chat.completions.create(
-            model=settings.GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.4,
-        )
-
-        raw = (response.choices[0].message.content or "").strip()
-        if not raw:
-            raise ValueError("Groq returned an empty response.")
-
-        normalized = _normalize_groq_structure(
-            raw,
-            department=ctx.department,
-            degree_type=ctx.degree_type,
-        )
-        logger.debug("Groq structure normalized keys: %s", list(normalized.keys()))
-
-        try:
-            parsed = _ProgramStructureAI.model_validate(normalized)
-        except Exception as exc:
-            raise ValueError(
-                f"Groq response did not match the expected schema: {exc}\n"
-                f"Raw response (first 500 chars): {raw[:500]}"
-            ) from exc
-
-        return ProgramStructureResult(
-            outcomes=[o.model_dump() for o in parsed.outcomes],
-            courses=[c.model_dump() for c in parsed.courses],
-            model_used=settings.GROQ_MODEL,
-            prompt_hash=phash,
-        )
+# Keep old name as alias for backward compatibility with any external callers.
+_normalize_groq_structure = _normalize_openai_compatible_structure
 
 
 # ---------------------------------------------------------------------------
-# Gemini implementation
+# Gemini provider
 # ---------------------------------------------------------------------------
 
 class GeminiStructureProvider:
@@ -425,15 +360,17 @@ class GeminiStructureProvider:
         self,
         ctx: ProgramGenerationContext,
     ) -> ProgramStructureResult:
-        # Import deferred so module loads cleanly even if google-genai is absent
-        # during test runs that mock this provider entirely.
+        if not settings.GEMINI_API_KEY:
+            raise ValueError(
+                "GEMINI_API_KEY is not configured. Set it in your .env file."
+            )
+
         from google import genai
         from google.genai import types
 
         system, user = _build_prompt(ctx)
         phash = _prompt_hash(system, user)
 
-        # Client instantiated per-call — avoids fork-safety issues in Celery workers.
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
         config = types.GenerateContentConfig(
@@ -462,62 +399,197 @@ class GeminiStructureProvider:
             outcomes=[o.model_dump() for o in parsed.outcomes],
             courses=[c.model_dump() for c in parsed.courses],
             model_used=settings.GEMINI_MODEL,
+            provider_name="gemini",
             prompt_hash=phash,
         )
 
 
 # ---------------------------------------------------------------------------
-# Quota-error detection (used by FallbackStructureProvider)
+# Groq provider (OpenAI-compatible API)
 # ---------------------------------------------------------------------------
 
-_QUOTA_SIGNALS = (
-    "resource_exhausted",
-    "429",
-    "quota",
-    "rate_limit",
-    "rate limit",
-    "too many requests",
-)
-
-
-def _is_quota_error(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return any(s in msg for s in _QUOTA_SIGNALS)
-
-
-# ---------------------------------------------------------------------------
-# Fallback provider — Groq primary, Gemini on quota error
-# ---------------------------------------------------------------------------
-
-class FallbackStructureProvider:
-    """
-    Tries Groq first.  Falls back to Gemini only on quota / rate-limit errors
-    so that transient quota exhaustion does not surface as a user-visible failure.
-    All other Groq errors propagate normally.
-    """
-
-    def __init__(self) -> None:
-        self._groq   = GroqStructureProvider()
-        self._gemini = GeminiStructureProvider()
+class GroqStructureProvider:
+    """Groq llama-3.3-70b-versatile via the OpenAI-compatible API."""
 
     async def generate_structure(
         self,
         ctx: ProgramGenerationContext,
     ) -> ProgramStructureResult:
-        try:
-            result = await self._groq.generate_structure(ctx)
-            logger.info("M01 AI provider used: groq (model=%s)", settings.GROQ_MODEL)
-            return result
-        except Exception as exc:
-            if not _is_quota_error(exc):
-                raise
-            logger.warning(
-                "Groq quota / rate-limit error (%s) — falling back to Gemini.", exc
+        if not settings.GROQ_API_KEY:
+            raise ValueError(
+                "GROQ_API_KEY is not configured. Set it in your .env file."
             )
 
-        result = await self._gemini.generate_structure(ctx)
-        logger.info("M01 AI provider used: gemini (model=%s)", settings.GEMINI_MODEL)
-        return result
+        from openai import AsyncOpenAI
+
+        system, user = _build_prompt(ctx)
+        phash = _prompt_hash(system, user)
+
+        client = AsyncOpenAI(
+            api_key=settings.GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
+        )
+
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.4,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            raise ValueError("Groq returned an empty response.")
+
+        normalized = _normalize_openai_compatible_structure(
+            raw,
+            provider="groq",
+            department=ctx.department,
+            degree_type=ctx.degree_type,
+        )
+
+        try:
+            parsed = _ProgramStructureAI.model_validate(normalized)
+        except Exception as exc:
+            raise ValueError(
+                f"Groq response did not match the expected schema: {exc}\n"
+                f"Raw response (first 500 chars): {raw[:500]}"
+            ) from exc
+
+        return ProgramStructureResult(
+            outcomes=[o.model_dump() for o in parsed.outcomes],
+            courses=[c.model_dump() for c in parsed.courses],
+            model_used=settings.GROQ_MODEL,
+            provider_name="groq",
+            prompt_hash=phash,
+        )
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek provider (OpenAI-compatible API)
+# ---------------------------------------------------------------------------
+
+class DeepSeekStructureProvider:
+    """DeepSeek-V3 via the OpenAI-compatible API."""
+
+    async def generate_structure(
+        self,
+        ctx: ProgramGenerationContext,
+    ) -> ProgramStructureResult:
+        if not settings.DEEPSEEK_API_KEY:
+            raise ValueError(
+                "DEEPSEEK_API_KEY is not configured. Set it in your .env file."
+            )
+
+        from openai import AsyncOpenAI
+
+        system, user = _build_prompt(ctx)
+        phash = _prompt_hash(system, user)
+
+        client = AsyncOpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com",
+        )
+
+        response = await client.chat.completions.create(
+            model=settings.DEEPSEEK_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.4,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            raise ValueError("DeepSeek returned an empty response.")
+
+        normalized = _normalize_openai_compatible_structure(
+            raw,
+            provider="deepseek",
+            department=ctx.department,
+            degree_type=ctx.degree_type,
+        )
+
+        try:
+            parsed = _ProgramStructureAI.model_validate(normalized)
+        except Exception as exc:
+            raise ValueError(
+                f"DeepSeek response did not match the expected schema: {exc}\n"
+                f"Raw response (first 500 chars): {raw[:500]}"
+            ) from exc
+
+        return ProgramStructureResult(
+            outcomes=[o.model_dump() for o in parsed.outcomes],
+            courses=[c.model_dump() for c in parsed.courses],
+            model_used=settings.DEEPSEEK_MODEL,
+            provider_name="deepseek",
+            prompt_hash=phash,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fallback provider — Gemini → Groq → DeepSeek
+# ---------------------------------------------------------------------------
+
+class FallbackStructureProvider:
+    """
+    Tries providers in priority order: Gemini → Groq → DeepSeek.
+
+    Each provider is attempted if:
+      - its AI_*_ENABLED flag is True, AND
+      - its API key is configured.
+
+    Any exception from a provider causes the next provider to be tried.
+    Raises RuntimeError only if every enabled+configured provider fails.
+    """
+
+    def __init__(self) -> None:
+        self._chain: list[tuple[str, ProgramStructureProvider]] = [
+            ("gemini",   GeminiStructureProvider()),
+            ("groq",     GroqStructureProvider()),
+            ("deepseek", DeepSeekStructureProvider()),
+        ]
+
+    def _is_available(self, name: str) -> bool:
+        if name == "gemini":
+            return settings.AI_GEMINI_ENABLED and bool(settings.GEMINI_API_KEY)
+        if name == "groq":
+            return settings.AI_GROQ_ENABLED and bool(settings.GROQ_API_KEY)
+        if name == "deepseek":
+            return settings.AI_DEEPSEEK_ENABLED and bool(settings.DEEPSEEK_API_KEY)
+        return False
+
+    async def generate_structure(
+        self,
+        ctx: ProgramGenerationContext,
+    ) -> ProgramStructureResult:
+        last_exc: Exception | None = None
+
+        for name, provider in self._chain:
+            if not self._is_available(name):
+                logger.debug("M01 provider=%s skipped (disabled or key not set).", name)
+                continue
+
+            try:
+                result = await provider.generate_structure(ctx)
+                logger.info("provider=%s model=%s", name, result.model_used)
+                return result
+            except Exception as exc:
+                logger.warning(
+                    "provider=%s failed (%s: %s) — trying next provider.",
+                    name, type(exc).__name__, exc,
+                )
+                last_exc = exc
+
+        raise RuntimeError(
+            "All AI providers failed. Program generation could not be completed. "
+            f"Last error: {last_exc}"
+        ) from last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -525,8 +597,9 @@ class FallbackStructureProvider:
 # ---------------------------------------------------------------------------
 
 _PROVIDER_MAP: dict[str, type] = {
-    "groq":     GroqStructureProvider,
     "gemini":   GeminiStructureProvider,
+    "groq":     GroqStructureProvider,
+    "deepseek": DeepSeekStructureProvider,
     "fallback": FallbackStructureProvider,
 }
 

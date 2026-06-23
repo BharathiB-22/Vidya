@@ -79,6 +79,7 @@ class SyllabusGenerationResult:
     units:             list[dict]   # unit_number, title, topics[], total_hours, pedagogy
     reference_queries: list[dict]   # query_str, ref_type
     model_used:        str
+    provider_name:     str          # "gemini" | "groq" | "deepseek"
     prompt_hash:       str
 
 
@@ -104,16 +105,13 @@ class _TopicAI(BaseModel):
 class _COAI(BaseModel):
     code:               str = Field(..., min_length=1, max_length=20)
     description:        str = Field(..., min_length=15)
-    bloom_level:        str
+    bloom_level:        str = "APPLY"
     suggested_po_codes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_bloom(self) -> _COAI:
-        if self.bloom_level.upper() not in _VALID_BLOOM:
-            raise ValueError(
-                f"bloom_level '{self.bloom_level}' must be one of {sorted(_VALID_BLOOM)}"
-            )
-        self.bloom_level = self.bloom_level.upper()
+        up = (self.bloom_level or "").upper().strip()
+        self.bloom_level = up if up in _VALID_BLOOM else "APPLY"
         return self
 
 
@@ -235,9 +233,14 @@ def _validate_result(
 
 def _build_prompt(ctx: SyllabusGenerationContext) -> tuple[str, str]:
     system = (
-        "You are an expert academic curriculum designer for Indian universities. "
-        "You create detailed course syllabi aligned with NBA/NAAC accreditation standards "
+        "You are an expert academic curriculum designer. "
+        "You create detailed course syllabi aligned with outcome-based education principles "
         "and Bloom's revised taxonomy. "
+        "Adapt the syllabus depth, unit structure, CO style, and pedagogy to the university "
+        "framework specified in the faculty instructions — this may include NEP 2020, "
+        "VTU regulations, autonomous university standards, NBA/NAAC accreditation, "
+        "industry-integrated, research-oriented, or skill-based approaches. "
+        "When no specific framework is given, apply broadly accepted academic norms. "
         "\n\n"
         "WHAT TO GENERATE:\n"
         "  1. Course Outcomes (COs) with Bloom's taxonomy levels and PO mappings.\n"
@@ -279,12 +282,14 @@ def _build_prompt(ctx: SyllabusGenerationContext) -> tuple[str, str]:
         f"{custom_clause}\n"
         f"\n"
         f"Requirements:\n"
-        f"- Minimum 4 Course Outcomes (COs). Each CO must:\n"
+        f"- Generate Course Outcomes (COs) — aim for at least 4, or as many as the "
+        f"university framework requires. Each CO must:\n"
         f"    * Begin with an action verb (e.g. Apply, Analyse, Design, Implement)\n"
         f"    * Have a distinct Bloom's level "
         f"(Remember/Understand/Apply/Analyse/Evaluate/Create)\n"
         f"    * List suggested_po_codes using only codes from the PO list above\n"
-        f"- Minimum 5 units covering the full course scope with academic depth.\n"
+        f"- Generate units covering the full course scope with academic depth — "
+        f"aim for at least 4 units (typically 5-6 for a standard course).\n"
         f"  Each unit must have:\n"
         f"    * unit_number (1-based), a clear title\n"
         f"    * 6 to 8 detailed topics (no fewer than 6). For each topic provide:\n"
@@ -305,6 +310,15 @@ def _build_prompt(ctx: SyllabusGenerationContext) -> tuple[str, str]:
     )
 
     return system, user
+
+
+def _is_soft_violation(violation: str) -> bool:
+    """Return True for violations that should warn but not abort generation.
+
+    Count shortfalls (fewer COs or units than ideal) are soft — different university
+    styles legitimately produce fewer items, and a warning is preferable to a failure.
+    """
+    return "minimum required is" in violation.lower()
 
 
 def _prompt_hash(system: str, user: str) -> str:
@@ -372,10 +386,17 @@ class GeminiSyllabusProvider:
 
         violations = _validate_result(parsed, ctx)
         if violations:
-            raise SyllabusAIValidationError(
-                "AI response failed business-rule validation:\n"
-                + "\n".join(f"  - {v}" for v in violations)
-            )
+            hard = [v for v in violations if not _is_soft_violation(v)]
+            soft = [v for v in violations if _is_soft_violation(v)]
+            if soft:
+                logger.warning(
+                    "m02.gemini: soft violations — proceeding: %s", soft
+                )
+            if hard:
+                raise SyllabusAIValidationError(
+                    "Gemini AI response failed business-rule validation:\n"
+                    + "\n".join(f"  - {v}" for v in hard)
+                )
 
         return SyllabusGenerationResult(
             outcomes=[
@@ -402,6 +423,7 @@ class GeminiSyllabusProvider:
                 for rq in parsed.reference_queries
             ],
             model_used=settings.GEMINI_MODEL,
+            provider_name="gemini",
             prompt_hash=phash,
         )
 
@@ -654,10 +676,17 @@ class GroqSyllabusProvider:
 
         violations = _validate_result(parsed, ctx)
         if violations:
-            raise SyllabusAIValidationError(
-                "Groq AI response failed business-rule validation:\n"
-                + "\n".join(f"  - {v}" for v in violations)
-            )
+            hard = [v for v in violations if not _is_soft_violation(v)]
+            soft = [v for v in violations if _is_soft_violation(v)]
+            if soft:
+                logger.warning(
+                    "m02.groq: soft violations — proceeding: %s", soft
+                )
+            if hard:
+                raise SyllabusAIValidationError(
+                    "Groq AI response failed business-rule validation:\n"
+                    + "\n".join(f"  - {v}" for v in hard)
+                )
 
         return SyllabusGenerationResult(
             outcomes=[
@@ -684,6 +713,7 @@ class GroqSyllabusProvider:
                 for rq in parsed.reference_queries
             ],
             model_used=settings.GROQ_MODEL,
+            provider_name="groq",
             prompt_hash=phash,
         )
 
@@ -708,43 +738,148 @@ def _is_gemini_quota_error(exc: Exception) -> bool:
     return any(s in msg for s in _QUOTA_SIGNALS)
 
 
-class FallbackSyllabusProvider:
-    """
-    Tries Gemini first.  Falls back to Groq only on quota / rate-limit errors;
-    all other Gemini errors propagate normally so bugs are not silently swallowed.
-    """
-
-    def __init__(self) -> None:
-        self._gemini = GeminiSyllabusProvider()
-        self._groq = GroqSyllabusProvider()
+class DeepSeekSyllabusProvider:
+    """DeepSeek-V3 via the OpenAI-compatible API."""
 
     async def generate_syllabus(
         self,
         ctx: SyllabusGenerationContext,
     ) -> SyllabusGenerationResult:
-        try:
-            result = await self._gemini.generate_syllabus(ctx)
-            logger.info("AI provider used: gemini (model=%s)", settings.GEMINI_MODEL)
-            return result
-        except SyllabusAIBlockedError as exc:
-            # SyllabusAIBlockedError covers both safety blocks and empty-on-quota.
-            # Only route to fallback when the message contains quota signals.
-            if not _is_gemini_quota_error(exc):
-                raise
-            logger.warning(
-                "Gemini quota / safety block detected (%s) — falling back to Groq.",
-                exc,
-            )
-        except Exception as exc:
-            if not _is_gemini_quota_error(exc):
-                raise
-            logger.warning(
-                "Gemini quota error (%s) — falling back to Groq.", exc
+        if not settings.DEEPSEEK_API_KEY:
+            raise SyllabusAIError(
+                "DEEPSEEK_API_KEY is not configured — cannot use DeepSeek. "
+                "Set DEEPSEEK_API_KEY in your .env file."
             )
 
-        result = await self._groq.generate_syllabus(ctx)
-        logger.info("AI provider used: groq (model=%s)", settings.GROQ_MODEL)
-        return result
+        from openai import AsyncOpenAI
+
+        system, user = _build_prompt(ctx)
+        phash = _prompt_hash(system, user)
+
+        client = AsyncOpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com",
+        )
+
+        response = await client.chat.completions.create(
+            model=settings.DEEPSEEK_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.35,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            raise SyllabusAIBlockedError("DeepSeek returned an empty response.")
+
+        normalized = _normalize_groq_response(raw)
+        logger.debug("DeepSeek normalized payload keys: %s", list(normalized.keys()))
+
+        try:
+            parsed = _SyllabusAI.model_validate(normalized)
+        except SyllabusAIParseError:
+            raise
+        except Exception as exc:
+            raise SyllabusAIParseError(
+                f"DeepSeek response did not match the expected schema after normalization: {exc}\n"
+                f"Normalized keys: {list(normalized.keys())}\n"
+                f"Raw response (first 500 chars): {raw[:500]}"
+            ) from exc
+
+        violations = _validate_result(parsed, ctx)
+        if violations:
+            hard = [v for v in violations if not _is_soft_violation(v)]
+            soft = [v for v in violations if _is_soft_violation(v)]
+            if soft:
+                logger.warning(
+                    "m02.deepseek: soft violations — proceeding: %s", soft
+                )
+            if hard:
+                raise SyllabusAIValidationError(
+                    "DeepSeek AI response failed business-rule validation:\n"
+                    + "\n".join(f"  - {v}" for v in hard)
+                )
+
+        return SyllabusGenerationResult(
+            outcomes=[
+                {
+                    "code":               co.code,
+                    "description":        co.description,
+                    "bloom_level":        co.bloom_level,
+                    "suggested_po_codes": co.suggested_po_codes,
+                }
+                for co in parsed.outcomes
+            ],
+            units=[
+                {
+                    "unit_number": u.unit_number,
+                    "title":       u.title,
+                    "topics":      [t.model_dump(exclude_none=True) for t in u.topics],
+                    "total_hours": u.total_hours,
+                    "pedagogy":    u.pedagogy,
+                }
+                for u in parsed.units
+            ],
+            reference_queries=[
+                {"query_str": rq.query_str, "ref_type": rq.ref_type}
+                for rq in parsed.reference_queries
+            ],
+            model_used=settings.DEEPSEEK_MODEL,
+            provider_name="deepseek",
+            prompt_hash=phash,
+        )
+
+
+class FallbackSyllabusProvider:
+    """
+    Tries Gemini → Groq → DeepSeek in order, stopping at first success.
+    Any exception from a provider causes the next provider to be tried.
+    """
+
+    def __init__(self) -> None:
+        self._chain: list[tuple[str, object]] = [
+            ("gemini",   GeminiSyllabusProvider()),
+            ("groq",     GroqSyllabusProvider()),
+            ("deepseek", DeepSeekSyllabusProvider()),
+        ]
+
+    def _is_available(self, name: str) -> bool:
+        if name == "gemini":
+            return settings.AI_GEMINI_ENABLED and bool(settings.GEMINI_API_KEY)
+        if name == "groq":
+            return settings.AI_GROQ_ENABLED and bool(settings.GROQ_API_KEY)
+        if name == "deepseek":
+            return settings.AI_DEEPSEEK_ENABLED and bool(settings.DEEPSEEK_API_KEY)
+        return False
+
+    async def generate_syllabus(
+        self,
+        ctx: SyllabusGenerationContext,
+    ) -> SyllabusGenerationResult:
+        last_exc: Exception | None = None
+
+        for name, provider in self._chain:
+            if not self._is_available(name):
+                logger.debug("M02 provider=%s skipped (disabled or key not set).", name)
+                continue
+            try:
+                result = await provider.generate_syllabus(ctx)  # type: ignore[union-attr]
+                logger.info("provider=%s model=%s", name, result.model_used)
+                return result
+            except Exception as exc:
+                logger.warning(
+                    "provider=%s failed (%s: %s) — trying next provider.",
+                    name, type(exc).__name__, exc,
+                )
+                last_exc = exc
+
+        raise RuntimeError(
+            "All syllabus AI providers failed. "
+            f"Last error: {last_exc}"
+        ) from last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +889,7 @@ class FallbackSyllabusProvider:
 _PROVIDER_MAP: dict[str, type] = {
     "gemini":   GeminiSyllabusProvider,
     "groq":     GroqSyllabusProvider,
+    "deepseek": DeepSeekSyllabusProvider,
     "fallback": FallbackSyllabusProvider,
 }
 

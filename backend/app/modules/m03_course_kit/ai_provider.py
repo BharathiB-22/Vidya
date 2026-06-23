@@ -125,6 +125,7 @@ class KitGenerationResult:
     lesson_plans:  list[dict]   # LessonPlanSession-shaped dicts
     resources:     list[dict]   # ResourceItem-shaped dicts
     model_used:    str
+    provider_name: str          # "gemini" | "groq" | "deepseek"
     prompt_hash:   str
 
 
@@ -584,9 +585,13 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
     topic_list = ", ".join(ctx.unit_topics) if ctx.unit_topics else "all unit topics"
 
     system = (
-        "You are an expert academic curriculum designer for Indian universities. "
-        "You create complete, unit-level teaching kits aligned with NBA/NAAC "
-        "accreditation standards and Bloom's revised taxonomy.\n\n"
+        "You are an expert academic curriculum designer. "
+        "You create complete, unit-level teaching kits aligned with outcome-based education "
+        "and Bloom's revised taxonomy. "
+        "Adapt the teaching style, tone, slide content, and examples to the university "
+        "framework implied by the course context and faculty instructions — this may include "
+        "NEP 2020, VTU norms, autonomous university models, NBA/NAAC accreditation, "
+        "industry-integrated, research-oriented, practical-oriented, or skill-based curricula.\n\n"
 
         "GENERATE EXACTLY 10 SLIDES in this fixed order:\n"
         "  Slide 1  : TITLE          — unit overview and scope\n"
@@ -793,7 +798,7 @@ def _enrich_slide_content(slide: _SlideAI) -> dict[str, Any]:
     return content.model_dump(exclude_none=True)
 
 
-def _build_result(parsed: _KitAI, model_used: str, prompt_hash: str) -> KitGenerationResult:
+def _build_result(parsed: _KitAI, model_used: str, prompt_hash: str, provider_name: str = "") -> KitGenerationResult:
     return KitGenerationResult(
         slides=[
             SlideAI(
@@ -838,6 +843,7 @@ def _build_result(parsed: _KitAI, model_used: str, prompt_hash: str) -> KitGener
         lesson_plans=[ls.model_dump() for ls in parsed.lesson_plans],
         resources=[r.model_dump(exclude_none=True) for r in parsed.resources],
         model_used=model_used,
+        provider_name=provider_name,
         prompt_hash=prompt_hash,
     )
 
@@ -917,7 +923,7 @@ class GeminiCourseKitProvider:
                     + "\n".join(f"  - {v}" for v in hard)
                 )
 
-        return _build_result(parsed, settings.GEMINI_MODEL, phash)
+        return _build_result(parsed, settings.GEMINI_MODEL, phash, provider_name="gemini")
 
 
 # ---------------------------------------------------------------------------
@@ -1434,7 +1440,7 @@ class GroqCourseKitProvider:
                     + "\n".join(f"  - {v}" for v in hard)
                 )
 
-        return _build_result(parsed, settings.GROQ_MODEL, phash)
+        return _build_result(parsed, settings.GROQ_MODEL, phash, provider_name="groq")
 
 
 # ---------------------------------------------------------------------------
@@ -1457,40 +1463,135 @@ def _is_gemini_quota_error(exc: Exception) -> bool:
     return any(s in msg for s in _QUOTA_SIGNALS)
 
 
-class FallbackCourseKitProvider:
-    """
-    Tries Gemini first.  Falls back to Groq only on quota / rate-limit errors;
-    all other Gemini errors propagate normally so bugs are not silently swallowed.
-    """
-
-    def __init__(self) -> None:
-        self._gemini = GeminiCourseKitProvider()
-        self._groq   = GroqCourseKitProvider()
+class DeepSeekCourseKitProvider:
+    """DeepSeek-V3 via the OpenAI-compatible API."""
 
     async def generate_kit(
         self,
         ctx: KitGenerationContext,
     ) -> KitGenerationResult:
-        try:
-            result = await self._gemini.generate_kit(ctx)
-            logger.info("M03 AI provider used: gemini (model=%s)", settings.GEMINI_MODEL)
-            return result
-        except CourseKitAIBlockedError as exc:
-            if not _is_gemini_quota_error(exc):
-                raise
-            logger.warning(
-                "M03 Gemini quota / safety block (%s) — falling back to Groq.", exc
-            )
-        except Exception as exc:
-            if not _is_gemini_quota_error(exc):
-                raise
-            logger.warning(
-                "M03 Gemini quota error (%s) — falling back to Groq.", exc
+        if not settings.DEEPSEEK_API_KEY:
+            raise CourseKitAIError(
+                "DEEPSEEK_API_KEY is not configured — cannot use DeepSeek. "
+                "Set DEEPSEEK_API_KEY in your .env file."
             )
 
-        result = await self._groq.generate_kit(ctx)
-        logger.info("M03 AI provider used: groq (model=%s)", settings.GROQ_MODEL)
-        return result
+        from openai import AsyncOpenAI
+
+        system, user = _build_prompt(ctx)
+        phash = _prompt_hash(system, user)
+
+        client = AsyncOpenAI(
+            api_key=settings.DEEPSEEK_API_KEY,
+            base_url="https://api.deepseek.com",
+        )
+
+        response = await client.chat.completions.create(
+            model=settings.DEEPSEEK_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.35,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            raise CourseKitAIBlockedError("DeepSeek returned an empty response.")
+
+        normalized = _normalize_groq_kit_response(raw)
+        logger.debug("DeepSeek kit normalized payload keys: %s", list(normalized.keys()))
+
+        try:
+            parsed = _KitAI.model_validate(normalized)
+        except CourseKitAIParseError:
+            raise
+        except Exception as exc:
+            raise CourseKitAIParseError(
+                f"DeepSeek kit response did not match the expected schema after normalization: {exc}\n"
+                f"Normalized keys: {list(normalized.keys())}\n"
+                f"Raw response (first 500 chars): {raw[:500]}"
+            ) from exc
+
+        salvage_warns = _salvage_parsed_kit(parsed)
+        if salvage_warns:
+            logger.warning(
+                "m03.deepseek: salvaged %d issue(s): %s", len(salvage_warns), salvage_warns
+            )
+
+        if not parsed.slides:
+            raise CourseKitAIValidationError(
+                "DeepSeek returned 0 valid slides after normalization; "
+                "cannot commit a course kit without content."
+            )
+
+        violations = _validate_result(parsed, ctx)
+        if violations:
+            hard = [v for v in violations if not _is_soft_violation(v)]
+            soft = [v for v in violations if _is_soft_violation(v)]
+            if soft:
+                logger.warning(
+                    "m03.deepseek: soft violations — proceeding with %d slides, "
+                    "%d quizlets: %s",
+                    len(parsed.slides), len(parsed.quizlets), soft,
+                )
+            if hard:
+                raise CourseKitAIValidationError(
+                    "DeepSeek AI kit response failed business-rule validation:\n"
+                    + "\n".join(f"  - {v}" for v in hard)
+                )
+
+        return _build_result(parsed, settings.DEEPSEEK_MODEL, phash, provider_name="deepseek")
+
+
+class FallbackCourseKitProvider:
+    """
+    Tries Gemini → Groq → DeepSeek in order, stopping at first success.
+    Any exception from a provider causes the next provider to be tried.
+    """
+
+    def __init__(self) -> None:
+        self._chain: list[tuple[str, object]] = [
+            ("gemini",   GeminiCourseKitProvider()),
+            ("groq",     GroqCourseKitProvider()),
+            ("deepseek", DeepSeekCourseKitProvider()),
+        ]
+
+    def _is_available(self, name: str) -> bool:
+        if name == "gemini":
+            return settings.AI_GEMINI_ENABLED and bool(settings.GEMINI_API_KEY)
+        if name == "groq":
+            return settings.AI_GROQ_ENABLED and bool(settings.GROQ_API_KEY)
+        if name == "deepseek":
+            return settings.AI_DEEPSEEK_ENABLED and bool(settings.DEEPSEEK_API_KEY)
+        return False
+
+    async def generate_kit(
+        self,
+        ctx: KitGenerationContext,
+    ) -> KitGenerationResult:
+        last_exc: Exception | None = None
+
+        for name, provider in self._chain:
+            if not self._is_available(name):
+                logger.debug("M03 provider=%s skipped (disabled or key not set).", name)
+                continue
+            try:
+                result = await provider.generate_kit(ctx)  # type: ignore[union-attr]
+                logger.info("provider=%s model=%s", name, result.model_used)
+                return result
+            except Exception as exc:
+                logger.warning(
+                    "provider=%s failed (%s: %s) — trying next provider.",
+                    name, type(exc).__name__, exc,
+                )
+                last_exc = exc
+
+        raise RuntimeError(
+            "All course kit AI providers failed. "
+            f"Last error: {last_exc}"
+        ) from last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -1500,6 +1601,7 @@ class FallbackCourseKitProvider:
 _PROVIDER_MAP: dict[str, type] = {
     "gemini":   GeminiCourseKitProvider,
     "groq":     GroqCourseKitProvider,
+    "deepseek": DeepSeekCourseKitProvider,
     "fallback": FallbackCourseKitProvider,
 }
 
