@@ -194,6 +194,12 @@ class UserResponse(BaseModel):
     identifier: Optional[str]
     acad_program_id: Optional[UUID] = None
     acad_program_name: Optional[str] = None
+    # Academic ownership fields (populated by list_users; None for non-applicable roles)
+    department_name: Optional[str] = None
+    department_code: Optional[str] = None
+    academic_id: Optional[str] = None      # faculty_code (FACULTY/DEAN) | USN (STUDENT)
+    program_names: list[str] = []          # all governed/teaching/enrolled programs
+    program_ids: list[str] = []            # parallel list of program UUIDs (for filter)
     is_active: bool
     must_change_password: bool = False
     created_at: datetime

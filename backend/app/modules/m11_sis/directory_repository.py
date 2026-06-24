@@ -238,9 +238,47 @@ class FacultyDirectoryRepository:
 
     @staticmethod
     async def get_by_user_id(user_id: UUID, db: AsyncSession) -> Any | None:
-        stmt = _faculty_base_stmt().where(User.id == user_id)
+        # Direct lookup by user_id without the role/grant filter so any faculty
+        # visible in any directory listing can always open their detail page.
+        # Role validation is enforced in the service layer after this call.
+        stmt = (
+            select(User, SisFacultyProfile, AcadDepartment)
+            .where(User.id == user_id)
+            .outerjoin(SisFacultyProfile, SisFacultyProfile.user_id == User.id)
+            .outerjoin(AcadDepartment, AcadDepartment.id == SisFacultyProfile.primary_department_id)
+        )
         result = await db.execute(stmt)
         return result.first()
+
+    @staticmethod
+    async def get_teaching_programs(user_id: UUID, db: AsyncSession) -> list[Any]:
+        """Return active faculty_program_assignments with program details."""
+        from sqlalchemy import select as _select
+        stmt = (
+            _select(FacultyProgramAssignment, AcadProgram)
+            .where(
+                FacultyProgramAssignment.faculty_user_id == user_id,
+                FacultyProgramAssignment.is_active.is_(True),
+            )
+            .join(AcadProgram, AcadProgram.id == FacultyProgramAssignment.program_id)
+            .order_by(AcadProgram.name)
+        )
+        return list((await db.execute(stmt)).all())
+
+    @staticmethod
+    async def get_governing_programs(user_id: UUID, db: AsyncSession) -> list[Any]:
+        """Return active dean_program_assignments with program details."""
+        from app.modules.m_academics.models import DeanProgramAssignment
+        stmt = (
+            select(DeanProgramAssignment, AcadProgram)
+            .where(
+                DeanProgramAssignment.dean_user_id == user_id,
+                DeanProgramAssignment.is_active.is_(True),
+            )
+            .join(AcadProgram, AcadProgram.id == DeanProgramAssignment.program_id)
+            .order_by(AcadProgram.name)
+        )
+        return list((await db.execute(stmt)).all())
 
     @staticmethod
     async def get_active_assignments(

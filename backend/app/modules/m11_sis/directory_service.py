@@ -390,9 +390,22 @@ class FacultyDirectoryService:
             ))
 
         responsibilities = await _active_grants_for(user_id, db)
-        # Surface DEAN as a chip so deans show their role badge in the detail view.
         if user.role == TenantRole.DEAN and "DEAN" not in responsibilities:
             responsibilities = ["DEAN"] + responsibilities
+
+        teaching_program_rows = await FacultyDirectoryRepository.get_teaching_programs(user_id, db)
+        teaching_programs = [
+            ProgramMini(id=prog.id, name=prog.name, code=prog.code, degree_type=prog.degree_type)
+            for _, prog in teaching_program_rows
+        ]
+
+        governing_programs: list[ProgramMini] = []
+        if user.role == TenantRole.DEAN:
+            governing_rows = await FacultyDirectoryRepository.get_governing_programs(user_id, db)
+            governing_programs = [
+                ProgramMini(id=prog.id, name=prog.name, code=prog.code, degree_type=prog.degree_type)
+                for _, prog in governing_rows
+            ]
 
         return FacultyDetailOut(
             user_id=user.id,
@@ -413,6 +426,8 @@ class FacultyDirectoryService:
             primary_department=DeptMini(id=dept.id, name=dept.name, code=dept.code) if dept else None,
             photo_url=profile.photo_url if profile else None,
             active_assignments=assignments,
+            teaching_programs=teaching_programs,
+            governing_programs=governing_programs,
             is_active=user.is_active,
             profile_created_at=profile.created_at if profile else None,
             profile_updated_at=profile.updated_at if profile else None,

@@ -8,6 +8,12 @@ export interface UserRecord {
   identifier: string | null
   acad_program_id: string | null
   acad_program_name: string | null
+  // Academic ownership
+  department_name: string | null
+  department_code: string | null
+  academic_id: string | null      // faculty_code (FACULTY/DEAN) | USN (STUDENT) | null
+  program_names: string[]         // all governed/teaching/enrolled program names
+  program_ids: string[]           // parallel UUIDs for filter matching
   is_active: boolean
   created_at: string
   grants?: string[]

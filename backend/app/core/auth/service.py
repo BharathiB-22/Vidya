@@ -823,6 +823,26 @@ class TenantAuthService:
                       "acad_program_id": str(payload.acad_program_id) if payload.acad_program_id else None},
             ip_address=ip_address, user_agent=user_agent,
         )
+        enriched = await TenantRepository.get_single_user_with_ownership(user.id, db)
+        if enriched:
+            return UserResponse(
+                id=enriched["id"],
+                email=enriched["email"],
+                role=enriched["role"],
+                full_name=enriched["full_name"],
+                identifier=enriched["identifier"],
+                acad_program_id=enriched["acad_program_id"],
+                acad_program_name=enriched["acad_program_name"],
+                department_name=enriched["department_name"],
+                department_code=enriched["department_code"],
+                academic_id=enriched["academic_id"],
+                program_names=enriched["program_names"],
+                program_ids=enriched["program_ids"],
+                is_active=enriched["is_active"],
+                must_change_password=enriched["must_change_password"],
+                created_at=enriched["created_at"],
+                grants=enriched["grants"],
+            )
         resp = UserResponse.model_validate(user)
         resp.acad_program_name = program_name
         return resp
@@ -901,6 +921,26 @@ class TenantAuthService:
             metadata={"changes": updates},
             ip_address=ip_address, user_agent=user_agent,
         )
+        enriched = await TenantRepository.get_single_user_with_ownership(user.id, db)
+        if enriched:
+            return UserResponse(
+                id=enriched["id"],
+                email=enriched["email"],
+                role=enriched["role"],
+                full_name=enriched["full_name"],
+                identifier=enriched["identifier"],
+                acad_program_id=enriched["acad_program_id"],
+                acad_program_name=enriched["acad_program_name"],
+                department_name=enriched["department_name"],
+                department_code=enriched["department_code"],
+                academic_id=enriched["academic_id"],
+                program_names=enriched["program_names"],
+                program_ids=enriched["program_ids"],
+                is_active=enriched["is_active"],
+                must_change_password=enriched["must_change_password"],
+                created_at=enriched["created_at"],
+                grants=enriched["grants"],
+            )
         resp = UserResponse.model_validate(user)
         resp.acad_program_name = program_name
         return resp

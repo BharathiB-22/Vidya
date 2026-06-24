@@ -247,7 +247,7 @@ export default function TenantMigrationsPage() {
 
         {!isLoading && !error && rows.length === 0 && (
           <div className="flex items-center justify-center py-16 text-gray-500 text-sm">
-            No tenants found.
+            No migration records found.
           </div>
         )}
 

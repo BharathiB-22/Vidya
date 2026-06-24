@@ -72,14 +72,8 @@ async def list_users(
     program_id: UUID | None = Query(None, description="Filter by acad_program_id"),
     db: AsyncSession = Depends(_get_admin_db),
 ) -> list[UserResponse]:
-    users = await TenantRepository.list_users(db, acad_program_id=program_id)
-    result = []
-    for u in users:
-        resp = UserResponse.model_validate(u)
-        resp.acad_program_name = getattr(u, "_program_name", None)
-        resp.grants = getattr(u, "_grants", [])
-        result.append(resp)
-    return result
+    rows = await TenantRepository.list_users(db, acad_program_id=program_id)
+    return [UserResponse.model_validate(row) for row in rows]
 
 
 @router.get("/academic-overview", response_model=list[dict[str, Any]])

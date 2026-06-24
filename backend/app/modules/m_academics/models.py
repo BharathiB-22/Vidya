@@ -298,6 +298,39 @@ class FacultyRoleGrant(Base):
     updated_at      = Column(DateTime(timezone=True), nullable=True)
 
 
+# ---------------------------------------------------------------------------
+# ERP Onboarding (Phase 1.9): Dean ↔ Program governance scope
+# ---------------------------------------------------------------------------
+
+class DeanProgramAssignment(Base):
+    """Many-to-many dean ↔ program governance mapping.
+
+    Distinct from FacultyProgramAssignment (teaching scope).  Represents which
+    programs a DEAN user governs/oversees.  Soft-revoke only — rows are never
+    deleted; revocation stamps is_active=False, revoked_by, revoked_at.
+    """
+    __tablename__ = "dean_program_assignments"
+    __table_args__ = (
+        Index(
+            "uq_dpa_active_dean_program",
+            "dean_user_id", "program_id",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+        Index("ix_dpa_program",     "program_id"),
+        Index("ix_dpa_dean_active", "dean_user_id", "is_active"),
+    )
+
+    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dean_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id",          ondelete="CASCADE"), nullable=False)
+    program_id   = Column(UUID(as_uuid=True), ForeignKey("acad_programs.id",   ondelete="CASCADE"), nullable=False)
+    is_active    = Column(Boolean, nullable=False, default=True)
+    assigned_by  = Column(UUID(as_uuid=True), nullable=False)
+    assigned_at  = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    revoked_by   = Column(UUID(as_uuid=True), nullable=True)
+    revoked_at   = Column(DateTime(timezone=True), nullable=True)
+
+
 class FacultyCodeCounter(Base):
     """Per-prefix monotonic counter for faculty-code allocation (e.g. FAC0001).
 

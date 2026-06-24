@@ -176,6 +176,10 @@ export interface FacultyDetailOut extends FacultyDirectoryItem {
     semester_label: string
     role: string
   }[]
+  /** Programs this faculty member is assigned to teach. */
+  teaching_programs: { id: string; name: string; code: string; degree_type: string }[]
+  /** Programs this DEAN governs (empty for non-DEAN users). */
+  governing_programs: { id: string; name: string; code: string; degree_type: string }[]
   profile_created_at: string | null
   profile_updated_at: string | null
 }

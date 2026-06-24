@@ -196,6 +196,10 @@ class FacultyDetailOut(BaseModel):
     primary_department: Optional[DeptMini]
     photo_url: Optional[str]
     active_assignments: list[AssignmentMini]
+    # Programs this faculty member teaches (via faculty_program_assignments).
+    teaching_programs: list[ProgramMini] = []
+    # Programs this DEAN governs (via dean_program_assignments).
+    governing_programs: list[ProgramMini] = []
     is_active: bool
     profile_created_at: Optional[datetime]
     profile_updated_at: Optional[datetime]

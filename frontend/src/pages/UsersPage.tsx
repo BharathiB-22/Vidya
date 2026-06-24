@@ -477,14 +477,18 @@ export default function UsersPage() {
   }, [])
 
   const filtered = users.filter((u) => {
-    const matchRole    = filterRole    === 'ALL' || displayRole(u) === filterRole
-    const matchProgram = filterProgram === 'ALL' || u.acad_program_id === filterProgram
+    const matchRole = filterRole === 'ALL' || displayRole(u) === filterRole
+    const matchProgram =
+      filterProgram === 'ALL' ||
+      (u.program_ids ?? []).includes(filterProgram) ||
+      u.acad_program_id === filterProgram
     const q = search.toLowerCase()
     const matchSearch = !q ||
       u.full_name.toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
-      (u.identifier ?? '').toLowerCase().includes(q) ||
-      (u.acad_program_name ?? '').toLowerCase().includes(q)
+      (u.academic_id ?? '').toLowerCase().includes(q) ||
+      (u.department_name ?? '').toLowerCase().includes(q) ||
+      (u.program_names ?? []).join(' ').toLowerCase().includes(q)
     return matchRole && matchProgram && matchSearch
   })
 
@@ -506,8 +510,8 @@ export default function UsersPage() {
     <PageShell>
       <PageHeader
         icon={Users}
-        title="Users"
-        subtitle={`${users.length} user${users.length !== 1 ? 's' : ''} in this institution`}
+        title="Academic Ownership"
+        subtitle={`${users.length} user${users.length !== 1 ? 's' : ''} · department, program, and ID at a glance`}
         action={<Button onClick={() => setShowCreate(true)}>Add user</Button>}
       />
 
@@ -517,7 +521,7 @@ export default function UsersPage() {
       <div className="flex gap-2 flex-wrap">
         <Input
           className="w-48"
-          placeholder="Search name, email, ID…"
+          placeholder="Search name, dept, program…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -539,16 +543,16 @@ export default function UsersPage() {
         </Select>
       </div>
 
-      {/* Table */}
+      {/* Academic Ownership Table */}
       <div className="border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
-              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Email</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
-              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Program</th>
-              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Identifier</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Department</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Programs</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Academic ID</th>
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
               <th className="px-4 py-2.5" />
             </tr>
@@ -577,18 +581,10 @@ export default function UsersPage() {
             ) : (
               filtered.map((u) => (
                 <tr key={u.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{u.full_name}</td>
-                  <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                  {/* Name + email stacked */}
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[displayRole(u)] ?? 'bg-gray-100 text-gray-700'}`}>
-                      {displayRole(u)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">
-                    {u.acad_program_name ?? '—'}
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {u.identifier ?? '—'}
+                    <div className="font-medium text-gray-900">{u.full_name}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{u.email}</div>
                     {u.role === 'GUIDE' && (
                       <div className="mt-0.5">
                         <span className="text-xs text-teal-600 font-medium">UUID: </span>
@@ -596,12 +592,37 @@ export default function UsersPage() {
                       </div>
                     )}
                   </td>
+                  {/* Role badge */}
                   <td className="px-4 py-3">
-                    {u.is_active ? (
-                      <span className="text-green-700 font-medium">Active</span>
-                    ) : (
-                      <span className="text-gray-400">Inactive</span>
-                    )}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[displayRole(u)] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {displayRole(u)}
+                    </span>
+                  </td>
+                  {/* Department */}
+                  <td className="px-4 py-3 text-gray-600 text-xs">
+                    {u.department_name
+                      ? <span>{u.department_name}{u.department_code ? <span className="text-gray-400 ml-1">({u.department_code})</span> : null}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                  {/* Programs — comma-separated list */}
+                  <td className="px-4 py-3 text-gray-600 text-xs max-w-[200px]">
+                    {(u.program_names ?? []).length > 0
+                      ? <span className="leading-relaxed">{u.program_names.join(', ')}</span>
+                      : <span className="text-gray-400 italic">
+                          {u.role === 'FACULTY' ? 'No assigned programs'
+                           : u.role === 'DEAN'    ? 'No governed programs'
+                           : '—'}
+                        </span>}
+                  </td>
+                  {/* Academic ID: faculty_code | USN | blank */}
+                  <td className="px-4 py-3 text-xs font-mono text-gray-600">
+                    {u.academic_id ?? <span className="text-gray-300">—</span>}
+                  </td>
+                  {/* Status */}
+                  <td className="px-4 py-3">
+                    {u.is_active
+                      ? <span className="text-green-700 font-medium">Active</span>
+                      : <span className="text-gray-400">Inactive</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button size="sm" variant="outline" onClick={() => setEditingUser(u)}>

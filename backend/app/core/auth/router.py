@@ -353,7 +353,7 @@ async def upload_branding_logo(
 
     # Upload to MinIO
     from app.config import settings
-    import boto3, asyncio, io as _io
+    import boto3, asyncio, io as _io, json as _json
 
     tenant_slug = tenant_row.slug
     ext         = _EXT_MAP[ct]
@@ -374,9 +374,39 @@ async def upload_branding_logo(
             Body=_io.BytesIO(content),
             ContentType=ct,
         )
-        # Store a permanent direct URL so the logo survives beyond presigned-URL
-        # expiry (24 h) and backend restarts.  The S3_ENDPOINT is accessible from
-        # the browser in both dev (MinIO) and prod (S3 / CloudFront).
+
+        # Make the branding prefix publicly readable so the browser can load
+        # the logo directly from MinIO/S3 without backend proxying or presigned
+        # URLs.  We merge a named statement into any existing bucket policy so
+        # other statements are preserved.
+        try:
+            try:
+                existing = client.get_bucket_policy(Bucket=settings.S3_BUCKET)
+                existing_doc = _json.loads(existing["Policy"])
+            except client.exceptions.from_code("NoSuchBucketPolicy") if hasattr(client, "exceptions") else Exception:
+                existing_doc = {"Version": "2012-10-17", "Statement": []}
+            except Exception:
+                existing_doc = {"Version": "2012-10-17", "Statement": []}
+
+            branding_sid = "VidyaBrandingPublicRead"
+            branding_stmt = {
+                "Sid": branding_sid,
+                "Effect": "Allow",
+                "Principal": {"AWS": "*"},
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{settings.S3_BUCKET}/*/branding/*"],
+            }
+            stmts = [s for s in existing_doc.get("Statement", []) if s.get("Sid") != branding_sid]
+            stmts.append(branding_stmt)
+            client.put_bucket_policy(
+                Bucket=settings.S3_BUCKET,
+                Policy=_json.dumps({"Version": "2012-10-17", "Statement": stmts}),
+            )
+        except Exception:
+            # Non-fatal: logo is uploaded; public policy is best-effort
+            pass
+
+        # Permanent direct URL — readable once the bucket policy above is applied.
         return f"{settings.S3_ENDPOINT.rstrip('/')}/{settings.S3_BUCKET}/{object_key}"
 
     loop = asyncio.get_event_loop()

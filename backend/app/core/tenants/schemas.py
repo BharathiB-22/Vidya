@@ -228,11 +228,16 @@ class PlatformSettingsResponse(BaseModel):
     build_version:  str
 
     # AI configuration (no secrets — only configured boolean + model name)
-    ai_provider:       str
-    gemini_configured: bool
-    gemini_model:      str
-    groq_configured:   bool
-    groq_model:        str
+    ai_provider:          str
+    gemini_configured:    bool
+    gemini_model:         str
+    gemini_enabled:       bool
+    groq_configured:      bool
+    groq_model:           str
+    groq_enabled:         bool
+    deepseek_configured:  bool
+    deepseek_model:       str
+    deepseek_enabled:     bool
 
     # Storage
     storage_provider: str

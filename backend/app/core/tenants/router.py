@@ -85,8 +85,13 @@ async def get_platform_settings(
         ai_provider=app_settings.AI_PROVIDER,
         gemini_configured=bool(app_settings.GEMINI_API_KEY),
         gemini_model=app_settings.GEMINI_MODEL,
+        gemini_enabled=app_settings.AI_GEMINI_ENABLED,
         groq_configured=bool(app_settings.GROQ_API_KEY),
         groq_model=app_settings.GROQ_MODEL,
+        groq_enabled=app_settings.AI_GROQ_ENABLED,
+        deepseek_configured=bool(app_settings.DEEPSEEK_API_KEY),
+        deepseek_model=app_settings.DEEPSEEK_MODEL,
+        deepseek_enabled=app_settings.AI_DEEPSEEK_ENABLED,
         storage_provider="MinIO" if is_minio else "AWS S3",
         s3_endpoint=app_settings.S3_ENDPOINT,
         s3_bucket=app_settings.S3_BUCKET,
@@ -104,6 +109,17 @@ async def get_platform_settings(
         access_token_expire_minutes=app_settings.ACCESS_TOKEN_EXPIRE_MINUTES,
         refresh_token_expire_days=app_settings.REFRESH_TOKEN_EXPIRE_DAYS,
     )
+
+
+@router.get("/migrations", response_model=list[TenantMigrationStatus])
+async def list_tenant_migration_status(
+    _: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> list[TenantMigrationStatus]:
+    """Return schema migration status for every non-deleted tenant."""
+    from app.core.tenants.migration_runner import get_all_migration_status
+    rows = await get_all_migration_status(db)
+    return [TenantMigrationStatus(**r) for r in rows]
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)
@@ -199,19 +215,8 @@ async def restore_tenant(
 
 
 # ---------------------------------------------------------------------------
-# Tenant migration status and retry
+# Tenant migration retry
 # ---------------------------------------------------------------------------
-
-@router.get("/migrations", response_model=list[TenantMigrationStatus])
-async def list_tenant_migration_status(
-    _: CurrentUser = Depends(require_super_admin),
-    db: AsyncSession = Depends(get_db),
-) -> list[TenantMigrationStatus]:
-    """Return schema migration status for every non-deleted tenant."""
-    from app.core.tenants.migration_runner import get_all_migration_status
-    rows = await get_all_migration_status(db)
-    return [TenantMigrationStatus(**r) for r in rows]
-
 
 @router.post("/{tenant_id}/migrations/retry", response_model=TenantMigrationResult)
 async def retry_tenant_migration(

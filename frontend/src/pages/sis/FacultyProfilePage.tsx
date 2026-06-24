@@ -583,6 +583,34 @@ export default function FacultyProfilePage() {
         <FacultyLifecyclePanel facultyId={user_id} canManage={canEdit} />
       )}
 
+      {/* Teaching programs */}
+      {(profile.teaching_programs?.length ?? 0) > 0 && (
+        <Card title="Teaching Programs" icon={BookOpen}>
+          <div className="space-y-1 pt-1">
+            {profile.teaching_programs.map(p => (
+              <div key={p.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                <span className="text-sm text-gray-900">{p.name}</span>
+                <span className="text-xs font-mono text-gray-500">{p.code}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Governing programs (Dean only) */}
+      {(profile.governing_programs?.length ?? 0) > 0 && (
+        <Card title="Governing Programs" icon={ShieldCheck}>
+          <div className="space-y-1 pt-1">
+            {profile.governing_programs.map(p => (
+              <div key={p.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                <span className="text-sm text-gray-900">{p.name}</span>
+                <span className="text-xs font-mono text-gray-500">{p.code}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Course assignments */}
       <Card title="Active Course Assignments" icon={BookOpen}>
         {profile.active_assignments.length === 0 ? (

@@ -341,21 +341,57 @@ class TenantRepository:
         return user
 
     @staticmethod
-    async def list_users(db: AsyncSession, acad_program_id: UUID | None = None):
-        stmt = (
-            select(User, AcadProgram.name.label("program_name"))
-            .outerjoin(AcadProgram, User.acad_program_id == AcadProgram.id)
-            .order_by(User.created_at.desc())
-        )
-        if acad_program_id is not None:
-            stmt = stmt.where(User.acad_program_id == acad_program_id)
-        result = await db.execute(stmt)
-        rows = result.all()
-        # Fetch all active grants in one query, keyed by user_id string.
-        user_ids = [str(u.id) for u, _ in rows]
+    async def list_users(
+        db: AsyncSession,
+        acad_program_id: UUID | None = None,
+    ) -> list[dict]:
+        """Return all users with academic ownership fields pre-populated.
+
+        Joins sis_faculty_profiles and sis_student_profiles to surface
+        faculty_code, USN, home department, and teaching/governance programs
+        in a single efficient pass over the database.
+        """
+        where_clause = "WHERE u.acad_program_id = :pid" if acad_program_id else ""
+        main_sql = text(f"""
+            SELECT
+                u.id,
+                u.email,
+                u.role,
+                u.full_name,
+                u.identifier,
+                u.acad_program_id,
+                u.is_active,
+                u.must_change_password,
+                u.created_at,
+                p.id   AS enrolled_program_id,
+                p.name AS program_name,
+                -- Department: faculty/dean from profile, student from their program's dept
+                COALESCE(fd.name, sd.name) AS department_name,
+                COALESCE(fd.code, sd.code) AS department_code,
+                fp.faculty_code,
+                sp.usn
+            FROM users u
+            LEFT JOIN acad_programs        p  ON p.id  = u.acad_program_id
+            LEFT JOIN acad_departments     sd ON sd.id = p.department_id
+            LEFT JOIN sis_faculty_profiles fp ON fp.user_id = u.id
+            LEFT JOIN sis_student_profiles sp ON sp.user_id = u.id
+            LEFT JOIN acad_departments     fd ON fd.id = fp.primary_department_id
+            {where_clause}
+            ORDER BY u.created_at DESC
+        """)
+        params = {"pid": acad_program_id} if acad_program_id else {}
+        rows = (await db.execute(main_sql, params)).mappings().all()
+
+        user_ids = [str(r["id"]) for r in rows]
         grants_map: dict[str, list[str]] = {}
+        fpa_names: dict[str, list[str]] = {}   # faculty teaching programs
+        fpa_ids:   dict[str, list[str]] = {}
+        dpa_names: dict[str, list[str]] = {}   # dean governance programs
+        dpa_ids:   dict[str, list[str]] = {}
+
         if user_ids:
-            grants_rows = await db.execute(
+            # Role grants
+            grant_rows = await db.execute(
                 text(
                     "SELECT faculty_user_id::text, role_code "
                     "FROM faculty_role_grants "
@@ -363,15 +399,165 @@ class TenantRepository:
                 ),
                 {"ids": user_ids},
             )
-            for uid, code in grants_rows.fetchall():
+            for uid, code in grant_rows.fetchall():
                 grants_map.setdefault(uid, []).append(code)
-        # Attach program_name and grants as transient attributes.
-        users = []
-        for user, program_name in rows:
-            user._program_name = program_name
-            user._grants = sorted(grants_map.get(str(user.id), []))
-            users.append(user)
-        return users
+
+            # Faculty teaching programs
+            fpa_rows = await db.execute(
+                text(
+                    "SELECT fpa.faculty_user_id::text, fpa.program_id::text, p.name "
+                    "FROM faculty_program_assignments fpa "
+                    "JOIN acad_programs p ON p.id = fpa.program_id "
+                    "WHERE fpa.is_active = true AND fpa.faculty_user_id = ANY(:ids)"
+                ),
+                {"ids": user_ids},
+            )
+            for uid, pid, pname in fpa_rows.fetchall():
+                fpa_names.setdefault(uid, []).append(pname)
+                fpa_ids.setdefault(uid, []).append(pid)
+
+            # Dean governance programs
+            dpa_rows = await db.execute(
+                text(
+                    "SELECT dpa.dean_user_id::text, dpa.program_id::text, p.name "
+                    "FROM dean_program_assignments dpa "
+                    "JOIN acad_programs p ON p.id = dpa.program_id "
+                    "WHERE dpa.is_active = true AND dpa.dean_user_id = ANY(:ids)"
+                ),
+                {"ids": user_ids},
+            )
+            for uid, pid, pname in dpa_rows.fetchall():
+                dpa_names.setdefault(uid, []).append(pname)
+                dpa_ids.setdefault(uid, []).append(pid)
+
+        result = []
+        for r in rows:
+            uid  = str(r["id"])
+            role = r["role"].value if hasattr(r["role"], "value") else str(r["role"])
+
+            if role in ("FACULTY", "DEAN"):
+                academic_id = r["faculty_code"]
+            elif role == "STUDENT":
+                academic_id = r["usn"]
+            else:
+                academic_id = None
+
+            if role == "FACULTY":
+                program_names = sorted(fpa_names.get(uid, []))
+                program_ids   = [i for _, i in sorted(zip(fpa_names.get(uid, []), fpa_ids.get(uid, [])))]
+            elif role == "DEAN":
+                program_names = sorted(dpa_names.get(uid, []))
+                program_ids   = [i for _, i in sorted(zip(dpa_names.get(uid, []), dpa_ids.get(uid, [])))]
+            elif role == "STUDENT" and r["enrolled_program_id"]:
+                program_names = [r["program_name"]] if r["program_name"] else []
+                program_ids   = [str(r["enrolled_program_id"])]
+            else:
+                program_names = []
+                program_ids   = []
+
+            result.append({
+                "id":                 r["id"],
+                "email":              r["email"],
+                "role":               r["role"],
+                "full_name":          r["full_name"],
+                "identifier":         r["identifier"],
+                "acad_program_id":    r["acad_program_id"],
+                "acad_program_name":  r["program_name"],
+                "department_name":    r["department_name"],
+                "department_code":    r["department_code"],
+                "academic_id":        academic_id,
+                "program_names":      program_names,
+                "program_ids":        program_ids,
+                "is_active":          r["is_active"],
+                "must_change_password": r["must_change_password"],
+                "created_at":         r["created_at"],
+                "grants":             sorted(grants_map.get(uid, [])),
+            })
+        return result
+
+    @staticmethod
+    async def get_single_user_with_ownership(user_id: UUID, db: AsyncSession) -> dict | None:
+        """Return one user enriched with academic ownership fields."""
+        main_sql = text("""
+            SELECT
+                u.id, u.email, u.role, u.full_name, u.identifier,
+                u.acad_program_id, u.is_active, u.must_change_password, u.created_at,
+                p.id   AS enrolled_program_id,
+                p.name AS program_name,
+                COALESCE(fd.name, sd.name) AS department_name,
+                COALESCE(fd.code, sd.code) AS department_code,
+                fp.faculty_code,
+                sp.usn
+            FROM users u
+            LEFT JOIN acad_programs        p  ON p.id  = u.acad_program_id
+            LEFT JOIN acad_departments     sd ON sd.id = p.department_id
+            LEFT JOIN sis_faculty_profiles fp ON fp.user_id = u.id
+            LEFT JOIN sis_student_profiles sp ON sp.user_id = u.id
+            LEFT JOIN acad_departments     fd ON fd.id = fp.primary_department_id
+            WHERE u.id = :uid
+        """)
+        result = (await db.execute(main_sql, {"uid": str(user_id)})).mappings().first()
+        if result is None:
+            return None
+
+        uid_str = str(result["id"])
+        grant_rows = await db.execute(
+            text("SELECT role_code FROM faculty_role_grants WHERE is_active = true AND faculty_user_id = :u"),
+            {"u": uid_str},
+        )
+        grants = sorted({r[0] for r in grant_rows.fetchall()})
+
+        fpa_rows = await db.execute(
+            text("SELECT fpa.program_id::text, p.name FROM faculty_program_assignments fpa JOIN acad_programs p ON p.id = fpa.program_id WHERE fpa.is_active = true AND fpa.faculty_user_id = :u"),
+            {"u": uid_str},
+        )
+        fpa = sorted(fpa_rows.fetchall(), key=lambda x: x[1])
+
+        dpa_rows = await db.execute(
+            text("SELECT dpa.program_id::text, p.name FROM dean_program_assignments dpa JOIN acad_programs p ON p.id = dpa.program_id WHERE dpa.is_active = true AND dpa.dean_user_id = :u"),
+            {"u": uid_str},
+        )
+        dpa = sorted(dpa_rows.fetchall(), key=lambda x: x[1])
+
+        role = result["role"].value if hasattr(result["role"], "value") else str(result["role"])
+        if role in ("FACULTY", "DEAN"):
+            academic_id = result["faculty_code"]
+        elif role == "STUDENT":
+            academic_id = result["usn"]
+        else:
+            academic_id = None
+
+        if role == "FACULTY":
+            program_names = [n for _, n in fpa]
+            program_ids   = [i for i, _ in fpa]
+        elif role == "DEAN":
+            program_names = [n for _, n in dpa]
+            program_ids   = [i for i, _ in dpa]
+        elif role == "STUDENT" and result["enrolled_program_id"]:
+            program_names = [result["program_name"]] if result["program_name"] else []
+            program_ids   = [str(result["enrolled_program_id"])]
+        else:
+            program_names = []
+            program_ids   = []
+
+        return {
+            "id":                   result["id"],
+            "email":                result["email"],
+            "role":                 result["role"],
+            "full_name":            result["full_name"],
+            "identifier":           result["identifier"],
+            "acad_program_id":      result["acad_program_id"],
+            "acad_program_name":    result["program_name"],
+            "department_name":      result["department_name"],
+            "department_code":      result["department_code"],
+            "academic_id":          academic_id,
+            "program_names":        program_names,
+            "program_ids":          program_ids,
+            "is_active":            result["is_active"],
+            "must_change_password": result["must_change_password"],
+            "created_at":           result["created_at"],
+            "grants":               grants,
+        }
 
     @staticmethod
     async def get_academic_overview(db: AsyncSession) -> list[dict]:
