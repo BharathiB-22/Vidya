@@ -60,11 +60,16 @@ export interface PlatformSettings {
   support_email:  string
   environment:    string
   build_version:  string
-  ai_provider:       string
-  gemini_configured: boolean
-  gemini_model:      string
-  groq_configured:   boolean
-  groq_model:        string
+  ai_provider:         string
+  gemini_configured:   boolean
+  gemini_model:        string
+  gemini_enabled:      boolean
+  groq_configured:     boolean
+  groq_model:          string
+  groq_enabled:        boolean
+  deepseek_configured: boolean
+  deepseek_model:      string
+  deepseek_enabled:    boolean
   storage_provider: string
   s3_endpoint:      string
   s3_bucket:        string

@@ -293,6 +293,7 @@ async def _run_generation(
             "mappings_created": len(mapping_items),
             "units_created":    len(new_units),
             "model_used":       result.model_used,
+            "provider":         result.provider_name,
         }
 
     except Exception as exc:

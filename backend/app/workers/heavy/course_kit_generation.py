@@ -363,6 +363,7 @@ async def _run_generation(
             "quizlets_created":    len(new_quizlets),
             "assignments_created": len(new_assignments),
             "model_used":          result.model_used,
+            "provider":            result.provider_name,
         }
 
     except Exception as exc:

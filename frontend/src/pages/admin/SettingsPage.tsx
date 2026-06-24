@@ -248,9 +248,9 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
 
-          {/* ── 3. AI Configuration ───────────────────────────────────── */}
-          <SectionCard icon={Bot} title="AI Configuration" iconColor="#f59e0b">
-            <Row label="Active Provider">
+          {/* ── 3. AI Providers ───────────────────────────────────────── */}
+          <SectionCard icon={Bot} title="AI Providers" iconColor="#f59e0b">
+            <Row label="Strategy">
               <Badge
                 label={s.ai_provider.toUpperCase()}
                 color="#f59e0b"
@@ -261,20 +261,31 @@ export default function SettingsPage() {
             <Row label="Gemini">
               <div className="flex items-center gap-2">
                 <Mono>{s.gemini_model}</Mono>
-                <EnabledBadge enabled={s.gemini_configured} trueLabel="Configured" falseLabel="Not set" />
+                <EnabledBadge enabled={s.gemini_enabled} />
+                <EnabledBadge enabled={s.gemini_configured} trueLabel="Key set" falseLabel="No key" />
               </div>
             </Row>
             <Row label="Groq">
               <div className="flex items-center gap-2">
                 <Mono>{s.groq_model}</Mono>
-                <EnabledBadge enabled={s.groq_configured} trueLabel="Configured" falseLabel="Not set" />
+                <EnabledBadge enabled={s.groq_enabled} />
+                <EnabledBadge enabled={s.groq_configured} trueLabel="Key set" falseLabel="No key" />
+              </div>
+            </Row>
+            <Row label="DeepSeek">
+              <div className="flex items-center gap-2">
+                <Mono>{s.deepseek_model}</Mono>
+                <EnabledBadge enabled={s.deepseek_enabled} />
+                <EnabledBadge enabled={s.deepseek_configured} trueLabel="Key set" falseLabel="No key" />
               </div>
             </Row>
             <div
-              className="mt-3 rounded-lg px-3 py-2.5 text-[11px] text-slate-500"
+              className="mt-3 rounded-lg px-3 py-2.5 text-[11px] text-slate-500 leading-relaxed"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
             >
-              API keys are stored securely in environment variables and are never displayed.
+              Fallback order: <span className="text-slate-400 font-semibold">Gemini → Groq → DeepSeek</span>.
+              Disable a provider via <span className="font-mono">AI_*_ENABLED=false</span> in the environment.
+              API keys are never displayed.
             </div>
           </SectionCard>
 

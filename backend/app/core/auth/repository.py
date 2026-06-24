@@ -402,13 +402,27 @@ class TenantRepository:
             for uid, code in grant_rows.fetchall():
                 grants_map.setdefault(uid, []).append(code)
 
-            # Faculty teaching programs
+            # Faculty teaching programs — explicit FPA rows UNION derived from
+            # subject_assignments → courses → programs → acad_programs.
+            # Deduplication on (faculty_user_id, program_id); NULL acad_program_id excluded.
             fpa_rows = await db.execute(
                 text(
-                    "SELECT fpa.faculty_user_id::text, fpa.program_id::text, p.name "
-                    "FROM faculty_program_assignments fpa "
-                    "JOIN acad_programs p ON p.id = fpa.program_id "
-                    "WHERE fpa.is_active = true AND fpa.faculty_user_id = ANY(:ids)"
+                    "WITH combined AS ("
+                    "  SELECT fpa.faculty_user_id::text AS uid, fpa.program_id::text AS pid,"
+                    "         p.name AS pname"
+                    "  FROM faculty_program_assignments fpa"
+                    "  JOIN acad_programs p ON p.id = fpa.program_id"
+                    "  WHERE fpa.is_active = true AND fpa.faculty_user_id = ANY(:ids)"
+                    "  UNION"
+                    "  SELECT sa.faculty_user_id::text, pr.acad_program_id::text, ap.name"
+                    "  FROM subject_assignments sa"
+                    "  JOIN courses c   ON c.id  = sa.course_id"
+                    "  JOIN programs pr ON pr.id = c.program_id"
+                    "  JOIN acad_programs ap ON ap.id = pr.acad_program_id"
+                    "  WHERE sa.is_active = true AND sa.faculty_user_id = ANY(:ids)"
+                    "    AND pr.acad_program_id IS NOT NULL"
+                    ") "
+                    "SELECT uid, pid, pname FROM combined ORDER BY pname"
                 ),
                 {"ids": user_ids},
             )

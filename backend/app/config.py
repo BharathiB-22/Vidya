@@ -62,17 +62,24 @@ class Settings(BaseSettings):
     # if you want strict enforcement.
     TRUSTED_PROXY_IPS: str = "*"
 
-    # AI provider selection: "groq" | "gemini" | "fallback"
-    # "fallback" tries Gemini first and routes to Groq on quota errors.
-    AI_PROVIDER: Literal["groq", "gemini", "fallback"] = "groq"
+    # AI provider selection: "gemini" | "groq" | "deepseek" | "fallback"
+    # "fallback" tries Gemini → Groq → DeepSeek in order, stopping at first success.
+    AI_PROVIDER: Literal["gemini", "groq", "deepseek", "fallback"] = "fallback"
 
     # Gemini AI
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
+    AI_GEMINI_ENABLED: bool = True
 
     # Groq AI (OpenAI-compatible endpoint)
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    AI_GROQ_ENABLED: bool = True
+
+    # DeepSeek AI (OpenAI-compatible endpoint)
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_MODEL: str = "deepseek-chat"
+    AI_DEEPSEEK_ENABLED: bool = True
     
     # Reference enrichment (M02)
     CROSSREF_BASE_URL: str = "https://api.crossref.org"

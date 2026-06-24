@@ -252,18 +252,39 @@ class FacultyDirectoryRepository:
 
     @staticmethod
     async def get_teaching_programs(user_id: UUID, db: AsyncSession) -> list[Any]:
-        """Return active faculty_program_assignments with program details."""
-        from sqlalchemy import select as _select
-        stmt = (
-            _select(FacultyProgramAssignment, AcadProgram)
-            .where(
-                FacultyProgramAssignment.faculty_user_id == user_id,
-                FacultyProgramAssignment.is_active.is_(True),
-            )
-            .join(AcadProgram, AcadProgram.id == FacultyProgramAssignment.program_id)
-            .order_by(AcadProgram.name)
+        """Return programs this faculty member is associated with.
+
+        Sources (UNION, deduplicated on program_id):
+        1. Explicit faculty_program_assignments (coordinator / advisor cases).
+        2. Derived from active subject_assignments → courses → programs → acad_programs
+           (faculty assigned to a course automatically belong to that program).
+        NULL acad_program_id rows are excluded.
+        """
+        from sqlalchemy import text as _text
+        rows = await db.execute(
+            _text(
+                "WITH combined AS ("
+                "  SELECT fpa.program_id::text AS pid, ap.name AS pname,"
+                "         ap.code AS pcode, ap.degree_type::text AS dtype"
+                "  FROM faculty_program_assignments fpa"
+                "  JOIN acad_programs ap ON ap.id = fpa.program_id"
+                "  WHERE fpa.is_active = true AND fpa.faculty_user_id = :uid"
+                "  UNION"
+                "  SELECT pr.acad_program_id::text, ap.name, ap.code, ap.degree_type::text"
+                "  FROM subject_assignments sa"
+                "  JOIN courses c   ON c.id  = sa.course_id"
+                "  JOIN programs pr ON pr.id = c.program_id"
+                "  JOIN acad_programs ap ON ap.id = pr.acad_program_id"
+                "  WHERE sa.is_active = true AND sa.faculty_user_id = :uid"
+                "    AND pr.acad_program_id IS NOT NULL"
+                ") "
+                "SELECT pid AS program_id, pname AS program_name,"
+                "       pcode AS program_code, dtype AS degree_type"
+                " FROM combined ORDER BY pname"
+            ),
+            {"uid": str(user_id)},
         )
-        return list((await db.execute(stmt)).all())
+        return list(rows.fetchall())
 
     @staticmethod
     async def get_governing_programs(user_id: UUID, db: AsyncSession) -> list[Any]:

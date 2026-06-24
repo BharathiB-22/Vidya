@@ -266,4 +266,5 @@ async def _run_generation(
         "outcomes_added":      len(new_outcomes),
         "prerequisites_wired": prereq_count,
         "model_used":          result.model_used,
+        "provider":            result.provider_name,
     }

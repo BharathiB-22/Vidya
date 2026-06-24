@@ -395,8 +395,8 @@ class FacultyDirectoryService:
 
         teaching_program_rows = await FacultyDirectoryRepository.get_teaching_programs(user_id, db)
         teaching_programs = [
-            ProgramMini(id=prog.id, name=prog.name, code=prog.code, degree_type=prog.degree_type)
-            for _, prog in teaching_program_rows
+            ProgramMini(id=r["program_id"], name=r["program_name"], code=r["program_code"], degree_type=r["degree_type"])
+            for r in teaching_program_rows
         ]
 
         governing_programs: list[ProgramMini] = []
