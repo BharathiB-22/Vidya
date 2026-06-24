@@ -299,10 +299,16 @@ def test_directory_router_exists():
 def test_directory_router_rbac():
     import app.modules.m11_sis.directory_router as dr
     from app.core.auth.models import TenantRole
+    # _WRITE: ADMIN + DEAN can upsert profiles
     assert TenantRole.ADMIN in dr._WRITE
     assert TenantRole.DEAN in dr._WRITE
-    assert TenantRole.FACULTY in dr._READ
     assert TenantRole.FACULTY not in dr._WRITE
+    # _READ: global directory listings are admin-only (P1.9)
+    assert TenantRole.ADMIN in dr._READ
+    assert TenantRole.FACULTY not in dr._READ
+    # _DETAIL: ADMIN and DEAN can open individual faculty profiles
+    assert TenantRole.ADMIN in dr._DETAIL
+    assert TenantRole.DEAN in dr._DETAIL
 
 
 # ---------------------------------------------------------------------------
@@ -470,3 +476,98 @@ def test_faculty_detail_assignment_annotation():
     hint = FacultyDetailOut.model_fields["active_assignments"]
     # list[AssignmentMini] annotation should be present
     assert hint is not None
+
+
+# ---------------------------------------------------------------------------
+# 31-33. Regression: faculty in directory list can always open their profile
+#
+# Bug: get_teaching_programs returned raw Row objects (rows.fetchall()).
+# SQLAlchemy 2.x Row supports r[0] and r.key but NOT r["key"] string subscript.
+# The service did r["program_id"] — TypeError for any faculty with teaching
+# programs, manifesting as "Faculty member not found." in the UI.
+# Akash Rao (FAC0007) and Neha Reddy (FAC0009) had active subject assignments
+# linked to programs with acad_program_id set; Dr. Aishu/Pooja did not, so
+# their empty list short-circuited the broken code path.
+# Fix: rows.mappings().all() returns RowMapping objects (dict-like) so r["key"] works.
+# ---------------------------------------------------------------------------
+
+def test_get_teaching_programs_uses_mappings():
+    """Structural guard: get_teaching_programs must call .mappings() so the service
+    can do r['program_id']. A plain fetchall() returns Row objects that raise
+    TypeError on string-key subscript in SQLAlchemy 2.x."""
+    import inspect
+    from app.modules.m11_sis.directory_repository import FacultyDirectoryRepository
+    src = inspect.getsource(FacultyDirectoryRepository.get_teaching_programs)
+    assert ".mappings()" in src, (
+        "get_teaching_programs must use rows.mappings().all() not rows.fetchall(); "
+        "string-key access r['program_id'] requires RowMapping, not Row"
+    )
+
+
+def test_faculty_detail_with_teaching_programs_builds_correctly():
+    """FacultyDetailOut accepts a non-empty teaching_programs list.
+    Validates that the service can build the response when faculty
+    have programs (regression for the Akash/Neha 'not found' failure)."""
+    from uuid import uuid4
+    from app.modules.m11_sis.directory_schemas import FacultyDetailOut, ProgramMini
+
+    programs = [
+        ProgramMini(id=uuid4(), name="MCA", code="MCA01", degree_type="MASTERS"),
+        ProgramMini(id=uuid4(), name="BCA", code="BCA01", degree_type="BACHELORS"),
+    ]
+    out = FacultyDetailOut(
+        user_id=uuid4(), full_name="Akash Rao", email="akash@test.com",
+        identifier=None, employee_id=None, faculty_code="FAC0007",
+        designation=None, qualifications=None, bio=None, office_location=None,
+        phone=None, joining_date=None, specialization=None,
+        primary_department=None, photo_url=None,
+        active_assignments=[], teaching_programs=programs,
+        governing_programs=[], responsibilities=[],
+        is_active=True, profile_created_at=None, profile_updated_at=None,
+    )
+    assert len(out.teaching_programs) == 2
+    assert out.teaching_programs[0].name == "MCA"
+    assert out.faculty_code == "FAC0007"
+
+
+def test_course_model_has_title_not_name():
+    """Regression: directory_service built CourseMini with course.name but the
+    Course ORM model has 'title' not 'name'. Faculty with assigned courses got
+    AttributeError -> 500 -> 'Faculty member not found.' in the UI.
+    Fix: use course.title."""
+    from app.modules.m01_program_advisor.models import Course
+    cols = {c.name for c in Course.__table__.columns}
+    assert "title" in cols, "Course must have a 'title' column"
+    assert "name" not in cols, "Course has no 'name' column — use 'title' instead"
+
+
+def test_faculty_detail_service_uses_course_title():
+    """Structural guard: directory_service must read course.title, not course.name."""
+    import inspect
+    from app.modules.m11_sis import directory_service
+    src = inspect.getsource(directory_service.FacultyDirectoryService.get_detail)
+    assert "course.title" in src, "get_detail must use course.title (Course ORM field), not course.name"
+    assert "course.name" not in src, "course.name does not exist on the Course ORM model"
+
+
+def test_teaching_programs_row_access_via_dict():
+    """Simulate the exact service code path that was broken.
+    RowMapping objects (returned by .mappings()) must support r['key'] access.
+    This would have failed with plain SQLAlchemy Row objects."""
+    from app.modules.m11_sis.directory_schemas import ProgramMini
+    from uuid import uuid4
+
+    # Simulate what rows.mappings().all() returns: dict-like RowMapping objects.
+    # We use plain dicts here since RowMapping behaves identically for key access.
+    fake_rows = [
+        {"program_id": str(uuid4()), "program_name": "MCA", "program_code": "MCA01", "degree_type": "MASTERS"},
+        {"program_id": str(uuid4()), "program_name": "BCA", "program_code": "BCA01", "degree_type": "BACHELORS"},
+    ]
+    # Exact code from directory_service.py get_detail (lines 397-399):
+    teaching_programs = [
+        ProgramMini(id=r["program_id"], name=r["program_name"], code=r["program_code"], degree_type=r["degree_type"])
+        for r in fake_rows
+    ]
+    assert len(teaching_programs) == 2
+    assert teaching_programs[0].name == "MCA"
+    assert teaching_programs[1].degree_type == "BACHELORS"

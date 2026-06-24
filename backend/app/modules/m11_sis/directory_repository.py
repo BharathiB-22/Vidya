@@ -284,7 +284,10 @@ class FacultyDirectoryRepository:
             ),
             {"uid": str(user_id)},
         )
-        return list(rows.fetchall())
+        # .mappings() returns RowMapping (dict-like) objects so that the service
+        # can do r["program_id"]. Plain Row objects from fetchall() only support
+        # positional access in SQLAlchemy 2.x — string-key subscript raises TypeError.
+        return list(rows.mappings().all())
 
     @staticmethod
     async def get_governing_programs(user_id: UUID, db: AsyncSession) -> list[Any]:

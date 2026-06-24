@@ -380,7 +380,7 @@ class FacultyDirectoryService:
         assignments = []
         for sa_row, course, sem in assignment_rows:
             if course is not None:
-                course_mini = CourseMini(id=course.id, name=course.name, code=course.code)
+                course_mini = CourseMini(id=course.id, name=course.title, code=course.code)
             else:
                 course_mini = CourseMini(id=sa_row.course_id, name="Unknown course", code="—")
             assignments.append(AssignmentMini(
