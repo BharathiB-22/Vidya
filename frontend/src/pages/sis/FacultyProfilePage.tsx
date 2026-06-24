@@ -77,6 +77,17 @@ function ResponsibilityChip({ role }: { role: string }) {
   )
 }
 
+function ProgramCodeChip({ code }: { code: string }) {
+  return (
+    <span
+      className="inline-flex items-center text-xs font-semibold px-2.5 py-1 rounded-full"
+      style={{ background: '#0284c71A', color: '#0284c7', border: '1px solid #0284c740' }}
+    >
+      {code}
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Responsibilities card — display + ADMIN/DEAN grant management
 // ---------------------------------------------------------------------------
@@ -92,9 +103,11 @@ function assignableRoles(actorRole: string | undefined): GrantableRole[] {
 function ResponsibilitiesCard({
   facultyUserId,
   responsibilities,
+  programCodes,
 }: {
   facultyUserId: string
   responsibilities: string[]
+  programCodes: string[]
 }) {
   const qc = useQueryClient()
   const { user } = useAuth()
@@ -120,11 +133,12 @@ function ResponsibilitiesCard({
   return (
     <Card title="Responsibilities" icon={ShieldCheck}>
       <div className="py-3">
-        {responsibilities.length === 0 ? (
+        {responsibilities.length === 0 && programCodes.length === 0 ? (
           <p className="text-sm text-gray-500">No responsibilities assigned.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {responsibilities.map(r => <ResponsibilityChip key={r} role={r} />)}
+            {programCodes.map(code => <ProgramCodeChip key={code} code={code} />)}
           </div>
         )}
       </div>
@@ -457,6 +471,7 @@ export default function FacultyProfilePage() {
   )
 
   const initials = profile.full_name.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase()
+  const isDean   = profile.responsibilities?.includes('DEAN') ?? false
 
   return (
     <PageShell width="sm">
@@ -495,6 +510,18 @@ export default function FacultyProfilePage() {
           )}
           {profile.primary_department && (
             <p className="text-xs text-gray-500">{profile.primary_department.name}</p>
+          )}
+          {!isDean && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-400 mb-0.5">Teaching Programs</p>
+              {(profile.teaching_programs?.length ?? 0) > 0 ? (
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  {profile.teaching_programs.map(p => p.name).join(' · ')}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400 italic">No teaching programs assigned</p>
+              )}
+            </div>
           )}
         </div>
         {profile.faculty_code && (
@@ -544,6 +571,11 @@ export default function FacultyProfilePage() {
         <ResponsibilitiesCard
           facultyUserId={user_id}
           responsibilities={profile.responsibilities ?? []}
+          programCodes={
+            isDean
+              ? (profile.governing_programs ?? []).map(p => p.code)
+              : (profile.teaching_programs ?? []).map(p => p.code)
+          }
         />
       )}
 
