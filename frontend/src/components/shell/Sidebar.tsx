@@ -19,7 +19,9 @@ interface NavItem {
   label: string
   to: string
   icon: LucideIconType
-  roles: string[]
+  roles: string[]        // OR: visible if roleSet has any of these
+  allRoles?: string[]    // AND: roleSet must also contain all of these
+  excludeRoles?: string[]// NOT: hidden if roleSet contains any of these
   exact?: boolean
 }
 
@@ -76,36 +78,49 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
+  // ── DEAN: My Department ───────────────────────────────────────────────────
+  {
+    heading: 'My Department',
+    items: [
+      { label: 'My Faculty',         to: '/dean/my-faculty',    icon: UserCheck,      roles: ['DEAN'] },
+      { label: 'My Students',        to: '/dean/my-students',   icon: UsersRound,     roles: ['DEAN'] },
+      { label: 'Course Assignments', to: '/course-assignments', icon: ClipboardCheck, roles: ['DEAN'] },
+    ],
+  },
+
+  // ── DEAN: Academic Governance ──────────────────────────────────────────────
+  {
+    heading: 'Academic Governance',
+    items: [
+      { label: 'Programs',        to: '/programs',    icon: BookMarked,     roles: ['DEAN'] },
+      { label: 'Syllabus Review', to: '/dean-review', icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'Syllabuses',      to: '/syllabuses',  icon: GraduationCap,  roles: ['DEAN'] },
+    ],
+  },
+
   // ── DEAN: Academic Operations ──────────────────────────────────────────────
   {
     heading: 'Academic Operations',
     items: [
-      { label: 'Attendance Analytics', to: '/sis/attendance/analytics', icon: CalendarCheck, roles: ['DEAN'] },
-      { label: 'Internal Marks Report', to: '/sis/marks/report',        icon: BookMarked,    roles: ['DEAN'] },
+      { label: 'Attendance Analytics',  to: '/sis/attendance/analytics', icon: CalendarCheck, roles: ['DEAN'] },
+      { label: 'Internal Marks Report', to: '/sis/marks/report',         icon: BookMarked,    roles: ['DEAN'] },
     ],
   },
 
-  // ── DEAN: Examinations & Evaluation ───────────────────────────────────────
+  // ── DEAN: Examinations ────────────────────────────────────────────────────
+  // Dean is the academic owner of all examination operations. Digital sessions,
+  // monitoring, OCR and physical logistics all sit here; Admin retains
+  // read-only access to results and analytics.
   {
     heading: 'Examinations',
     items: [
-      { label: 'Results',       to: '/sis/results',        icon: ClipboardList, roles: ['DEAN'] },
-      { label: 'Evaluation Assignments', to: '/dean/evaluation-assignments', icon: ClipboardCheck, roles: ['DEAN'] },
-    ],
-  },
-
-  // ── DEAN: Examination Control (Controller of Examinations / Exam Cell) ─────
-  // Hall tickets, exam sessions and exam centres are COE / exam-cell operational
-  // functions. They sit under DEAN only because VIDYA has no dedicated
-  // Controller-of-Examinations role yet; they are grouped separately from Dean
-  // academic governance so the boundary stays explicit and is easy to reassign
-  // to a future COE role.
-  {
-    heading: 'Examination Control',
-    items: [
-      { label: 'Hall Tickets',  to: '/sis/hall-tickets',   icon: Ticket,       roles: ['DEAN'] },
-      { label: 'Exam Sessions', to: '/sis/exam/sessions',  icon: CalendarDays, roles: ['DEAN'] },
-      { label: 'Exam Centers',  to: '/sis/exam/centers',   icon: MapPin,       roles: ['DEAN'] },
+      { label: 'Digital Sessions', to: '/exams/digital',            icon: Monitor,       roles: ['DEAN'] },
+      { label: 'Exam Monitoring',  to: '/exams/digital/monitoring', icon: Activity,      roles: ['DEAN'] },
+      { label: 'OCR Review Queue', to: '/ocr-review',               icon: ScanSearch,    roles: ['DEAN'] },
+      { label: 'Hall Tickets',     to: '/sis/hall-tickets',         icon: Ticket,        roles: ['DEAN'] },
+      { label: 'Exam Sessions',    to: '/sis/exam/sessions',        icon: CalendarDays,  roles: ['DEAN'] },
+      { label: 'Exam Centers',     to: '/sis/exam/centers',         icon: MapPin,        roles: ['DEAN'] },
+      { label: 'Results',          to: '/sis/results',              icon: ClipboardList, roles: ['DEAN'] },
     ],
   },
 
@@ -113,33 +128,40 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Analytics',
     items: [
-      { label: 'Grade Analytics',        to: '/bell-curve',                   icon: BarChart2, roles: ['DEAN'] },
-      { label: 'Examination Analytics',  to: '/dean/exam-analytics',          icon: BarChart2, roles: ['DEAN'] },
-      { label: 'Digital Exam Analytics', to: '/exams/digital/analytics',      icon: Monitor,   roles: ['DEAN'] },
+      { label: 'Grade Analytics',       to: '/bell-curve',          icon: BarChart2, roles: ['DEAN'] },
+      { label: 'Examination Analytics', to: '/dean/exam-analytics', icon: BarChart2, roles: ['DEAN'] },
     ],
   },
 
-  // ── DEAN: My Department ───────────────────────────────────────────────────
+  // ── DEAN: My Responsibilities ─────────────────────────────────────────────
+  // This section appears only when the Dean holds an active GUIDE or EVALUATOR
+  // responsibility grant. Items use allRoles to require DEAN ∩ grant so that
+  // plain GUIDE/EVALUATOR users (e.g. Faculty) never see Dean-scoped routes.
   {
-    heading: 'My Department',
+    heading: 'My Responsibilities',
     items: [
-      { label: 'My Faculty',         to: '/dean/my-faculty',       icon: UserCheck,      roles: ['DEAN'] },
-      { label: 'My Students',        to: '/dean/my-students',      icon: UsersRound,     roles: ['DEAN'] },
-      { label: 'Course Assignments', to: '/course-assignments',    icon: ClipboardCheck, roles: ['DEAN'] },
-      { label: 'My Profile',         to: '/sis/me/profile',        icon: UserCircle2,    roles: ['DEAN'] },
+      {
+        label: 'Guide Assignments',
+        to: '/research/problems',
+        icon: Microscope,
+        roles: ['DEAN'],
+        allRoles: ['GUIDE'],
+      },
+      {
+        label: 'Evaluation Assignments',
+        to: '/dean/evaluation-assignments',
+        icon: ClipboardCheck,
+        roles: ['DEAN'],
+        allRoles: ['EVALUATOR'],
+      },
     ],
   },
 
-  // ── DEAN: Academic Governance ──────────────────────────────────────────────
-  // The Program Advisor (create / curriculum / approve) is Dean-owned in the
-  // backend (m01 _WRITE=ADMIN,DEAN; approve=DEAN) but previously had no nav
-  // entry — this restores that visibility without changing backend ownership.
+  // ── DEAN: My Account ──────────────────────────────────────────────────────
   {
-    heading: 'Academic Governance',
+    heading: 'My Account',
     items: [
-      { label: 'Programs',        to: '/programs',     icon: BookMarked,     roles: ['DEAN'] },
-      { label: 'Syllabus Review', to: '/dean-review',  icon: ClipboardCheck, roles: ['DEAN'] },
-      { label: 'Syllabuses',      to: '/syllabuses',   icon: GraduationCap,  roles: ['DEAN'] },
+      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['DEAN'] },
     ],
   },
 
@@ -172,16 +194,15 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── ADMIN: Examinations ───────────────────────────────────────────────────
+  // ── ADMIN: Examination Reports ─────────────────────────────────────────────
+  // Dean owns examination operations. Admin retains read-only access to
+  // results, analytics, and compliance; cannot create sessions or approve results.
   {
-    heading: 'Examinations',
+    heading: 'Examination Reports',
     items: [
-      { label: 'Digital Sessions',  to: '/exams/digital',             icon: Monitor,     roles: ['ADMIN'] },
-      { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',  icon: Activity,    roles: ['ADMIN'] },
-      { label: 'OCR Review Queue',  to: '/ocr-review',                icon: ScanSearch,  roles: ['ADMIN'] },
-      { label: 'Examination Analytics', to: '/admin/exam-analytics',  icon: BarChart2,   roles: ['ADMIN'] },
-      { label: 'Evaluation Assignments', to: '/admin/evaluation-assignments', icon: ClipboardCheck, roles: ['ADMIN'] },
-      { label: 'Compliance & Audit',     to: '/admin/compliance',      icon: ShieldCheck, roles: ['ADMIN'] },
+      { label: 'Results',               to: '/sis/results',          icon: ClipboardList, roles: ['ADMIN'] },
+      { label: 'Examination Analytics', to: '/admin/exam-analytics', icon: BarChart2,     roles: ['ADMIN'] },
+      { label: 'Compliance & Audit',    to: '/admin/compliance',     icon: ShieldCheck,   roles: ['ADMIN'] },
     ],
   },
 
@@ -237,18 +258,22 @@ const NAV_SECTIONS: NavSection[] = [
   },
 
   // ── EVALUATOR: Evaluate ───────────────────────────────────────────────────
+  // excludeRoles: DEAN because a Dean with EVALUATOR grant uses the dean-scoped
+  // /dean/evaluation-assignments view surfaced under My Responsibilities instead.
   {
     heading: 'Evaluate',
     items: [
-      { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'] },
+      { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'], excludeRoles: ['DEAN'] },
     ],
   },
 
   // ── GUIDE: Research ───────────────────────────────────────────────────────
+  // excludeRoles: DEAN because a Dean with GUIDE grant uses /research/problems
+  // surfaced under My Responsibilities with dean-level context instead.
   {
     heading: 'Research',
     items: [
-      { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['GUIDE'] },
+      { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['GUIDE'], excludeRoles: ['DEAN'] },
     ],
   },
 ]
@@ -414,9 +439,12 @@ export function Sidebar({ onClose }: SidebarProps) {
       {/* ── Nav ──────────────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0">
         {NAV_SECTIONS.map((section) => {
-          const visibleItems = section.items.filter((item) =>
-            item.roles.some((r) => roleSet.has(r)),
-          )
+          const visibleItems = section.items.filter((item) => {
+            if (!item.roles.some((r) => roleSet.has(r))) return false
+            if (item.allRoles && !item.allRoles.every((r) => roleSet.has(r))) return false
+            if (item.excludeRoles && item.excludeRoles.some((r) => roleSet.has(r))) return false
+            return true
+          })
           if (visibleItems.length === 0) return null
 
           return (

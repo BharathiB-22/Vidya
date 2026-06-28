@@ -294,14 +294,14 @@ export default function App() {
             <Route path="/sis/marks/me" element={<MyMarksPage />} />
           </Route>
 
-          {/* Results Management — Dean only */}
-          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
+          {/* Results — Dean owns; Admin has read-only access */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/sis/results"                     element={<ResultDeclarationsListPage />} />
             <Route path="/sis/results/:id"                 element={<ResultDeclarationDetailPage />} />
             <Route path="/sis/results/:id/grade-cards"     element={<GradeCardPage />} />
           </Route>
 
-          {/* Results Verify — DEAN only */}
+          {/* Results Verify/Approve — Dean only; Admin cannot approve results */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/sis/results/:id/verify"          element={<ResultVerifyPage />} />
           </Route>
@@ -414,8 +414,8 @@ export default function App() {
             <Route path="/sis/me/profile" element={<MyProfilePage />} />
           </Route>
 
-          {/* Research Supervision — FACULTY, ADMIN, GUIDE */}
-          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'GUIDE']} />}>
+          {/* Research Supervision / Guide Assignments — FACULTY, ADMIN, GUIDE, DEAN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'GUIDE', 'DEAN']} />}>
             <Route path="/research/problems" element={<ResearchProblemListPage />} />
             <Route path="/research/problems/:problemId" element={<ResearchProblemDetailPage />} />
             <Route path="/research/documents/:id" element={<ResearchDocumentPage />} />
@@ -440,12 +440,15 @@ export default function App() {
             <Route path="/exams/internal-marks/course/:courseId" element={<InternalExamReleasePage />} />
           </Route>
 
-          {/* Digital Exam Sessions — ADMIN, BOARD */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'BOARD']} />}>
-            <Route path="/exams/digital"              element={<DigitalSessionsPage />} />
-            <Route path="/exams/digital/create"       element={<CreateDigitalSessionPage />} />
-            <Route path="/exams/digital/monitoring"   element={<DigitalMonitoringPage />} />
-            <Route path="/exams/digital/:sessionId"   element={<DigitalSessionDetailPage />} />
+          {/* Digital Exam Sessions — Dean owns; Admin + Board can view */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
+            <Route path="/exams/digital"            element={<DigitalSessionsPage />} />
+            <Route path="/exams/digital/monitoring" element={<DigitalMonitoringPage />} />
+            <Route path="/exams/digital/:sessionId" element={<DigitalSessionDetailPage />} />
+          </Route>
+          {/* Digital session creation — Dean + Board only; Admin cannot create sessions */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'BOARD']} />}>
+            <Route path="/exams/digital/create" element={<CreateDigitalSessionPage />} />
           </Route>
 
           {/* Scanned Scripts — ADMIN, BOARD */}
@@ -489,8 +492,8 @@ export default function App() {
             <Route path="/faculty/digital-reviews/:attemptId" element={<SubjectiveReviewPage />} />
           </Route>
 
-          {/* M09.7 OCR Review Queue — ADMIN, FACULTY (reviewer role) */}
-          <Route element={<AuthGuard allowedRoles={['ADMIN', 'FACULTY']} />}>
+          {/* M09.7 OCR Review Queue — Dean owns; Faculty as assigned reviewers */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'FACULTY']} />}>
             <Route path="/ocr-review"           element={<OCRReviewQueuePage />} />
             <Route path="/ocr-review/:queueId"  element={<OCRReviewDetailPage />} />
           </Route>
