@@ -19,9 +19,9 @@ import { useAuth } from '@/lib/auth'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 
-// Responsibility-chip colors (GUIDE / EVALUATOR / BOARD / DEAN)
+// Responsibility-chip colors (FACULTY / GUIDE / EVALUATOR / BOARD / DEAN)
 const RESP_COLORS: Record<string, string> = {
-  GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b', DEAN: '#ec4899',
+  FACULTY: '#0ea5e9', GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b', DEAN: '#ec4899',
 }
 
 // ---------------------------------------------------------------------------

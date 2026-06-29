@@ -39,6 +39,11 @@ function CourseRow({ a }: { a: Assignment }) {
           <p className="text-xs text-gray-400">
             Semester {a.semester.number}
             {a.semester.label ? ` — ${a.semester.label}` : ''}
+            {a.section && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-semibold text-[10px]">
+                {a.section.name}
+              </span>
+            )}
           </p>
         )}
       </div>

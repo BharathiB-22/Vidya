@@ -180,6 +180,7 @@ class SubjectAssignment(Base):
     course_id           = Column(UUID(as_uuid=True), ForeignKey("courses.id",        ondelete="CASCADE"), nullable=False)
     faculty_user_id     = Column(UUID(as_uuid=True), nullable=False)
     semester_id         = Column(UUID(as_uuid=True), ForeignKey("acad_semesters.id", ondelete="CASCADE"), nullable=False)
+    section_id          = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id",  ondelete="SET NULL"), nullable=True)
     assigned_by_user_id = Column(UUID(as_uuid=True), nullable=False)
     assigned_at         = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     is_active           = Column(Boolean, nullable=False, default=True)

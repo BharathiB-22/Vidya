@@ -378,7 +378,7 @@ class FacultyDirectoryService:
 
         assignment_rows = await FacultyDirectoryRepository.get_active_assignments(user_id, db)
         assignments = []
-        for sa_row, course, sem in assignment_rows:
+        for sa_row, course, sem, section in assignment_rows:
             if course is not None:
                 course_mini = CourseMini(id=course.id, name=course.title, code=course.code)
             else:
@@ -386,6 +386,7 @@ class FacultyDirectoryService:
             assignments.append(AssignmentMini(
                 course=course_mini,
                 semester_label=_semester_label(sem),
+                section=SectionMini(id=section.id, name=section.name) if section else None,
                 role=sa_row.role_in_course,
             ))
 

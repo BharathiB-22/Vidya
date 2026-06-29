@@ -120,10 +120,10 @@ async def list_assignments(
 @router.get("/mine", response_model=AssignmentListResponse)
 async def list_my_assignments(
     include_inactive: bool       = Query(False),
-    current_user: CurrentUser    = Depends(require_roles(TenantRole.FACULTY)),
+    current_user: CurrentUser    = Depends(require_roles(TenantRole.FACULTY, TenantRole.DEAN)),
     db: AsyncSession             = Depends(get_tenant_db_dep),
 ) -> AssignmentListResponse:
-    """Return all course assignments for the calling FACULTY user."""
+    """Return course assignments for the calling FACULTY or DEAN-with-FACULTY user."""
     try:
         return await AssignmentService.list_my_courses(
             current_user.user_id,

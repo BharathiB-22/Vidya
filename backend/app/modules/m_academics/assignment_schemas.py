@@ -18,6 +18,7 @@ class AssignmentCreate(BaseModel):
     course_id:       UUID
     faculty_user_id: UUID
     semester_id:     UUID
+    section_id:      Optional[UUID] = None
     role_in_course:  CourseRoleInCourse = CourseRoleInCourse.PRIMARY
 
 
@@ -45,6 +46,13 @@ class SemesterInfo(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SectionInfo(BaseModel):
+    id:   UUID
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
 class FacultyInfo(BaseModel):
     id:        UUID
     full_name: str
@@ -58,6 +66,7 @@ class AssignmentOut(BaseModel):
     course_id:           UUID
     faculty_user_id:     UUID
     semester_id:         UUID
+    section_id:          Optional[UUID]
     assigned_by_user_id: UUID
     assigned_at:         datetime
     is_active:           bool
@@ -68,6 +77,7 @@ class AssignmentOut(BaseModel):
     # Enriched fields populated by service
     course:   Optional[CourseInfo]   = None
     semester: Optional[SemesterInfo] = None
+    section:  Optional[SectionInfo]  = None
     faculty:  Optional[FacultyInfo]  = None
 
     model_config = {"from_attributes": True}

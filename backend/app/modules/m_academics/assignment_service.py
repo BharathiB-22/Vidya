@@ -27,6 +27,7 @@ from app.modules.m_academics.assignment_schemas import (
     AssignmentOut,
     CourseInfo,
     FacultyInfo,
+    SectionInfo,
     SemesterInfo,
 )
 from app.modules.m_academics.models import CourseRoleInCourse, SubjectAssignment
@@ -89,6 +90,18 @@ async def _fetch_course(course_id: UUID, db: AsyncSession) -> CourseInfo:
     return CourseInfo(id=row["id"], code=row["code"], title=row["title"])
 
 
+async def _fetch_section(section_id: UUID, db: AsyncSession) -> SectionInfo:
+    row = (
+        await db.execute(
+            text("SELECT id, name FROM acad_sections WHERE id = :id"),
+            {"id": str(section_id)},
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        raise AssignmentServiceError("SECTION_NOT_FOUND", "Section not found.", 404)
+    return SectionInfo(id=row["id"], name=row["name"])
+
+
 async def _fetch_semester(semester_id: UUID, db: AsyncSession) -> SemesterInfo:
     row = (
         await db.execute(
@@ -115,11 +128,28 @@ async def _fetch_faculty(user_id: UUID, db: AsyncSession) -> FacultyInfo:
         raise AssignmentServiceError("USER_NOT_FOUND", "Faculty user not found.", 404)
     if not row["is_active"]:
         raise AssignmentServiceError("USER_INACTIVE", "Faculty user is inactive.")
-    if row["role"] != "FACULTY":
+    if row["role"] not in ("FACULTY", "DEAN"):
         raise AssignmentServiceError(
             "INVALID_ROLE",
-            f"User role is '{row['role']}'; only FACULTY users may be assigned to courses.",
+            f"User role is '{row['role']}'; only FACULTY users (and DEANs with FACULTY responsibility) may be assigned to courses.",
         )
+    if row["role"] == "DEAN":
+        grant = (
+            await db.execute(
+                text(
+                    "SELECT 1 FROM faculty_role_grants "
+                    "WHERE faculty_user_id = :uid AND role_code = 'FACULTY' AND is_active = true "
+                    "LIMIT 1"
+                ),
+                {"uid": str(user_id)},
+            )
+        ).one_or_none()
+        if grant is None:
+            raise AssignmentServiceError(
+                "INVALID_ROLE",
+                "This DEAN does not hold an active FACULTY responsibility. "
+                "Grant FACULTY responsibility before assigning courses.",
+            )
     return FacultyInfo(id=row["id"], full_name=row["full_name"], email=row["email"])
 
 
@@ -127,12 +157,13 @@ async def _enrich(
     assignments: list[SubjectAssignment],
     db: AsyncSession,
 ) -> list[AssignmentOut]:
-    """Bulk-fetch course, semester, and faculty info for a list of assignments."""
+    """Bulk-fetch course, semester, section, and faculty info for a list of assignments."""
     if not assignments:
         return []
 
-    course_ids   = list({str(a.course_id)   for a in assignments})
-    semester_ids = list({str(a.semester_id)  for a in assignments})
+    course_ids   = list({str(a.course_id)      for a in assignments})
+    semester_ids = list({str(a.semester_id)     for a in assignments})
+    section_ids  = list({str(a.section_id)      for a in assignments if a.section_id})
     faculty_ids  = list({str(a.faculty_user_id) for a in assignments})
 
     courses_rows = (
@@ -144,13 +175,17 @@ async def _enrich(
 
     semester_rows = (
         await db.execute(
-            text(
-                "SELECT id::text, number, label FROM acad_semesters "
-                "WHERE id = ANY(:ids)"
-            ),
+            text("SELECT id::text, number, label FROM acad_semesters WHERE id = ANY(:ids)"),
             {"ids": semester_ids},
         )
     ).mappings().all()
+
+    section_rows = (
+        await db.execute(
+            text("SELECT id::text, name FROM acad_sections WHERE id = ANY(:ids)"),
+            {"ids": section_ids},
+        )
+    ).mappings().all() if section_ids else []
 
     faculty_rows = (
         await db.execute(
@@ -161,12 +196,14 @@ async def _enrich(
 
     courses_map  = {r["id"]: r for r in courses_rows}
     semester_map = {r["id"]: r for r in semester_rows}
+    section_map  = {r["id"]: r for r in section_rows}
     faculty_map  = {r["id"]: r for r in faculty_rows}
 
     out = []
     for a in assignments:
         c_row = courses_map.get(str(a.course_id))
         s_row = semester_map.get(str(a.semester_id))
+        sec_row = section_map.get(str(a.section_id)) if a.section_id else None
         f_row = faculty_map.get(str(a.faculty_user_id))
         out.append(
             AssignmentOut(
@@ -174,6 +211,7 @@ async def _enrich(
                 course_id=a.course_id,
                 faculty_user_id=a.faculty_user_id,
                 semester_id=a.semester_id,
+                section_id=a.section_id,
                 assigned_by_user_id=a.assigned_by_user_id,
                 assigned_at=a.assigned_at,
                 is_active=a.is_active,
@@ -186,6 +224,9 @@ async def _enrich(
                 semester=SemesterInfo(
                     id=s_row["id"], number=s_row["number"], label=s_row["label"]
                 ) if s_row else None,
+                section=SectionInfo(
+                    id=sec_row["id"], name=sec_row["name"]
+                ) if sec_row else None,
                 faculty=FacultyInfo(
                     id=f_row["id"], full_name=f_row["full_name"], email=f_row["email"]
                 ) if f_row else None,
@@ -211,8 +252,9 @@ class AssignmentService:
         db: AsyncSession,
     ) -> AssignmentOut:
         # Validate referential integrity + user role
-        course  = await _fetch_course(body.course_id, db)
+        course   = await _fetch_course(body.course_id, db)
         semester = await _fetch_semester(body.semester_id, db)
+        section  = await _fetch_section(body.section_id, db) if body.section_id else None
         faculty  = await _fetch_faculty(body.faculty_user_id, db)
 
         # Duplicate check: same faculty already active on this course+semester
@@ -241,6 +283,7 @@ class AssignmentService:
             course_id=body.course_id,
             faculty_user_id=body.faculty_user_id,
             semester_id=body.semester_id,
+            section_id=body.section_id,
             role_in_course=body.role_in_course,
             assigned_by_user_id=assigned_by,
             db=db,
@@ -281,6 +324,7 @@ class AssignmentService:
             course_id=row.course_id,
             faculty_user_id=row.faculty_user_id,
             semester_id=row.semester_id,
+            section_id=row.section_id,
             assigned_by_user_id=row.assigned_by_user_id,
             assigned_at=row.assigned_at,
             is_active=row.is_active,
@@ -289,6 +333,7 @@ class AssignmentService:
             revoked_by_user_id=row.revoked_by_user_id,
             course=course,
             semester=semester,
+            section=section,
             faculty=faculty,
         )
 
@@ -386,17 +431,35 @@ class AssignmentService:
 
     @staticmethod
     async def list_faculty_users(*, db: AsyncSession) -> list[dict]:
-        """Return all active FACULTY users for the assignment dialog."""
+        """Return all active users who may be assigned to courses.
+
+        Includes FACULTY primary-role users plus DEAN users who hold an active
+        FACULTY responsibility grant (DEAN+FACULTY dual-role accounts).
+        """
         rows = (
             await db.execute(
                 text(
-                    "SELECT id::text, full_name, email "
-                    "FROM users WHERE role = 'FACULTY' AND is_active = true "
+                    "SELECT id::text, full_name, email, role "
+                    "FROM users "
+                    "WHERE is_active = true "
+                    "  AND ("
+                    "    role = 'FACULTY'"
+                    "    OR ("
+                    "      role = 'DEAN'"
+                    "      AND id IN ("
+                    "        SELECT faculty_user_id FROM faculty_role_grants"
+                    "        WHERE role_code = 'FACULTY' AND is_active = true"
+                    "      )"
+                    "    )"
+                    "  ) "
                     "ORDER BY full_name"
                 )
             )
         ).mappings().all()
-        return [{"id": r["id"], "full_name": r["full_name"], "email": r["email"]} for r in rows]
+        return [
+            {"id": r["id"], "full_name": r["full_name"], "email": r["email"], "role": r["role"]}
+            for r in rows
+        ]
 
     @staticmethod
     async def list_my_courses(

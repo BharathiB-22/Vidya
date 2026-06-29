@@ -61,7 +61,7 @@ function RoleChip({ role }: { role: string }) {
 // ---------------------------------------------------------------------------
 
 const RESPONSIBILITY_COLORS: Record<string, string> = {
-  GUIDE: '#6366f1', EVALUATOR: '#10b981', DEAN: '#ec4899',
+  FACULTY: '#0ea5e9', GUIDE: '#6366f1', EVALUATOR: '#10b981', DEAN: '#ec4899',
 }
 
 function ResponsibilityChip({ role }: { role: string }) {
@@ -93,10 +93,12 @@ function ProgramCodeChip({ code }: { code: string }) {
 // ---------------------------------------------------------------------------
 
 /** Which responsibilities the signed-in actor may assign/remove.
- *  Only GUIDE and EVALUATOR are grantable (P1.9).
- *  BOARD and DEAN are primary roles set on the Users page, never grants. */
+ *  ADMIN may grant FACULTY (teaching access) in addition to GUIDE / EVALUATOR.
+ *  DEAN may only grant GUIDE / EVALUATOR — enforced in the service layer too.
+ *  BOARD and DEAN are primary roles set on the Users page, never grants here. */
 function assignableRoles(actorRole: string | undefined): GrantableRole[] {
-  if (actorRole === 'ADMIN' || actorRole === 'DEAN') return ['GUIDE', 'EVALUATOR']
+  if (actorRole === 'ADMIN') return ['FACULTY', 'GUIDE', 'EVALUATOR']
+  if (actorRole === 'DEAN') return ['GUIDE', 'EVALUATOR']
   return []
 }
 
@@ -146,7 +148,7 @@ function ResponsibilitiesCard({
       {manageable.length > 0 && (
         <div className="pt-1 space-y-2">
           <p className="text-xs text-gray-500">
-            Assign GUIDE or EVALUATOR responsibilities. BOARD accounts are managed from the Users page.
+            FACULTY grants teaching workspace access. GUIDE and EVALUATOR are research and examination responsibilities. BOARD and DEAN are primary roles managed from the Users page.
           </p>
           <div className="flex flex-wrap gap-2">
             {manageable.map(role => {
@@ -656,7 +658,14 @@ export default function FacultyProfilePage() {
               >
                 <div>
                   <p className="text-sm text-gray-900">{a.course.name}</p>
-                  <p className="text-xs text-gray-500 font-mono">{a.course.code} · {a.semester_label}</p>
+                  <p className="text-xs text-gray-500 font-mono">
+                    {a.course.code} · {a.semester_label}
+                    {a.section && (
+                      <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-semibold not-italic">
+                        {a.section.name}
+                      </span>
+                    )}
+                  </p>
                 </div>
                 <RoleChip role={a.role} />
               </div>

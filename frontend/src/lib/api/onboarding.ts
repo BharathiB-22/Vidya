@@ -68,11 +68,12 @@ export interface ImportContext {
 }
 
 // ---------------------------------------------------------------------------
-// Faculty responsibility grants — GUIDE / EVALUATOR only (P1.9).
+// Faculty responsibility grants — FACULTY / GUIDE / EVALUATOR.
 // BOARD and DEAN are primary roles, never grantable responsibilities.
+// FACULTY may be granted to DEAN users who also carry teaching duties.
 // ---------------------------------------------------------------------------
 
-export type GrantableRole = 'GUIDE' | 'EVALUATOR'
+export type GrantableRole = 'FACULTY' | 'GUIDE' | 'EVALUATOR'
 
 export interface FacultyRoleGrantOut {
   id: string

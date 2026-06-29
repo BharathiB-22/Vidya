@@ -53,6 +53,7 @@ class CourseMini(BaseModel):
 class AssignmentMini(BaseModel):
     course: CourseMini
     semester_label: str
+    section: Optional[SectionMini] = None
     role: str
 
 

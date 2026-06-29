@@ -47,6 +47,8 @@ function RoleBadge({ role }: { role: CourseRoleInCourse }) {
 
 // ── Assign dialog ─────────────────────────────────────────────────────────────
 
+interface FacultyUserWithRole extends FacultyUser { role: string }
+
 function AssignDialog({
   open, onClose, courseId, semesterId, courseName, onAssigned,
 }: {
@@ -57,24 +59,41 @@ function AssignDialog({
   courseName: string
   onAssigned: () => void
 }) {
-  const [facultyId, setFacultyId] = useState('')
-  const [role,      setRole]      = useState<CourseRoleInCourse>('PRIMARY')
-  const [saving,    setSaving]    = useState(false)
+  const [facultyId,  setFacultyId]  = useState('')
+  const [sectionId,  setSectionId]  = useState('')
+  const [role,       setRole]       = useState<CourseRoleInCourse>('PRIMARY')
+  const [saving,     setSaving]     = useState(false)
 
-  const { data: facultyList = [] } = useQuery<FacultyUser[]>({
+  const { data: facultyList = [] } = useQuery<FacultyUserWithRole[]>({
     queryKey: ['faculty-list'],
-    queryFn:  () => api.get<FacultyUser[]>('/course-assignments/faculty-list').then(r => r.data),
+    queryFn:  () => api.get<FacultyUserWithRole[]>('/course-assignments/faculty-list').then(r => r.data),
     enabled:  open,
   })
 
-  useEffect(() => { if (!open) { setFacultyId(''); setRole('PRIMARY') } }, [open])
+  const { data: sections = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['sections-for-semester', semesterId],
+    queryFn:  () => semesterId
+      ? api.get('/academics/sections', { params: { semester_id: semesterId } }).then(r => r.data)
+      : Promise.resolve([]),
+    enabled:  open && !!semesterId,
+  })
+
+  useEffect(() => {
+    if (!open) { setFacultyId(''); setSectionId(''); setRole('PRIMARY') }
+  }, [open])
 
   async function handleSave() {
     if (!semesterId) { addToast('Select a semester filter before assigning.', 'error'); return }
     if (!facultyId)  { addToast('Select a faculty member.', 'error'); return }
     setSaving(true)
     try {
-      await assignmentsApi.create({ course_id: courseId, faculty_user_id: facultyId, semester_id: semesterId, role_in_course: role })
+      await assignmentsApi.create({
+        course_id: courseId,
+        faculty_user_id: facultyId,
+        semester_id: semesterId,
+        section_id: sectionId || undefined,
+        role_in_course: role,
+      })
       addToast(`Assigned to ${courseName}.`, 'success')
       onAssigned()
       onClose()
@@ -99,7 +118,27 @@ function AssignDialog({
               </SelectTrigger>
               <SelectContent>
                 {facultyList.map(u => (
-                  <SelectItem key={u.id} value={u.id}>{u.full_name} — {u.email}</SelectItem>
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.full_name}
+                    {u.role === 'DEAN' && ' (Dean)'}
+                    {' — '}{u.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">
+              Section <span className="text-gray-400 font-normal normal-case">(optional)</span>
+            </label>
+            <Select value={sectionId || '_none_'} onValueChange={v => setSectionId(v === '_none_' ? '' : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="No section selected" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none_">— No specific section —</SelectItem>
+                {sections.map((s: any) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -219,6 +258,11 @@ function ProgramSection({
                         <span className="text-xs font-medium text-gray-800">
                           {primary!.faculty?.full_name ?? '—'}
                         </span>
+                        {primary!.section && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-medium">
+                            {primary!.section.name}
+                          </span>
+                        )}
                         <button
                           type="button"
                           title="Revoke"

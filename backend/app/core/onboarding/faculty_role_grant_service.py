@@ -88,7 +88,7 @@ async def _validate_faculty(faculty_user_id: UUID, db: AsyncSession) -> FacultyI
         raise FacultyRoleGrantServiceError(
             "INVALID_ROLE",
             f"User role is '{row['role']}'; only FACULTY and DEAN users may hold "
-            "responsibility grants (GUIDE / EVALUATOR).",
+            "responsibility grants (FACULTY / GUIDE / EVALUATOR).",
         )
     return FacultyInfo(id=row["id"], full_name=row["full_name"], email=row["email"])
 

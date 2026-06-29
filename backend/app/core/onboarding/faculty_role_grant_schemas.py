@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 # BOARD and DEAN are PRIMARY roles (set on users.role, like ADMIN/FACULTY/STUDENT)
 # and are never grantable here.  Pre-Phase 1.7 databases may still have legacy
 # BOARD grants — run scripts/repair_board_dean_roles.py to clean those up.
-GRANTABLE_ROLES: frozenset[str] = frozenset({"GUIDE", "EVALUATOR"})
+GRANTABLE_ROLES: frozenset[str] = frozenset({"FACULTY", "GUIDE", "EVALUATOR"})
 
 
 def normalize_role_code(value: str) -> str:

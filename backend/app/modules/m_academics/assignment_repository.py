@@ -27,6 +27,7 @@ class SubjectAssignmentRepository:
         role_in_course: CourseRoleInCourse,
         assigned_by_user_id: UUID,
         *,
+        section_id: UUID | None = None,
         db: AsyncSession,
     ) -> SubjectAssignment:
         row = SubjectAssignment(
@@ -34,6 +35,7 @@ class SubjectAssignmentRepository:
             course_id=course_id,
             faculty_user_id=faculty_user_id,
             semester_id=semester_id,
+            section_id=section_id,
             role_in_course=role_in_course,
             assigned_by_user_id=assigned_by_user_id,
             is_active=True,

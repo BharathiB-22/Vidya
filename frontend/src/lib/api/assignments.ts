@@ -14,6 +14,11 @@ export interface SemesterInfo {
   label: string | null
 }
 
+export interface SectionInfo {
+  id: string
+  name: string
+}
+
 export interface FacultyInfo {
   id: string
   full_name: string
@@ -25,6 +30,7 @@ export interface Assignment {
   course_id: string
   faculty_user_id: string
   semester_id: string
+  section_id: string | null
   assigned_by_user_id: string
   assigned_at: string
   is_active: boolean
@@ -33,6 +39,7 @@ export interface Assignment {
   revoked_by_user_id: string | null
   course: CourseInfo | null
   semester: SemesterInfo | null
+  section: SectionInfo | null
   faculty: FacultyInfo | null
 }
 
@@ -45,6 +52,7 @@ export interface CreateAssignmentPayload {
   course_id: string
   faculty_user_id: string
   semester_id: string
+  section_id?: string
   role_in_course: CourseRoleInCourse
 }
 

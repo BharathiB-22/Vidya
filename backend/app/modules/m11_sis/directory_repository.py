@@ -309,13 +309,14 @@ class FacultyDirectoryRepository:
         user_id: UUID, db: AsyncSession
     ) -> list[Any]:
         stmt = (
-            select(SubjectAssignment, Course, AcadSemester)
+            select(SubjectAssignment, Course, AcadSemester, AcadSection)
             .where(
                 SubjectAssignment.faculty_user_id == user_id,
                 SubjectAssignment.is_active.is_(True),
             )
             .outerjoin(Course, Course.id == SubjectAssignment.course_id)
             .outerjoin(AcadSemester, AcadSemester.id == SubjectAssignment.semester_id)
+            .outerjoin(AcadSection, AcadSection.id == SubjectAssignment.section_id)
             .order_by(AcadSemester.number)
         )
         result = await db.execute(stmt)

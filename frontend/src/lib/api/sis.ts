@@ -174,6 +174,7 @@ export interface FacultyDetailOut extends FacultyDirectoryItem {
   active_assignments: {
     course: { id: string; name: string; code: string }
     semester_label: string
+    section: { id: string; name: string } | null
     role: string
   }[]
   /** Programs this faculty member is assigned to teach. */
