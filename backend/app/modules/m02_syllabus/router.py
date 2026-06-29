@@ -48,6 +48,7 @@ from app.modules.m02_syllabus.schemas import (
     SyllabusExportJobResponse,
     SyllabusDeanItem,
     SyllabusDeanOverviewResponse,
+    SyllabusListItem,
     SyllabusListResponse,
     SyllabusReferenceCreate,
     SyllabusReferenceResponse,
@@ -137,6 +138,9 @@ async def list_syllabi(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusListResponse:
+    from sqlalchemy import select
+    from app.modules.m01_program_advisor.models import Course, Program
+
     try:
         total, items = await SyllabusService.list_syllabi(
             course_id=course_id,
@@ -149,11 +153,38 @@ async def list_syllabi(
         )
     except SyllabusServiceError as e:
         raise _err(e)
+
+    # Bulk-fetch courses and programs for enrichment
+    cids = list({s.course_id for s in items})
+    course_map: dict = {}
+    program_map: dict = {}
+    if cids:
+        courses_result = await db.execute(select(Course).where(Course.id.in_(cids)))
+        courses = courses_result.scalars().all()
+        course_map = {c.id: c for c in courses}
+        pids = list({c.program_id for c in courses})
+        if pids:
+            programs_result = await db.execute(select(Program).where(Program.id.in_(pids)))
+            program_map = {p.id: p for p in programs_result.scalars().all()}
+
+    enriched = []
+    for s in items:
+        base = SyllabusResponse.model_validate(s)
+        course = course_map.get(s.course_id)
+        program = program_map.get(course.program_id) if course else None
+        enriched.append(SyllabusListItem(
+            **base.model_dump(),
+            course_title=course.title if course else "Unknown Course",
+            course_code=course.code if course else "—",
+            program_name=program.title if program else "Unknown Program",
+            semester=course.semester if course else 0,
+        ))
+
     return SyllabusListResponse(
         total=total,
         page=page,
         page_size=page_size,
-        items=[SyllabusResponse.model_validate(s) for s in items],
+        items=enriched,
     )
 
 
@@ -253,10 +284,28 @@ async def get_syllabus(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusDetail:
+    from sqlalchemy import select
+    from app.modules.m01_program_advisor.models import Course, Program
+
     syllabus = await SyllabusService.get_syllabus_detail(syllabus_id, db=db)
     if syllabus is None:
         raise _404()
-    return SyllabusDetail.model_validate(syllabus)
+
+    detail = SyllabusDetail.model_validate(syllabus)
+
+    course_result = await db.execute(select(Course).where(Course.id == syllabus.course_id))
+    course = course_result.scalar_one_or_none()
+    if course:
+        program_result = await db.execute(select(Program).where(Program.id == course.program_id))
+        program = program_result.scalar_one_or_none()
+        detail = detail.model_copy(update={
+            "course_title": course.title,
+            "course_code":  course.code,
+            "program_name": program.title if program else "Unknown Program",
+            "semester":     course.semester,
+        })
+
+    return detail
 
 
 @router.get("/{syllabus_id}/status", response_model=SyllabusStatusResponse)

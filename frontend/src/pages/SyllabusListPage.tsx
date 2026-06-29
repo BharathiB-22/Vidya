@@ -18,14 +18,32 @@ const STATUS_OPTIONS: Array<{ value: SyllabusStatus | ''; label: string }> = [
   { value: 'DEAN_LOCKED',    label: 'Locked' },
 ]
 
-function SkeletonRow() {
+function semesterLabel(n: number | undefined): string {
+  if (!n) return ''
+  const suffixes: Record<number, string> = { 1: 'st', 2: 'nd', 3: 'rd' }
+  const suffix = suffixes[n] ?? 'th'
+  return `${n}${suffix} Semester`
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function SkeletonCard() {
   return (
-    <div className="px-5 py-4 animate-pulse">
-      <div className="flex items-center gap-3">
-        <div className="h-4 w-16 rounded bg-gray-200" />
-        <div className="h-5 w-28 rounded-full bg-gray-200" />
+    <div className="px-6 py-5 animate-pulse">
+      <div className="h-5 w-64 rounded bg-gray-200 mb-2" />
+      <div className="h-3.5 w-40 rounded bg-gray-100 mb-1" />
+      <div className="h-3 w-28 rounded bg-gray-100 mb-4" />
+      <div className="flex items-center gap-2">
+        <div className="h-5 w-20 rounded-full bg-gray-200" />
+        <div className="h-5 w-16 rounded-full bg-gray-100" />
+        <div className="h-3 w-32 rounded bg-gray-100 ml-auto" />
       </div>
-      <div className="mt-1.5 h-3 w-48 rounded bg-gray-100" />
     </div>
   )
 }
@@ -48,7 +66,7 @@ export default function SyllabusListPage() {
   const syllabuses = data?.items ?? []
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
 
       {/* ── Back to Program ── */}
       {programId && (
@@ -66,15 +84,13 @@ export default function SyllabusListPage() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Syllabuses</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Syllabus Registry</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            {courseId
-              ? <>Course: <span className="font-mono text-gray-700">{courseId}</span></>
-              : 'All syllabuses in this tenant'}
+            {courseId ? 'Showing all versions for this course' : 'All syllabuses in this institution'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+          <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full border border-gray-200">
             {role}
           </span>
           {canCreate && courseId && (
@@ -106,14 +122,14 @@ export default function SyllabusListPage() {
 
       {/* ── List ── */}
       {isLoading ? (
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">
-          {[1, 2, 3].map((n) => <SkeletonRow key={n} />)}
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm">
+          {[1, 2, 3].map((n) => <SkeletonCard key={n} />)}
         </div>
       ) : syllabuses.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
           <p className="text-sm text-gray-400">
-            {statusFilter ? `No syllabuses with status "${statusFilter}".` : 'No syllabuses yet.'}
+            {statusFilter ? `No syllabuses with status "${statusFilter}".` : 'No syllabuses found.'}
           </p>
           {canCreate && courseId && !statusFilter && (
             <Button variant="outline" className="mt-4" onClick={() => setCreateOpen(true)}>
@@ -131,49 +147,77 @@ export default function SyllabusListPage() {
           )}
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-          {syllabuses.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="w-full text-left px-5 py-4 hover:bg-gray-50 transition-colors group"
-              onClick={() => navigate(`/syllabuses/${s.id}`)}
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm font-semibold text-gray-800">
-                      Version {s.version}
-                    </span>
-                    <SyllabusStatusBadge status={s.status} />
-                    {s.status === 'DRAFT' && s.change_note?.startsWith('Rejected by Dean:') && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
-                        <RotateCcw className="h-2.5 w-2.5" />
-                        Sent Back
-                      </span>
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
+          {syllabuses.map((s) => {
+            const isSentBack = s.status === 'DRAFT' && s.change_note?.startsWith('Rejected by Dean:')
+            const rejectionNote = isSentBack
+              ? s.change_note!.replace(/^Rejected by Dean:\s*/, '')
+              : null
+
+            return (
+              <button
+                key={s.id}
+                type="button"
+                className="w-full text-left px-6 py-5 hover:bg-gray-50 transition-colors group"
+                onClick={() => navigate(`/syllabuses/${s.id}`)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+
+                    {/* Course name — primary heading */}
+                    <h2 className="text-[15px] font-semibold text-gray-900 leading-snug truncate">
+                      {s.course_title ?? 'Untitled Course'}
+                    </h2>
+
+                    {/* Program · Semester */}
+                    {(s.program_name || s.semester) && (
+                      <p className="text-sm text-gray-500 mt-0.5 truncate">
+                        {[s.program_name, semesterLabel(s.semester)].filter(Boolean).join(' · ')}
+                      </p>
                     )}
+
+                    {/* Course code */}
+                    {s.course_code && s.course_code !== '—' && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Course Code: <span className="font-medium text-gray-600">{s.course_code}</span>
+                      </p>
+                    )}
+
+                    {/* Dean rejection note */}
+                    {rejectionNote && (
+                      <p className="mt-1.5 text-xs text-orange-600 truncate">
+                        {rejectionNote}
+                      </p>
+                    )}
+
+                    {/* Footer row: status · version · date */}
+                    <div className="mt-3 flex items-center gap-2 flex-wrap">
+                      <SyllabusStatusBadge status={s.status} />
+
+                      {isSentBack && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+                          <RotateCcw className="h-2.5 w-2.5" />
+                          Sent Back
+                        </span>
+                      )}
+
+                      <span className="text-[11px] text-gray-400 font-medium">
+                        Version {s.version}
+                      </span>
+
+                      <span className="text-gray-200 text-xs select-none">·</span>
+
+                      <span className="text-[11px] text-gray-400">
+                        Created {formatDate(s.created_at)}
+                      </span>
+                    </div>
                   </div>
-                  {!courseId && (
-                    <p className="text-[11px] font-mono text-gray-400 truncate">
-                      Course: {s.course_id}
-                    </p>
-                  )}
-                  {s.change_note?.startsWith('Rejected by Dean:') ? (
-                    <p className="text-xs text-orange-600 truncate">
-                      {s.change_note.replace(/^Rejected by Dean:\s*/, '')}
-                    </p>
-                  ) : s.change_note ? (
-                    <p className="text-xs text-gray-500 truncate">{s.change_note}</p>
-                  ) : (
-                    <p className="text-xs text-gray-400">
-                      Created {new Date(s.created_at).toLocaleDateString()}
-                    </p>
-                  )}
+
+                  <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 mt-1" />
                 </div>
-                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
-              </div>
-            </button>
-          ))}
+              </button>
+            )
+          })}
         </div>
       )}
 

@@ -264,16 +264,29 @@ class SyllabusResponse(BaseModel):
 
 class SyllabusDetail(SyllabusResponse):
     """Full syllabus with all child entities nested."""
-    outcomes:   list[CourseOutcomeResponse]
-    units:      list[SyllabusUnitResponse]
-    references: list[SyllabusReferenceResponse]
+    outcomes:    list[CourseOutcomeResponse]
+    units:       list[SyllabusUnitResponse]
+    references:  list[SyllabusReferenceResponse]
+    # Enriched course + program context (populated by router)
+    course_title: Optional[str] = None
+    course_code:  Optional[str] = None
+    program_name: Optional[str] = None
+    semester:     Optional[int] = None
+
+
+class SyllabusListItem(SyllabusResponse):
+    """Enriched row for the syllabus list — joins course + program info."""
+    course_title: str
+    course_code:  str
+    program_name: str
+    semester:     int
 
 
 class SyllabusListResponse(BaseModel):
     total:     int
     page:      int
     page_size: int
-    items:     list[SyllabusResponse]
+    items:     list[SyllabusListItem]
 
 
 class SyllabusDeanItem(BaseModel):

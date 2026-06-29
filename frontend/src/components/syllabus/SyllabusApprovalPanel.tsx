@@ -111,35 +111,31 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
             <SyllabusStatusBadge status={syllabus.status} />
           </MetaCell>
           <MetaCell label="Version">
-            <span className="text-sm font-semibold text-gray-800">v{syllabus.version}</span>
+            <span className="text-sm font-semibold text-gray-800">Version {syllabus.version}</span>
+          </MetaCell>
+          <MetaCell label="Course Code">
+            <span className="text-sm text-gray-700">{syllabus.course_code ?? '—'}</span>
           </MetaCell>
           <MetaCell label="Created">
-            <span className="text-sm text-gray-700">{new Date(syllabus.created_at).toLocaleDateString()}</span>
-          </MetaCell>
-          <MetaCell label="AI Model">
-            <span className="text-sm text-gray-700">{syllabus.ai_model ?? '—'}</span>
+            <span className="text-sm text-gray-700">
+              {new Date(syllabus.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </span>
           </MetaCell>
         </div>
-        {/* Creator row — visible for Dean governance review */}
-        <div className="px-4 py-2 flex items-center gap-4 text-xs text-gray-500">
-          <span className="text-gray-400 font-medium">Faculty owner:</span>
-          <code className="font-mono text-gray-600 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
-            {syllabus.created_by_user_id}
-          </code>
-          {syllabus.approved_at && (
-            <>
-              <span className="text-gray-300">|</span>
-              <span className="text-gray-400 font-medium">Dean approved:</span>
-              <span>{new Date(syllabus.approved_at).toLocaleString()}</span>
-            </>
-          )}
-        </div>
-        {syllabus.prompt_hash && (
-          <div className="px-4 py-2 flex items-center gap-2">
-            <span className="text-xs text-gray-400">Prompt hash</span>
-            <code className="text-xs font-mono text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
-              {syllabus.prompt_hash.substring(0, 16)}…
-            </code>
+        {(syllabus.approved_at || syllabus.locked_at) && (
+          <div className="px-4 py-2 flex items-center gap-6 text-xs text-gray-500 flex-wrap">
+            {syllabus.approved_at && (
+              <span>
+                <span className="text-gray-400 font-medium">Dean approved: </span>
+                {new Date(syllabus.approved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+            )}
+            {syllabus.locked_at && (
+              <span>
+                <span className="text-gray-400 font-medium">Locked for semester: </span>
+                {new Date(syllabus.locked_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+            )}
           </div>
         )}
       </section>

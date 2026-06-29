@@ -54,6 +54,11 @@ export interface Syllabus {
   locked_at:           string | null
   created_at:          string
   updated_at:          string | null
+  // Enriched fields returned by list endpoint
+  course_title?:  string
+  course_code?:   string
+  program_name?:  string
+  semester?:      number
 }
 
 export interface SyllabusDetail extends Syllabus {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Lock, AlertTriangle, Package } from 'lucide-react'
+import { ArrowLeft, Loader2, Lock, AlertTriangle, Package, BookOpen } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
@@ -110,20 +110,42 @@ export default function SyllabusDetailPage() {
 
       {/* ── Header ── */}
       <div className="flex items-start gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="shrink-0 mt-0.5">
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="shrink-0 mt-1">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Syllabus — v{syllabus.version}
-            </h1>
-            <SyllabusStatusBadge status={syllabus.status} />
-          </div>
-          <p className="text-sm text-gray-400 mt-0.5 font-mono">{syllabus.course_id}</p>
-          {syllabus.change_note && (
-            <p className="text-sm text-gray-400 mt-1 italic">{syllabus.change_note}</p>
+
+          {/* Course name */}
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight leading-snug">
+            {syllabus.course_title ?? 'Syllabus'}
+          </h1>
+
+          {/* Program · Semester */}
+          {(syllabus.program_name || syllabus.semester) && (
+            <p className="text-sm text-gray-500 mt-0.5">
+              {[
+                syllabus.program_name,
+                syllabus.semester ? `Semester ${syllabus.semester}` : null,
+              ].filter(Boolean).join(' · ')}
+            </p>
           )}
+
+          {/* Course code + status + version row */}
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            {syllabus.course_code && syllabus.course_code !== '—' && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-full">
+                <BookOpen className="h-3 w-3" />
+                {syllabus.course_code}
+              </span>
+            )}
+            <SyllabusStatusBadge status={syllabus.status} />
+            <span className="text-xs text-gray-400 font-medium">Version {syllabus.version}</span>
+            <span className="text-gray-200 text-xs select-none">·</span>
+            <span className="text-xs text-gray-400">
+              Created {new Date(syllabus.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+          </div>
+
         </div>
       </div>
 
@@ -232,14 +254,12 @@ export default function SyllabusDetailPage() {
 
             {/* Metadata row */}
             <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
-              {syllabus.ai_model && <span>AI model: <span className="font-mono">{syllabus.ai_model}</span></span>}
               {syllabus.approved_at && (
-                <span>Approved: {new Date(syllabus.approved_at).toLocaleDateString()}</span>
+                <span>Dean approved: {new Date(syllabus.approved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
               )}
               {syllabus.locked_at && (
-                <span>Locked: {new Date(syllabus.locked_at).toLocaleDateString()}</span>
+                <span>Locked for semester: {new Date(syllabus.locked_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
               )}
-              <span>Created: {new Date(syllabus.created_at).toLocaleDateString()}</span>
             </div>
 
             {/* Course Kits link (G1) */}
