@@ -16,6 +16,7 @@ import type {
   ReferenceCandidate,
   ReferenceSearchRequest,
   RejectRequest,
+  RequestRevisionRequest,
   Syllabus,
   SyllabusAIJobResponse,
   SyllabusCreate,
@@ -138,6 +139,19 @@ export async function forkSyllabus(
   payload: ForkRequest,
 ): Promise<SyllabusStatusResponse> {
   const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/fork`, payload)
+  return data
+}
+
+export async function requestRevision(
+  id: string,
+  payload: RequestRevisionRequest,
+): Promise<SyllabusStatusResponse> {
+  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/request-revision`, payload)
+  return data
+}
+
+export async function resubmitSyllabus(id: string): Promise<SyllabusStatusResponse> {
+  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/resubmit`, {})
   return data
 }
 

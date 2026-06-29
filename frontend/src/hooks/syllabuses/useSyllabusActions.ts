@@ -6,6 +6,7 @@ import type {
   GenerateSyllabusRequest,
   LockRequest,
   RejectRequest,
+  RequestRevisionRequest,
 } from '@/types/syllabus'
 import { syllabusKeys } from './useSyllabuses'
 
@@ -91,6 +92,31 @@ export function useExportSyllabus() {
       syllabusesApi.exportSyllabus(id, payload),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: syllabusKeys.job(data.syllabus_id, data.job_id) })
+    },
+  })
+}
+
+export function useRequestRevision() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: RequestRevisionRequest }) =>
+      syllabusesApi.requestRevision(id, payload),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: syllabusKeys.status(data.id) })
+      qc.invalidateQueries({ queryKey: syllabusKeys.detail(data.id) })
+      qc.invalidateQueries({ queryKey: syllabusKeys.all })
+    },
+  })
+}
+
+export function useResubmitSyllabus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => syllabusesApi.resubmitSyllabus(id),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: syllabusKeys.status(data.id) })
+      qc.invalidateQueries({ queryKey: syllabusKeys.detail(data.id) })
+      qc.invalidateQueries({ queryKey: syllabusKeys.all })
     },
   })
 }

@@ -251,6 +251,7 @@ class SyllabusResponse(BaseModel):
     status:              SyllabusStatus
     custom_instructions: Optional[str]
     change_note:         Optional[str]
+    dean_comment:        Optional[str]
     ai_model:            Optional[str]
     prompt_hash:         Optional[str]
     created_by_user_id:  UUID
@@ -301,6 +302,7 @@ class SyllabusDeanItem(BaseModel):
     faculty_email:    Optional[str]
     unit_count:       int
     co_count:         int
+    dean_comment:     Optional[str]
     created_at:       datetime
     updated_at:       Optional[datetime]
 
@@ -364,8 +366,13 @@ class ApproveRequest(BaseModel):
 
 
 class RejectRequest(BaseModel):
-    """Returns FACULTY_APPROVED back to a new DRAFT version."""
+    """PENDING_REVIEW → REJECTED. Dean provides a rejection reason."""
     reason: str = Field(..., min_length=5)
+
+
+class RequestRevisionRequest(BaseModel):
+    """PENDING_REVIEW → REJECTED (revision-type). Dean requests specific changes."""
+    comments: str = Field(..., min_length=5)
 
 
 class LockRequest(BaseModel):

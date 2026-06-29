@@ -15,6 +15,7 @@ class SyllabusStatus(str, enum.Enum):
     DRAFT          = "DRAFT"
     AI_GENERATING  = "AI_GENERATING"
     PENDING_REVIEW = "PENDING_REVIEW"   # faculty submitted; awaiting Dean
+    REJECTED       = "REJECTED"         # Dean rejected or requested revision
     DEAN_APPROVED  = "DEAN_APPROVED"    # Dean approved
     DEAN_LOCKED    = "DEAN_LOCKED"      # frozen for semester
 
@@ -75,6 +76,7 @@ class Syllabus(Base):
     approved_at         = Column(DateTime(timezone=True), nullable=True)
     locked_by_user_id   = Column(UUID(as_uuid=True), nullable=True)
     locked_at           = Column(DateTime(timezone=True), nullable=True)
+    dean_comment        = Column(Text, nullable=True)
     created_at          = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at          = Column(DateTime(timezone=True), nullable=True)
 

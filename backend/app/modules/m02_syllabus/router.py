@@ -42,6 +42,7 @@ from app.modules.m02_syllabus.schemas import (
     LockRequest,
     ReferenceCandidate,
     RejectRequest,
+    RequestRevisionRequest,
     SyllabusAIJobResponse,
     SyllabusCreate,
     SyllabusDetail,
@@ -81,6 +82,17 @@ _READ   = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
 _DEAN   = (TenantRole.DEAN,)
 _LOCK   = (TenantRole.DEAN,)
 _EXPORT = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
+
+
+async def _lookup_user(user_id, *, db: AsyncSession) -> dict:
+    """Return {email, full_name} for a user_id or empty dict if not found."""
+    from sqlalchemy import text as _text
+    result = await db.execute(
+        _text("SELECT email, full_name FROM users WHERE id = :uid"),
+        {"uid": str(user_id)},
+    )
+    row = result.mappings().first()
+    return dict(row) if row else {}
 
 
 def _err(e: SyllabusServiceError) -> HTTPException:
@@ -191,8 +203,8 @@ async def list_syllabi(
 @router.get("/dean-overview", response_model=SyllabusDeanOverviewResponse)
 async def dean_overview(
     status: list[str] = Query(
-        default=["PENDING_REVIEW", "DEAN_APPROVED", "DEAN_LOCKED"],
-        description="Status filter (multi-value). Default: pending + approved + locked.",
+        default=["PENDING_REVIEW", "REJECTED", "DEAN_APPROVED", "DEAN_LOCKED"],
+        description="Status filter (multi-value). Default: pending + rejected + approved + locked.",
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=500),
@@ -210,6 +222,7 @@ async def dean_overview(
     offset = (page - 1) * page_size
 
     # Base query: syllabuses filtered by status
+    # Dean overview defaults include REJECTED so deans see what they sent back.
     stmt = (
         select(Syllabus)
         .where(Syllabus.status.in_(status))
@@ -271,6 +284,7 @@ async def dean_overview(
             faculty_email=user.get("email"),
             unit_count=unit_count_map.get(s.id, 0),
             co_count=co_count_map.get(s.id, 0),
+            dean_comment=s.dean_comment,
             created_at=s.created_at,
             updated_at=s.updated_at,
         ))
@@ -351,7 +365,9 @@ async def delete_syllabus(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_syllabus(syllabus_id, db=db)
+        await SyllabusService.delete_syllabus(
+            syllabus_id, caller_role=current_user.role, db=db
+        )
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -474,6 +490,32 @@ async def submit_syllabus_for_review(
     return SyllabusStatusResponse.model_validate(syllabus)
 
 
+@router.post("/{syllabus_id}/resubmit", response_model=SyllabusStatusResponse)
+async def resubmit_syllabus(
+    syllabus_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> SyllabusStatusResponse:
+    """REJECTED → PENDING_REVIEW. Faculty resubmits after addressing Dean feedback."""
+    try:
+        syllabus = await SyllabusService.resubmit(
+            syllabus_id, submitted_by=current_user.user_id, db=db
+        )
+    except SyllabusServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.SYLLABUS_RESUBMITTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Syllabus",
+        target_id=str(syllabus_id),
+        metadata={"version": syllabus.version},
+    )
+    return SyllabusStatusResponse.model_validate(syllabus)
+
+
 @router.post("/{syllabus_id}/approve", response_model=SyllabusStatusResponse)
 async def approve_syllabus(
     syllabus_id: UUID,
@@ -498,22 +540,38 @@ async def approve_syllabus(
         target_id=str(syllabus_id),
         metadata={"action": "DEAN_APPROVED", "version": syllabus.version, "comment": payload.comment},
     )
+    try:
+        from app.core.notifications.service import NotificationService
+        from app.core.notifications.models import NotificationType
+        faculty = await _lookup_user(syllabus.created_by_user_id, db=db)
+        await NotificationService.send(
+            NotificationType.SYLLABUS_APPROVED,
+            recipient_user_id=syllabus.created_by_user_id,
+            recipient_email=faculty.get("email"),
+            title="Syllabus Approved",
+            body=f"Your syllabus (v{syllabus.version}) has been approved by the Dean."
+                 + (f" Note: {payload.comment}" if payload.comment else ""),
+            entity_type="Syllabus",
+            entity_id=str(syllabus_id),
+            db=db,
+        )
+    except Exception:
+        logger.warning("m02.approve: notification failed (non-blocking)", exc_info=True)
     return SyllabusStatusResponse.model_validate(syllabus)
 
 
-@router.post("/{syllabus_id}/reject", response_model=SyllabusStatusResponse, status_code=201)
+@router.post("/{syllabus_id}/reject", response_model=SyllabusStatusResponse)
 async def reject_syllabus(
     syllabus_id: UUID,
     payload: RejectRequest,
     current_user: CurrentUser = Depends(require_roles(*_DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
-    """PENDING_REVIEW → new DRAFT. Dean rejects and requests revision."""
+    """PENDING_REVIEW → REJECTED. Dean rejects syllabus; faculty can edit and resubmit."""
     try:
-        new_syllabus = await SyllabusService.reject(
+        syllabus = await SyllabusService.reject(
             syllabus_id,
             reason=payload.reason,
-            forked_by=current_user.user_id,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -526,13 +584,71 @@ async def reject_syllabus(
         schema_name=current_user.schema_name,
         target_entity="Syllabus",
         target_id=str(syllabus_id),
-        metadata={
-            "reason":          payload.reason,
-            "new_syllabus_id": str(new_syllabus.id),
-            "new_version":     new_syllabus.version,
-        },
+        metadata={"reason": payload.reason, "version": syllabus.version},
     )
-    return SyllabusStatusResponse.model_validate(new_syllabus)
+    # Notify the faculty who created the syllabus
+    try:
+        from app.core.notifications.service import NotificationService
+        from app.core.notifications.models import NotificationType
+        faculty = await _lookup_user(syllabus.created_by_user_id, db=db)
+        await NotificationService.send(
+            NotificationType.SYLLABUS_REJECTED,
+            recipient_user_id=syllabus.created_by_user_id,
+            recipient_email=faculty.get("email"),
+            title="Syllabus Rejected",
+            body=f"Your syllabus (v{syllabus.version}) was rejected by the Dean. Reason: {payload.reason}",
+            entity_type="Syllabus",
+            entity_id=str(syllabus_id),
+            db=db,
+        )
+    except Exception:
+        logger.warning("m02.reject: notification failed (non-blocking)", exc_info=True)
+    return SyllabusStatusResponse.model_validate(syllabus)
+
+
+@router.post("/{syllabus_id}/request-revision", response_model=SyllabusStatusResponse)
+async def request_revision(
+    syllabus_id: UUID,
+    payload: RequestRevisionRequest,
+    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> SyllabusStatusResponse:
+    """PENDING_REVIEW → REJECTED (revision type). Dean requests specific changes."""
+    try:
+        syllabus = await SyllabusService.request_revision(
+            syllabus_id,
+            comments=payload.comments,
+            db=db,
+        )
+    except SyllabusServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.SYLLABUS_REVISION_REQUESTED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Syllabus",
+        target_id=str(syllabus_id),
+        metadata={"comments": payload.comments, "version": syllabus.version},
+    )
+    try:
+        from app.core.notifications.service import NotificationService
+        from app.core.notifications.models import NotificationType
+        faculty = await _lookup_user(syllabus.created_by_user_id, db=db)
+        await NotificationService.send(
+            NotificationType.SYLLABUS_REVISION_REQUESTED,
+            recipient_user_id=syllabus.created_by_user_id,
+            recipient_email=faculty.get("email"),
+            title="Syllabus Revision Requested",
+            body=f"The Dean has requested revisions to your syllabus (v{syllabus.version}): {payload.comments}",
+            entity_type="Syllabus",
+            entity_id=str(syllabus_id),
+            db=db,
+        )
+    except Exception:
+        logger.warning("m02.request_revision: notification failed (non-blocking)", exc_info=True)
+    return SyllabusStatusResponse.model_validate(syllabus)
 
 
 @router.post("/{syllabus_id}/lock", response_model=SyllabusStatusResponse)
@@ -618,7 +734,7 @@ async def unlock_syllabus(
 async def fork_syllabus(
     syllabus_id: UUID,
     payload: ForkRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_roles(*_WRITE, TenantRole.DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
     try:
@@ -645,6 +761,25 @@ async def fork_syllabus(
             "change_note": payload.change_note,
         },
     )
+    # If Dean created this fork, notify the faculty who owns the course
+    if current_user.role == "DEAN":
+        try:
+            from app.core.notifications.service import NotificationService
+            from app.core.notifications.models import NotificationType
+            faculty = await _lookup_user(new_syllabus.created_by_user_id, db=db)
+            await NotificationService.send(
+                NotificationType.SYLLABUS_VERSION_CREATED,
+                recipient_user_id=new_syllabus.created_by_user_id,
+                recipient_email=faculty.get("email"),
+                title="New Syllabus Version Created",
+                body=f"The Dean created a new draft version (v{new_syllabus.version}) of your syllabus for revision."
+                     + (f" Note: {payload.change_note}" if payload.change_note else ""),
+                entity_type="Syllabus",
+                entity_id=str(new_syllabus.id),
+                db=db,
+            )
+        except Exception:
+            logger.warning("m02.fork: notification failed (non-blocking)", exc_info=True)
     return SyllabusStatusResponse.model_validate(new_syllabus)
 
 

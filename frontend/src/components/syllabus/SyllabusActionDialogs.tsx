@@ -286,6 +286,105 @@ export function ForkSyllabusDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Request Revision Dialog (Dean — from PENDING_REVIEW)
+// ---------------------------------------------------------------------------
+
+interface RequestRevisionDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (comments: string) => void
+  isPending?: boolean
+}
+
+export function RequestRevisionDialog({
+  open, onOpenChange, onSubmit, isPending,
+}: RequestRevisionDialogProps) {
+  const [comments, setComments] = useState('')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (comments.length < 5) return
+    onSubmit(comments)
+    setComments('')
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Request Revision</DialogTitle></DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Revision Comments <span className="text-red-500">*</span>
+            </label>
+            <Textarea
+              rows={4}
+              required
+              minLength={5}
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              placeholder="e.g. Improve CO mapping. Add Bloom levels. Add practical outcomes."
+            />
+          </div>
+          <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md p-3">
+            The syllabus will be returned to faculty as REJECTED with your comments. Faculty can revise and resubmit.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button
+              type="submit"
+              disabled={isPending || comments.length < 5}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {isPending ? 'Sending…' : 'Request Revision'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Delete Confirm Dialog
+// ---------------------------------------------------------------------------
+
+interface DeleteConfirmDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+  status: string
+  isPending?: boolean
+}
+
+export function DeleteConfirmDialog({
+  open, onOpenChange, onConfirm, status, isPending,
+}: DeleteConfirmDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Delete Syllabus</DialogTitle></DialogHeader>
+        <p className="text-sm text-gray-600 py-2">
+          Are you sure you want to delete this <strong>{status}</strong> syllabus?
+          This action cannot be undone.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            variant="destructive"
+            onClick={() => { onConfirm(); onOpenChange(false) }}
+            disabled={isPending}
+          >
+            {isPending ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Export Dialog
 // ---------------------------------------------------------------------------
 

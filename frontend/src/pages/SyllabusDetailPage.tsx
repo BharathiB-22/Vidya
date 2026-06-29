@@ -44,7 +44,7 @@ const TABS: TabDef[] = [
   { key: 'approval',   label: 'Approval' },
 ]
 
-const EDITABLE_STATUSES = new Set(['DRAFT'])
+const EDITABLE_STATUSES = new Set(['DRAFT', 'REJECTED'])
 
 export default function SyllabusDetailPage() {
   const { id }   = useParams<{ id: string }>()
@@ -61,6 +61,7 @@ export default function SyllabusDetailPage() {
   const isEditable   = syllabus ? EDITABLE_STATUSES.has(syllabus.status) : false
   const isGenerating = syllabus?.status === 'AI_GENERATING'
   const isLocked     = syllabus?.status === 'DEAN_LOCKED'
+  const isRejected   = syllabus?.status === 'REJECTED'
 
   // Track whether AI generation was running in this session so we can detect failure
   const [wasGenerating, setWasGenerating] = useState(false)
@@ -152,7 +153,7 @@ export default function SyllabusDetailPage() {
       {/* ── Action bar ── */}
       <SyllabusActionBar syllabus={syllabus} />
 
-      {/* ── Immutability banner ── */}
+      {/* ── Status banners ── */}
       {isLocked && (
         <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
           <Lock className="h-4 w-4 shrink-0" />
@@ -162,16 +163,16 @@ export default function SyllabusDetailPage() {
           </span>
         </div>
       )}
-      {!isEditable && !isLocked && syllabus.status === 'PENDING_REVIEW' && (
+      {syllabus.status === 'PENDING_REVIEW' && (
         <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
             This syllabus is <strong>pending Dean review</strong> and cannot be edited.
-            The Dean may approve or reject it.
+            The Dean may approve, reject, or request revisions.
           </span>
         </div>
       )}
-      {!isEditable && !isLocked && syllabus.status === 'DEAN_APPROVED' && (
+      {syllabus.status === 'DEAN_APPROVED' && (
         <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-green-700 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
@@ -181,19 +182,31 @@ export default function SyllabusDetailPage() {
         </div>
       )}
 
-      {/* ── Rejection banner — shown when Dean sent back for revision ── */}
-      {syllabus.status === 'DRAFT' && syllabus.change_note?.startsWith('Rejected by Dean:') && (
-        <div className="flex items-start gap-2 rounded-lg bg-orange-50 border border-orange-200 px-4 py-3 text-orange-800 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-orange-500" />
-          <div>
-            <p className="font-semibold">Sent Back for Revision by Dean</p>
-            <p className="mt-0.5 text-orange-700">
-              {syllabus.change_note.replace(/^Rejected by Dean:\s*/, '')}
+      {/* ── REJECTED banner with Dean feedback ── */}
+      {isRejected && syllabus.dean_comment && (
+        <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-4 text-red-900 text-sm">
+          <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-red-500" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-red-800">
+              {syllabus.dean_comment.startsWith('[REVISION REQUESTED]')
+                ? 'Revision Requested by Dean'
+                : 'Syllabus Rejected by Dean'}
             </p>
-            <p className="mt-1 text-xs text-orange-600">
-              Please address the feedback above, then re-submit for review.
+            <p className="mt-1 text-red-700 whitespace-pre-wrap">
+              {syllabus.dean_comment.replace(/^\[REVISION REQUESTED\]\s*/, '')}
+            </p>
+            <p className="mt-2 text-xs text-red-600">
+              Address the feedback above, then use <strong>Resubmit for Review</strong> to send it back to the Dean.
             </p>
           </div>
+        </div>
+      )}
+      {isRejected && !syllabus.dean_comment && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-800 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+          <span>
+            This syllabus was <strong>rejected</strong> by the Dean. Edit and resubmit for review.
+          </span>
         </div>
       )}
 

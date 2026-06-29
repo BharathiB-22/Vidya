@@ -30,6 +30,12 @@ class NotificationType(str, enum.Enum):
     # SIS Internal Marks — H57
     INTERNAL_MARKS_PUBLISHED = "INTERNAL_MARKS_PUBLISHED"
 
+    # Syllabus lifecycle — M02
+    SYLLABUS_REJECTED           = "SYLLABUS_REJECTED"
+    SYLLABUS_REVISION_REQUESTED = "SYLLABUS_REVISION_REQUESTED"
+    SYLLABUS_APPROVED           = "SYLLABUS_APPROVED"
+    SYLLABUS_VERSION_CREATED    = "SYLLABUS_VERSION_CREATED"
+
 
 class Notification(Base):
     __tablename__ = "notifications"

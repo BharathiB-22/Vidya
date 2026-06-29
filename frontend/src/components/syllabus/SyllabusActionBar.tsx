@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, Lock, Unlock, Eye, Send } from 'lucide-react'
+import {
+  Loader2, GitFork, Download, CheckCircle, XCircle, Zap,
+  Lock, Unlock, Eye, Send, Trash2, RotateCcw, MessageSquareWarning,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -9,64 +12,82 @@ import {
   GenerateSyllabusDialog,
   ApproveSyllabusDialog,
   RejectSyllabusDialog,
+  RequestRevisionDialog,
   LockSyllabusDialog,
   ForkSyllabusDialog,
   ExportSyllabusDialog,
+  DeleteConfirmDialog,
 } from './SyllabusActionDialogs'
 import {
   useGenerateSyllabus,
   useSubmitSyllabusForReview,
   useApproveSyllabus,
   useRejectSyllabus,
+  useRequestRevision,
+  useResubmitSyllabus,
   useLockSyllabus,
   useUnlockSyllabus,
   useForkSyllabus,
   useExportSyllabus,
 } from '@/hooks/syllabuses'
+import { useDeleteSyllabus } from '@/hooks/syllabuses'
 import type { Syllabus } from '@/types/syllabus'
 
-// Corrected governance roles:
-//   FACULTY — create, edit, generate, submit-for-review
-//   DEAN    — approve, reject, lock, unlock
-//   ADMIN   — read-only (operational support, not academic governance)
+// Governance roles
 const FACULTY_ROLES = ['FACULTY']
 const DEAN_ROLES    = ['DEAN']
 const VIEW_ROLES    = ['ADMIN', 'FACULTY', 'DEAN', 'STUDENT']
+
+// Faculty may delete in these statuses
+const FACULTY_DELETABLE = new Set(['DRAFT', 'AI_GENERATING', 'PENDING_REVIEW', 'REJECTED'])
 
 interface Props {
   syllabus: Syllabus
 }
 
 export function SyllabusActionBar({ syllabus }: Props) {
-  const navigate = useNavigate()
-  const role     = localStorage.getItem('vidya_role') ?? 'FACULTY'
-  const isFaculty = FACULTY_ROLES.includes(role)
-  const isDean    = DEAN_ROLES.includes(role)
-  const canView   = VIEW_ROLES.includes(role)
+  const navigate   = useNavigate()
+  const role       = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const isFaculty  = FACULTY_ROLES.includes(role)
+  const isDean     = DEAN_ROLES.includes(role)
+  const canView    = VIEW_ROLES.includes(role)
 
-  const [generateOpen, setGenerateOpen] = useState(false)
-  const [submitOpen,   setSubmitOpen]   = useState(false)
-  const [approveOpen,  setApproveOpen]  = useState(false)
-  const [rejectOpen,   setRejectOpen]   = useState(false)
-  const [lockOpen,     setLockOpen]     = useState(false)
-  const [forkOpen,     setForkOpen]     = useState(false)
-  const [exportOpen,   setExportOpen]   = useState(false)
+  const [generateOpen,        setGenerateOpen]        = useState(false)
+  const [submitOpen,          setSubmitOpen]          = useState(false)
+  const [resubmitOpen,        setResubmitOpen]        = useState(false)
+  const [approveOpen,         setApproveOpen]         = useState(false)
+  const [rejectOpen,          setRejectOpen]          = useState(false)
+  const [requestRevisionOpen, setRequestRevisionOpen] = useState(false)
+  const [lockOpen,            setLockOpen]            = useState(false)
+  const [forkOpen,            setForkOpen]            = useState(false)
+  const [exportOpen,          setExportOpen]          = useState(false)
+  const [deleteOpen,          setDeleteOpen]          = useState(false)
 
-  const generate  = useGenerateSyllabus(syllabus.id)
-  const submit    = useSubmitSyllabusForReview()
-  const approve   = useApproveSyllabus()
-  const reject    = useRejectSyllabus()
-  const lock      = useLockSyllabus()
-  const unlock    = useUnlockSyllabus()
-  const fork      = useForkSyllabus()
-  const exportJob = useExportSyllabus()
+  const generate       = useGenerateSyllabus(syllabus.id)
+  const submit         = useSubmitSyllabusForReview()
+  const resubmit       = useResubmitSyllabus()
+  const approve        = useApproveSyllabus()
+  const reject         = useRejectSyllabus()
+  const requestRevision = useRequestRevision()
+  const lock           = useLockSyllabus()
+  const unlock         = useUnlockSyllabus()
+  const fork           = useForkSyllabus()
+  const exportJob      = useExportSyllabus()
+  const deleteSyllabus = useDeleteSyllabus()
 
   async function handleFork(changeNote?: string) {
     const result = await fork.mutateAsync({ id: syllabus.id, payload: { change_note: changeNote } })
     navigate(`/syllabuses/${result.id}`)
   }
 
-  const canExport = syllabus.status === 'DEAN_APPROVED' || syllabus.status === 'DEAN_LOCKED'
+  function handleDelete() {
+    deleteSyllabus.mutate(syllabus.id, {
+      onSuccess: () => navigate(-1),
+    })
+  }
+
+  const canExport     = syllabus.status === 'DEAN_APPROVED' || syllabus.status === 'DEAN_LOCKED'
+  const canFacDelete  = isFaculty && FACULTY_DELETABLE.has(syllabus.status)
 
   if (!canView) {
     return (
@@ -76,13 +97,6 @@ export function SyllabusActionBar({ syllabus }: Props) {
       </div>
     )
   }
-
-  const hasAnyAction =
-    (syllabus.status === 'DRAFT' && isFaculty) ||
-    (syllabus.status === 'PENDING_REVIEW' && isDean) ||
-    (syllabus.status === 'DEAN_APPROVED' && isDean) ||
-    (syllabus.status === 'DEAN_LOCKED' && isDean) ||
-    canExport
 
   return (
     <div className="flex items-center gap-2 flex-wrap rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
@@ -128,6 +142,15 @@ export function SyllabusActionBar({ syllabus }: Props) {
           </Button>
           <Button
             size="sm"
+            className="bg-orange-600 hover:bg-orange-700"
+            onClick={() => setRequestRevisionOpen(true)}
+            disabled={requestRevision.isPending}
+          >
+            <MessageSquareWarning className="h-4 w-4 mr-1" />
+            Request Revision
+          </Button>
+          <Button
+            size="sm"
             variant="destructive"
             onClick={() => setRejectOpen(true)}
             disabled={reject.isPending}
@@ -143,6 +166,29 @@ export function SyllabusActionBar({ syllabus }: Props) {
         <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-1.5">
           <Send className="h-4 w-4 text-blue-500" />
           Awaiting Dean review — syllabus is locked for editing.
+        </div>
+      )}
+
+      {/* ── REJECTED — faculty actions ── */}
+      {syllabus.status === 'REJECTED' && isFaculty && (
+        <>
+          <Button
+            size="sm"
+            className="bg-blue-600 hover:bg-blue-700"
+            onClick={() => setResubmitOpen(true)}
+            disabled={resubmit.isPending}
+          >
+            <RotateCcw className="h-4 w-4 mr-1" />
+            Resubmit for Review
+          </Button>
+        </>
+      )}
+
+      {/* ── REJECTED — dean read-only notice ── */}
+      {syllabus.status === 'REJECTED' && isDean && (
+        <div className="flex items-center gap-2 text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded px-3 py-1.5">
+          <XCircle className="h-4 w-4 text-orange-500" />
+          Returned to faculty for revision.
         </div>
       )}
 
@@ -198,9 +244,18 @@ export function SyllabusActionBar({ syllabus }: Props) {
         </Button>
       )}
 
-      {/* No actions for this role/status */}
-      {!hasAnyAction && syllabus.status !== 'AI_GENERATING' && (
-        <span className="text-sm text-gray-400">No actions available for your role.</span>
+      {/* ── Delete — Faculty (allowed statuses) ── */}
+      {canFacDelete && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-400"
+          onClick={() => setDeleteOpen(true)}
+          disabled={deleteSyllabus.isPending}
+        >
+          <Trash2 className="h-4 w-4 mr-1" />
+          Delete
+        </Button>
       )}
 
       {/* Role chip */}
@@ -215,6 +270,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
         onSubmit={(hint) => generate.mutate({ custom_instructions: hint })}
         isPending={generate.isPending}
       />
+
       {/* Submit for review — simple confirm */}
       <Dialog open={submitOpen} onOpenChange={setSubmitOpen}>
         <DialogContent className="max-w-sm">
@@ -235,6 +291,28 @@ export function SyllabusActionBar({ syllabus }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Resubmit — simple confirm */}
+      <Dialog open={resubmitOpen} onOpenChange={setResubmitOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Resubmit for Dean Review</DialogTitle></DialogHeader>
+          <p className="text-sm text-gray-600 py-2">
+            Confirm that you have addressed the Dean's feedback and are ready to resubmit.
+            A compliance check will run before submission.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResubmitOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => { resubmit.mutate(syllabus.id); setResubmitOpen(false) }}
+              disabled={resubmit.isPending}
+            >
+              {resubmit.isPending ? 'Resubmitting…' : 'Resubmit'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ApproveSyllabusDialog
         open={approveOpen}
         onOpenChange={setApproveOpen}
@@ -246,6 +324,12 @@ export function SyllabusActionBar({ syllabus }: Props) {
         onOpenChange={setRejectOpen}
         onSubmit={(reason) => reject.mutate({ id: syllabus.id, payload: { reason } })}
         isPending={reject.isPending}
+      />
+      <RequestRevisionDialog
+        open={requestRevisionOpen}
+        onOpenChange={setRequestRevisionOpen}
+        onSubmit={(comments) => requestRevision.mutate({ id: syllabus.id, payload: { comments } })}
+        isPending={requestRevision.isPending}
       />
       <LockSyllabusDialog
         open={lockOpen}
@@ -264,6 +348,13 @@ export function SyllabusActionBar({ syllabus }: Props) {
         onOpenChange={setExportOpen}
         onSubmit={(format) => exportJob.mutate({ id: syllabus.id, payload: { format } })}
         isPending={exportJob.isPending}
+      />
+      <DeleteConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onConfirm={handleDelete}
+        status={syllabus.status}
+        isPending={deleteSyllabus.isPending}
       />
     </div>
   )

@@ -6,6 +6,7 @@ export type SyllabusStatus =
   | 'DRAFT'
   | 'AI_GENERATING'
   | 'PENDING_REVIEW'
+  | 'REJECTED'
   | 'DEAN_APPROVED'
   | 'DEAN_LOCKED'
 
@@ -45,6 +46,7 @@ export interface Syllabus {
   status:              SyllabusStatus
   custom_instructions: string | null
   change_note:         string | null
+  dean_comment:        string | null
   ai_model:            string | null
   prompt_hash:         string | null
   created_by_user_id:  string
@@ -341,6 +343,10 @@ export interface ApproveRequest {
 
 export interface RejectRequest {
   reason: string
+}
+
+export interface RequestRevisionRequest {
+  comments: string
 }
 
 export interface ForkRequest {

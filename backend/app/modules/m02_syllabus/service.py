@@ -142,11 +142,20 @@ def _run_compliance_check(
 # Internal transition helpers
 # ---------------------------------------------------------------------------
 
-_MUTABLE_STATUSES   = {SyllabusStatus.DRAFT, SyllabusStatus.AI_GENERATING}
+# REJECTED is editable — faculty can revise and resubmit.
+_MUTABLE_STATUSES   = {SyllabusStatus.DRAFT, SyllabusStatus.AI_GENERATING, SyllabusStatus.REJECTED}
 _IMMUTABLE_STATUSES = {
     SyllabusStatus.PENDING_REVIEW,
     SyllabusStatus.DEAN_APPROVED,
     SyllabusStatus.DEAN_LOCKED,
+}
+
+# Faculty may delete a syllabus in any of these statuses.
+_FACULTY_DELETABLE = {
+    SyllabusStatus.DRAFT,
+    SyllabusStatus.AI_GENERATING,
+    SyllabusStatus.PENDING_REVIEW,
+    SyllabusStatus.REJECTED,
 }
 
 
@@ -436,8 +445,32 @@ class SyllabusService:
         return syllabus
 
     @staticmethod
-    async def delete_syllabus(syllabus_id: UUID, *, db: AsyncSession) -> None:
-        await _require_status(syllabus_id, SyllabusStatus.DRAFT, db=db)
+    async def delete_syllabus(
+        syllabus_id: UUID,
+        *,
+        caller_role: str = "",
+        db: AsyncSession,
+    ) -> None:
+        syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
+        if syllabus is None:
+            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
+
+        if caller_role == "FACULTY":
+            if syllabus.status not in _FACULTY_DELETABLE:
+                raise SyllabusServiceError(
+                    "DELETE_FORBIDDEN",
+                    f"Faculty cannot delete a {syllabus.status.value} syllabus. "
+                    "Only Draft, Generating, Pending Review, and Rejected syllabi can be deleted.",
+                    409,
+                )
+        elif caller_role != "ADMIN":
+            # DEAN and other roles cannot delete
+            raise SyllabusServiceError(
+                "DELETE_FORBIDDEN",
+                "Only Faculty (owner) or Admin may delete a syllabus.",
+                403,
+            )
+
         deleted = await SyllabusRepository.delete(syllabus_id, db=db)
         if not deleted:
             raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
@@ -507,7 +540,30 @@ class SyllabusService:
         raises COMPLIANCE_FAILED on ERROR violations.
         """
         await _require_status(syllabus_id, SyllabusStatus.DRAFT, db=db)
+        return await SyllabusService._do_submit_for_review(syllabus_id, submitted_by, db=db)
 
+    @staticmethod
+    async def resubmit(
+        syllabus_id: UUID,
+        submitted_by: UUID,
+        *,
+        db: AsyncSession,
+    ):
+        """
+        REJECTED → PENDING_REVIEW.
+        Faculty resubmits a previously rejected syllabus after addressing Dean's feedback.
+        Runs the same compliance checks as initial submission.
+        """
+        await _require_status(syllabus_id, SyllabusStatus.REJECTED, db=db)
+        return await SyllabusService._do_submit_for_review(syllabus_id, submitted_by, db=db)
+
+    @staticmethod
+    async def _do_submit_for_review(
+        syllabus_id: UUID,
+        submitted_by: UUID,
+        *,
+        db: AsyncSession,
+    ):
         cos      = await CourseOutcomeRepository.list_by_syllabus(syllabus_id, db=db)
         units    = await SyllabusUnitRepository.list_by_syllabus(syllabus_id, db=db)
         mappings = await COPOMappingRepository.list_by_syllabus(syllabus_id, db=db)
@@ -552,28 +608,54 @@ class SyllabusService:
     async def reject(
         syllabus_id: UUID,
         reason: str,
-        forked_by: UUID,
         *,
         db: AsyncSession,
     ):
         """
-        PENDING_REVIEW → new DRAFT (fork).
-        Dean rejects; preserves the pending version as-is and creates a new
-        DRAFT child with the rejection reason in change_note.
+        PENDING_REVIEW → REJECTED.
+        Dean rejects the syllabus with a reason. Faculty can edit it and resubmit.
         """
         await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
-        syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
-
-        new_version = await SyllabusRepository.get_next_version(syllabus.course_id, db=db)
-        new_syllabus = await _deep_fork(
+        syllabus = await SyllabusRepository.update(
             syllabus_id,
-            new_version=new_version,
-            created_by=forked_by,
-            change_note=f"Rejected by Dean: {reason}",
+            {
+                "status":       SyllabusStatus.REJECTED,
+                "dean_comment": reason,
+                "updated_at":   datetime.now(timezone.utc),
+            },
             db=db,
         )
+        if syllabus is None:
+            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
         await db.commit()
-        return new_syllabus
+        return syllabus
+
+    @staticmethod
+    async def request_revision(
+        syllabus_id: UUID,
+        comments: str,
+        *,
+        db: AsyncSession,
+    ):
+        """
+        PENDING_REVIEW → REJECTED (revision-type).
+        Dean requests specific changes with comments. Faculty edits and resubmits.
+        The dean_comment is prefixed to distinguish revision requests from hard rejections.
+        """
+        await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
+        syllabus = await SyllabusRepository.update(
+            syllabus_id,
+            {
+                "status":       SyllabusStatus.REJECTED,
+                "dean_comment": f"[REVISION REQUESTED] {comments}",
+                "updated_at":   datetime.now(timezone.utc),
+            },
+            db=db,
+        )
+        if syllabus is None:
+            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
+        await db.commit()
+        return syllabus
 
     @staticmethod
     async def lock(

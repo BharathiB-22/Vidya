@@ -14,6 +14,7 @@ const STATUS_OPTIONS: Array<{ value: SyllabusStatus | ''; label: string }> = [
   { value: 'DRAFT',          label: 'Draft' },
   { value: 'AI_GENERATING',  label: 'Generating' },
   { value: 'PENDING_REVIEW', label: 'Pending Review' },
+  { value: 'REJECTED',       label: 'Rejected' },
   { value: 'DEAN_APPROVED',  label: 'Dean Approved' },
   { value: 'DEAN_LOCKED',    label: 'Locked' },
 ]
@@ -149,10 +150,11 @@ export default function SyllabusListPage() {
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
           {syllabuses.map((s) => {
-            const isSentBack = s.status === 'DRAFT' && s.change_note?.startsWith('Rejected by Dean:')
-            const rejectionNote = isSentBack
-              ? s.change_note!.replace(/^Rejected by Dean:\s*/, '')
+            const isRejected  = s.status === 'REJECTED'
+            const deanComment = isRejected && s.dean_comment
+              ? s.dean_comment.replace(/^\[REVISION REQUESTED\]\s*/, '')
               : null
+            const isRevision  = isRejected && s.dean_comment?.startsWith('[REVISION REQUESTED]')
 
             return (
               <button
@@ -183,10 +185,10 @@ export default function SyllabusListPage() {
                       </p>
                     )}
 
-                    {/* Dean rejection note */}
-                    {rejectionNote && (
-                      <p className="mt-1.5 text-xs text-orange-600 truncate">
-                        {rejectionNote}
+                    {/* Dean feedback for rejected syllabi */}
+                    {deanComment && (
+                      <p className="mt-1.5 text-xs text-red-600 truncate">
+                        {isRevision ? 'Revision: ' : 'Rejected: '}{deanComment}
                       </p>
                     )}
 
@@ -194,10 +196,10 @@ export default function SyllabusListPage() {
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                       <SyllabusStatusBadge status={s.status} />
 
-                      {isSentBack && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
+                      {isRejected && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
                           <RotateCcw className="h-2.5 w-2.5" />
-                          Sent Back
+                          {isRevision ? 'Revision Requested' : 'Needs Revision'}
                         </span>
                       )}
 

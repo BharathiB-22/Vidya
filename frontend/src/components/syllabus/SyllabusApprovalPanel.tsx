@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink, Send, UserCheck } from 'lucide-react'
+import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink, Send, UserCheck, XCircle } from 'lucide-react'
 import { useSyllabusVersions } from '@/hooks/syllabuses'
 import { SyllabusStatusBadge } from './SyllabusStatusBadge'
 import type { Syllabus } from '@/types/syllabus'
@@ -14,6 +14,7 @@ const STEPS = [
 const STATUS_STEP: Record<string, number> = {
   DRAFT:          0,
   AI_GENERATING:  0,
+  REJECTED:       0,   // REJECTED is a variant of DRAFT-stage
   PENDING_REVIEW: 1,
   DEAN_APPROVED:  2,
   DEAN_LOCKED:    3,
@@ -85,6 +86,18 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
           <div className="mt-4 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             <Bot className="h-4 w-4 shrink-0" />
             AI generation in progress. Syllabus remains in Draft until complete.
+          </div>
+        )}
+
+        {/* REJECTED sub-state note */}
+        {syllabus.status === 'REJECTED' && (
+          <div className="mt-4 flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              {syllabus.dean_comment?.startsWith('[REVISION REQUESTED]')
+                ? 'Dean has requested revisions. Address the feedback and resubmit.'
+                : 'Syllabus was rejected by Dean. Revise and resubmit for approval.'}
+            </span>
           </div>
         )}
 
