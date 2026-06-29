@@ -2,7 +2,7 @@
 SIS Attendance — H55 Router.
 
 RBAC summary:
-  _FACULTY_WRITE = FACULTY only      (create session, mark, edit record)
+  _faculty_write = FACULTY role OR DEAN with active FACULTY grant (create session, mark, edit record)
   _MANAGERS      = ADMIN, DEAN       (reopen, analytics, shortage report)
   _READERS       = FACULTY, ADMIN, DEAN (list sessions, view records, section analytics)
   _STUDENT       = STUDENT only      (self-view)
@@ -17,7 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.attendance_repository import DEFAULT_SHORTAGE_THRESHOLD
@@ -32,10 +32,12 @@ from app.modules.m11_sis.attendance_service import AttendanceService, Attendance
 
 attendance_router = APIRouter(tags=["M11 SIS Attendance"])
 
-_FACULTY_WRITE = (TenantRole.FACULTY,)
-_MANAGERS      = (TenantRole.ADMIN, TenantRole.DEAN)
-_READERS       = (TenantRole.FACULTY, TenantRole.ADMIN, TenantRole.DEAN)
-_STUDENT       = (TenantRole.STUDENT,)
+_MANAGERS = (TenantRole.ADMIN, TenantRole.DEAN)
+_READERS  = (TenantRole.FACULTY, TenantRole.ADMIN, TenantRole.DEAN)
+_STUDENT  = (TenantRole.STUDENT,)
+
+# DEAN users who hold an active FACULTY responsibility grant may also write.
+_faculty_write = require_responsibility(TenantRole.FACULTY)
 
 
 def _err(e: AttendanceServiceError) -> HTTPException:
@@ -52,7 +54,7 @@ def _err(e: AttendanceServiceError) -> HTTPException:
 @attendance_router.post("/attendance/sessions", response_model=SessionOut, status_code=201)
 async def create_session(
     body: SessionCreateIn,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SessionOut:
     try:
@@ -156,7 +158,7 @@ async def mark_attendance(
     session_id: UUID,
     body: AttendanceMarkIn,
     threshold:  float = Query(DEFAULT_SHORTAGE_THRESHOLD, description="Shortage warning threshold %"),
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> AttendanceMarkResult:
     try:
@@ -182,7 +184,7 @@ async def edit_record(
     record_id:  UUID,
     body: RecordEditIn,
     threshold:  float = Query(DEFAULT_SHORTAGE_THRESHOLD),
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> AttendanceRecordOut:
     try:
@@ -298,7 +300,7 @@ async def get_faculty_shortage(
     course_id:      Optional[UUID] = Query(None),
     section_id:     Optional[UUID] = Query(None),
     finalized_only: bool           = Query(False, description="Only count LOCKED (finalized) sessions"),
-    current_user: CurrentUser      = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser      = Depends(_faculty_write),
     db: AsyncSession               = Depends(get_tenant_db_dep),
 ) -> FacultyShortageReportOut:
     try:

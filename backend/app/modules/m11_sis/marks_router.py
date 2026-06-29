@@ -2,7 +2,7 @@
 SIS Internal Marks — H57 Router.
 
 RBAC:
-  _FACULTY_WRITE = FACULTY only        (create/edit components, enter marks)
+  _faculty_write = FACULTY role OR DEAN with active FACULTY grant (create/edit components, enter marks)
   _MANAGERS      = ADMIN, DEAN         (lock, reopen, analytics, readiness)
   _READERS       = FACULTY, ADMIN, DEAN (view components and entries)
   _STUDENT       = STUDENT only        (self-view published/locked marks)
@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.marks_schemas import (
@@ -32,10 +32,12 @@ from app.modules.m11_sis.marks_service import MarksService, MarksServiceError
 
 marks_router = APIRouter(tags=["M11 SIS Internal Marks"])
 
-_FACULTY_WRITE = (TenantRole.FACULTY,)
-_MANAGERS      = (TenantRole.ADMIN, TenantRole.DEAN)
-_READERS       = (TenantRole.FACULTY, TenantRole.ADMIN, TenantRole.DEAN)
-_STUDENT       = (TenantRole.STUDENT,)
+_MANAGERS = (TenantRole.ADMIN, TenantRole.DEAN)
+_READERS  = (TenantRole.FACULTY, TenantRole.ADMIN, TenantRole.DEAN)
+_STUDENT  = (TenantRole.STUDENT,)
+
+# DEAN users who hold an active FACULTY responsibility grant may also write.
+_faculty_write = require_responsibility(TenantRole.FACULTY)
 
 DEFAULT_ATT_THRESHOLD = 75.0
 
@@ -65,7 +67,7 @@ async def list_component_templates(
 @marks_router.post("/marks/components", response_model=ComponentOut, status_code=201)
 async def create_component(
     body: ComponentCreateIn,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession           = Depends(get_tenant_db_dep),
 ) -> ComponentOut:
     try:
@@ -125,7 +127,7 @@ async def get_component(
 async def update_component(
     component_id: UUID,
     body: ComponentUpdateIn,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> ComponentOut:
     try:
@@ -144,7 +146,7 @@ async def update_component(
 @marks_router.delete("/marks/components/{component_id}", status_code=204)
 async def delete_component(
     component_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> None:
     try:
@@ -167,7 +169,7 @@ async def delete_component(
 @marks_router.post("/marks/components/{component_id}/publish", response_model=ComponentOut)
 async def publish_component(
     component_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> ComponentOut:
     try:
@@ -250,7 +252,7 @@ async def get_entries(
 async def bulk_enter_marks(
     component_id: UUID,
     body: BulkMarkEntryIn,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> BulkMarkEntryResult:
     try:
@@ -274,7 +276,7 @@ async def edit_entry(
     component_id: UUID,
     entry_id:     UUID,
     body: SingleMarkEditIn,
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> MarkEntryOut:
     try:
@@ -318,7 +320,7 @@ async def download_marks_template(
 async def import_preview(
     component_id: UUID,
     file: UploadFile = File(...),
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> MarksImportPreviewOut:
     content = await file.read()
@@ -343,7 +345,7 @@ async def import_commit(
     component_id: UUID,
     file: UploadFile = File(...),
     edit_reason: Optional[str] = Query(None),
-    current_user: CurrentUser  = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser  = Depends(_faculty_write),
     db: AsyncSession           = Depends(get_tenant_db_dep),
 ) -> MarksImportCommitResult:
     content = await file.read()
@@ -399,7 +401,7 @@ async def section_readiness(
 
 @marks_router.get("/marks/my-courses", response_model=list[FacultyCourseComponentSummary])
 async def my_courses_overview(
-    current_user: CurrentUser = Depends(require_roles(*_FACULTY_WRITE)),
+    current_user: CurrentUser = Depends(_faculty_write),
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ) -> list[FacultyCourseComponentSummary]:
     try:

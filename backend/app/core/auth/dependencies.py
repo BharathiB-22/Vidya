@@ -252,9 +252,8 @@ async def user_has_grant(db: AsyncSession, user_id: UUID, role_code: str) -> boo
 def require_responsibility(*allowed: "TenantRole | str") -> Callable:
     """Pass if the user holds one of ``allowed`` as a base role OR an active grant.
 
-    Backward-compatible superset of ``require_roles``: a legacy standalone
-    GUIDE/EVALUATOR/BOARD/DEAN user (users.role) still passes, AND a FACULTY user
-    with the matching active grant now passes too — same account, single login.
+    Any role may hold responsibilities via grants — a FACULTY user with a GUIDE
+    grant, or a DEAN with a FACULTY grant for teaching duties, both pass.
     """
     allowed_codes = {a.value if isinstance(a, TenantRole) else str(a).upper() for a in allowed}
 
@@ -265,10 +264,9 @@ def require_responsibility(*allowed: "TenantRole | str") -> Callable:
             return current_user
         if current_user.role in allowed_codes:
             return current_user
-        if current_user.role == TenantRole.FACULTY.value:
-            grants = await user_active_grants(current_user.user_id, current_user.schema_name)
-            if grants & allowed_codes:
-                return current_user
+        grants = await user_active_grants(current_user.user_id, current_user.schema_name)
+        if grants & allowed_codes:
+            return current_user
         raise HTTPException(
             status_code=403,
             detail={"error": "FORBIDDEN", "message": "Insufficient permissions"},

@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, BookOpen, Layers, FlaskConical, Microscope,
+  LayoutDashboard, BookOpen, FlaskConical, Microscope,
   FileText, ClipboardList, BarChart2, X, Users, Settings, AlertTriangle,
-  GraduationCap, Package, UserPlus, ClipboardCheck, Palette,
+  GraduationCap, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
-  Activity, PenLine, Scale, ShieldCheck, ScanSearch, Crown,
+  Activity, Scale, ShieldCheck, ScanSearch, Crown,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
@@ -46,33 +46,39 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Teaching',
     items: [
-      { label: 'My Courses',         to: '/my-courses',              icon: BookOpen,      roles: ['FACULTY'] },
-      { label: 'Mark Attendance',    to: '/sis/attendance/mark',     icon: CalendarCheck, roles: ['FACULTY'] },
-      { label: 'Shortage Report',    to: '/sis/attendance/shortage', icon: AlertTriangle, roles: ['FACULTY'] },
-      { label: 'Syllabuses',         to: '/syllabuses',              icon: GraduationCap, roles: ['FACULTY'] },
-      { label: 'Course Kits',        to: '/course-kits',             icon: Layers,        roles: ['FACULTY'] },
-      { label: 'Learning Materials', to: '/learning-packages',       icon: Package,       roles: ['FACULTY'] },
+      { label: 'My Courses',     to: '/my-courses',          icon: BookOpen,      roles: ['FACULTY'] },
+      { label: 'Attendance',     to: '/sis/attendance/mark', icon: CalendarCheck, roles: ['FACULTY'] },
+      { label: 'Internal Marks', to: '/sis/marks/setup',     icon: BookMarked,    roles: ['FACULTY'] },
     ],
   },
 
-  // ── FACULTY: Assess & Research ─────────────────────────────────────────────
+  // ── FACULTY: Research Supervision ─────────────────────────────────────────
   {
-    heading: 'Assess & Research',
+    heading: 'Research Supervision',
     items: [
-      { label: 'Lab Assignments',      to: '/labs',                 icon: FlaskConical,  roles: ['FACULTY'] },
-      { label: 'Research Supervision', to: '/research/problems',    icon: Microscope,    roles: ['FACULTY'] },
-      { label: 'Exam Papers',          to: '/exams',                icon: FileText,      roles: ['FACULTY'] },
-      { label: 'Internal Marks',       to: '/sis/marks/setup',      icon: BookMarked,    roles: ['FACULTY'] },
-      { label: 'My Evaluations',  to: '/scripts/evaluator',      icon: ClipboardList, roles: ['FACULTY'] },
-      { label: 'Evaluation Assignments', to: '/faculty/evaluation-assignments', icon: ClipboardCheck, roles: ['FACULTY'] },
-      { label: 'OCR Review Queue', to: '/ocr-review',             icon: ScanSearch,    roles: ['FACULTY'] },
-      { label: 'Digital Reviews', to: '/faculty/digital-reviews', icon: PenLine,       roles: ['FACULTY'] },
+      { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['FACULTY'] },
     ],
   },
 
-  // ── FACULTY: My Account ───────────────────────────────────────────────────
+  // ── FACULTY: Assessment ───────────────────────────────────────────────────
   {
-    heading: 'My Account',
+    heading: 'Assessment',
+    items: [
+      { label: 'My Evaluations', to: '/scripts/evaluator', icon: ClipboardList, roles: ['FACULTY'] },
+    ],
+  },
+
+  // ── FACULTY: Analytics ────────────────────────────────────────────────────
+  {
+    heading: 'Analytics',
+    items: [
+      { label: 'Performance Analytics', to: '/sis/attendance/shortage', icon: BarChart2, roles: ['FACULTY'] },
+    ],
+  },
+
+  // ── FACULTY: Account ──────────────────────────────────────────────────────
+  {
+    heading: 'Account',
     items: [
       { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
     ],
