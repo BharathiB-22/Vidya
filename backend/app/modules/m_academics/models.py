@@ -246,11 +246,17 @@ class FacultyProgramAssignment(Base):
         ),
         Index("ix_fpa_program",        "program_id"),
         Index("ix_fpa_faculty_active", "faculty_user_id", "is_active"),
+        Index("ix_fpa_department_id",  "department_id"),
+        Index("ix_fpa_semester_id",    "semester_id"),
     )
 
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    faculty_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id",          ondelete="CASCADE"), nullable=False)
-    program_id      = Column(UUID(as_uuid=True), ForeignKey("acad_programs.id",   ondelete="CASCADE"), nullable=False)
+    faculty_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id",            ondelete="CASCADE"), nullable=False)
+    program_id      = Column(UUID(as_uuid=True), ForeignKey("acad_programs.id",     ondelete="CASCADE"), nullable=False)
+    department_id   = Column(UUID(as_uuid=True), ForeignKey("acad_departments.id",  ondelete="SET NULL"), nullable=True)
+    semester_id     = Column(UUID(as_uuid=True), ForeignKey("acad_semesters.id",    ondelete="SET NULL"), nullable=True)
+    section_id      = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id",     ondelete="SET NULL"), nullable=True)
+    is_primary      = Column(Boolean, nullable=False, default=False)
     is_active       = Column(Boolean, nullable=False, default=True)
     assigned_by     = Column(UUID(as_uuid=True), nullable=False)
     assigned_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))

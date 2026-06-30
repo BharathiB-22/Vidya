@@ -40,6 +40,7 @@ from app.modules.m09_paper_admin.ocr_router import router as ocr_review_router
 from app.modules.m10_bell_curve.router import router as bell_curve_router
 from app.modules.m_academics.router import router as academics_router
 from app.modules.m_academics.assignment_router import router as assignment_router
+from app.modules.m_academics.ownership_router import ownership_router
 from app.modules.m11_sis.router import router as sis_router
 from app.modules.m11_sis.transcript_router import verify_router
 from app.modules.m11_sis.graduation_router import cert_verify_router
@@ -182,6 +183,7 @@ app.include_router(ocr_review_router, prefix="/ocr-review")
 app.include_router(bell_curve_router, prefix="/bell-curve")
 app.include_router(academics_router,  prefix="/academics")
 app.include_router(assignment_router, prefix="/course-assignments")
+app.include_router(ownership_router,  prefix="/academics")
 app.include_router(sis_router,          prefix="/sis")
 app.include_router(verify_router,       prefix="/verify")
 app.include_router(cert_verify_router)

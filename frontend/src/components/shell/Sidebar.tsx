@@ -46,9 +46,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Teaching',
     items: [
-      { label: 'My Courses',     to: '/my-courses',          icon: BookOpen,      roles: ['FACULTY'] },
-      { label: 'Attendance',     to: '/sis/attendance/mark', icon: CalendarCheck, roles: ['FACULTY'] },
-      { label: 'Internal Marks', to: '/sis/marks/setup',     icon: BookMarked,    roles: ['FACULTY'] },
+      { label: 'My Courses',          to: '/my-courses',                   icon: BookOpen,      roles: ['FACULTY'] },
+      { label: 'My Responsibilities', to: '/faculty/my-responsibilities',  icon: UsersRound,    roles: ['FACULTY'] },
+      { label: 'Attendance',          to: '/sis/attendance/mark',          icon: CalendarCheck, roles: ['FACULTY'] },
+      { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
     ],
   },
 
@@ -98,9 +99,11 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Academic Governance',
     items: [
-      { label: 'Programs',        to: '/programs',    icon: BookMarked,     roles: ['DEAN'] },
-      { label: 'Syllabus Review', to: '/dean-review', icon: ClipboardCheck, roles: ['DEAN'] },
-      { label: 'Syllabuses',      to: '/syllabuses',  icon: GraduationCap,  roles: ['DEAN'] },
+      { label: 'Ownership Matrix',    to: '/dean/ownership-matrix',          icon: LayoutList,    roles: ['DEAN'] },
+      { label: 'Faculty Programs',    to: '/dean/assign-faculty-program',    icon: UserCheck,     roles: ['DEAN'] },
+      { label: 'Programs',            to: '/programs',                       icon: BookMarked,    roles: ['DEAN'] },
+      { label: 'Syllabus Review',     to: '/dean-review',                    icon: ClipboardCheck, roles: ['DEAN'] },
+      { label: 'Syllabuses',          to: '/syllabuses',                     icon: GraduationCap, roles: ['DEAN'] },
     ],
   },
 

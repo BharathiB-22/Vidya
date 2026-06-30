@@ -6,6 +6,7 @@ import {
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
+import { useFacultySummary } from '@/hooks/useOwnership'
 
 type IconComponent = React.FC<{ className?: string }>
 
@@ -101,6 +102,27 @@ function WorkspaceCard({ card, onClick }: { card: WorkspaceCard; onClick: () => 
   )
 }
 
+function AcademicSummaryBanner() {
+  const { data } = useFacultySummary()
+  if (!data || (data.course_count === 0 && data.program_count === 0)) return null
+  return (
+    <div className="rounded-xl border border-sv-primary/20 bg-sv-primary/5 px-4 py-3 text-sm text-gray-700">
+      You are responsible for{' '}
+      <span className="font-semibold text-sv-primary">{data.course_count} course{data.course_count !== 1 ? 's' : ''}</span>
+      {' '}across{' '}
+      <span className="font-semibold text-sv-primary">{data.program_count} program{data.program_count !== 1 ? 's' : ''}</span>
+      {data.department_count > 0 && (
+        <> in{' '}
+          <span className="font-semibold text-sv-primary">
+            {data.department_count} department{data.department_count !== 1 ? 's' : ''}
+          </span>
+        </>
+      )}
+      .
+    </div>
+  )
+}
+
 export default function FacultyWorkspacePage() {
   const navigate = useNavigate()
 
@@ -111,6 +133,9 @@ export default function FacultyWorkspacePage() {
         subtitle="Access teaching tools, course materials, labs, and research supervision."
         icon={BookOpen}
       />
+
+      {/* Academic responsibility summary */}
+      <AcademicSummaryBanner />
 
       {/* My Courses banner — same as Faculty dashboard */}
       <MyCoursesBanner />

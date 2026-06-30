@@ -257,6 +257,35 @@ class AssignmentService:
         section  = await _fetch_section(body.section_id, db) if body.section_id else None
         faculty  = await _fetch_faculty(body.faculty_user_id, db)
 
+        # Dean scope enforcement: DEAN may only assign to courses in programs they govern.
+        # ADMIN and SUPER_ADMIN bypass this check.
+        if actor_role == "DEAN":
+            prog_row = (
+                await db.execute(
+                    text(
+                        "SELECT acad_program_id FROM programs WHERE id = :cid LIMIT 1"
+                    ),
+                    {"cid": str(body.course_id)},
+                )
+            ).scalar_one_or_none()
+            if prog_row is not None:
+                scope = (
+                    await db.execute(
+                        text(
+                            "SELECT 1 FROM dean_program_assignments "
+                            "WHERE dean_user_id = :uid AND program_id = :pid AND is_active = true "
+                            "LIMIT 1"
+                        ),
+                        {"uid": str(assigned_by), "pid": str(prog_row)},
+                    )
+                ).one_or_none()
+                if scope is None:
+                    raise AssignmentServiceError(
+                        "PROGRAM_NOT_IN_SCOPE",
+                        "You may only assign faculty to courses within programs you govern.",
+                        403,
+                    )
+
         # Duplicate check: same faculty already active on this course+semester
         dup = await SubjectAssignmentRepository.find_duplicate(
             body.course_id, body.faculty_user_id, body.semester_id, db=db

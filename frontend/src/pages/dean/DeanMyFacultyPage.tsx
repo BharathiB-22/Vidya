@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Search, UserCheck, ChevronLeft, ChevronRight, Building2, AlertTriangle } from 'lucide-react'
+import { Search, UserCheck, ChevronLeft, ChevronRight, Building2, AlertTriangle, BookOpen } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { Input } from '@/components/ui/input'
 import { sisApi } from '@/lib/api/sis'
 import type { FacultyDirectoryItem } from '@/lib/api/sis'
+import { useFacultyWorkload } from '@/hooks/useOwnership'
 
 const RESP_COLORS: Record<string, string> = {
   GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#f59e0b', DEAN: '#ec4899',
@@ -25,7 +26,11 @@ function RespChip({ label }: { label: string }) {
   )
 }
 
-function FacultyCard({ item, onClick }: { item: FacultyDirectoryItem; onClick: () => void }) {
+function FacultyCard({ item, onClick, courseCount }: {
+  item: FacultyDirectoryItem
+  onClick: () => void
+  courseCount?: number
+}) {
   const initials = item.full_name.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase()
   return (
     <button
@@ -61,6 +66,12 @@ function FacultyCard({ item, onClick }: { item: FacultyDirectoryItem; onClick: (
               {item.responsibilities.map(r => <RespChip key={r} label={r} />)}
             </div>
           )}
+          {courseCount !== undefined && courseCount > 0 && (
+            <div className="flex items-center gap-1 mt-1.5 text-xs text-gray-400">
+              <BookOpen className="h-3 w-3" />
+              <span>{courseCount} course{courseCount !== 1 ? 's' : ''} this semester</span>
+            </div>
+          )}
         </div>
       </div>
     </button>
@@ -94,6 +105,11 @@ export default function DeanMyFacultyPage() {
 
   const items = data?.items ?? []
   const totalPages = data?.total_pages ?? 1
+
+  const { data: workloadData } = useFacultyWorkload()
+  const workloadMap = Object.fromEntries(
+    (workloadData?.items ?? []).map(w => [w.faculty_user_id, w.course_count])
+  )
 
   return (
     <PageShell>
@@ -152,6 +168,7 @@ export default function DeanMyFacultyPage() {
                 key={item.user_id}
                 item={item}
                 onClick={() => navigate(`/sis/directory/faculty/${item.user_id}`)}
+                courseCount={workloadMap[item.user_id]}
               />
             ))}
           </div>
