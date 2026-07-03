@@ -83,6 +83,16 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
         </div>
       </div>
 
+      {/* AI Instructions — shown to Dean during review */}
+      {program.ai_instructions && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <h3 className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">
+            AI Curriculum Instructions
+          </h3>
+          <p className="text-sm text-amber-900 whitespace-pre-wrap">{program.ai_instructions}</p>
+        </div>
+      )}
+
       {/* Academic Structure context */}
       {(program.status === 'PENDING_APPROVAL' || program.status === 'APPROVED') && (
         linkedAcadProgram ? (

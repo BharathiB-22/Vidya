@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { useCreateProgram } from '@/hooks/programs'
 import { academicsApi } from '@/lib/api/academics'
 
@@ -23,6 +24,7 @@ const DEFAULTS = {
   department: '',
   duration_years: 2,
   total_credits: 60,
+  ai_instructions: '',
 }
 
 export function CreateProgramDialog({ open, onOpenChange }: Props) {
@@ -71,6 +73,7 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
       duration_years: Number(form.duration_years),
       total_credits: Number(form.total_credits),
       acad_program_id: linkedAcadProgramId,
+      ai_instructions: form.ai_instructions || undefined,
     })
     setForm(DEFAULTS)
     setLinkedAcadProgramId(undefined)
@@ -164,6 +167,23 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
               />
             </div>
           </div>
+          {/* AI Instructions */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              AI Instructions
+              <span className="text-gray-400 font-normal ml-1">(optional — curriculum design guidance)</span>
+            </label>
+            <Textarea
+              rows={3}
+              value={form.ai_instructions}
+              onChange={(e) => set('ai_instructions', e.target.value)}
+              placeholder="e.g. Final semester must contain only project and internship. Major project 10 credits. Internship 10 credits."
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Stored on the program and passed to AI every time you generate the structure.
+            </p>
+          </div>
+
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel

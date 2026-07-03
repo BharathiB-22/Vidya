@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import type { Course, CourseCreate, CourseUpdate } from '@/types/program'
+import type { Course, CourseCreate, CourseType, CourseUpdate } from '@/types/program'
 
 interface Props {
   open: boolean
@@ -22,15 +22,31 @@ interface Props {
   isPending?: boolean
 }
 
+const COURSE_TYPES: { value: CourseType; label: string }[] = [
+  { value: 'THEORY',     label: 'Theory' },
+  { value: 'LAB',        label: 'Lab' },
+  { value: 'PROJECT',    label: 'Project' },
+  { value: 'INTERNSHIP', label: 'Internship' },
+  { value: 'SEMINAR',    label: 'Seminar' },
+]
+
 const EMPTY = {
   code: '',
   title: '',
   credits: 3,
+  course_type: '' as CourseType | '',
   is_elective: false,
   hours_lecture: '',
   hours_tutorial: '',
   hours_practical: '',
   description: '',
+}
+
+function creditBounds(courseType: CourseType | ''): { min: number; max: number; hint: string } {
+  if (courseType === 'PROJECT' || courseType === 'INTERNSHIP') {
+    return { min: 6, max: 20, hint: '6–20 (project/internship)' }
+  }
+  return { min: 1, max: 6, hint: '1–6' }
 }
 
 export function CourseDialog({
@@ -52,16 +68,19 @@ export function CourseDialog({
         code: initial.code,
         title: initial.title,
         credits: initial.credits,
+        course_type: (initial.course_type ?? '') as CourseType | '',
         is_elective: initial.is_elective,
         hours_lecture: initial.hours_lecture?.toString() ?? '',
         hours_tutorial: initial.hours_tutorial?.toString() ?? '',
         hours_practical: initial.hours_practical?.toString() ?? '',
         description: initial.description ?? '',
-      } as typeof EMPTY)
+      })
     } else {
       setF(EMPTY)
     }
   }, [open, mode, initial])
+
+  const bounds = creditBounds(f.course_type)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -69,6 +88,7 @@ export function CourseDialog({
     const hours_tutorial = f.hours_tutorial ? Number(f.hours_tutorial) : undefined
     const hours_practical = f.hours_practical ? Number(f.hours_practical) : undefined
     const description = f.description || undefined
+    const course_type = f.course_type || undefined
 
     if (mode === 'add') {
       onAdd?.({
@@ -76,6 +96,7 @@ export function CourseDialog({
         title: f.title,
         credits: Number(f.credits),
         semester,
+        course_type,
         is_elective: f.is_elective,
         hours_lecture,
         hours_tutorial,
@@ -88,6 +109,7 @@ export function CourseDialog({
         title: f.title,
         credits: Number(f.credits),
         semester: initial.semester,
+        course_type,
         is_elective: f.is_elective,
         hours_lecture,
         hours_tutorial,
@@ -125,16 +147,43 @@ export function CourseDialog({
               placeholder="Introduction to Programming"
             />
           </div>
+
+          {/* Course Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Course Type
+              <span className="text-gray-400 font-normal ml-1">(optional)</span>
+            </label>
+            <select
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+              value={f.course_type}
+              onChange={(e) => {
+                const ct = e.target.value as CourseType | ''
+                setF((p) => {
+                  const newBounds = creditBounds(ct)
+                  // Clamp existing credits into new range
+                  const credits = Math.min(Math.max(p.credits, newBounds.min), newBounds.max)
+                  return { ...p, course_type: ct, credits }
+                })
+              }}
+            >
+              <option value="">— Not specified —</option>
+              {COURSE_TYPES.map((ct) => (
+                <option key={ct.value} value={ct.value}>{ct.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Credits
-                <span className="ml-1 text-xs font-normal text-gray-400">(1–6)</span>
+                <span className="ml-1 text-xs font-normal text-gray-400">({bounds.hint})</span>
               </label>
               <Input
                 type="number"
-                min={1}
-                max={6}
+                min={bounds.min}
+                max={bounds.max}
                 required
                 value={f.credits}
                 onChange={(e) => setF((p) => ({ ...p, credits: Number(e.target.value) }))}

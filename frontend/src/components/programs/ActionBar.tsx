@@ -186,8 +186,9 @@ export function ActionBar({ program }: Props) {
       <GenerateDialog
         open={generateOpen}
         onOpenChange={setGenerateOpen}
-        onSubmit={(hint) => generate.mutate({ prompt_hint: hint })}
+        onSubmit={(hint, aiInstructions) => generate.mutate({ prompt_hint: hint, ai_instructions: aiInstructions })}
         isPending={generate.isPending}
+        storedInstructions={program.ai_instructions}
       />
       <ApproveDialog
         open={approveOpen}

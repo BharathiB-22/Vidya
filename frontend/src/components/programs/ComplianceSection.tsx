@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as programsApi from '@/lib/api/programs'
 import { programKeys } from '@/hooks/programs'
@@ -73,18 +73,26 @@ export function ComplianceSection({ program }: Props) {
                   className={`flex items-start gap-2 rounded-md p-3 text-sm ${
                     v.severity === 'ERROR'
                       ? 'bg-red-50 border border-red-200'
+                      : v.severity === 'INFO'
+                      ? 'bg-blue-50 border border-blue-200'
                       : 'bg-yellow-50 border border-yellow-200'
                   }`}
                 >
                   {v.severity === 'ERROR' ? (
                     <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                  ) : v.severity === 'INFO' ? (
+                    <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
                   ) : (
                     <AlertTriangle className="h-4 w-4 text-yellow-500 shrink-0 mt-0.5" />
                   )}
                   <div>
                     <span
                       className={`font-semibold ${
-                        v.severity === 'ERROR' ? 'text-red-700' : 'text-yellow-700'
+                        v.severity === 'ERROR'
+                          ? 'text-red-700'
+                          : v.severity === 'INFO'
+                          ? 'text-blue-700'
+                          : 'text-yellow-700'
                       }`}
                     >
                       [{v.rule_ref}]

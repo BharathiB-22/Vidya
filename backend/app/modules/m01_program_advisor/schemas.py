@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.modules.m01_program_advisor.models import ProgramStatus
+from app.modules.m01_program_advisor.models import CourseType, ProgramStatus
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +32,7 @@ class CourseCreate(BaseModel):
     title:                   str
     credits:                 int = Field(..., ge=1)
     semester:                int = Field(..., ge=1)
+    course_type:             Optional[CourseType] = None
     is_elective:             bool = False
     hours_lecture:           Optional[int] = None
     hours_tutorial:          Optional[int] = None
@@ -45,6 +46,7 @@ class CourseUpdate(BaseModel):
     title:           Optional[str] = None
     credits:         Optional[int] = Field(default=None, ge=1)
     semester:        Optional[int] = Field(default=None, ge=1)
+    course_type:     Optional[CourseType] = None
     is_elective:     Optional[bool] = None
     hours_lecture:   Optional[int] = None
     hours_tutorial:  Optional[int] = None
@@ -61,6 +63,7 @@ class CourseResponse(BaseModel):
     title:           str
     credits:         int
     semester:        int
+    course_type:     Optional[CourseType]
     is_elective:     bool
     is_ai_generated: bool
     hours_lecture:   Optional[int]
@@ -112,17 +115,19 @@ class ProgramCreate(BaseModel):
     duration_years:   int = Field(..., ge=1)
     total_credits:    int = Field(..., ge=1)
     acad_program_id:  Optional[UUID] = None
+    ai_instructions:  Optional[str] = None
     outcomes:         list[ProgramOutcomeCreate] = []
     courses:          list[CourseCreate] = []
 
 
 class ProgramUpdate(BaseModel):
-    title:           Optional[str] = None
-    degree_type:     Optional[str] = None
-    department:      Optional[str] = None
-    duration_years:  Optional[int] = Field(default=None, ge=1)
-    total_credits:   Optional[int] = Field(default=None, ge=1)
-    acad_program_id: Optional[UUID] = None
+    title:            Optional[str] = None
+    degree_type:      Optional[str] = None
+    department:       Optional[str] = None
+    duration_years:   Optional[int] = Field(default=None, ge=1)
+    total_credits:    Optional[int] = Field(default=None, ge=1)
+    acad_program_id:  Optional[UUID] = None
+    ai_instructions:  Optional[str] = None
 
 
 class ProgramResponse(BaseModel):
@@ -140,6 +145,7 @@ class ProgramResponse(BaseModel):
     acad_program_id:     Optional[UUID]
     ai_model:            Optional[str]
     prompt_hash:         Optional[str]
+    ai_instructions:     Optional[str]
     approved_by_user_id: Optional[UUID]
     approved_at:         Optional[datetime]
     created_by_user_id:  UUID
@@ -198,7 +204,11 @@ class ProgramStatusResponse(BaseModel):
 class GenerateProgramRequest(BaseModel):
     prompt_hint: Optional[str] = Field(
         default=None,
-        description="Optional guidance for the AI generator (e.g. 'focus on industry-aligned electives')",
+        description="Optional one-time guidance for this generation run.",
+    )
+    ai_instructions: Optional[str] = Field(
+        default=None,
+        description="Persisted curriculum instructions stored on the program.",
     )
 
 
@@ -216,7 +226,7 @@ class ComplianceViolationResponse(BaseModel):
     rule_id:  str
     rule_ref: str
     message:  str
-    severity: str   # "ERROR" | "WARNING"
+    severity: str   # "ERROR" | "WARNING" | "INFO"
 
 
 class ComplianceResultResponse(BaseModel):

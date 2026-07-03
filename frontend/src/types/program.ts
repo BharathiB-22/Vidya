@@ -9,6 +9,8 @@ export type ProgramStatus =
   | 'PENDING_APPROVAL'
   | 'APPROVED'
 
+export type CourseType = 'THEORY' | 'LAB' | 'PROJECT' | 'INTERNSHIP' | 'SEMINAR'
+
 // ---------------------------------------------------------------------------
 // Program
 // ---------------------------------------------------------------------------
@@ -31,6 +33,7 @@ export interface Program {
   approved_at: string | null
   ai_model: string | null
   prompt_hash: string | null
+  ai_instructions: string | null
 }
 
 /** GET /programs/{id} — same scalar fields, relationships loaded server-side */
@@ -68,6 +71,7 @@ export interface ProgramCreate {
   duration_years: number
   total_credits: number
   acad_program_id?: string
+  ai_instructions?: string
 }
 
 export interface ProgramUpdate {
@@ -77,6 +81,7 @@ export interface ProgramUpdate {
   duration_years?: number
   total_credits?: number
   acad_program_id?: string
+  ai_instructions?: string
 }
 
 export interface ProgramListFilters {
@@ -123,6 +128,7 @@ export interface Course {
   title: string
   credits: number
   semester: number
+  course_type: CourseType | null
   is_elective: boolean
   is_ai_generated: boolean
   hours_lecture: number | null
@@ -138,6 +144,7 @@ export interface CourseCreate {
   title: string
   credits: number
   semester: number
+  course_type?: CourseType
   is_elective?: boolean
   hours_lecture?: number
   hours_tutorial?: number
@@ -151,6 +158,7 @@ export interface CourseUpdate {
   title?: string
   credits?: number
   semester?: number
+  course_type?: CourseType
   is_elective?: boolean
   hours_lecture?: number
   hours_tutorial?: number
@@ -172,7 +180,7 @@ export interface ComplianceViolation {
   rule_id: string
   rule_ref: string
   message: string
-  severity: 'ERROR' | 'WARNING'
+  severity: 'ERROR' | 'WARNING' | 'INFO'
 }
 
 export interface ComplianceResult {
@@ -193,6 +201,7 @@ export interface ProgramAIJobResponse {
 
 export interface GenerateProgramRequest {
   prompt_hint?: string
+  ai_instructions?: string
 }
 
 export interface ProgramExportJobResponse {

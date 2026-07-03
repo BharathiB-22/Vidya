@@ -100,9 +100,19 @@ async def list_programs(
 ) -> ProgramListResponse:
     offset = (page - 1) * page_size
     programs = await ProgramService.list_programs(
-        status_filter=status, offset=offset, limit=page_size, db=db
+        status_filter=status,
+        offset=offset,
+        limit=page_size,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
     )
-    total = await ProgramService.count_programs(status_filter=status, db=db)
+    total = await ProgramService.count_programs(
+        status_filter=status,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
+    )
     return ProgramListResponse(
         total=total,
         page=page,
@@ -117,7 +127,12 @@ async def get_program(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ProgramDetail:
-    program = await ProgramService.get_program_detail(program_id, db=db)
+    program = await ProgramService.get_program_detail(
+        program_id,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
+    )
     if program is None:
         raise HTTPException(
             status_code=404,
@@ -132,7 +147,12 @@ async def get_program_status(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ProgramStatusResponse:
-    program = await ProgramService.get_program(program_id, db=db)
+    program = await ProgramService.get_program(
+        program_id,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
+    )
     if program is None:
         raise HTTPException(
             status_code=404,
@@ -217,6 +237,7 @@ async def dispatch_ai_generation(
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             prompt_hint=payload.prompt_hint,
+            ai_instructions=payload.ai_instructions,
             db=db,
         )
     except ProgramServiceError as e:
@@ -399,6 +420,14 @@ async def list_outcomes(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[ProgramOutcomeResponse]:
+    owned = await ProgramService.get_program(
+        program_id, caller_role=current_user.role, caller_user_id=current_user.user_id, db=db
+    )
+    if owned is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "message": "Program not found."},
+        )
     outcomes = await ProgramOutcomeRepository.list_by_program(program_id, db=db)
     return [ProgramOutcomeResponse.model_validate(o) for o in outcomes]
 
@@ -492,6 +521,14 @@ async def list_courses(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[CourseResponse]:
+    owned = await ProgramService.get_program(
+        program_id, caller_role=current_user.role, caller_user_id=current_user.user_id, db=db
+    )
+    if owned is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "message": "Program not found."},
+        )
     if semester is not None:
         courses = await CourseRepository.list_by_semester(program_id, semester, db=db)
     else:

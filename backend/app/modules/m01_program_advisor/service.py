@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.m_academics.dean_scope import get_dean_program_ids
 from app.modules.m_academics.repository import ProgramRepo as AcadProgramRepo
 from app.modules.m01_program_advisor.compliance import (
     ComplianceResult,
@@ -92,6 +93,7 @@ async def _build_course_nodes(
             credits=course.credits,
             semester=course.semester,
             is_elective=course.is_elective,
+            course_type=course.course_type,
             prerequisite_course_ids=[p.prerequisite_course_id for p in prereqs],
         ))
     return nodes
@@ -126,6 +128,7 @@ class ProgramService:
             total_credits=payload.total_credits,
             created_by_user_id=created_by,
             acad_program_id=payload.acad_program_id,
+            ai_instructions=payload.ai_instructions,
             db=db,
         )
         if payload.outcomes:
@@ -155,17 +158,45 @@ class ProgramService:
     async def get_program(
         program_id: UUID,
         *,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> Program | None:
-        return await ProgramRepository.get_by_id(program_id, db=db)
+        program = await ProgramRepository.get_by_id(program_id, db=db)
+        return await ProgramService._apply_dean_visibility(
+            program, caller_role=caller_role, caller_user_id=caller_user_id, db=db
+        )
 
     @staticmethod
     async def get_program_detail(
         program_id: UUID,
         *,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> Program | None:
-        return await ProgramRepository.get_detail(program_id, db=db)
+        program = await ProgramRepository.get_detail(program_id, db=db)
+        return await ProgramService._apply_dean_visibility(
+            program, caller_role=caller_role, caller_user_id=caller_user_id, db=db
+        )
+
+    @staticmethod
+    async def _apply_dean_visibility(
+        program: Program | None,
+        *,
+        caller_role: str | None,
+        caller_user_id: UUID | None,
+        db: AsyncSession,
+    ) -> Program | None:
+        """Hide a program from a DEAN who does not govern it (returns None,
+        which routers already translate to a 404 — avoids confirming
+        existence of out-of-scope programs to an unauthorized dean)."""
+        if program is None or caller_role != "DEAN" or caller_user_id is None:
+            return program
+        governed = await get_dean_program_ids(caller_user_id, caller_role, db)
+        if governed is not None and program.acad_program_id not in governed:
+            return None
+        return program
 
     @staticmethod
     async def list_programs(
@@ -173,19 +204,46 @@ class ProgramService:
         offset: int = 0,
         limit: int = 50,
         *,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> list[Program]:
+        acad_program_ids = await ProgramService._resolve_scope(
+            caller_role=caller_role, caller_user_id=caller_user_id, db=db
+        )
         return await ProgramRepository.list(
-            status_filter=status_filter, offset=offset, limit=limit, db=db
+            status_filter=status_filter,
+            offset=offset,
+            limit=limit,
+            acad_program_ids=acad_program_ids,
+            db=db,
         )
 
     @staticmethod
     async def count_programs(
         status_filter: ProgramStatus | None = None,
         *,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> int:
-        return await ProgramRepository.count(status_filter=status_filter, db=db)
+        acad_program_ids = await ProgramService._resolve_scope(
+            caller_role=caller_role, caller_user_id=caller_user_id, db=db
+        )
+        return await ProgramRepository.count(
+            status_filter=status_filter, acad_program_ids=acad_program_ids, db=db
+        )
+
+    @staticmethod
+    async def _resolve_scope(
+        *,
+        caller_role: str | None,
+        caller_user_id: UUID | None,
+        db: AsyncSession,
+    ) -> list[UUID] | None:
+        if caller_role != "DEAN" or caller_user_id is None:
+            return None
+        return await get_dean_program_ids(caller_user_id, caller_role, db)
 
     @staticmethod
     async def list_versions(
@@ -244,6 +302,7 @@ class ProgramService:
         prompt_hint: str | None,
         *,
         db: AsyncSession,
+        ai_instructions: str | None = None,
     ) -> str:
         program = await ProgramRepository.get_by_id(program_id, db=db)
         if program is None:
@@ -254,6 +313,15 @@ class ProgramService:
                 f"Expected DRAFT or GENERATION_FAILED, got {program.status.value}.",
                 409,
             )
+
+        # Persist ai_instructions update if provided
+        if ai_instructions is not None:
+            await ProgramRepository.update(
+                program_id, {"ai_instructions": ai_instructions}, db=db
+            )
+
+        # Merge stored instructions with one-time prompt hint for the worker
+        effective_instructions = ai_instructions or program.ai_instructions
 
         job_id = await TaskJobPublicRepository.create(
             tenant_id=tenant_id,
@@ -287,6 +355,7 @@ class ProgramService:
             tenant_id=str(tenant_id),
             schema_name=schema_name,
             prompt_hint=prompt_hint,
+            ai_instructions=effective_instructions,
             _revert_table="programs",
             _revert_pk=str(program_id),
             _revert_schema=schema_name,
@@ -365,6 +434,7 @@ class ProgramService:
             total_credits=original.total_credits,
             created_by_user_id=created_by,
             acad_program_id=original.acad_program_id,
+            ai_instructions=original.ai_instructions,
             db=db,
         )
         await ProgramRepository.update(
@@ -401,6 +471,7 @@ class ProgramService:
                         title=c.title,
                         credits=c.credits,
                         semester=c.semester,
+                        course_type=c.course_type,
                         is_elective=c.is_elective,
                         hours_lecture=c.hours_lecture,
                         hours_tutorial=c.hours_tutorial,
@@ -513,6 +584,7 @@ class ProgramService:
             title=payload.title,
             credits=payload.credits,
             semester=payload.semester,
+            course_type=payload.course_type.value if payload.course_type else None,
             is_elective=payload.is_elective,
             hours_lecture=payload.hours_lecture,
             hours_tutorial=payload.hours_tutorial,

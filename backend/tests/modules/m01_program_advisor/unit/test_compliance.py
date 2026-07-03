@@ -170,9 +170,10 @@ def test_sem_balance_warning_only():
 # Elective ratio
 # ---------------------------------------------------------------------------
 
-def test_elective_ratio_warning_only():
+def test_elective_ratio_informational_only():
     # 8 courses across 2 semesters, none elective → 0 % < 20 % minimum.
     # Semester credits: 4 × 4 = 16 per sem (valid). Each course 4 ∈ [1,6].
+    # Elective selection isn't implemented yet, so this is advisory (INFO), not a WARNING.
     program = _btech_program()
     courses = [
         CourseNode(id=uuid.uuid4(), code=f"CS{i:03d}", credits=4,
@@ -184,7 +185,7 @@ def test_elective_ratio_warning_only():
     rule_ids = [v.rule_id for v in result.violations]
     assert "UGC-ELEC-001" in rule_ids
     severities = [v.severity for v in result.violations if v.rule_id == "UGC-ELEC-001"]
-    assert severities == ["WARNING"]
+    assert severities == ["INFO"]
     assert result.passed is True
 
 

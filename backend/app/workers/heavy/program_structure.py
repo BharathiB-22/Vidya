@@ -49,6 +49,7 @@ def generate_program_structure(
     tenant_id: str,
     schema_name: str,
     prompt_hint: str | None = None,
+    ai_instructions: str | None = None,
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
@@ -59,6 +60,7 @@ def generate_program_structure(
             program_id=UUID(program_id),
             schema_name=schema_name,
             prompt_hint=prompt_hint,
+            ai_instructions=ai_instructions,
         )
     )
 
@@ -71,6 +73,7 @@ async def _run_generation(
     program_id: UUID,
     schema_name: str,
     prompt_hint: str | None,
+    ai_instructions: str | None = None,
 ) -> dict:
     from sqlalchemy import text, update as sql_update
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,6 +127,7 @@ async def _run_generation(
             duration_years=program.duration_years,
             total_credits=program.total_credits,
             prompt_hint=prompt_hint,
+            ai_instructions=ai_instructions or program.ai_instructions,
             existing_outcome_codes=list(existing_codes),
         )
 
@@ -176,6 +180,7 @@ async def _run_generation(
                 title=c["title"],
                 credits=c["credits"],
                 semester=c["semester"],
+                course_type=c.get("course_type"),
                 is_elective=c["is_elective"],
                 hours_lecture=c["hours_lecture"],
                 hours_tutorial=c["hours_tutorial"],

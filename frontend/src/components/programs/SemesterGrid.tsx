@@ -5,7 +5,28 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CourseDialog } from './CourseDialog'
 import { useAddCourse, useUpdateCourse, useDeleteCourse } from '@/hooks/programs'
-import type { Course, Program } from '@/types/program'
+import type { Course, CourseType, Program } from '@/types/program'
+
+const COURSE_TYPE_COLORS: Record<CourseType, string> = {
+  THEORY:     'bg-blue-50 text-blue-700 border-blue-100',
+  LAB:        'bg-purple-50 text-purple-700 border-purple-100',
+  PROJECT:    'bg-green-50 text-green-700 border-green-100',
+  INTERNSHIP: 'bg-orange-50 text-orange-700 border-orange-100',
+  SEMINAR:    'bg-yellow-50 text-yellow-700 border-yellow-100',
+}
+
+/** Courses saved before course_type was captured (or added without picking one)
+ * have course_type: null. Infer a sensible type from the title so the badge is
+ * never blank, rather than leaving it unset. */
+function resolveCourseType(course: Course): CourseType {
+  if (course.course_type) return course.course_type
+  const title = course.title.toLowerCase()
+  if (title.includes('internship')) return 'INTERNSHIP'
+  if (title.includes('project')) return 'PROJECT'
+  if (title.includes('lab') || title.includes('laboratory')) return 'LAB'
+  if (title.includes('seminar')) return 'SEMINAR'
+  return 'THEORY'
+}
 
 interface Props {
   program: Program
@@ -39,7 +60,9 @@ export function SemesterGrid({ program, courses }: Props) {
                 <span className="text-xs text-gray-400">{semCredits} cr</span>
               </div>
               <div className="space-y-2 min-h-[4rem]">
-                {semCourses.map((course) => (
+                {semCourses.map((course) => {
+                  const courseType = resolveCourseType(course)
+                  return (
                   <div
                     key={course.id}
                     className="rounded-md border border-gray-200 bg-white p-2 shadow-sm"
@@ -52,6 +75,9 @@ export function SemesterGrid({ program, courses }: Props) {
                         </p>
                         <div className="flex items-center gap-1 mt-1 flex-wrap">
                           <span className="text-xs text-gray-500">{course.credits} cr</span>
+                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${COURSE_TYPE_COLORS[courseType]}`}>
+                            {courseType}
+                          </span>
                           {course.is_elective && (
                             <Badge variant="info" className="text-[10px] py-0 px-1.5">
                               Elective
@@ -97,7 +123,8 @@ export function SemesterGrid({ program, courses }: Props) {
                       )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
                 {isEditable && (
                   <Button
                     variant="outline"

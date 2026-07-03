@@ -39,6 +39,7 @@ class ProgramRepository:
         *,
         db: AsyncSession,
         acad_program_id: UUID | None = None,
+        ai_instructions: str | None = None,
     ) -> Program:
         program = Program(
             title=title,
@@ -48,6 +49,7 @@ class ProgramRepository:
             total_credits=total_credits,
             created_by_user_id=created_by_user_id,
             acad_program_id=acad_program_id,
+            ai_instructions=ai_instructions,
         )
         db.add(program)
         await db.flush()
@@ -146,11 +148,14 @@ class ProgramRepository:
         status_filter: ProgramStatus | None = None,
         offset: int = 0,
         limit: int = 50,
+        acad_program_ids: list[UUID] | None = None,
         db: AsyncSession,
     ) -> list[Program]:
         stmt = select(Program).order_by(Program.created_at.desc()).offset(offset).limit(limit)
         if status_filter is not None:
             stmt = stmt.where(Program.status == status_filter)
+        if acad_program_ids is not None:
+            stmt = stmt.where(Program.acad_program_id.in_(acad_program_ids))
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -158,11 +163,14 @@ class ProgramRepository:
     async def count(
         *,
         status_filter: ProgramStatus | None = None,
+        acad_program_ids: list[UUID] | None = None,
         db: AsyncSession,
     ) -> int:
         stmt = select(func.count(Program.id))
         if status_filter is not None:
             stmt = stmt.where(Program.status == status_filter)
+        if acad_program_ids is not None:
+            stmt = stmt.where(Program.acad_program_id.in_(acad_program_ids))
         result = await db.execute(stmt)
         return result.scalar_one()
 
@@ -324,6 +332,7 @@ class CourseRepository:
         credits: int,
         semester: int,
         is_elective: bool = False,
+        course_type: str | None = None,
         hours_lecture: int | None = None,
         hours_tutorial: int | None = None,
         hours_practical: int | None = None,
@@ -337,6 +346,7 @@ class CourseRepository:
             title=title,
             credits=credits,
             semester=semester,
+            course_type=course_type,
             is_elective=is_elective,
             hours_lecture=hours_lecture,
             hours_tutorial=hours_tutorial,
@@ -362,6 +372,7 @@ class CourseRepository:
                 title=item.title,
                 credits=item.credits,
                 semester=item.semester,
+                course_type=item.course_type.value if item.course_type else None,
                 is_elective=item.is_elective,
                 hours_lecture=item.hours_lecture,
                 hours_tutorial=item.hours_tutorial,

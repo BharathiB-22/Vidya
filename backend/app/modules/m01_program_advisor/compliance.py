@@ -24,6 +24,10 @@ class CourseNode:
     semester:                int
     is_elective:             bool
     prerequisite_course_ids: list[UUID]
+    course_type:             str | None = None   # THEORY|LAB|PROJECT|INTERNSHIP|SEMINAR
+
+    def is_project_or_internship(self) -> bool:
+        return self.course_type in ("PROJECT", "INTERNSHIP")
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +39,7 @@ class ComplianceViolation:
     rule_id:  str
     rule_ref: str
     message:  str
-    severity: str   # "ERROR" | "WARNING"
+    severity: str   # "ERROR" | "WARNING" | "INFO"
 
 
 @dataclasses.dataclass
@@ -108,6 +112,19 @@ def _get_thresholds(degree_type: str) -> _Thresholds:
     if key in _PG2_KEYS:
         return _PG2
     return _DEFAULT
+
+
+def classify_degree_level(degree_type: str) -> str:
+    """Return 'PG' or 'UG' for a program's degree_type string.
+
+    Shared by downstream modules (M03 course kits, M05 learning packages, …)
+    so degree level propagates consistently instead of each module guessing
+    or hardcoding a UG default.
+    """
+    key = degree_type.lower().replace(".", "").replace(" ", "").replace("-", "")
+    if key in _PG2_KEYS:
+        return "PG"
+    return "UG"
 
 
 # ---------------------------------------------------------------------------
@@ -234,13 +251,19 @@ def _check_elective_ratio(
             rule_id="UGC-ELEC-001",
             rule_ref="UGC LOCF 2020 §5.3",
             message=(
-                f"Elective courses are {round(ratio * 100, 1)}% of total "
+                f"Electives are {round(ratio * 100, 1)}% of total "
                 f"({elective_count}/{len(courses)}), below the recommended "
-                f"{round(t.min_elective_ratio * 100)}% minimum."
+                f"{round(t.min_elective_ratio * 100)}% minimum. Elective selection "
+                "is not yet implemented in this phase — current elective courses "
+                "are placeholders, so this is informational only and not a defect "
+                "in the generated structure."
             ),
-            severity="WARNING",
+            severity="INFO",
         )]
     return []
+
+
+_PROJECT_INTERNSHIP_MAX_CREDITS = 20
 
 
 def _check_course_credit_range(
@@ -249,17 +272,82 @@ def _check_course_credit_range(
 ) -> list[ComplianceViolation]:
     violations = []
     for course in courses:
-        if not (t.min_course_credits <= course.credits <= t.max_course_credits):
+        if course.is_project_or_internship():
+            # Projects and internships may span 6–20 credits per UGC flexibility norms.
+            if not (6 <= course.credits <= _PROJECT_INTERNSHIP_MAX_CREDITS):
+                violations.append(ComplianceViolation(
+                    rule_id="UGC-COURSE-002",
+                    rule_ref="UGC LOCF 2020 §3.2 (project/internship flexibility)",
+                    message=(
+                        f"Course {course.code!r} ({course.course_type}) has {course.credits} credit(s); "
+                        f"project/internship range is [6, {_PROJECT_INTERNSHIP_MAX_CREDITS}]."
+                    ),
+                    severity="WARNING",
+                ))
+        else:
+            if not (t.min_course_credits <= course.credits <= t.max_course_credits):
+                violations.append(ComplianceViolation(
+                    rule_id="UGC-COURSE-001",
+                    rule_ref="UGC LOCF 2020 §3.2",
+                    message=(
+                        f"Course {course.code!r} has {course.credits} credit(s); "
+                        f"accepted range is [{t.min_course_credits}, {t.max_course_credits}]."
+                    ),
+                    severity="ERROR",
+                ))
+    return violations
+
+
+def _check_lab_presence(
+    program: ProgramNode,
+    courses: list[CourseNode],
+) -> list[ComplianceViolation]:
+    final_semester = program.duration_years * 2
+    sem_types: dict[int, set[str]] = {}
+    for course in courses:
+        sem_types.setdefault(course.semester, set()).add(course.course_type or "")
+
+    violations = []
+    for sem, types in sorted(sem_types.items()):
+        if sem == final_semester:
+            continue
+        if "LAB" not in types:
             violations.append(ComplianceViolation(
-                rule_id="UGC-COURSE-001",
-                rule_ref="UGC LOCF 2020 §3.2",
+                rule_id="UGC-LAB-001",
+                rule_ref="Internal — Curriculum Realism",
                 message=(
-                    f"Course {course.code!r} has {course.credits} credit(s); "
-                    f"accepted range is [{t.min_course_credits}, {t.max_course_credits}]."
+                    f"Semester {sem} has no LAB course; university curricula typically "
+                    "pair theory courses with a corresponding laboratory course in each "
+                    "non-final semester."
                 ),
-                severity="ERROR",
+                severity="WARNING",
             ))
     return violations
+
+
+def _check_final_semester_composition(
+    program: ProgramNode,
+    courses: list[CourseNode],
+) -> list[ComplianceViolation]:
+    final_semester = program.duration_years * 2
+    final_courses = [c for c in courses if c.semester == final_semester]
+    if not final_courses:
+        return []
+
+    non_conforming = [c for c in final_courses if not c.is_project_or_internship()]
+    if non_conforming:
+        codes = ", ".join(c.code for c in non_conforming)
+        return [ComplianceViolation(
+            rule_id="UGC-FINALSEM-001",
+            rule_ref="Internal — Curriculum Realism",
+            message=(
+                f"Final semester ({final_semester}) contains non-project/internship "
+                f"course(s): {codes}. The final semester is expected to contain only "
+                "PROJECT and INTERNSHIP courses."
+            ),
+            severity="WARNING",
+        )]
+    return []
 
 
 def _check_program_outcomes(
@@ -366,6 +454,8 @@ def run_compliance_check(
     violations.extend(_check_semester_balance(courses, t))
     violations.extend(_check_elective_ratio(courses, t))
     violations.extend(_check_course_credit_range(courses, t))
+    violations.extend(_check_lab_presence(program, courses))
+    violations.extend(_check_final_semester_composition(program, courses))
     violations.extend(_check_program_outcomes(program, t))
     violations.extend(_check_duplicate_codes(courses))
     violations.extend(detect_prerequisite_cycles(courses))

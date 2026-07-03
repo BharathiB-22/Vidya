@@ -13,6 +13,8 @@ from app.modules.m01_program_advisor.ai_provider import (
     FallbackStructureProvider,
     ProgramGenerationContext,
     ProgramStructureResult,
+    _CourseAI,
+    _infer_course_type_from_title,
     _normalize_groq_structure,
     get_structure_provider,
 )
@@ -676,6 +678,118 @@ def test_normalize_credits_clamped_passes_pydantic():
     data = _normalize_groq_structure(raw)
     parsed = _ProgramStructureAI.model_validate(data)
     assert parsed.courses[0].credits == 6
+
+
+# ---------------------------------------------------------------------------
+# course_type inference — labs paired with theory, project/internship credits
+# ---------------------------------------------------------------------------
+
+def _course_kwargs(**overrides):
+    base = dict(
+        code="CS501", title="Data Structures", credits=4, semester=5,
+        is_elective=False, hours_lecture=3, hours_tutorial=1, hours_practical=0,
+        description="x", prerequisite_codes=[],
+    )
+    base.update(overrides)
+    return base
+
+
+class TestInferCourseTypeFromTitle:
+
+    def test_lab_keyword(self):
+        assert _infer_course_type_from_title("Data Structures Lab") == "LAB"
+
+    def test_laboratory_keyword(self):
+        assert _infer_course_type_from_title("Physics Laboratory") == "LAB"
+
+    def test_project_keyword(self):
+        assert _infer_course_type_from_title("Major Project") == "PROJECT"
+
+    def test_internship_keyword(self):
+        assert _infer_course_type_from_title("Industrial Internship") == "INTERNSHIP"
+
+    def test_seminar_keyword(self):
+        assert _infer_course_type_from_title("Technical Seminar") == "SEMINAR"
+
+    def test_default_is_theory(self):
+        assert _infer_course_type_from_title("Data Structures") == "THEORY"
+
+
+class TestCourseAICourseTypeValidator:
+
+    def test_explicit_valid_type_preserved(self):
+        c = _CourseAI(**_course_kwargs(title="Compiler Design", course_type="THEORY"))
+        assert c.course_type == "THEORY"
+
+    def test_missing_type_inferred_from_lab_title(self):
+        c = _CourseAI(**_course_kwargs(title="Data Structures Lab"))
+        assert c.course_type == "LAB"
+
+    def test_invalid_type_falls_back_to_title_inference(self):
+        c = _CourseAI(**_course_kwargs(title="Major Project", course_type="NOT_A_TYPE"))
+        assert c.course_type == "PROJECT"
+
+    def test_missing_type_non_lab_title_defaults_theory(self):
+        c = _CourseAI(**_course_kwargs(title="Discrete Mathematics"))
+        assert c.course_type == "THEORY"
+
+
+class TestNormalizeCourseTypeAndCreditRange:
+
+    def test_lab_title_without_course_type_tagged_lab(self):
+        raw = """{
+            "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+            "courses": [
+                {"code": "CS502", "title": "Data Structures Lab", "credits": 2,
+                 "semester": 5, "is_elective": false,
+                 "hours_lecture": 0, "hours_tutorial": 0, "hours_practical": 4,
+                 "description": "Lab course.", "prerequisite_codes": []}
+            ]
+        }"""
+        data = _normalize_groq_structure(raw)
+        assert data["courses"][0]["course_type"] == "LAB"
+
+    def test_project_credits_not_clamped_to_six(self):
+        """A 10-credit Major Project must not be clamped down to the theory-course max of 6."""
+        raw = """{
+            "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+            "courses": [
+                {"code": "CS800", "title": "Major Project", "credits": 10,
+                 "semester": 8, "is_elective": false,
+                 "hours_lecture": 0, "hours_tutorial": 0, "hours_practical": 20,
+                 "description": "Capstone project.", "prerequisite_codes": []}
+            ]
+        }"""
+        data = _normalize_groq_structure(raw)
+        assert data["courses"][0]["course_type"] == "PROJECT"
+        assert data["courses"][0]["credits"] == 10
+
+    def test_project_credits_above_twenty_clamped(self):
+        raw = """{
+            "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+            "courses": [
+                {"code": "CS801", "title": "Internship", "credits": 25,
+                 "semester": 8, "is_elective": false,
+                 "hours_lecture": 0, "hours_tutorial": 0, "hours_practical": 30,
+                 "description": "Internship.", "prerequisite_codes": []}
+            ]
+        }"""
+        data = _normalize_groq_structure(raw)
+        assert data["courses"][0]["credits"] == 20
+
+    def test_theory_course_still_clamped_to_six(self):
+        raw = """{
+            "outcomes": [{"code": "PO1", "description": "x", "bloom_level": "Apply", "display_order": 1}],
+            "courses": [
+                {"code": "CS502", "title": "Advanced Algorithms", "credits": 9,
+                 "semester": 5, "is_elective": false,
+                 "hours_lecture": 4, "hours_tutorial": 1, "hours_practical": 0,
+                 "description": "Theory course.", "prerequisite_codes": []}
+            ]
+        }"""
+        data = _normalize_groq_structure(raw)
+        assert data["courses"][0]["course_type"] == "THEORY"
+        assert data["courses"][0]["credits"] == 6
 
 
 # ---------------------------------------------------------------------------

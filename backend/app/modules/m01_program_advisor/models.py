@@ -19,6 +19,14 @@ class ProgramStatus(str, enum.Enum):
     APPROVED           = "APPROVED"
 
 
+class CourseType(str, enum.Enum):
+    THEORY     = "THEORY"
+    LAB        = "LAB"
+    PROJECT    = "PROJECT"
+    INTERNSHIP = "INTERNSHIP"
+    SEMINAR    = "SEMINAR"
+
+
 class Program(Base):
     __tablename__ = "programs"
     __table_args__ = (
@@ -45,6 +53,7 @@ class Program(Base):
     )
     ai_model            = Column(String, nullable=True)
     prompt_hash         = Column(String, nullable=True)
+    ai_instructions     = Column(Text, nullable=True)
     approved_by_user_id = Column(UUID(as_uuid=True), nullable=True)
     approved_at         = Column(DateTime(timezone=True), nullable=True)
     created_by_user_id  = Column(UUID(as_uuid=True), nullable=False)
@@ -92,6 +101,7 @@ class Course(Base):
     title           = Column(String, nullable=False)
     credits         = Column(Integer, nullable=False)
     semester        = Column(Integer, nullable=False)
+    course_type     = Column(String(20), nullable=True)
     is_elective     = Column(Boolean, nullable=False, default=False)
     is_ai_generated = Column(Boolean, nullable=False, default=False)
     hours_lecture   = Column(Integer, nullable=True)
