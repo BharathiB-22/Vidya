@@ -1,8 +1,12 @@
 import { useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Bell, X, CheckCheck, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { listNotifications, markAllRead } from '@/lib/api/notifications'
+import {
+  listNotifications, markAllRead, markNotificationRead, notificationHref,
+  type NotificationItem,
+} from '@/lib/api/notifications'
 
 interface NotificationsDrawerProps {
   open: boolean
@@ -21,6 +25,7 @@ function timeAgo(dateStr: string): string {
 
 export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (!open) return
@@ -45,6 +50,20 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
       void qc.invalidateQueries({ queryKey: ['notifications-count'] })
     },
   })
+
+  const readMut = useMutation({
+    mutationFn: (id: string) => markNotificationRead(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['notifications'] })
+      void qc.invalidateQueries({ queryKey: ['notifications-count'] })
+    },
+  })
+
+  function handleItemClick(n: NotificationItem) {
+    if (!n.is_read) readMut.mutate(n.id)
+    const href = notificationHref(n)
+    if (href) { onClose(); navigate(href) }
+  }
 
   const items = data?.items ?? []
   const unread = data?.unread_count ?? 0
@@ -123,7 +142,8 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
           {items.map((n) => (
             <div
               key={n.id}
-              className={`px-4 py-3 border-b border-gray-50 ${!n.is_read ? 'bg-sv-light/60' : ''}`}
+              onClick={() => handleItemClick(n)}
+              className={`px-4 py-3 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${!n.is_read ? 'bg-indigo-50/50' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
@@ -139,6 +159,17 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
               <p className="text-[10px] text-gray-400 mt-1">{timeAgo(n.created_at)}</p>
             </div>
           ))}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 px-4 py-2.5 flex-shrink-0">
+          <Link
+            to="/notifications"
+            onClick={onClose}
+            className="block text-center text-xs font-medium text-sv-primary hover:underline"
+          >
+            View all notifications
+          </Link>
         </div>
       </div>
     </>

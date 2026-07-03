@@ -13,6 +13,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
@@ -225,7 +226,35 @@ async def list_semesters(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[SemesterOut]:
     rows = await SemesterService.list_all(db, batch_id=batch_id, include_inactive=include_inactive)
-    return [SemesterOut.model_validate(r) for r in rows]
+    if not rows:
+        return []
+
+    # Enrich with the owning program (batch -> acad_programs), purely via
+    # existing FKs, so a flat semester list can be disambiguated by program
+    # (e.g. "MCA • Semester 1" vs "BSc Chemistry • Semester 1").
+    batch_ids = list({str(r.batch_id) for r in rows})
+    prog_rows = (
+        await db.execute(
+            text(
+                "SELECT ab.id AS batch_id, ap.id AS program_id, ap.name AS program_name, ap.code AS program_code "
+                "FROM acad_batches ab JOIN acad_programs ap ON ap.id = ab.program_id "
+                "WHERE ab.id = ANY(:ids)"
+            ),
+            {"ids": batch_ids},
+        )
+    ).mappings().all()
+    prog_by_batch = {str(r["batch_id"]): r for r in prog_rows}
+
+    out: list[SemesterOut] = []
+    for r in rows:
+        prog = prog_by_batch.get(str(r.batch_id))
+        sem_out = SemesterOut.model_validate(r)
+        if prog is not None:
+            sem_out.program_id = prog["program_id"]
+            sem_out.program_name = prog["program_name"]
+            sem_out.program_code = prog["program_code"]
+        out.append(sem_out)
+    return out
 
 
 @router.post("/semesters", response_model=SemesterOut, status_code=201)

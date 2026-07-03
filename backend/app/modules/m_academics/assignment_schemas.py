@@ -86,3 +86,32 @@ class AssignmentOut(BaseModel):
 class AssignmentListResponse(BaseModel):
     total:   int
     items:   list[AssignmentOut]
+
+
+# ---------------------------------------------------------------------------
+# Valid semesters for a course — powers the Assign Faculty dialog's picker so
+# it can never offer a semester from an unrelated program (see
+# AssignmentService.list_valid_semesters).
+# ---------------------------------------------------------------------------
+
+class ValidSemesterOut(BaseModel):
+    id:           UUID
+    number:       int
+    label:        Optional[str]
+    batch_id:     UUID
+    batch_name:   str
+    program_id:   UUID
+    program_name: str
+    program_code: str
+
+
+class ValidSemestersOut(BaseModel):
+    course_id:    UUID
+    program_id:   Optional[UUID]
+    program_name: Optional[str]
+    # False only when the course's curriculum program has no acad_program_id
+    # bridge yet — in that case scoping isn't possible and every active
+    # semester is returned (mirrors AssignmentService's own permissive policy
+    # for the same edge case).
+    scoped:       bool
+    items:        list[ValidSemesterOut]

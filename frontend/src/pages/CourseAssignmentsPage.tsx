@@ -50,19 +50,44 @@ function RoleBadge({ role }: { role: CourseRoleInCourse }) {
 interface FacultyUserWithRole extends FacultyUser { role: string }
 
 function AssignDialog({
-  open, onClose, courseId, semesterId, courseName, onAssigned,
+  open, onClose, courseId, courseSemesterNumber, courseName, onAssigned,
 }: {
   open: boolean
   onClose: () => void
   courseId: string
-  semesterId: string
+  /** The course's own catalog-declared semester (Course.semester) — used only
+   *  to pick the best default among multiple same-program candidates. */
+  courseSemesterNumber: number
   courseName: string
   onAssigned: () => void
 }) {
   const [facultyId,  setFacultyId]  = useState('')
   const [sectionId,  setSectionId]  = useState('')
+  const [semesterId, setSemesterId] = useState('')
   const [role,       setRole]       = useState<CourseRoleInCourse>('PRIMARY')
   const [saving,     setSaving]     = useState(false)
+
+  // Semesters are scoped server-side to this course's own program — a
+  // semester from an unrelated program is never fetched, let alone shown, so
+  // it can't be picked by accident.
+  const { data: semesterData, isLoading: loadingSemesters } = useQuery({
+    queryKey: ['valid-semesters', courseId],
+    queryFn:  () => assignmentsApi.getValidSemesters(courseId),
+    enabled:  open && !!courseId,
+  })
+  const validSemesters = semesterData?.items ?? []
+
+  // Auto-preselect: a single candidate, or a single candidate matching the
+  // course's own declared semester number, needs no manual pick.
+  useEffect(() => {
+    if (!open || validSemesters.length === 0) return
+    setSemesterId(prev => {
+      if (prev && validSemesters.some(s => s.id === prev)) return prev
+      if (validSemesters.length === 1) return validSemesters[0].id
+      const matches = validSemesters.filter(s => s.number === courseSemesterNumber)
+      return matches.length === 1 ? matches[0].id : prev
+    })
+  }, [open, validSemesters, courseSemesterNumber])
 
   const { data: facultyList = [] } = useQuery<FacultyUserWithRole[]>({
     queryKey: ['faculty-list'],
@@ -79,11 +104,11 @@ function AssignDialog({
   })
 
   useEffect(() => {
-    if (!open) { setFacultyId(''); setSectionId(''); setRole('PRIMARY') }
+    if (!open) { setFacultyId(''); setSectionId(''); setRole('PRIMARY'); setSemesterId('') }
   }, [open])
 
   async function handleSave() {
-    if (!semesterId) { addToast('Select a semester filter before assigning.', 'error'); return }
+    if (!semesterId) { addToast('Select a semester before assigning.', 'error'); return }
     if (!facultyId)  { addToast('Select a faculty member.', 'error'); return }
     setSaving(true)
     try {
@@ -110,6 +135,38 @@ function AssignDialog({
         </DialogHeader>
         <p className="text-sm text-gray-500 -mt-2">{courseName}</p>
         <div className="space-y-4 py-2">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Semester</label>
+            {loadingSemesters ? (
+              <p className="text-xs text-gray-400 py-2">Loading semesters…</p>
+            ) : validSemesters.length === 0 ? (
+              <p className="text-xs text-red-500 py-2">
+                No active semesters found for this course's program. Set up the academic
+                structure (batches/semesters) for this program first.
+              </p>
+            ) : (
+              <>
+                <Select value={semesterId} onValueChange={setSemesterId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select semester…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {validSemesters.map(s => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.program_name} • Semester {s.number}{s.label ? ` — ${s.label}` : ''} ({s.batch_name})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {semesterData && !semesterData.scoped && (
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    This course isn't linked to the academic structure yet — showing every
+                    active semester across all programs. Double-check your selection.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Faculty</label>
             <Select value={facultyId} onValueChange={setFacultyId}>
@@ -174,7 +231,7 @@ function ProgramSection({
 }: {
   program: { id: string; title: string; code?: string }
   assignmentMap: Map<string, Assignment[]>
-  onAssign: (courseId: string, courseName: string) => void
+  onAssign: (courseId: string, courseName: string, courseSemesterNumber: number) => void
   onRevoke: (assignmentId: string) => void
 }) {
   const [expanded, setExpanded] = useState(true)
@@ -291,7 +348,7 @@ function ProgramSection({
 
                     <button
                       type="button"
-                      onClick={() => onAssign(course.id, `${course.code} — ${course.title}`)}
+                      onClick={() => onAssign(course.id, `${course.code} — ${course.title}`, course.semester)}
                       className="flex items-center gap-1 text-xs text-gray-400 hover:text-sv-primary
                                  border border-dashed border-gray-300 hover:border-sv-primary/60
                                  px-2 py-0.5 rounded transition-colors"
@@ -315,7 +372,9 @@ function ProgramSection({
 export default function CourseAssignmentsPage() {
   const qc = useQueryClient()
   const [semId,     setSemId]     = useState('')
-  const [assignTarget, setAssignTarget] = useState<{ courseId: string; courseName: string } | null>(null)
+  const [assignTarget, setAssignTarget] = useState<
+    { courseId: string; courseName: string; courseSemesterNumber: number } | null
+  >(null)
 
   const { data: programsData, isLoading: loadingPrograms } = useQuery({
     queryKey: ['programs', 'list'],
@@ -374,7 +433,7 @@ export default function CourseAssignmentsPage() {
               <SelectItem value="_all_">All semesters</SelectItem>
               {activeSemesters.map((s: any) => (
                 <SelectItem key={s.id} value={s.id}>
-                  Sem {s.number}{s.label ? ` — ${s.label}` : ''}
+                  {s.program_name ? `${s.program_name} • ` : ''}Semester {s.number}{s.label ? ` — ${s.label}` : ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -399,7 +458,8 @@ export default function CourseAssignmentsPage() {
               key={p.id}
               program={p}
               assignmentMap={assignmentMap}
-              onAssign={(courseId, courseName) => setAssignTarget({ courseId, courseName })}
+              onAssign={(courseId, courseName, courseSemesterNumber) =>
+                setAssignTarget({ courseId, courseName, courseSemesterNumber })}
               onRevoke={id => revokeMutation.mutate(id)}
             />
           ))}
@@ -412,7 +472,7 @@ export default function CourseAssignmentsPage() {
           open
           onClose={() => setAssignTarget(null)}
           courseId={assignTarget.courseId}
-          semesterId={semId}
+          courseSemesterNumber={assignTarget.courseSemesterNumber}
           courseName={assignTarget.courseName}
           onAssigned={() => {
             refetchAssignments()

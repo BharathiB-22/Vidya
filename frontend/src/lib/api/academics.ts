@@ -43,6 +43,10 @@ export interface Semester {
   end_date: string | null
   is_active: boolean
   created_at: string
+  // Populated by the list endpoint only (resolved server-side via batch -> program).
+  program_id:   string | null
+  program_name: string | null
+  program_code: string | null
 }
 
 export interface Section {

@@ -204,6 +204,13 @@ class SemesterOut(BaseModel):
     end_date: Optional[date]
     is_active: bool
     created_at: datetime
+    # Resolved via batch -> acad_programs (existing FK chain), populated only by
+    # the list endpoint so callers building a semester picker can disambiguate
+    # "Semester 1" across different programs. None on create/get/update, which
+    # still validate straight off the ORM row.
+    program_id:   Optional[UUID] = None
+    program_name: Optional[str] = None
+    program_code: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

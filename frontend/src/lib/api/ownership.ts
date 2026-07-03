@@ -23,6 +23,8 @@ export interface FacultyResponsibilityProgram {
   is_primary:       boolean
   assigned_by_name: string | null
   assigned_at:      string
+  /** APPOINTED = explicit program grant/coordinator; TEACHING = implied by courses taught. */
+  source:           'APPOINTED' | 'TEACHING'
 }
 
 export interface FacultyCourseEntry {
@@ -35,10 +37,17 @@ export interface FacultyCourseEntry {
   section_name:    string | null
   role_in_course:  string
   is_active:       boolean
+  program_id:      string | null
+  program_name:    string | null
+  program_code:    string | null
+  department_id:   string | null
+  department_name: string | null
 }
 
 export interface FacultyAcademicResponsibilities {
   faculty_user_id:    string
+  home_department:    DeptInfo | null
+  responsibilities:   string[]
   departments:        DeptInfo[]
   programs:           FacultyResponsibilityProgram[]
   course_assignments: FacultyCourseEntry[]

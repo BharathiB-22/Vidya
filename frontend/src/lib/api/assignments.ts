@@ -56,11 +56,35 @@ export interface CreateAssignmentPayload {
   role_in_course: CourseRoleInCourse
 }
 
+export interface ValidSemester {
+  id: string
+  number: number
+  label: string | null
+  batch_id: string
+  batch_name: string
+  program_id: string
+  program_name: string
+  program_code: string
+}
+
+export interface ValidSemestersResponse {
+  course_id: string
+  program_id: string | null
+  program_name: string | null
+  scoped: boolean
+  items: ValidSemester[]
+}
+
 const B = '/course-assignments'
 
 export const assignmentsApi = {
   create: (payload: CreateAssignmentPayload) =>
     api.post<Assignment>(B, payload).then(r => r.data),
+
+  getValidSemesters: (courseId: string) =>
+    api
+      .get<ValidSemestersResponse>(`${B}/valid-semesters`, { params: { course_id: courseId } })
+      .then(r => r.data),
 
   revoke: (assignmentId: string) =>
     api.post<Assignment>(`${B}/${assignmentId}/revoke`, {}).then(r => r.data),

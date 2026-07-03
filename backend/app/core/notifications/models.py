@@ -35,6 +35,24 @@ class NotificationType(str, enum.Enum):
     SYLLABUS_REVISION_REQUESTED = "SYLLABUS_REVISION_REQUESTED"
     SYLLABUS_APPROVED           = "SYLLABUS_APPROVED"
     SYLLABUS_VERSION_CREATED    = "SYLLABUS_VERSION_CREATED"
+    SYLLABUS_SUBMITTED          = "SYLLABUS_SUBMITTED"   # faculty submitted → dean
+
+    # Academic ownership — Phase 1 Wave 1
+    PROGRAM_ASSIGNED            = "PROGRAM_ASSIGNED"
+    PROGRAM_ASSIGNMENT_REVOKED  = "PROGRAM_ASSIGNMENT_REVOKED"
+
+    # Course Kit lifecycle — M03.
+    # NOTE: types reserved for the Course-Kit dean-review workflow (roadmap
+    # Wave 3). No emitter fires these yet because course-kit publish is a
+    # single-actor action today — see docs/enterprise-ux-erp-governance-audit.md.
+    COURSE_KIT_SUBMITTED        = "COURSE_KIT_SUBMITTED"
+    COURSE_KIT_APPROVED         = "COURSE_KIT_APPROVED"
+    COURSE_KIT_REJECTED         = "COURSE_KIT_REJECTED"
+
+    # Student assignments — reserved. No student-homework module exists yet
+    # (the "assignments" pages are exam-script evaluation allocation), so no
+    # emitter fires this today.
+    ASSIGNMENT_PUBLISHED        = "ASSIGNMENT_PUBLISHED"
 
 
 class Notification(Base):
