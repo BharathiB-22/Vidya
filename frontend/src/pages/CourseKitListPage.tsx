@@ -11,6 +11,7 @@ import { useCourseKits, useDeleteKit } from '@/hooks/courseKit'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import type { CourseKitStatus } from '@/types/courseKit'
+import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 
@@ -45,7 +46,7 @@ export default function CourseKitListPage() {
   const navigate   = useNavigate()
   const [params]   = useSearchParams()
   const syllabusId = params.get('syllabus_id') ?? ''
-  const role       = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canCreate  = WRITE_ROLES.includes(role)
   const canDelete  = WRITE_ROLES.includes(role)
 

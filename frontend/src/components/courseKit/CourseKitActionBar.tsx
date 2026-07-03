@@ -17,6 +17,7 @@ import {
   useExportKit,
 } from '@/hooks/courseKit'
 import type { CourseKit } from '@/types/courseKit'
+import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 
@@ -26,7 +27,7 @@ interface Props {
 
 export function CourseKitActionBar({ kit }: Props) {
   const navigate = useNavigate()
-  const role     = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canWrite = WRITE_ROLES.includes(role)
 
   const [generateOpen, setGenerateOpen] = useState(false)

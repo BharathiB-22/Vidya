@@ -196,7 +196,7 @@ export default function SettingsBrandingPage() {
 
             {/* Institution info (read-only) */}
             <div className="space-y-3">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Institution</h2>
+              <h2 className="text-xs font-semibold text-foreground uppercase tracking-wide">Institution</h2>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="block text-sm font-medium text-gray-700">Display name</label>
@@ -211,7 +211,7 @@ export default function SettingsBrandingPage() {
 
             {/* Logo */}
             <div className="space-y-2">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Institution Logo</h2>
+              <h2 className="text-xs font-semibold text-foreground uppercase tracking-wide">Institution Logo</h2>
 
               <div className="flex items-center gap-3">
                 {/* Preview */}
@@ -262,7 +262,7 @@ export default function SettingsBrandingPage() {
 
             {/* Colors */}
             <div className="space-y-3">
-              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Brand colors</h2>
+              <h2 className="text-xs font-semibold text-foreground uppercase tracking-wide">Brand colors</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="block text-sm font-medium text-gray-700" htmlFor="primary-color">
@@ -340,7 +340,7 @@ export default function SettingsBrandingPage() {
         {/* Live preview */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sidebar preview</h2>
+            <h2 className="text-xs font-semibold text-foreground uppercase tracking-wide">Sidebar preview</h2>
             <div className="flex justify-center">
               <SidebarPreview
                 institutionName={institutionName}

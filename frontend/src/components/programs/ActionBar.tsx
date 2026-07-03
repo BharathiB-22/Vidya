@@ -21,6 +21,7 @@ import {
 } from '@/hooks/programs'
 import { addToast } from '@/hooks/useToast'
 import type { Program } from '@/types/program'
+import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'DEAN']
 const APPROVE_ROLES = ['ADMIN', 'DEAN']
@@ -31,7 +32,7 @@ interface Props {
 
 export function ActionBar({ program }: Props) {
   const navigate = useNavigate()
-  const role = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canWrite = WRITE_ROLES.includes(role)
   const canApprove = APPROVE_ROLES.includes(role)
 

@@ -21,6 +21,7 @@ import {
 import { courseKitKeys } from '@/hooks/courseKit/useCourseKit'
 import type { CourseKitStatus } from '@/types/courseKit'
 import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
+import { useWorkspace } from '@/lib/workspace'
 
 type Tab = 'overview' | 'slides' | 'assignments' | 'resources' | 'teaching-plan' | 'compliance' | 'exports'
 
@@ -56,7 +57,7 @@ export default function CourseKitDetailPage() {
   const [tab, setTab] = useState<Tab>('overview')
 
   const kitId = id ?? ''
-  const role  = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const isDean    = role === 'DEAN'
   const canWrite  = WRITE_ROLES.includes(role)
 

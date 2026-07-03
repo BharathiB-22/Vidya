@@ -26,6 +26,7 @@ export function useAddCourse(programId: string) {
           title: payload.title,
           credits: payload.credits,
           semester: payload.semester,
+          course_type: payload.course_type ?? null,
           is_elective: payload.is_elective ?? false,
           is_ai_generated: false,
           hours_lecture: payload.hours_lecture ?? null,

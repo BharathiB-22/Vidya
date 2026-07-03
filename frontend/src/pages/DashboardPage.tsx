@@ -12,6 +12,7 @@ import { PageEmpty } from '@/components/shared/PageEmpty'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
+import { useWorkspace } from '@/lib/workspace'
 import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
 
 type IconComponent = React.FC<{ className?: string }>
@@ -28,13 +29,13 @@ interface ModuleCard {
 }
 
 const CARDS: ModuleCard[] = [
-  // ── Teach & Prepare — FACULTY primary; DEAN for governance visibility ──────
+  // ── Teach & Prepare — Program Builder is governance/ADMIN scope; DEAN only ─
   {
     title: 'Academic Programs',
     description: 'Design degree programs, add courses, and manage learning outcomes.',
     to: '/programs',
     icon: BookOpen,
-    roles: ['FACULTY', 'DEAN'],
+    roles: ['DEAN'],
     badge: 'bg-blue-50 text-blue-600 border-blue-100',
     bar:   'bg-blue-500',
     section: 'teach',
@@ -51,7 +52,7 @@ const CARDS: ModuleCard[] = [
   },
   {
     title: 'Course Kits',
-    description: 'Generate lecture slides, quizlets, and assignments for your courses.',
+    description: 'Generate lecture slides and assignments for your courses.',
     to: '/course-kits',
     icon: Layers,
     roles: ['FACULTY'],
@@ -576,9 +577,9 @@ const DEAN_SECTIONS: AdminSection[] = [
         badge: 'bg-green-50 text-green-600 border-green-100',
       },
       {
-        title: 'Course Assignments',
-        description: 'Assign faculty to courses and sections for the current semester.',
-        to: '/course-assignments',
+        title: 'Academic Ownership',
+        description: 'Assign faculty to courses, govern programs, and report on teaching coverage.',
+        to: '/dean/academic-ownership',
         icon: ClipboardCheck,
         bar: 'bg-teal-500',
         badge: 'bg-teal-50 text-teal-600 border-teal-100',
@@ -652,7 +653,12 @@ export default function DashboardPage() {
   const user     = useCurrentUser()
   const { user: authUser } = useAuth()
   const { branding } = useBranding()
-  const role = user?.role ?? ''
+  // Driven by the active workspace (see WorkspaceSwitcher), not the raw base
+  // login role — so a DEAN who switches into the Faculty workspace sees the
+  // Faculty dashboard content, and vice versa. Reuses this exact page/logic
+  // for every workspace; nothing new is built per workspace.
+  const { activeWorkspace } = useWorkspace()
+  const role = activeWorkspace
 
   const visibleCards = CARDS.filter((c) => c.roles.includes(role))
   const displayFirstName = user?.fullName ? getDisplayFirstName(user.fullName) : null
@@ -745,7 +751,7 @@ export default function DashboardPage() {
           {ADMIN_SECTIONS.map((section) => (
             <div key={section.heading}>
               <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                <h2 className="text-xs font-bold text-foreground uppercase tracking-widest whitespace-nowrap">
                   {section.heading}
                 </h2>
                 <div className="flex-1 h-px bg-gray-100" />
@@ -770,7 +776,7 @@ export default function DashboardPage() {
           {DEAN_SECTIONS.map((section) => (
             <div key={section.heading}>
               <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                <h2 className="text-xs font-bold text-foreground uppercase tracking-widest whitespace-nowrap">
                   {section.heading}
                 </h2>
                 <div className="flex-1 h-px bg-gray-100" />
@@ -802,7 +808,7 @@ export default function DashboardPage() {
             return (
               <div key={section.key}>
                 <div className="flex items-center gap-3 mb-4">
-                  <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                  <h2 className="text-xs font-bold text-foreground uppercase tracking-widest whitespace-nowrap">
                     {section.label}
                   </h2>
                   <div className="flex-1 h-px bg-gray-100" />
