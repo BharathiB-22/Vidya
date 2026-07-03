@@ -50,6 +50,36 @@ def _faculty_in_department(department_id):
     )
 
 
+def _faculty_in_programs(program_ids: list[UUID]):
+    """Program-membership predicate for a faculty row (DEAN scoping).
+
+    A faculty member is "in" a governed program set if they hold an active
+    coordinator grant (FacultyProgramAssignment) OR an active teaching
+    assignment (SubjectAssignment, bridged via the curriculum-design
+    ``programs`` table's ``acad_program_id`` FK) for one of the given
+    ``acad_programs.id`` values.
+    """
+    from app.modules.m01_program_advisor.models import Course, Program
+
+    via_assignment = (
+        select(FacultyProgramAssignment.faculty_user_id)
+        .where(
+            FacultyProgramAssignment.is_active.is_(True),
+            FacultyProgramAssignment.program_id.in_(program_ids),
+        )
+    )
+    via_teaching = (
+        select(SubjectAssignment.faculty_user_id)
+        .join(Course, Course.id == SubjectAssignment.course_id)
+        .join(Program, Program.id == Course.program_id)
+        .where(
+            SubjectAssignment.is_active.is_(True),
+            Program.acad_program_id.in_(program_ids),
+        )
+    )
+    return or_(User.id.in_(via_assignment), User.id.in_(via_teaching))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -129,6 +159,7 @@ class StudentDirectoryRepository:
         batch_id: UUID | None,
         section_id: UUID | None,
         department_id: UUID | None = None,
+        program_ids: list[UUID] | None = None,
         is_active: bool | None,
     ) -> tuple[list[Any], int]:
         stmt = _student_base_stmt()
@@ -144,6 +175,8 @@ class StudentDirectoryRepository:
             )
         if program_id is not None:
             stmt = stmt.where(User.acad_program_id == program_id)
+        if program_ids is not None:
+            stmt = stmt.where(User.acad_program_id.in_(program_ids))
         if batch_id is not None:
             stmt = stmt.where(AcadBatch.id == batch_id)
         if section_id is not None:
@@ -211,6 +244,7 @@ class FacultyDirectoryRepository:
         page_size: int,
         search: str | None,
         department_id: UUID | None,
+        program_ids: list[UUID] | None = None,
         is_active: bool | None,
     ) -> tuple[list[Any], int]:
         stmt = _faculty_base_stmt()
@@ -226,6 +260,8 @@ class FacultyDirectoryRepository:
             )
         if department_id is not None:
             stmt = stmt.where(_faculty_in_department(department_id))
+        if program_ids is not None:
+            stmt = stmt.where(_faculty_in_programs(program_ids))
         if is_active is not None:
             stmt = stmt.where(User.is_active.is_(is_active))
 

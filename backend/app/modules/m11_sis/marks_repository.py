@@ -375,8 +375,8 @@ class MarksRepository:
             att_stats AS (
                 SELECT
                     ar.student_id,
-                    COUNT(CASE WHEN ar.status IN ('PRESENT','LATE') THEN 1 END) AS attended,
-                    COUNT(CASE WHEN ar.status IN ('PRESENT','LATE','ABSENT') THEN 1 END) AS countable
+                    COUNT(CASE WHEN ar.status = 'PRESENT' THEN 1 END) AS attended,
+                    COUNT(*) AS countable
                 FROM sis_attendance_records ar
                 JOIN sis_attendance_sessions ss ON ss.id = ar.session_id
                 WHERE ss.section_id = :section_id AND ss.status = 'LOCKED'

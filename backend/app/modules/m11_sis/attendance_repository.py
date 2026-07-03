@@ -306,8 +306,6 @@ class AttendanceRepository:
                     u.full_name AS faculty_name,
                     COUNT(r.id) FILTER (WHERE r.status = 'PRESENT') AS present_count,
                     COUNT(r.id) FILTER (WHERE r.status = 'ABSENT')  AS absent_count,
-                    COUNT(r.id) FILTER (WHERE r.status = 'LATE')    AS late_count,
-                    COUNT(r.id) FILTER (WHERE r.status = 'EXCUSED') AS excused_count,
                     COUNT(r.id) AS total_enrolled
                 FROM sis_attendance_sessions s
                 JOIN courses c          ON c.id    = s.course_id
@@ -347,9 +345,8 @@ class AttendanceRepository:
                     s.course_id::text,
                     c.code  AS course_code,
                     c.title AS course_title,
-                    COUNT(*)                                              AS total_sessions,
-                    COUNT(*) FILTER (WHERE r.status = 'EXCUSED')         AS excused_count,
-                    COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE')) AS attended_count
+                    COUNT(*)                                     AS total_sessions,
+                    COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count
                 FROM sis_attendance_records r
                 JOIN sis_attendance_sessions s ON s.id = r.session_id
                 JOIN courses c                 ON c.id = s.course_id
@@ -402,8 +399,8 @@ class AttendanceRepository:
             text("""
                 SELECT
                     r.student_id::text,
-                    COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE'))  AS attended,
-                    COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE','ABSENT')) AS countable
+                    COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended,
+                    COUNT(*)                                     AS countable
                 FROM sis_attendance_records r
                 JOIN sis_attendance_sessions s ON s.id = r.session_id
                 WHERE r.student_id = ANY(:sids::uuid[])
@@ -470,9 +467,8 @@ class AttendanceRepository:
                     r.student_id::text,
                     u.full_name,
                     sp.usn,
-                    COUNT(*)                                               AS total_sessions,
-                    COUNT(*) FILTER (WHERE r.status = 'EXCUSED')          AS excused_count,
-                    COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE')) AS attended_count
+                    COUNT(*)                                     AS total_sessions,
+                    COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count
                 FROM sis_attendance_records r
                 JOIN sis_attendance_sessions s ON s.id = r.session_id
                 JOIN users u                   ON u.id = r.student_id
@@ -500,6 +496,7 @@ class AttendanceRepository:
         program_id:     Optional[UUID] = None,
         batch_id:       Optional[UUID] = None,
         finalized_only: bool = False,
+        allowed_program_ids: Optional[list[UUID]] = None,
     ) -> list[dict]:
         """
         Returns per-student, per-course shortage rows.
@@ -508,6 +505,12 @@ class AttendanceRepository:
           program_id     — restrict to one academic program
           batch_id       — restrict to one batch
           finalized_only — when True, count only LOCKED sessions (finalized data)
+
+        allowed_program_ids — DEAN-scope enforcement (Phase 2 refinements):
+          when provided, restricts rows to sessions whose academic program is
+          in this set, regardless of the client-supplied `program_id`. Kept
+          distinct from `program_id` (which is a client convenience filter)
+          so scope enforcement can never be bypassed by omitting `program_id`.
 
         Adds sem.number to the raw dict so callers can build grouped views
         without secondary lookups.
@@ -529,16 +532,20 @@ class AttendanceRepository:
             # Only sessions whose status is LOCKED are included; OPEN / REOPENED
             # sessions may still be edited so they are excluded from finalized reports.
             extra_filters.append("AND s.status = 'LOCKED'")
-        if batch_id or program_id:
+        if batch_id or program_id or allowed_program_ids is not None:
             extra_joins.append("JOIN acad_semesters _sem ON _sem.id = sect.semester_id")
             extra_joins.append("JOIN acad_batches   _bat ON _bat.id = _sem.batch_id")
             if batch_id:
                 extra_filters.append("AND _bat.id = :batch_id")
                 params["batch_id"] = str(batch_id)
-            if program_id:
+            if program_id or allowed_program_ids is not None:
                 extra_joins.append("JOIN acad_programs _prog ON _prog.id = _bat.program_id")
-                extra_filters.append("AND _prog.id = :program_id")
-                params["program_id"] = str(program_id)
+                if program_id:
+                    extra_filters.append("AND _prog.id = :program_id")
+                    params["program_id"] = str(program_id)
+                if allowed_program_ids is not None:
+                    extra_filters.append("AND _prog.id = ANY(:allowed_program_ids)")
+                    params["allowed_program_ids"] = [str(p) for p in allowed_program_ids]
 
         joins_sql = "\n                    ".join(extra_joins)
         where_sql  = "\n                    ".join(extra_filters)
@@ -550,9 +557,8 @@ class AttendanceRepository:
                         r.student_id,
                         s.course_id,
                         s.section_id,
-                        COUNT(*)                                               AS total_sessions,
-                        COUNT(*) FILTER (WHERE r.status = 'EXCUSED')          AS excused_count,
-                        COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE')) AS attended_count
+                        COUNT(*)                                     AS total_sessions,
+                        COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
                     JOIN acad_sections sect        ON sect.id = s.section_id
@@ -563,11 +569,8 @@ class AttendanceRepository:
                 ),
                 with_pct AS (
                     SELECT *,
-                        total_sessions - excused_count AS total_countable,
-                        CASE WHEN (total_sessions - excused_count) > 0
-                             THEN ROUND(
-                                 (attended_count::numeric / (total_sessions - excused_count)) * 100,
-                                 2)
+                        CASE WHEN total_sessions > 0
+                             THEN ROUND((attended_count::numeric / total_sessions) * 100, 2)
                              ELSE NULL
                         END AS attendance_pct
                     FROM stats
@@ -585,7 +588,6 @@ class AttendanceRepository:
                     c.title       AS course_title,
                     wp.total_sessions,
                     wp.attended_count AS attended_sessions,
-                    wp.total_countable,
                     wp.attendance_pct
                 FROM with_pct wp
                 JOIN users u            ON u.id    = wp.student_id
@@ -649,9 +651,8 @@ class AttendanceRepository:
                         r.student_id,
                         s.course_id,
                         s.section_id,
-                        COUNT(*)                                               AS total_sessions,
-                        COUNT(*) FILTER (WHERE r.status = 'EXCUSED')          AS excused_count,
-                        COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE')) AS attended_count
+                        COUNT(*)                                     AS total_sessions,
+                        COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
                     JOIN acad_sections sect        ON sect.id = s.section_id
@@ -663,11 +664,8 @@ class AttendanceRepository:
                 ),
                 with_pct AS (
                     SELECT *,
-                        total_sessions - excused_count AS total_countable,
-                        CASE WHEN (total_sessions - excused_count) > 0
-                             THEN ROUND(
-                                 (attended_count::numeric / (total_sessions - excused_count)) * 100,
-                                 2)
+                        CASE WHEN total_sessions > 0
+                             THEN ROUND((attended_count::numeric / total_sessions) * 100, 2)
                              ELSE NULL
                         END AS attendance_pct
                     FROM stats
@@ -685,7 +683,6 @@ class AttendanceRepository:
                     c.title       AS course_title,
                     wp.total_sessions,
                     wp.attended_count AS attended_sessions,
-                    wp.total_countable,
                     wp.attendance_pct,
                     COALESCE(enroll_counts.total_enrolled, 0) AS total_enrolled
                 FROM with_pct wp
@@ -716,14 +713,35 @@ class AttendanceRepository:
         threshold: float,
         semester_id: Optional[UUID],
         db: AsyncSession,
+        *,
+        allowed_program_ids: Optional[list[UUID]] = None,
     ) -> dict:
         sem_filter = "AND sect.semester_id = :semester_id" if semester_id else ""
         params: dict = {"threshold": threshold}
         if semester_id:
             params["semester_id"] = str(semester_id)
 
+        prog_join_top = ""
+        prog_filter_top = ""
+        prog_join_below = ""
+        prog_filter_below = ""
+        if allowed_program_ids is not None:
+            prog_join_top = (
+                "JOIN acad_sections _sect2 ON _sect2.id = s.section_id "
+                "JOIN acad_semesters _sem2 ON _sem2.id = _sect2.semester_id "
+                "JOIN acad_batches _bat2   ON _bat2.id = _sem2.batch_id "
+                "JOIN acad_programs _prog2 ON _prog2.id = _bat2.program_id"
+            )
+            prog_filter_top = "AND _prog2.id = ANY(:allowed_program_ids)"
+            prog_join_below = (
+                "JOIN acad_batches _bat ON _bat.id = _sem.batch_id "
+                "JOIN acad_programs _prog ON _prog.id = _bat.program_id"
+            )
+            prog_filter_below = "AND _prog.id = ANY(:allowed_program_ids)"
+            params["allowed_program_ids"] = [str(p) for p in allowed_program_ids]
+
         row = (await db.execute(
-            text("""
+            text(f"""
                 SELECT
                     COUNT(*) FILTER (WHERE s.session_date = CURRENT_DATE)                    AS today_sessions,
                     COUNT(*) FILTER (WHERE s.session_date = CURRENT_DATE
@@ -731,7 +749,10 @@ class AttendanceRepository:
                     COUNT(*) FILTER (WHERE s.session_date <= CURRENT_DATE
                                     AND s.first_marked_at IS NULL)                           AS pending_sessions
                 FROM sis_attendance_sessions s
+                {prog_join_top}
+                WHERE 1=1 {prog_filter_top}
             """),
+            params,
         )).one()
 
         # Students below threshold (more expensive — separate query)
@@ -741,20 +762,22 @@ class AttendanceRepository:
                     SELECT
                         r.student_id,
                         s.course_id,
-                        COUNT(*) FILTER (WHERE r.status = 'EXCUSED')          AS excused_count,
-                        COUNT(*) FILTER (WHERE r.status IN ('PRESENT','LATE')) AS attended_count,
-                        COUNT(*)                                               AS total_sessions
+                        COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count,
+                        COUNT(*)                                     AS total_sessions
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
                     JOIN acad_sections sect        ON sect.id = s.section_id
+                    JOIN acad_semesters _sem       ON _sem.id = sect.semester_id
+                    {prog_join_below}
                     WHERE 1=1 {sem_filter}
+                    {prog_filter_below}
                     GROUP BY r.student_id, s.course_id
                 )
                 SELECT COUNT(DISTINCT student_id) AS cnt
                 FROM stats
-                WHERE (total_sessions - excused_count) > 0
+                WHERE total_sessions > 0
                   AND ROUND(
-                      (attended_count::numeric / NULLIF(total_sessions - excused_count, 0)) * 100,
+                      (attended_count::numeric / NULLIF(total_sessions, 0)) * 100,
                       2) < :threshold
             """),
             params,

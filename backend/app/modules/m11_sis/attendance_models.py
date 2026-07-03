@@ -9,13 +9,11 @@ Session lifecycle:
   OPEN   → editable for 48 hours from first_marked_at (policy: window starts on first save)
   LOCKED → no faculty edits; ADMIN/DEAN may reopen
 
-Record status semantics (per H55 policy):
+Record status semantics (Phase 1 MVP — Present/Absent only):
   PRESENT → attended; counted in numerator and denominator
-  LATE    → attended; counted in numerator and denominator
   ABSENT  → not attended; counted in denominator only
-  EXCUSED → excluded from both numerator and denominator (neutral)
 
-Attendance % = (PRESENT + LATE) / (PRESENT + LATE + ABSENT) × 100
+Attendance % = PRESENT / (PRESENT + ABSENT) × 100
 """
 from __future__ import annotations
 
@@ -40,8 +38,6 @@ class SessionStatus(str, enum.Enum):
 class AttendanceStatus(str, enum.Enum):
     PRESENT = "PRESENT"
     ABSENT  = "ABSENT"
-    LATE    = "LATE"
-    EXCUSED = "EXCUSED"
 
 
 class SisAttendanceSession(Base):

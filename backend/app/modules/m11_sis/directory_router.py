@@ -6,7 +6,9 @@ Routes mounted at /sis/directory/* by the main SIS router.
 RBAC:
   _WRITE      = ADMIN, DEAN  (profile upserts, bulk import, dept faculty list)
   _READ       = ADMIN        (global directory listings — Deans use /dean/* scoped endpoints)
-  DEAN-scoped = GET /dean/faculty and /dean/students auto-filter to Dean's primary department
+  DEAN-scoped = GET /dean/faculty and /dean/students auto-filter to the programs the
+                Dean governs, per dean_program_assignments (see m_academics/dean_scope.py).
+                A Dean who governs zero programs sees an empty page, never everyone.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from app.modules.m11_sis.directory_service import (
     FacultyDirectoryService,
     StudentDirectoryService,
 )
+from app.modules.m_academics.dean_scope import get_dean_program_ids
 
 directory_router = APIRouter(tags=["M11 SIS Directory"])
 
@@ -90,9 +93,17 @@ async def get_student_detail(
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ):
     try:
-        return await StudentDirectoryService.get_detail(user_id, db)
+        detail = await StudentDirectoryService.get_detail(user_id, db)
     except DirectoryServiceError as e:
         raise _err(e)
+    if current_user.role == "DEAN":
+        governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+        if governed is not None and (detail.program is None or detail.program.id not in governed):
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "NOT_FOUND", "message": "Student not found."},
+            )
+    return detail
 
 
 @directory_router.put("/directory/students/{user_id}/profile", response_model=StudentDetailOut)
@@ -147,9 +158,19 @@ async def get_faculty_detail(
     db: AsyncSession          = Depends(get_tenant_db_dep),
 ):
     try:
-        return await FacultyDirectoryService.get_detail(user_id, db)
+        detail = await FacultyDirectoryService.get_detail(user_id, db)
     except DirectoryServiceError as e:
         raise _err(e)
+    if current_user.role == "DEAN":
+        governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+        if governed is not None:
+            teaching_ids = {p.id for p in detail.teaching_programs}
+            if not (teaching_ids & set(governed)):
+                raise HTTPException(
+                    status_code=404,
+                    detail={"error": "NOT_FOUND", "message": "Faculty member not found."},
+                )
+    return detail
 
 
 @directory_router.put("/directory/faculty/{user_id}/profile", response_model=FacultyDetailOut)
@@ -199,16 +220,16 @@ async def list_dean_faculty(
     current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
-    """Faculty in the Dean's own department (primary dept OR active teaching assignment)."""
-    profile = await FacultyDirectoryRepository.get_profile(current_user.user_id, db)
-    if not profile or not profile.primary_department_id:
+    """Faculty tied to programs the Dean governs (coordinator grant OR active teaching)."""
+    governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+    if not governed:
         return DirectoryPage(items=[], total=0, page=page, page_size=page_size, total_pages=0)
     return await FacultyDirectoryService.list_directory(
         db,
         page=page,
         page_size=page_size,
         search=search,
-        department_id=profile.primary_department_id,
+        program_ids=governed,
         is_active=is_active,
     )
 
@@ -224,16 +245,16 @@ async def list_dean_students(
     current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
-    """Students in the Dean's department (via their program's department)."""
-    profile = await FacultyDirectoryRepository.get_profile(current_user.user_id, db)
-    if not profile or not profile.primary_department_id:
+    """Students enrolled in a program the Dean governs."""
+    governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+    if not governed:
         return DirectoryPage(items=[], total=0, page=page, page_size=page_size, total_pages=0)
     return await StudentDirectoryService.list_directory(
         db,
         page=page,
         page_size=page_size,
         search=search,
-        department_id=profile.primary_department_id,
+        program_ids=governed,
         batch_id=batch_id,
         section_id=section_id,
         is_active=is_active,

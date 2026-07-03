@@ -29,8 +29,24 @@ def test_attendance_status_enum_values():
     from app.modules.m11_sis.attendance_models import AttendanceStatus
     assert AttendanceStatus.PRESENT == "PRESENT"
     assert AttendanceStatus.ABSENT  == "ABSENT"
-    assert AttendanceStatus.LATE    == "LATE"
-    assert AttendanceStatus.EXCUSED == "EXCUSED"
+    assert {s.value for s in AttendanceStatus} == {"PRESENT", "ABSENT"}
+
+
+def test_attendance_mark_entry_rejects_late_and_excused():
+    from pydantic import ValidationError
+    from app.modules.m11_sis.attendance_schemas import AttendanceMarkEntry
+    import uuid
+    for bad_status in ("LATE", "EXCUSED"):
+        with pytest.raises(ValidationError):
+            AttendanceMarkEntry(student_id=uuid.uuid4(), status=bad_status)
+
+
+def test_record_edit_in_rejects_late_and_excused():
+    from pydantic import ValidationError
+    from app.modules.m11_sis.attendance_schemas import RecordEditIn
+    for bad_status in ("LATE", "EXCUSED"):
+        with pytest.raises(ValidationError):
+            RecordEditIn(status=bad_status)
 
 
 def test_session_model_importable():
@@ -133,8 +149,9 @@ def test_session_out_computed_fields():
 def test_session_out_attendance_counts():
     from app.modules.m11_sis.attendance_schemas import SessionOut
     fields = set(SessionOut.model_fields)
-    assert {"present_count", "absent_count", "late_count", "excused_count",
+    assert {"present_count", "absent_count",
             "attendance_pct", "total_enrolled"} <= fields
+    assert not {"late_count", "excused_count"} & fields
 
 
 def test_record_out_audit_fields():
@@ -146,8 +163,9 @@ def test_record_out_audit_fields():
 def test_course_attendance_summary_formula_fields():
     from app.modules.m11_sis.attendance_schemas import CourseAttendanceSummary
     fields = set(CourseAttendanceSummary.model_fields)
-    assert {"attended_sessions", "excused_sessions", "total_countable",
+    assert {"attended_sessions", "total_sessions",
             "attendance_pct", "is_at_risk"} <= fields
+    assert not {"excused_sessions", "total_countable"} & fields
 
 
 def test_shortage_report_out_fields():
@@ -600,7 +618,7 @@ def test_shortage_student_from_row_helper():
         "student_id": stid, "student_name": "Test Student", "usn": "1RV20CS001",
         "email": "s@test.com", "section_id": sid, "section_name": "A",
         "course_id": cid, "course_code": "CS101", "course_title": "Intro CS",
-        "total_sessions": 10, "attended_sessions": 7, "total_countable": 10,
+        "total_sessions": 10, "attended_sessions": 7,
         "attendance_pct": 70.0,
     }
     out = _shortage_student_from_row(row)
@@ -679,7 +697,7 @@ def test_shortage_helper_null_pct_maps_to_zero():
         "student_id": str(uuid.uuid4()), "student_name": "No Sessions", "usn": None,
         "email": "x@test.com", "section_id": str(uuid.uuid4()), "section_name": "B",
         "course_id": str(uuid.uuid4()), "course_code": "CS200", "course_title": "DS",
-        "total_sessions": 0, "attended_sessions": 0, "total_countable": 0,
+        "total_sessions": 0, "attended_sessions": 0,
         "attendance_pct": None,
     }
     out = _shortage_student_from_row(row)

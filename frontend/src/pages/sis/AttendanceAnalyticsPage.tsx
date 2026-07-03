@@ -75,7 +75,7 @@ function FlatShortageTable({ students }: { students: ShortageStudentOut[] }) {
               <td className="px-4 py-3 text-xs text-slate-400">{s.section_name}</td>
               <td className="px-4 py-3 text-xs text-slate-400">{s.semester_number ?? '—'}</td>
               <td className="px-4 py-3 text-xs text-slate-400">
-                {s.attended_sessions}/{s.total_countable}
+                {s.attended_sessions}/{s.total_sessions}
               </td>
               <td className="px-4 py-3">
                 <span className="text-sm font-bold" style={{ color: pctColor(s.attendance_pct) }}>
@@ -141,7 +141,7 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    {['USN', 'Student', 'Attended / Countable', '%'].map(h => (
+                    {['USN', 'Student', 'Attended / Total', '%'].map(h => (
                       <th key={h} className="px-4 py-2 text-left text-xs font-medium text-slate-500">{h}</th>
                     ))}
                   </tr>
@@ -156,7 +156,7 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
                         <p className="text-xs text-slate-500">{s.email}</p>
                       </td>
                       <td className="px-4 py-2 text-xs text-slate-400">
-                        {s.attended_sessions}/{s.total_countable}
+                        {s.attended_sessions}/{s.total_sessions}
                       </td>
                       <td className="px-4 py-2">
                         <span className="text-sm font-bold" style={{ color: pctColor(s.attendance_pct) }}>

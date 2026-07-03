@@ -1,11 +1,10 @@
 """
 SIS Attendance — H55 Pydantic schemas.
 
-Attendance % formula (per H55 policy decisions):
-  attended      = COUNT WHERE status IN ('PRESENT', 'LATE')
-  total_countable = COUNT WHERE status IN ('PRESENT', 'LATE', 'ABSENT')
-                    -- EXCUSED excluded from both numerator and denominator
-  pct = ROUND(attended / NULLIF(total_countable, 0) * 100, 2)
+Attendance % formula (Phase 1 MVP — Present/Absent only):
+  attended = COUNT WHERE status = 'PRESENT'
+  total    = COUNT WHERE status IN ('PRESENT', 'ABSENT')
+  pct = ROUND(attended / NULLIF(total, 0) * 100, 2)
 
 Edit window (per H55 policy): 48 hours from first_marked_at (not session created_at).
 Edit reason is mandatory on any modification after the first save.
@@ -54,7 +53,7 @@ class SessionUpdateIn(BaseModel):
 
 class AttendanceMarkEntry(BaseModel):
     student_id: UUID
-    status:     Literal["PRESENT", "ABSENT", "LATE", "EXCUSED"]
+    status:     Literal["PRESENT", "ABSENT"]
     remarks:    Optional[str] = None
 
 
@@ -64,7 +63,7 @@ class AttendanceMarkIn(BaseModel):
 
 
 class RecordEditIn(BaseModel):
-    status:      Literal["PRESENT", "ABSENT", "LATE", "EXCUSED"]
+    status:      Literal["PRESENT", "ABSENT"]
     remarks:     Optional[str] = None
     edit_reason: Optional[str] = None   # mandatory (service-enforced) if record.marked_by is set
 
@@ -109,8 +108,6 @@ class SessionOut(BaseModel):
     total_enrolled:   int
     present_count:    int
     absent_count:     int
-    late_count:       int
-    excused_count:    int
     attendance_pct:   Optional[float]      # None if no countable records
     created_at:       datetime
     updated_at:       Optional[datetime]
@@ -156,11 +153,9 @@ class CourseAttendanceSummary(BaseModel):
     course_code:        str
     course_title:       str
     total_sessions:     int            # total sessions for this course+section
-    attended_sessions:  int            # PRESENT + LATE
-    excused_sessions:   int
-    total_countable:    int            # total - excused
-    attendance_pct:     Optional[float]  # None if no countable sessions
-    is_at_risk:         bool           # advisory; pct < threshold and total_countable > 0
+    attended_sessions:  int            # PRESENT
+    attendance_pct:     Optional[float]  # None if no sessions
+    is_at_risk:         bool           # advisory; pct < threshold and total_sessions > 0
 
 
 class MyAttendanceSummary(BaseModel):
@@ -198,7 +193,6 @@ class SectionStudentAttendance(BaseModel):
     usn:                Optional[str]
     total_sessions:     int
     attended_sessions:  int
-    total_countable:    int
     attendance_pct:     Optional[float]
     is_at_risk:         bool
 
@@ -230,7 +224,6 @@ class ShortageStudentOut(BaseModel):
     course_title:      str
     total_sessions:    int
     attended_sessions: int
-    total_countable:   int
     attendance_pct:    float
 
 

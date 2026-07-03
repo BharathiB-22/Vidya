@@ -18,8 +18,8 @@ function pctColor(p: number): string {
   return '#fbbf24'
 }
 
-function sessionsNeeded(attended: number, countable: number, threshold: number): number | null {
-  const need = Math.ceil((threshold / 100 * countable - attended) / (1 - threshold / 100))
+function sessionsNeeded(attended: number, total: number, threshold: number): number | null {
+  const need = Math.ceil((threshold / 100 * total - attended) / (1 - threshold / 100))
   return need > 0 && isFinite(need) ? need : null
 }
 
@@ -28,7 +28,7 @@ function sessionsNeeded(attended: number, countable: number, threshold: number):
 // ---------------------------------------------------------------------------
 
 function StudentRow({ s, threshold }: { s: ShortageStudentOut; threshold: number }) {
-  const needed = sessionsNeeded(s.attended_sessions, s.total_countable, threshold)
+  const needed = sessionsNeeded(s.attended_sessions, s.total_sessions, threshold)
   return (
     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }} className="hover:bg-white/[0.02]">
       <td className="px-4 py-2.5 text-xs font-mono text-slate-400">{s.usn ?? '—'}</td>
@@ -37,7 +37,7 @@ function StudentRow({ s, threshold }: { s: ShortageStudentOut; threshold: number
         <p className="text-xs text-slate-500">{s.email}</p>
       </td>
       <td className="px-4 py-2.5 text-xs text-slate-400">
-        {s.attended_sessions}/{s.total_countable}
+        {s.attended_sessions}/{s.total_sessions}
       </td>
       <td className="px-4 py-2.5">
         <span className="text-sm font-bold" style={{ color: pctColor(s.attendance_pct) }}>

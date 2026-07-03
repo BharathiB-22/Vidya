@@ -4,8 +4,8 @@ SIS Hall Ticket Eligibility — H58 Repository.
 All DB operations for sis_hall_ticket_eligibility and sis_hall_ticket_batches.
 
 Engine SQL computes eligibility for every student in a semester in one pass:
-  - attendance_pct: aggregate (PRESENT+LATE) / (PRESENT+LATE+ABSENT) across
-    all courses for the student's section, finalized (LOCKED) sessions only.
+  - attendance_pct: aggregate PRESENT / (PRESENT+ABSENT) across all courses
+    for the student's section, finalized (LOCKED) sessions only.
   - has_shortage: TRUE if any single course attendance_pct < threshold_pct
     (same per-course logic as H56 shortage detection)
   - marks_all_locked: TRUE if all active sis_marks_components for the section
@@ -81,8 +81,8 @@ class HallTicketRepository:
                     ar.student_id,
                     sess.section_id,
                     sess.course_id,
-                    COUNT(CASE WHEN ar.status IN ('PRESENT','LATE')             THEN 1 END) AS attended,
-                    COUNT(CASE WHEN ar.status IN ('PRESENT','LATE','ABSENT')    THEN 1 END) AS total_countable
+                    COUNT(CASE WHEN ar.status = 'PRESENT' THEN 1 END) AS attended,
+                    COUNT(*)                                          AS total_countable
                 FROM sis_attendance_sessions sess
                 JOIN sis_attendance_records   ar   ON ar.session_id = sess.id
                 JOIN enrolled                 enr  ON enr.student_id = ar.student_id

@@ -31,18 +31,15 @@ import type {
 
 // Responsibility-chip colors (GUIDE / EVALUATOR / BOARD / DEAN)
 const MY_RESP_COLORS: Record<string, string> = {
-  GUIDE: '#818cf8', EVALUATOR: '#34d399', BOARD: '#fbbf24', DEAN: '#f472b6',
+  GUIDE: '#6366f1', EVALUATOR: '#10b981', BOARD: '#d97706', DEAN: '#db2777',
 }
 
 function InfoRow({ label, value, mono = false }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
-    <div
-      className="flex items-start justify-between py-3 gap-4"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-    >
-      <span className="text-sm text-slate-500 flex-shrink-0">{label}</span>
-      <span className={`text-sm text-slate-200 font-medium text-right ${mono ? 'font-mono' : ''}`}>
-        {value || <span className="text-slate-600">—</span>}
+    <div className="flex items-start justify-between py-3 gap-4 border-b border-gray-100 last:border-0">
+      <span className="text-sm text-gray-500 flex-shrink-0">{label}</span>
+      <span className={`text-sm text-gray-900 font-medium text-right ${mono ? 'font-mono' : ''}`}>
+        {value || <span className="text-gray-400">—</span>}
       </span>
     </div>
   )
@@ -52,15 +49,12 @@ function Card({ title, icon: Icon, locked = false, children }: {
   title: string; icon: typeof UserCircle2; locked?: boolean; children: React.ReactNode
 }) {
   return (
-    <div
-      className="rounded-xl px-6 py-4 space-y-1"
-      style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-    >
-      <div className="flex items-center gap-2 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <Icon className="h-4 w-4 text-slate-500" />
-        <h3 className="text-sm font-semibold text-slate-400">{title}</h3>
+    <div className="rounded-xl px-6 py-4 space-y-1 bg-white border border-gray-200 shadow-sm">
+      <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+        <Icon className="h-4 w-4 text-gray-400" />
+        <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         {locked && (
-          <span className="ml-auto flex items-center gap-1 text-xs text-slate-600">
+          <span className="ml-auto flex items-center gap-1 text-xs text-gray-400">
             <Shield className="h-3 w-3" /> Admin-managed
           </span>
         )}
@@ -70,8 +64,8 @@ function Card({ title, icon: Icon, locked = false, children }: {
   )
 }
 
-const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white/5 border border-white/10 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-const labelCls = "block text-xs text-slate-500 mb-1"
+const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
+const labelCls = "block text-xs text-gray-500 mb-1"
 
 // ---------------------------------------------------------------------------
 // Student self-service view
@@ -121,21 +115,18 @@ function StudentProfileView({ profile }: { profile: StudentDetailOut }) {
   return (
     <>
       {/* Avatar strip */}
-      <div
-        className="rounded-xl p-5 flex items-center gap-4"
-        style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-      >
+      <div className="rounded-xl p-5 flex items-center gap-4 bg-white border border-gray-200 shadow-sm">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
-          style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.3)' }}
+          style={{ background: 'rgba(99,102,241,0.12)', color: '#4f46e5', border: '1px solid rgba(99,102,241,0.30)' }}
         >
           {initials}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-lg font-semibold text-slate-100">{profile.full_name}</p>
-          <p className="text-sm text-slate-400">{profile.email}</p>
+          <p className="text-lg font-semibold text-gray-900">{profile.full_name}</p>
+          <p className="text-sm text-gray-600">{profile.email}</p>
           {profile.program && (
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-gray-500 mt-0.5">
               {profile.program.name} · {profile.program.degree_type}
             </p>
           )}
@@ -161,13 +152,10 @@ function StudentProfileView({ profile }: { profile: StudentDetailOut }) {
 
       {/* Editable contact details */}
       {editing ? (
-        <div
-          className="rounded-xl px-6 py-5"
-          style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          <div className="flex items-center gap-2 pb-3 mb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <Phone className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-400">Edit contact details</h3>
+        <div className="rounded-xl px-6 py-5 bg-white border border-gray-200 shadow-sm">
+          <div className="flex items-center gap-2 pb-3 mb-3 border-b border-gray-100">
+            <Phone className="h-4 w-4 text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-700">Edit contact details</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -214,7 +202,7 @@ function StudentProfileView({ profile }: { profile: StudentDetailOut }) {
           <InfoRow label="Emergency contact"  value={profile.emergency_contact_name} />
           <InfoRow label="Emergency phone"    value={profile.emergency_contact_phone} />
           {!profile.phone && !profile.address_line1 && (
-            <p className="py-2 text-xs text-slate-500">No contact details added yet. Click Edit to add yours.</p>
+            <p className="py-2 text-xs text-gray-500">No contact details added yet. Click Edit to add yours.</p>
           )}
         </Card>
       )}
@@ -266,21 +254,18 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
   return (
     <>
       {/* Avatar strip */}
-      <div
-        className="rounded-xl p-5 flex items-center gap-4"
-        style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-      >
+      <div className="rounded-xl p-5 flex items-center gap-4 bg-white border border-gray-200 shadow-sm">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
-          style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}
+          style={{ background: 'rgba(16,185,129,0.12)', color: '#059669', border: '1px solid rgba(16,185,129,0.30)' }}
         >
           {initials}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-lg font-semibold text-slate-100">{profile.full_name}</p>
-          <p className="text-sm text-slate-400">{profile.email}</p>
-          {profile.designation && <p className="text-xs text-slate-500 mt-0.5">{profile.designation}</p>}
-          {profile.primary_department && <p className="text-xs text-slate-600">{profile.primary_department.name}</p>}
+          <p className="text-lg font-semibold text-gray-900">{profile.full_name}</p>
+          <p className="text-sm text-gray-600">{profile.email}</p>
+          {profile.designation && <p className="text-xs text-gray-500 mt-0.5">{profile.designation}</p>}
+          {profile.primary_department && <p className="text-xs text-gray-500">{profile.primary_department.name}</p>}
         </div>
         {!editing && (
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
@@ -303,37 +288,34 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
       {/* My Responsibilities — explains why certain dashboards are visible */}
       <Card title="My Responsibilities" icon={Shield} locked>
         {(profile.responsibilities ?? []).length === 0 ? (
-          <p className="py-2 text-xs text-slate-500">
+          <p className="py-2 text-xs text-gray-500">
             No additional responsibilities. You have the base Faculty role.
           </p>
         ) : (
           <div className="py-2 flex flex-wrap gap-2">
             {profile.responsibilities.map(r => {
-              const c = MY_RESP_COLORS[r] ?? '#94a3b8'
+              const c = MY_RESP_COLORS[r] ?? '#64748b'
               return (
                 <span key={r}
                   className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full"
-                  style={{ background: `${c}1F`, color: c, border: `1px solid ${c}40` }}>
+                  style={{ background: `${c}1A`, color: c, border: `1px solid ${c}40` }}>
                   <Shield className="h-3 w-3" />{r}
                 </span>
               )
             })}
           </div>
         )}
-        <p className="pt-1 pb-1 text-[11px] text-slate-600">
+        <p className="pt-1 pb-1 text-[11px] text-gray-400">
           Responsibilities are granted by your Dean or Admin and control which dashboards you can access.
         </p>
       </Card>
 
       {/* Editable contact + bio */}
       {editing ? (
-        <div
-          className="rounded-xl px-6 py-5"
-          style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          <div className="flex items-center gap-2 pb-3 mb-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <BookOpen className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-400">Edit contact & bio</h3>
+        <div className="rounded-xl px-6 py-5 bg-white border border-gray-200 shadow-sm">
+          <div className="flex items-center gap-2 pb-3 mb-3 border-b border-gray-100">
+            <BookOpen className="h-4 w-4 text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-700">Edit contact & bio</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -366,16 +348,16 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
       ) : (
         <Card title="Contact & Bio" icon={Phone}>
           <InfoRow label="Phone"          value={profile.phone} />
-          <InfoRow label="Office"         value={<span className="flex items-center gap-1"><MapPin className="h-3 w-3 text-slate-500" />{profile.office_location}</span>} />
+          <InfoRow label="Office"         value={<span className="flex items-center gap-1 justify-end"><MapPin className="h-3 w-3 text-gray-400" />{profile.office_location}</span>} />
           <InfoRow label="Specialization" value={profile.specialization} />
           {profile.bio && (
             <div className="py-3">
-              <p className="text-xs text-slate-500 mb-1">Bio</p>
-              <p className="text-sm text-slate-300 leading-relaxed">{profile.bio}</p>
+              <p className="text-xs text-gray-500 mb-1">Bio</p>
+              <p className="text-sm text-gray-700 leading-relaxed">{profile.bio}</p>
             </div>
           )}
           {!profile.phone && !profile.office_location && !profile.bio && (
-            <p className="py-2 text-xs text-slate-500">No contact details added yet. Click Edit to add yours.</p>
+            <p className="py-2 text-xs text-gray-500">No contact details added yet. Click Edit to add yours.</p>
           )}
         </Card>
       )}
@@ -387,16 +369,15 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
             {profile.active_assignments.map((a, i) => (
               <div
                 key={i}
-                className="flex items-start justify-between gap-3 py-2"
-                style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                className="flex items-start justify-between gap-3 py-2 border-b border-gray-100 last:border-0"
               >
                 <div>
-                  <p className="text-sm text-slate-200">{a.course.name}</p>
-                  <p className="text-xs text-slate-500 font-mono">{a.course.code} · {a.semester_label}</p>
+                  <p className="text-sm text-gray-900">{a.course.name}</p>
+                  <p className="text-xs text-gray-500 font-mono">{a.course.code} · {a.semester_label}</p>
                 </div>
                 <span
                   className="text-xs px-2 py-0.5 rounded flex-shrink-0"
-                  style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}
+                  style={{ background: 'rgba(99,102,241,0.12)', color: '#4f46e5', border: '1px solid rgba(99,102,241,0.25)' }}
                 >
                   {a.role.replace('_', ' ')}
                 </span>
@@ -452,7 +433,7 @@ export default function MyProfilePage() {
 
       {!isStudent && !isFaculty && (
         <div className="py-16 text-center">
-          <p className="text-slate-500 text-sm">Profile self-service is available for Students and Faculty only.</p>
+          <p className="text-gray-500 text-sm">Profile self-service is available for Students and Faculty only.</p>
         </div>
       )}
     </PageShell>

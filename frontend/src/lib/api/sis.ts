@@ -463,7 +463,7 @@ export interface AttendanceSessionUpdateIn {
 
 export interface AttendanceMarkEntry {
   student_id: string
-  status:     'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  status:     'PRESENT' | 'ABSENT'
   remarks?:   string
 }
 
@@ -473,7 +473,7 @@ export interface AttendanceMarkIn {
 }
 
 export interface AttendanceRecordEditIn {
-  status:       'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  status:       'PRESENT' | 'ABSENT'
   remarks?:     string
   edit_reason?: string
 }
@@ -507,8 +507,6 @@ export interface AttendanceSessionOut {
   total_enrolled:     number
   present_count:      number
   absent_count:       number
-  late_count:         number
-  excused_count:      number
   attendance_pct:     number | null
   created_at:         string
   updated_at:         string | null
@@ -521,7 +519,7 @@ export interface AttendanceRecordOut {
   student_name:  string
   student_email: string
   usn:           string | null
-  status:        'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  status:        'PRESENT' | 'ABSENT'
   remarks:       string | null
   marked_by:     string | null
   marked_at:     string | null
@@ -543,8 +541,6 @@ export interface CourseAttendanceSummary {
   course_title:      string
   total_sessions:    number
   attended_sessions: number
-  excused_sessions:  number
-  total_countable:   number
   attendance_pct:    number | null
   is_at_risk:        boolean
 }
@@ -562,7 +558,7 @@ export interface SessionRecordForStudent {
   session_date:   string
   period_number:  number | null
   topic_covered:  string | null
-  status:         'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'
+  status:         'PRESENT' | 'ABSENT'
   remarks:        string | null
 }
 
@@ -580,7 +576,6 @@ export interface SectionStudentAttendance {
   usn:               string | null
   total_sessions:    number
   attended_sessions: number
-  total_countable:   number
   attendance_pct:    number | null
   is_at_risk:        boolean
 }
@@ -609,7 +604,6 @@ export interface ShortageStudentOut {
   course_title:      string
   total_sessions:    number
   attended_sessions: number
-  total_countable:   number
   attendance_pct:    number
 }
 

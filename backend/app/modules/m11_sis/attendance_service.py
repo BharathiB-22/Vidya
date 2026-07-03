@@ -9,8 +9,7 @@ Business rules (all per approved H55 policy decisions):
     If first_marked_at is None, session is editable (window not yet started).
     After reopen: 48 hours from reopened_at.
   - edit_reason is mandatory on any modification after the first save.
-  - LATE counts as attended in numerator.
-  - EXCUSED is excluded from both numerator and denominator.
+  - Phase 1 MVP: only PRESENT/ABSENT are valid statuses.
   - Shortage warning notification fires once per student per (course, section)
     when attendance % first drops below threshold. Default threshold: 75%.
   - Reopen requires mandatory reason; stamps reopened_by, reopened_at, reopen_reason.
@@ -46,11 +45,40 @@ from app.modules.m11_sis.attendance_schemas import (
     SessionUpdateIn, ShortageGroupedOut, ShortageCourseGroup, ShortageSectionGroup,
     ShortageReportOut, ShortageStudentOut,
 )
+from app.modules.m_academics.dean_scope import get_dean_program_ids
 from app.modules.m_academics.models import AcadSection, SubjectAssignment
 
 logger = logging.getLogger("vidya.sis.attendance")
 
 ATTENDANCE_EDIT_WINDOW_HOURS: int = 48
+
+
+async def _resolve_dean_scope(
+    caller_role: Optional[str],
+    caller_user_id: Optional[UUID],
+    *,
+    requested_program_id: Optional[UUID],
+    db: AsyncSession,
+) -> Optional[list[UUID]]:
+    """Resolve the acad_programs.id set a caller may see attendance analytics for.
+
+    Returns None for ADMIN/non-DEAN callers (unrestricted). For a DEAN,
+    returns their governed program set and raises if they explicitly
+    requested a `program_id` outside that scope — a client cannot bypass
+    scoping by supplying a program_id it isn't entitled to.
+    """
+    if caller_role != "DEAN" or caller_user_id is None:
+        return None
+    governed = await get_dean_program_ids(caller_user_id, caller_role, db)
+    if governed is None:
+        return None
+    if requested_program_id is not None and requested_program_id not in governed:
+        raise AttendanceServiceError(
+            "PROGRAM_NOT_IN_SCOPE",
+            "You may only view attendance analytics for programs you govern.",
+            403,
+        )
+    return governed
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +141,6 @@ def _shortage_student_from_row(r: dict) -> ShortageStudentOut:
         course_title=r["course_title"],
         total_sessions=int(r["total_sessions"]),
         attended_sessions=int(r["attended_sessions"]),
-        total_countable=int(r["total_countable"]),
         attendance_pct=float(r["attendance_pct"]) if r["attendance_pct"] is not None else 0.0,
     )
 
@@ -125,10 +152,8 @@ def _shortage_student_from_row(r: dict) -> ShortageStudentOut:
 def _session_out_from_row(row: dict, session_orm: Optional[SisAttendanceSession] = None) -> SessionOut:
     present  = int(row.get("present_count",  0) or 0)
     absent   = int(row.get("absent_count",   0) or 0)
-    late     = int(row.get("late_count",     0) or 0)
-    excused  = int(row.get("excused_count",  0) or 0)
-    total_countable = present + absent + late
-    pct = _compute_pct(present + late, total_countable)
+    total_countable = present + absent
+    pct = _compute_pct(present, total_countable)
 
     # Reconstruct a minimal SisAttendanceSession for is_editable computation
     class _MockSession:
@@ -165,8 +190,6 @@ def _session_out_from_row(row: dict, session_orm: Optional[SisAttendanceSession]
         total_enrolled=int(row.get("total_enrolled", 0) or 0),
         present_count=present,
         absent_count=absent,
-        late_count=late,
-        excused_count=excused,
         attendance_pct=pct,
         created_at=row["created_at"],
         updated_at=row.get("updated_at"),
@@ -597,6 +620,26 @@ class AttendanceService:
         if session is None:
             raise AttendanceServiceError("SESSION_NOT_FOUND", "Session not found.", 404)
 
+        if actor_role == "DEAN":
+            governed = await get_dean_program_ids(actor_id, actor_role, db)
+            if governed is not None:
+                from sqlalchemy import select as _select
+                from app.modules.m01_program_advisor.models import Course, Program
+
+                acad_program_id = (
+                    await db.execute(
+                        _select(Program.acad_program_id)
+                        .join(Course, Course.program_id == Program.id)
+                        .where(Course.id == session.course_id)
+                    )
+                ).scalar_one_or_none()
+                if acad_program_id is None or acad_program_id not in governed:
+                    raise AttendanceServiceError(
+                        "PROGRAM_NOT_IN_SCOPE",
+                        "You may only reopen sessions for programs you govern.",
+                        403,
+                    )
+
         now = datetime.now(timezone.utc)
         session.status        = SessionStatus.OPEN
         session.reopened_by   = actor_id
@@ -708,27 +751,23 @@ class AttendanceService:
 
         courses: list[CourseAttendanceSummary] = []
         for row in rows:
-            total   = int(row["total_sessions"])
-            excused = int(row["excused_count"])
+            total    = int(row["total_sessions"])
             attended = int(row["attended_count"])
-            countable = total - excused
-            pct = _compute_pct(attended, countable)
+            pct = _compute_pct(attended, total)
             courses.append(CourseAttendanceSummary(
                 course_id=UUID(str(row["course_id"])),
                 course_code=row["course_code"],
                 course_title=row["course_title"],
                 total_sessions=total,
                 attended_sessions=attended,
-                excused_sessions=excused,
-                total_countable=countable,
                 attendance_pct=pct,
                 is_at_risk=_is_at_risk(pct, threshold),
             ))
 
-        # Overall % = (sum attended) / (sum countable) across all courses
-        total_attended  = sum(c.attended_sessions for c in courses)
-        total_countable = sum(c.total_countable   for c in courses)
-        overall_pct = _compute_pct(total_attended, total_countable)
+        # Overall % = (sum attended) / (sum total) across all courses
+        total_attended = sum(c.attended_sessions for c in courses)
+        total_sessions = sum(c.total_sessions    for c in courses)
+        overall_pct = _compute_pct(total_attended, total_sessions)
 
         return MyAttendanceSummary(
             student_id=student_id,
@@ -754,11 +793,9 @@ class AttendanceService:
         if course_row is None:
             raise AttendanceServiceError("COURSE_NOT_FOUND", "No attendance found for this course.", 404)
 
-        total   = int(course_row["total_sessions"])
-        excused = int(course_row["excused_count"])
+        total    = int(course_row["total_sessions"])
         attended = int(course_row["attended_count"])
-        countable = total - excused
-        pct = _compute_pct(attended, countable)
+        pct = _compute_pct(attended, total)
 
         summary = CourseAttendanceSummary(
             course_id=UUID(str(course_row["course_id"])),
@@ -766,8 +803,6 @@ class AttendanceService:
             course_title=course_row["course_title"],
             total_sessions=total,
             attended_sessions=attended,
-            excused_sessions=excused,
-            total_countable=countable,
             attendance_pct=pct,
             is_at_risk=_is_at_risk(pct, threshold),
         )
@@ -813,18 +848,15 @@ class AttendanceService:
 
         students: list[SectionStudentAttendance] = []
         for row in rows:
-            total   = int(row["total_sessions"])
-            excused = int(row["excused_count"])
+            total    = int(row["total_sessions"])
             attended = int(row["attended_count"])
-            countable = total - excused
-            pct = _compute_pct(attended, countable)
+            pct = _compute_pct(attended, total)
             students.append(SectionStudentAttendance(
                 student_id=UUID(str(row["student_id"])),
                 student_name=row["full_name"],
                 usn=row.get("usn"),
                 total_sessions=total,
                 attended_sessions=attended,
-                total_countable=countable,
                 attendance_pct=pct,
                 is_at_risk=_is_at_risk(pct, threshold),
             ))
@@ -859,10 +891,16 @@ class AttendanceService:
         program_id:     Optional[UUID] = None,
         batch_id:       Optional[UUID] = None,
         finalized_only: bool = False,
+        caller_role:    Optional[str] = None,
+        caller_user_id: Optional[UUID] = None,
     ) -> ShortageReportOut:
+        allowed_program_ids = await _resolve_dean_scope(
+            caller_role, caller_user_id, requested_program_id=program_id, db=db
+        )
         rows = await AttendanceRepository.get_shortage_raw(
             threshold, semester_id, section_id, course_id, db,
             program_id=program_id, batch_id=batch_id, finalized_only=finalized_only,
+            allowed_program_ids=allowed_program_ids,
         )
         students = [_shortage_student_from_row(r) for r in rows]
         return ShortageReportOut(
@@ -885,10 +923,16 @@ class AttendanceService:
         program_id:     Optional[UUID] = None,
         batch_id:       Optional[UUID] = None,
         finalized_only: bool = False,
+        caller_role:    Optional[str] = None,
+        caller_user_id: Optional[UUID] = None,
     ) -> ShortageGroupedOut:
+        allowed_program_ids = await _resolve_dean_scope(
+            caller_role, caller_user_id, requested_program_id=program_id, db=db
+        )
         rows = await AttendanceRepository.get_shortage_raw(
             threshold, semester_id, None, None, db,
             program_id=program_id, batch_id=batch_id, finalized_only=finalized_only,
+            allowed_program_ids=allowed_program_ids,
         )
 
         # Group: course_id → section_id → students
@@ -1020,6 +1064,14 @@ class AttendanceService:
         threshold: float,
         semester_id: Optional[UUID],
         db: AsyncSession,
+        *,
+        caller_role:    Optional[str] = None,
+        caller_user_id: Optional[UUID] = None,
     ) -> AttendanceDashboardOut:
-        data = await AttendanceRepository.get_dashboard_raw(threshold, semester_id, db)
+        allowed_program_ids = await _resolve_dean_scope(
+            caller_role, caller_user_id, requested_program_id=None, db=db
+        )
+        data = await AttendanceRepository.get_dashboard_raw(
+            threshold, semester_id, db, allowed_program_ids=allowed_program_ids
+        )
         return AttendanceDashboardOut(**data)
