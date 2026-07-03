@@ -23,11 +23,6 @@ class ComplexityLevel(str, enum.Enum):
     PG = "PG"
 
 
-class QuizletType(str, enum.Enum):
-    MCQ          = "MCQ"
-    SHORT_ANSWER = "SHORT_ANSWER"
-
-
 class AssignmentType(str, enum.Enum):
     CLASSWORK  = "CLASSWORK"
     HOMEWORK   = "HOMEWORK"
@@ -87,7 +82,6 @@ class CourseKit(Base):
         foreign_keys=[parent_version_id],
     )
     slides      = relationship("KitSlide",      back_populates="kit", cascade="all, delete-orphan")
-    quizlets    = relationship("KitQuizlet",    back_populates="kit", cascade="all, delete-orphan")
     assignments = relationship("KitAssignment", back_populates="kit", cascade="all, delete-orphan")
 
 
@@ -110,33 +104,6 @@ class KitSlide(Base):
     updated_at    = Column(DateTime(timezone=True), nullable=True)
 
     kit = relationship("CourseKit", back_populates="slides")
-
-
-class KitQuizlet(Base):
-    __tablename__ = "kit_quizlets"
-    __table_args__ = (
-        UniqueConstraint("kit_id", "question_number"),
-        Index("ix_kit_quizlets_kit", "kit_id"),
-    )
-
-    id                 = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    kit_id             = Column(UUID(as_uuid=True), ForeignKey("course_kits.id", ondelete="CASCADE"), nullable=False)
-    question_number    = Column(Integer, nullable=False)
-    question_text      = Column(Text, nullable=False)
-    question_type      = Column(
-        Enum(QuizletType, native_enum=False),
-        nullable=False,
-        default=QuizletType.MCQ,
-    )
-    options            = Column(JSONB, nullable=False, server_default="[]")
-    answer_key         = Column(JSONB, nullable=False, server_default="{}")
-    answer_explanation = Column(Text, nullable=True)
-    bloom_level        = Column(Enum(BloomLevel, native_enum=False), nullable=True)
-    co_reference       = Column(String, nullable=True)
-    created_at         = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
-    updated_at         = Column(DateTime(timezone=True), nullable=True)
-
-    kit = relationship("CourseKit", back_populates="quizlets")
 
 
 class KitAssignment(Base):

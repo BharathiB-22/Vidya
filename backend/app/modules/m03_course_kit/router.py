@@ -1,16 +1,18 @@
 """
-M03 Course Kit router — 26 endpoints, RBAC enforced.
+M03 Course Kit router — RBAC enforced.
 
 RBAC
 ----
-  _WRITE  = ADMIN + FACULTY  (generate, publish, archive, fork, edit children)
+  _WRITE  = ADMIN + (FACULTY role OR active FACULTY grant, e.g. a DEAN with a
+            FACULTY grant)  (generate, publish, archive, fork, edit children)
   _READ   = ADMIN + DEAN + FACULTY  (any view)
   _EXPORT = ADMIN + DEAN + FACULTY  (reserved for STEP-11 export endpoints)
 
 Sensitive field gating (DEAN role never sees):
   - KitSlide.speaker_notes → None
-  - KitQuizlet.answer_key  → None
   - KitAssignment.model_answer → None
+
+Assignments are the only assessment artifact generated here.
 
 All business logic lives in CourseKitService.
 Router is pure HTTP glue: deserialise → call service → audit → serialise.
@@ -24,16 +26,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility, resolve_tenant
 from app.core.auth.models import TenantRole
-from app.core.auth.schemas import CurrentUser
+from app.core.auth.schemas import CurrentUser, TenantInfo
 from app.core.rate_limiting import limiter
+from app.core.storage.schemas import (
+    DownloadUrlResponse,
+    GenerateUploadUrlResponse,
+    StorageAssetListResponse,
+    StorageAssetResponse,
+)
 from app.modules.m03_course_kit.models import CourseKitStatus
 from app.modules.m03_course_kit.schemas import (
     ArchiveRequest,
     ComplianceCheckResponse,
     CourseKitCreate,
     CourseKitDetail,
+    CourseKitListItem,
     CourseKitListResponse,
     CourseKitResponse,
     CourseKitStatusResponse,
@@ -47,9 +56,8 @@ from app.modules.m03_course_kit.schemas import (
     KitExportRequest,
     KitAssignmentResponse,
     KitAssignmentUpdate,
-    KitQuizletCreate,
-    KitQuizletResponse,
-    KitQuizletUpdate,
+    KitResourceConfirmRequest,
+    KitResourceUploadUrlRequest,
     KitSlideCreate,
     KitSlideReorder,
     KitSlideResponse,
@@ -91,12 +99,6 @@ def _gate_slide(slide: KitSlideResponse, role: str) -> KitSlideResponse:
     return slide
 
 
-def _gate_quizlet(quizlet: KitQuizletResponse, role: str) -> KitQuizletResponse:
-    if role == TenantRole.DEAN.value:
-        return quizlet.model_copy(update={"answer_key": None})
-    return quizlet
-
-
 def _gate_assignment(
     assignment: KitAssignmentResponse, role: str
 ) -> KitAssignmentResponse:
@@ -111,7 +113,6 @@ def _gate_detail(detail: CourseKitDetail, role: str) -> CourseKitDetail:
         return detail
     return detail.model_copy(update={
         "slides":      [_gate_slide(s, role) for s in detail.slides],
-        "quizlets":    [_gate_quizlet(q, role) for q in detail.quizlets],
         "assignments": [_gate_assignment(a, role) for a in detail.assignments],
     })
 
@@ -123,7 +124,7 @@ def _gate_detail(detail: CourseKitDetail, role: str) -> CourseKitDetail:
 @router.post("", response_model=CourseKitResponse, status_code=201)
 async def create_kit(
     payload: CourseKitCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitResponse:
     try:
@@ -149,6 +150,44 @@ async def create_kit(
     return CourseKitResponse.model_validate(kit)
 
 
+async def _course_program_map(
+    syllabus_ids: list[UUID], *, db: AsyncSession
+) -> dict[UUID, tuple]:
+    """Bulk-resolve syllabus_id -> (course, program), mirroring the Syllabus
+    module's list/detail name-resolution pattern (M02 router.py)."""
+    from sqlalchemy import select
+    from app.modules.m01_program_advisor.models import Course, Program
+    from app.modules.m02_syllabus.models import Syllabus
+
+    if not syllabus_ids:
+        return {}
+
+    syllabi_result = await db.execute(select(Syllabus).where(Syllabus.id.in_(syllabus_ids)))
+    syllabi = syllabi_result.scalars().all()
+    syllabus_map = {s.id: s for s in syllabi}
+
+    cids = list({s.course_id for s in syllabi})
+    course_map: dict = {}
+    if cids:
+        courses_result = await db.execute(select(Course).where(Course.id.in_(cids)))
+        courses = courses_result.scalars().all()
+        course_map = {c.id: c for c in courses}
+        pids = list({c.program_id for c in courses})
+        program_map: dict = {}
+        if pids:
+            programs_result = await db.execute(select(Program).where(Program.id.in_(pids)))
+            program_map = {p.id: p for p in programs_result.scalars().all()}
+    else:
+        program_map = {}
+
+    result: dict[UUID, tuple] = {}
+    for syllabus_id, syllabus in syllabus_map.items():
+        course = course_map.get(syllabus.course_id)
+        program = program_map.get(course.program_id) if course else None
+        result[syllabus_id] = (course, program)
+    return result
+
+
 @router.get("", response_model=CourseKitListResponse)
 async def list_kits(
     syllabus_id: UUID | None = Query(None, description="Filter by syllabus; omit to list all"),
@@ -163,13 +202,30 @@ async def list_kits(
         status_filter=status,
         page=page,
         page_size=page_size,
+        caller_role=current_user.role,
+        faculty_user_id=current_user.user_id,
         db=db,
     )
+
+    cp_map = await _course_program_map(list({k.syllabus_id for k in items}), db=db)
+
+    enriched = []
+    for k in items:
+        base = CourseKitResponse.model_validate(k)
+        course, program = cp_map.get(k.syllabus_id, (None, None))
+        enriched.append(CourseKitListItem(
+            **base.model_dump(),
+            course_title=course.title if course else None,
+            course_code=course.code if course else None,
+            program_name=program.title if program else None,
+            semester=course.semester if course else None,
+        ))
+
     return CourseKitListResponse(
         total=total,
         page=page,
         page_size=page_size,
-        items=[CourseKitResponse.model_validate(k) for k in items],
+        items=enriched,
     )
 
 
@@ -179,10 +235,23 @@ async def get_kit(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitDetail:
-    kit = await CourseKitService.get_kit_detail(kit_id, db=db)
+    kit = await CourseKitService.get_kit_detail(
+        kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+    )
     if kit is None:
         raise _404()
     detail = CourseKitDetail.model_validate(kit)
+
+    cp_map = await _course_program_map([kit.syllabus_id], db=db)
+    course, program = cp_map.get(kit.syllabus_id, (None, None))
+    if course:
+        detail = detail.model_copy(update={
+            "course_title": course.title,
+            "course_code":  course.code,
+            "program_name": program.title if program else None,
+            "semester":     course.semester,
+        })
+
     return _gate_detail(detail, current_user.role)
 
 
@@ -192,7 +261,9 @@ async def get_kit_status(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitStatusResponse:
-    kit = await CourseKitService.get_kit(kit_id, db=db)
+    kit = await CourseKitService.get_kit(
+        kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+    )
     if kit is None:
         raise _404()
     return CourseKitStatusResponse.model_validate(kit)
@@ -202,11 +273,15 @@ async def get_kit_status(
 async def update_kit(
     kit_id: UUID,
     payload: CourseKitUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitResponse:
     try:
-        kit = await CourseKitService.update_kit(kit_id, payload, db=db)
+        kit = await CourseKitService.update_kit(
+            kit_id, payload,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -225,11 +300,15 @@ async def update_kit(
 @router.delete("/{kit_id}", status_code=200)
 async def delete_kit(
     kit_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await CourseKitService.delete_kit(kit_id, db=db)
+        await CourseKitService.delete_kit(
+            kit_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -251,7 +330,9 @@ async def list_versions(
     current_user: CurrentUser = Depends(require_roles(*_READ)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[CourseKitVersionResponse]:
-    kit = await CourseKitService.get_kit(kit_id, db=db)
+    kit = await CourseKitService.get_kit(
+        kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+    )
     if kit is None:
         raise _404()
     versions = await CourseKitService.list_versions(
@@ -270,7 +351,7 @@ async def generate_kit(
     request: Request,
     kit_id: UUID,
     payload: GenerateKitRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> KitAIJobResponse:
     # If caller provides updated generation parameters, persist them first.
@@ -287,6 +368,7 @@ async def generate_kit(
                     complexity_level=payload.complexity_level,
                     tone=payload.tone,
                 ),
+                caller_role=current_user.role, faculty_user_id=current_user.user_id,
                 db=db,
             )
         except KitServiceError as e:
@@ -297,6 +379,8 @@ async def generate_kit(
             kit_id=kit_id,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -341,12 +425,14 @@ async def get_generation_job(
 async def publish_kit(
     kit_id: UUID,
     payload: PublishRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitStatusResponse:
     try:
         kit = await CourseKitService.publish_kit(
-            kit_id, published_by=current_user.user_id, db=db
+            kit_id, published_by=current_user.user_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
         )
     except KitServiceError as e:
         raise _err(e)
@@ -367,11 +453,13 @@ async def publish_kit(
 async def archive_kit(
     kit_id: UUID,
     payload: ArchiveRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitStatusResponse:
     try:
-        kit = await CourseKitService.archive_kit(kit_id, db=db)
+        kit = await CourseKitService.archive_kit(
+            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -391,7 +479,7 @@ async def archive_kit(
 async def fork_kit(
     kit_id: UUID,
     payload: ForkRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitStatusResponse:
     try:
@@ -399,6 +487,8 @@ async def fork_kit(
             kit_id,
             forked_by=current_user.user_id,
             change_note=payload.change_note,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -431,7 +521,9 @@ async def get_compliance(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ComplianceCheckResponse:
     try:
-        return await CourseKitService.run_compliance_check(kit_id, db=db)
+        return await CourseKitService.run_compliance_check(
+            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        )
     except KitServiceError as e:
         raise _err(e)
 
@@ -455,6 +547,8 @@ async def request_export(
             requested_by_role=current_user.role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -479,7 +573,9 @@ async def list_exports(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[dict]:
     try:
-        assets = await CourseKitService.list_exports(kit_id, db=db)
+        assets = await CourseKitService.list_exports(
+            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        )
     except KitServiceError as e:
         raise _err(e)
     return [
@@ -502,7 +598,11 @@ async def get_export_download(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        asset, url = await CourseKitService.get_export_download(kit_id, asset_id, db=db)
+        asset, url = await CourseKitService.get_export_download(
+            kit_id, asset_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     return {
@@ -524,7 +624,9 @@ async def list_slides(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[KitSlideResponse]:
     try:
-        slides = await CourseKitService.list_slides(kit_id, db=db)
+        slides = await CourseKitService.list_slides(
+            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        )
     except KitServiceError as e:
         raise _err(e)
     return [
@@ -537,12 +639,16 @@ async def list_slides(
 async def reorder_slides(
     kit_id: UUID,
     payload: KitSlideReorder,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     order_map = {uid: num for uid, num in payload.order}
     try:
-        count = await CourseKitService.reorder_slides(kit_id, order_map, db=db)
+        count = await CourseKitService.reorder_slides(
+            kit_id, order_map,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -562,11 +668,15 @@ async def reorder_slides(
 async def add_slide(
     kit_id: UUID,
     payload: KitSlideCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> KitSlideResponse:
     try:
-        slide = await CourseKitService.add_slide(kit_id, payload, db=db)
+        slide = await CourseKitService.add_slide(
+            kit_id, payload,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -587,11 +697,15 @@ async def update_slide(
     kit_id: UUID,
     slide_id: UUID,
     payload: KitSlideUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> KitSlideResponse:
     try:
-        slide = await CourseKitService.update_slide(slide_id, kit_id, payload, db=db)
+        slide = await CourseKitService.update_slide(
+            slide_id, kit_id, payload,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -611,11 +725,15 @@ async def update_slide(
 async def delete_slide(
     kit_id: UUID,
     slide_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await CourseKitService.delete_slide(slide_id, kit_id, db=db)
+        await CourseKitService.delete_slide(
+            slide_id, kit_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -632,101 +750,6 @@ async def delete_slide(
 
 
 # ===========================================================================
-# Quizlets
-# ===========================================================================
-
-@router.get("/{kit_id}/quizlets", response_model=list[KitQuizletResponse])
-async def list_quizlets(
-    kit_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_READ)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> list[KitQuizletResponse]:
-    try:
-        quizlets = await CourseKitService.list_quizlets(kit_id, db=db)
-    except KitServiceError as e:
-        raise _err(e)
-    return [
-        _gate_quizlet(KitQuizletResponse.model_validate(q), current_user.role)
-        for q in quizlets
-    ]
-
-
-@router.post("/{kit_id}/quizlets", response_model=KitQuizletResponse, status_code=201)
-async def add_quizlet(
-    kit_id: UUID,
-    payload: KitQuizletCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> KitQuizletResponse:
-    try:
-        quizlet = await CourseKitService.add_quizlet(kit_id, payload, db=db)
-    except KitServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.COURSE_KIT_QUIZLET_ADDED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="KitQuizlet",
-        target_id=str(quizlet.id),
-        metadata={"kit_id": str(kit_id), "question_number": quizlet.question_number},
-    )
-    return _gate_quizlet(KitQuizletResponse.model_validate(quizlet), current_user.role)
-
-
-@router.patch("/{kit_id}/quizlets/{quizlet_id}", response_model=KitQuizletResponse)
-async def update_quizlet(
-    kit_id: UUID,
-    quizlet_id: UUID,
-    payload: KitQuizletUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> KitQuizletResponse:
-    try:
-        quizlet = await CourseKitService.update_quizlet(
-            quizlet_id, kit_id, payload, db=db
-        )
-    except KitServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.COURSE_KIT_QUIZLET_UPDATED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="KitQuizlet",
-        target_id=str(quizlet_id),
-        metadata={"kit_id": str(kit_id), "changes": payload.model_dump(exclude_none=True)},
-    )
-    return _gate_quizlet(KitQuizletResponse.model_validate(quizlet), current_user.role)
-
-
-@router.delete("/{kit_id}/quizlets/{quizlet_id}", status_code=200)
-async def delete_quizlet(
-    kit_id: UUID,
-    quizlet_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> dict:
-    try:
-        await CourseKitService.delete_quizlet(quizlet_id, kit_id, db=db)
-    except KitServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.COURSE_KIT_QUIZLET_DELETED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="KitQuizlet",
-        target_id=str(quizlet_id),
-        metadata={"kit_id": str(kit_id)},
-    )
-    return {"status": "deleted"}
-
-
-# ===========================================================================
 # Assignments
 # ===========================================================================
 
@@ -737,7 +760,9 @@ async def list_assignments(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[KitAssignmentResponse]:
     try:
-        assignments = await CourseKitService.list_assignments(kit_id, db=db)
+        assignments = await CourseKitService.list_assignments(
+            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        )
     except KitServiceError as e:
         raise _err(e)
     return [
@@ -750,11 +775,15 @@ async def list_assignments(
 async def add_assignment(
     kit_id: UUID,
     payload: KitAssignmentCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> KitAssignmentResponse:
     try:
-        assignment = await CourseKitService.add_assignment(kit_id, payload, db=db)
+        assignment = await CourseKitService.add_assignment(
+            kit_id, payload,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -781,12 +810,14 @@ async def update_assignment(
     kit_id: UUID,
     assignment_id: UUID,
     payload: KitAssignmentUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> KitAssignmentResponse:
     try:
         assignment = await CourseKitService.update_assignment(
-            assignment_id, kit_id, payload, db=db
+            assignment_id, kit_id, payload,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
         )
     except KitServiceError as e:
         raise _err(e)
@@ -809,11 +840,15 @@ async def update_assignment(
 async def delete_assignment(
     kit_id: UUID,
     assignment_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await CourseKitService.delete_assignment(assignment_id, kit_id, db=db)
+        await CourseKitService.delete_assignment(
+            assignment_id, kit_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
     except KitServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -824,6 +859,143 @@ async def delete_assignment(
         schema_name=current_user.schema_name,
         target_entity="KitAssignment",
         target_id=str(assignment_id),
+        metadata={"kit_id": str(kit_id)},
+    )
+    return {"status": "deleted"}
+
+
+# ===========================================================================
+# Faculty-uploaded resources (PDF/PPT/DOCX/notes) — reuses the generic
+# storage module (backend/app/core/storage/); this router only adds
+# Course-Kit-specific RBAC and kit-ownership checks. See service.py.
+# ===========================================================================
+
+@router.post("/{kit_id}/resources/upload-url", response_model=GenerateUploadUrlResponse)
+async def generate_resource_upload_url(
+    kit_id: UUID,
+    payload: KitResourceUploadUrlRequest,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> GenerateUploadUrlResponse:
+    try:
+        return await CourseKitService.generate_resource_upload_url(
+            kit_id,
+            payload,
+            tenant_slug=tenant_info.slug,
+            current_user_id=current_user.user_id,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+
+
+@router.post("/{kit_id}/resources", response_model=StorageAssetResponse, status_code=201)
+async def add_resource(
+    kit_id: UUID,
+    payload: KitResourceConfirmRequest,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> StorageAssetResponse:
+    try:
+        asset = await CourseKitService.add_resource(
+            kit_id,
+            payload,
+            tenant_id=tenant_info.id,
+            tenant_slug=tenant_info.slug,
+            current_user_id=current_user.user_id,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_RESOURCE_UPLOADED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="StorageAsset",
+        target_id=str(asset.id),
+        metadata={
+            "kit_id": str(kit_id),
+            "original_filename": asset.original_filename,
+            "content_type": asset.content_type,
+            "size_bytes": asset.size_bytes,
+        },
+    )
+    return asset
+
+
+@router.get("/{kit_id}/resources", response_model=StorageAssetListResponse)
+async def list_resources(
+    kit_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> StorageAssetListResponse:
+    try:
+        items = await CourseKitService.list_resources(
+            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    return StorageAssetListResponse(
+        total=len(items), page=1, page_size=len(items), items=items
+    )
+
+
+@router.get(
+    "/{kit_id}/resources/{asset_id}/download-url", response_model=DownloadUrlResponse
+)
+async def get_resource_download_url(
+    kit_id: UUID,
+    asset_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> DownloadUrlResponse:
+    from app.config import settings
+
+    try:
+        presigned_url = await CourseKitService.get_resource_download_url(
+            kit_id, asset_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    return DownloadUrlResponse(
+        presigned_url=presigned_url,
+        expires_in_seconds=settings.PRESIGNED_URL_EXPIRY_MINUTES_GET * 60,
+    )
+
+
+@router.delete("/{kit_id}/resources/{asset_id}", status_code=200)
+async def delete_resource(
+    kit_id: UUID,
+    asset_id: UUID,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> dict:
+    try:
+        await CourseKitService.delete_resource(
+            kit_id, asset_id,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_RESOURCE_DELETED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="StorageAsset",
+        target_id=str(asset_id),
         metadata={"kit_id": str(kit_id)},
     )
     return {"status": "deleted"}

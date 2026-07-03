@@ -26,13 +26,11 @@ from app.modules.m03_course_kit.models import (
     CourseKit,
     CourseKitStatus,
     KitAssignment,
-    KitQuizlet,
     KitSlide,
 )
 from app.modules.m03_course_kit.repository import (
     AssignmentRepository,
     CourseKitRepository,
-    QuizletRepository,
     SlideRepository,
     TaskJobPublicRepository,
 )
@@ -44,8 +42,8 @@ from app.modules.m03_course_kit.schemas import (
     ForkRequest,
     KitAssignmentCreate,
     KitAssignmentUpdate,
-    KitQuizletCreate,
-    KitQuizletUpdate,
+    KitResourceConfirmRequest,
+    KitResourceUploadUrlRequest,
     KitSlideCreate,
     KitSlideUpdate,
 )
@@ -69,16 +67,91 @@ class KitServiceError(Exception):
 # Internal state-guard helpers
 # ---------------------------------------------------------------------------
 
-async def _require_kit(kit_id: UUID, *, db: AsyncSession) -> CourseKit:
+async def _assert_faculty_assigned(
+    kit: CourseKit,
+    faculty_user_id: UUID,
+    *,
+    db: AsyncSession,
+) -> None:
+    """Raise 403 unless faculty_user_id has an active teaching assignment for
+    the course backing this kit's syllabus.
+
+    Faculty must only see/edit course kits for courses assigned to them —
+    never another faculty member's kit for a course they don't teach.
+    """
+    from app.modules.m02_syllabus.repository import SyllabusRepository
+    from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+
+    syllabus = await SyllabusRepository.get_by_id(kit.syllabus_id, db=db)
+    if syllabus is None:
+        raise KitServiceError("NOT_FOUND", "Course kit not found.", 404)
+    assignment = await SubjectAssignmentRepository.get_active_for_faculty_course(
+        syllabus.course_id, faculty_user_id, db=db
+    )
+    if assignment is None:
+        raise KitServiceError(
+            "NOT_ASSIGNED",
+            "You are not assigned to teach this course.",
+            403,
+        )
+
+
+async def _assert_dean_governs_kit(
+    kit: "CourseKit", dean_user_id: UUID, *, db: AsyncSession
+) -> None:
+    from app.modules.m01_program_advisor.models import Course, Program
+    from app.modules.m02_syllabus.repository import SyllabusRepository
+    from app.modules.m_academics.dean_scope import get_dean_program_ids
+    from sqlalchemy import select
+
+    governed = await get_dean_program_ids(dean_user_id, "DEAN", db)
+    if governed is None:
+        return
+    syllabus = await SyllabusRepository.get_by_id(kit.syllabus_id, db=db)
+    if syllabus is None:
+        raise KitServiceError("NOT_FOUND", "Course kit not found.", 404)
+    result = await db.execute(
+        select(Program.acad_program_id)
+        .join(Course, Course.program_id == Program.id)
+        .where(Course.id == syllabus.course_id)
+    )
+    acad_program_id = result.scalar_one_or_none()
+    if acad_program_id is None or acad_program_id not in governed:
+        raise KitServiceError(
+            "NOT_IN_SCOPE",
+            "You may only manage course kits for programs you govern.",
+            403,
+        )
+
+
+async def _require_kit(
+    kit_id: UUID,
+    *,
+    db: AsyncSession,
+    caller_role: str | None = None,
+    faculty_user_id: UUID | None = None,
+) -> CourseKit:
     kit = await CourseKitRepository.get_by_id(kit_id, db=db)
     if kit is None:
         raise KitServiceError("NOT_FOUND", "Course kit not found.", 404)
+    if caller_role == "FACULTY" and faculty_user_id is not None:
+        await _assert_faculty_assigned(kit, faculty_user_id, db=db)
+    if caller_role == "DEAN" and faculty_user_id is not None:
+        await _assert_dean_governs_kit(kit, faculty_user_id, db=db)
     return kit
 
 
-async def _require_editable(kit_id: UUID, *, db: AsyncSession) -> CourseKit:
+async def _require_editable(
+    kit_id: UUID,
+    *,
+    db: AsyncSession,
+    caller_role: str | None = None,
+    faculty_user_id: UUID | None = None,
+) -> CourseKit:
     """Raise if status prevents editing (AI_GENERATING, PUBLISHED, ARCHIVED)."""
-    kit = await _require_kit(kit_id, db=db)
+    kit = await _require_kit(
+        kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+    )
     if kit.status == CourseKitStatus.DRAFT:
         return kit
     if kit.status == CourseKitStatus.AI_GENERATING:
@@ -101,10 +174,8 @@ async def _require_editable(kit_id: UUID, *, db: AsyncSession) -> CourseKit:
 
 def _build_compliance(
     slide_count: int,
-    quizlet_count: int,
     teaching_plan: list,
     min_slides: int,
-    min_quizlets: int,
 ) -> ComplianceCheckResponse:
     violations: list[ComplianceViolation] = []
 
@@ -114,16 +185,6 @@ def _build_compliance(
             message=(
                 f"At least {min_slides} slides required; "
                 f"found {slide_count}."
-            ),
-            severity="ERROR",
-        ))
-
-    if quizlet_count < min_quizlets:
-        violations.append(ComplianceViolation(
-            code="QUIZLET_MIN_NOT_MET",
-            message=(
-                f"At least {min_quizlets} quizlets required; "
-                f"found {quizlet_count}."
             ),
             severity="ERROR",
         ))
@@ -158,6 +219,8 @@ class CourseKitService:
         tenant_id: UUID,
         schema_name: str,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> str:
         """
@@ -167,7 +230,9 @@ class CourseKitService:
         before dispatching so concurrent re-dispatch requests are rejected until
         the task completes or fails.
         """
-        kit = await _require_kit(kit_id, db=db)
+        kit = await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         if kit.status != CourseKitStatus.DRAFT:
             raise KitServiceError(
                 "INVALID_STATE",
@@ -221,6 +286,12 @@ class CourseKitService:
         """
         from app.modules.m02_syllabus.models import SyllabusStatus
         from app.modules.m02_syllabus.repository import SyllabusRepository
+        from app.modules.m01_program_advisor.compliance import classify_degree_level
+        from app.modules.m01_program_advisor.repository import (
+            CourseRepository,
+            ProgramRepository,
+        )
+        from app.modules.m03_course_kit.models import ComplexityLevel
 
         syllabus = await SyllabusRepository.get_by_id(payload.syllabus_id, db=db)
         if syllabus is None:
@@ -236,9 +307,17 @@ class CourseKitService:
                 422,
             )
 
-        complexity = payload.complexity_level or __import__(
-            "app.modules.m03_course_kit.models", fromlist=["ComplexityLevel"]
-        ).ComplexityLevel.UG
+        # Default complexity_level from the program's actual degree type
+        # (Program.degree_type -> UG/PG) instead of hardcoding UG, so a
+        # course kit for an MCA/M.Tech course correctly defaults to PG.
+        # An explicit payload.complexity_level always wins.
+        default_complexity = ComplexityLevel.UG
+        course = await CourseRepository.get_by_id(syllabus.course_id, db=db)
+        if course is not None:
+            program = await ProgramRepository.get_by_id(course.program_id, db=db)
+            if program is not None and classify_degree_level(program.degree_type) == "PG":
+                default_complexity = ComplexityLevel.PG
+        complexity = payload.complexity_level or default_complexity
 
         kit = await CourseKitRepository.create(
             syllabus_id=payload.syllabus_id,
@@ -253,12 +332,34 @@ class CourseKitService:
         return kit
 
     @staticmethod
-    async def get_kit(kit_id: UUID, *, db: AsyncSession) -> CourseKit | None:
-        return await CourseKitRepository.get_by_id(kit_id, db=db)
+    async def get_kit(
+        kit_id: UUID,
+        *,
+        db: AsyncSession,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+    ) -> CourseKit | None:
+        kit = await CourseKitRepository.get_by_id(kit_id, db=db)
+        if kit is not None and caller_role == "FACULTY" and faculty_user_id is not None:
+            await _assert_faculty_assigned(kit, faculty_user_id, db=db)
+        if kit is not None and caller_role == "DEAN" and faculty_user_id is not None:
+            await _assert_dean_governs_kit(kit, faculty_user_id, db=db)
+        return kit
 
     @staticmethod
-    async def get_kit_detail(kit_id: UUID, *, db: AsyncSession) -> CourseKit | None:
-        return await CourseKitRepository.get_detail(kit_id, db=db)
+    async def get_kit_detail(
+        kit_id: UUID,
+        *,
+        db: AsyncSession,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+    ) -> CourseKit | None:
+        kit = await CourseKitRepository.get_detail(kit_id, db=db)
+        if kit is not None and caller_role == "FACULTY" and faculty_user_id is not None:
+            await _assert_faculty_assigned(kit, faculty_user_id, db=db)
+        if kit is not None and caller_role == "DEAN" and faculty_user_id is not None:
+            await _assert_dean_governs_kit(kit, faculty_user_id, db=db)
+        return kit
 
     @staticmethod
     async def list_kits(
@@ -267,9 +368,87 @@ class CourseKitService:
         status_filter: CourseKitStatus | None = None,
         page: int = 1,
         page_size: int = 50,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> tuple[int, list[CourseKit]]:
         offset = (page - 1) * page_size
+
+        if caller_role == "DEAN" and faculty_user_id is not None:
+            from app.modules.m02_syllabus.models import Syllabus
+            from app.modules.m01_program_advisor.models import Course, Program
+            from app.modules.m_academics.dean_scope import get_dean_program_ids
+            from sqlalchemy import select
+
+            governed = await get_dean_program_ids(faculty_user_id, "DEAN", db)
+            if governed is not None:
+                course_subq = (
+                    select(Course.id)
+                    .join(Program, Program.id == Course.program_id)
+                    .where(Program.acad_program_id.in_(governed))
+                )
+                governed_syllabus_ids = set(
+                    (
+                        await db.execute(
+                            select(Syllabus.id).where(Syllabus.course_id.in_(course_subq))
+                        )
+                    ).scalars().all()
+                )
+                if syllabus_id is not None:
+                    if syllabus_id not in governed_syllabus_ids:
+                        raise KitServiceError(
+                            "NOT_IN_SCOPE",
+                            "You may only view course kits for programs you govern.",
+                            403,
+                        )
+                else:
+                    syllabus_ids = list(governed_syllabus_ids)
+                    total = await CourseKitRepository.count_by_syllabus_ids(
+                        syllabus_ids, status_filter=status_filter, db=db
+                    )
+                    items = await CourseKitRepository.list_by_syllabus_ids(
+                        syllabus_ids, status_filter=status_filter,
+                        offset=offset, limit=page_size, db=db,
+                    )
+                    return total, items
+
+        if caller_role == "FACULTY" and faculty_user_id is not None:
+            from app.modules.m02_syllabus.models import Syllabus
+            from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+            from sqlalchemy import select
+
+            if syllabus_id is not None:
+                syllabus = await db.get(Syllabus, syllabus_id)
+                if syllabus is None:
+                    raise KitServiceError("NOT_FOUND", "Syllabus not found.", 404)
+                assignment = await SubjectAssignmentRepository.get_active_for_faculty_course(
+                    syllabus.course_id, faculty_user_id, db=db
+                )
+                if assignment is None:
+                    raise KitServiceError(
+                        "NOT_ASSIGNED", "You are not assigned to this course.", 403,
+                    )
+            else:
+                # No syllabus filter: scope to syllabi of assigned courses only.
+                assignments = await SubjectAssignmentRepository.list_by_faculty(
+                    faculty_user_id, db=db
+                )
+                course_ids = list({a.course_id for a in assignments})
+                syllabus_ids: list[UUID] = []
+                if course_ids:
+                    result = await db.execute(
+                        select(Syllabus.id).where(Syllabus.course_id.in_(course_ids))
+                    )
+                    syllabus_ids = [row[0] for row in result.all()]
+                total = await CourseKitRepository.count_by_syllabus_ids(
+                    syllabus_ids, status_filter=status_filter, db=db
+                )
+                items = await CourseKitRepository.list_by_syllabus_ids(
+                    syllabus_ids, status_filter=status_filter,
+                    offset=offset, limit=page_size, db=db,
+                )
+                return total, items
+
         if syllabus_id is not None:
             total = await CourseKitRepository.count_by_syllabus(
                 syllabus_id, status_filter=status_filter, db=db
@@ -293,9 +472,13 @@ class CourseKitService:
         kit_id: UUID,
         payload: CourseKitUpdate,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> CourseKit:
-        kit = await _require_editable(kit_id, db=db)
+        kit = await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             return kit
@@ -307,8 +490,16 @@ class CourseKitService:
         return updated
 
     @staticmethod
-    async def delete_kit(kit_id: UUID, *, db: AsyncSession) -> None:
-        kit = await _require_editable(kit_id, db=db)
+    async def delete_kit(
+        kit_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> None:
+        kit = await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         deleted = await CourseKitRepository.delete(kit_id, db=db)
         if not deleted:
             raise KitServiceError("NOT_FOUND", "Course kit not found.", 404)
@@ -334,6 +525,8 @@ class CourseKitService:
         kit_id: UUID,
         published_by: UUID,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> CourseKit:
         """
@@ -343,7 +536,9 @@ class CourseKitService:
         Enforces one-PUBLISHED-per-unit: raises if another kit for this unit
         is already PUBLISHED.
         """
-        kit = await _require_kit(kit_id, db=db)
+        kit = await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         if kit.status != CourseKitStatus.DRAFT:
             raise KitServiceError(
                 "INVALID_STATE",
@@ -381,9 +576,17 @@ class CourseKitService:
         return published
 
     @staticmethod
-    async def archive_kit(kit_id: UUID, *, db: AsyncSession) -> CourseKit:
+    async def archive_kit(
+        kit_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> CourseKit:
         """PUBLISHED → ARCHIVED."""
-        kit = await _require_kit(kit_id, db=db)
+        kit = await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         if kit.status != CourseKitStatus.PUBLISHED:
             raise KitServiceError(
                 "INVALID_STATE",
@@ -404,17 +607,21 @@ class CourseKitService:
         forked_by: UUID,
         change_note: str | None,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> CourseKit:
         """
         Fork any kit state → new DRAFT.
 
-        Deep copy: slides, quizlets (with answer_key), assignments, JSONB
-        plan fields.  New kit gets version = max+1, parent_version_id = original.
+        Deep copy: slides, assignments, JSONB plan fields.
+        New kit gets version = max+1, parent_version_id = original.
         """
         original = await CourseKitRepository.get_detail(kit_id, db=db)
         if original is None:
             raise KitServiceError("NOT_FOUND", "Course kit not found.", 404)
+        if caller_role == "FACULTY" and faculty_user_id is not None:
+            await _assert_faculty_assigned(original, faculty_user_id, db=db)
         if original.status == CourseKitStatus.AI_GENERATING:
             raise KitServiceError(
                 "GENERATING",
@@ -457,19 +664,6 @@ class CourseKitService:
                 co_reference=s.co_reference,
             ))
 
-        for q in (original.quizlets or []):
-            db.add(KitQuizlet(
-                kit_id=new_kit.id,
-                question_number=q.question_number,
-                question_text=q.question_text,
-                question_type=q.question_type,
-                options=q.options,
-                answer_key=q.answer_key,
-                answer_explanation=q.answer_explanation,
-                bloom_level=q.bloom_level,
-                co_reference=q.co_reference,
-            ))
-
         for a in (original.assignments or []):
             db.add(KitAssignment(
                 kit_id=new_kit.id,
@@ -497,20 +691,21 @@ class CourseKitService:
     async def run_compliance_check(
         kit_id: UUID,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> ComplianceCheckResponse:
         from app.config import settings
 
-        kit = await _require_kit(kit_id, db=db)
-        slide_count   = await SlideRepository.count_by_kit(kit_id, db=db)
-        quizlet_count = await QuizletRepository.count_by_kit(kit_id, db=db)
+        kit = await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        slide_count = await SlideRepository.count_by_kit(kit_id, db=db)
 
         return _build_compliance(
             slide_count=slide_count,
-            quizlet_count=quizlet_count,
             teaching_plan=kit.teaching_plan or [],
             min_slides=settings.M03_MIN_SLIDES_PER_UNIT,
-            min_quizlets=settings.M03_MIN_QUIZLETS_PER_UNIT,
         )
 
     # =========================================================================
@@ -541,6 +736,8 @@ class CourseKitService:
         tenant_id: UUID,
         schema_name: str,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> str:
         """
@@ -554,7 +751,9 @@ class CourseKitService:
         """
         from app.workers.heavy.course_kit_export import export_course_kit  # noqa: PLC0415
 
-        kit = await _require_kit(kit_id, db=db)
+        kit = await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         if kit.status not in (CourseKitStatus.PUBLISHED, CourseKitStatus.ARCHIVED):
             raise KitServiceError(
                 "INVALID_STATE",
@@ -597,12 +796,20 @@ class CourseKitService:
         return str(job_id)
 
     @staticmethod
-    async def list_exports(kit_id: UUID, *, db: AsyncSession) -> list:
+    async def list_exports(
+        kit_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> list:
         """Return storage assets for this kit (most-recent-first)."""
         from app.core.storage.models import StorageEntityType
         from app.core.storage.repository import StorageRepository
 
-        await _require_kit(kit_id, db=db)
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         return await StorageRepository.list_by_entity(
             StorageEntityType.COURSE_KIT_EXPORT.value,
             kit_id,
@@ -614,12 +821,16 @@ class CourseKitService:
         kit_id: UUID,
         asset_id: UUID,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> tuple:
         """Return (StorageAsset, presigned_download_url) for an export asset."""
         from app.core.storage.repository import StorageRepository
 
-        await _require_kit(kit_id, db=db)
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         asset = await StorageRepository.get_by_id(asset_id, db=db)
         if asset is None or asset.entity_id != kit_id:
             raise KitServiceError("NOT_FOUND", "Export asset not found.", 404)
@@ -635,8 +846,16 @@ class CourseKitService:
     # =========================================================================
 
     @staticmethod
-    async def list_slides(kit_id: UUID, *, db: AsyncSession) -> list[KitSlide]:
-        await _require_kit(kit_id, db=db)
+    async def list_slides(
+        kit_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> list[KitSlide]:
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         return await SlideRepository.list_by_kit(kit_id, db=db)
 
     @staticmethod
@@ -644,9 +863,13 @@ class CourseKitService:
         kit_id: UUID,
         payload: KitSlideCreate,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> KitSlide:
-        await _require_editable(kit_id, db=db)
+        await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         slide = await SlideRepository.create(
             kit_id=kit_id,
             slide_number=payload.slide_number,
@@ -666,9 +889,13 @@ class CourseKitService:
         kit_id: UUID,
         payload: KitSlideUpdate,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> KitSlide:
-        await _require_editable(kit_id, db=db)
+        await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         slide = await SlideRepository.get_by_id(slide_id, db=db)
         if slide is None or slide.kit_id != kit_id:
             raise KitServiceError("NOT_FOUND", "Slide not found.", 404)
@@ -687,9 +914,13 @@ class CourseKitService:
         slide_id: UUID,
         kit_id: UUID,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> None:
-        await _require_editable(kit_id, db=db)
+        await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         slide = await SlideRepository.get_by_id(slide_id, db=db)
         if slide is None or slide.kit_id != kit_id:
             raise KitServiceError("NOT_FOUND", "Slide not found.", 404)
@@ -701,89 +932,16 @@ class CourseKitService:
         kit_id: UUID,
         order_map: dict[UUID, int],
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> int:
-        await _require_editable(kit_id, db=db)
+        await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         count = await SlideRepository.reorder(order_map, db=db)
         await db.commit()
         return count
-
-    # =========================================================================
-    # Quizlets
-    # =========================================================================
-
-    @staticmethod
-    async def list_quizlets(kit_id: UUID, *, db: AsyncSession) -> list[KitQuizlet]:
-        await _require_kit(kit_id, db=db)
-        return await QuizletRepository.list_by_kit(kit_id, db=db)
-
-    @staticmethod
-    async def add_quizlet(
-        kit_id: UUID,
-        payload: KitQuizletCreate,
-        *,
-        db: AsyncSession,
-    ) -> KitQuizlet:
-        await _require_editable(kit_id, db=db)
-        if not payload.answer_key:
-            raise KitServiceError(
-                "MISSING_ANSWER_KEY",
-                "answer_key is required and must be non-empty.",
-                422,
-            )
-        quizlet = await QuizletRepository.create(
-            kit_id=kit_id,
-            question_number=payload.question_number,
-            question_text=payload.question_text,
-            question_type=payload.question_type,
-            options=[o.model_dump() for o in payload.options],
-            answer_key=payload.answer_key,
-            answer_explanation=payload.answer_explanation,
-            bloom_level=payload.bloom_level,
-            co_reference=payload.co_reference,
-            db=db,
-        )
-        await db.commit()
-        return quizlet
-
-    @staticmethod
-    async def update_quizlet(
-        quizlet_id: UUID,
-        kit_id: UUID,
-        payload: KitQuizletUpdate,
-        *,
-        db: AsyncSession,
-    ) -> KitQuizlet:
-        await _require_editable(kit_id, db=db)
-        quizlet = await QuizletRepository.get_by_id(quizlet_id, db=db)
-        if quizlet is None or quizlet.kit_id != kit_id:
-            raise KitServiceError("NOT_FOUND", "Quizlet not found.", 404)
-        updates = payload.model_dump(exclude_none=True)
-        if "options" in updates:
-            updates["options"] = [
-                o.model_dump() if hasattr(o, "model_dump") else o
-                for o in updates["options"]
-            ]
-        updates["updated_at"] = datetime.now(timezone.utc)
-        updated = await QuizletRepository.update(quizlet_id, updates, db=db)
-        if updated is None:
-            raise KitServiceError("NOT_FOUND", "Quizlet not found.", 404)
-        await db.commit()
-        return updated
-
-    @staticmethod
-    async def delete_quizlet(
-        quizlet_id: UUID,
-        kit_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> None:
-        await _require_editable(kit_id, db=db)
-        quizlet = await QuizletRepository.get_by_id(quizlet_id, db=db)
-        if quizlet is None or quizlet.kit_id != kit_id:
-            raise KitServiceError("NOT_FOUND", "Quizlet not found.", 404)
-        await QuizletRepository.delete(quizlet_id, db=db)
-        await db.commit()
 
     # =========================================================================
     # Assignments
@@ -793,9 +951,13 @@ class CourseKitService:
     async def list_assignments(
         kit_id: UUID,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> list[KitAssignment]:
-        await _require_kit(kit_id, db=db)
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         return await AssignmentRepository.list_by_kit(kit_id, db=db)
 
     @staticmethod
@@ -803,16 +965,20 @@ class CourseKitService:
         kit_id: UUID,
         payload: KitAssignmentCreate,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> KitAssignment:
-        await _require_editable(kit_id, db=db)
+        kit = await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         assignment = await AssignmentRepository.create(
             kit_id=kit_id,
             assignment_number=payload.assignment_number,
             title=payload.title,
             assignment_type=payload.assignment_type,
             question_text=payload.question_text,
-            complexity_level=payload.complexity_level,
+            complexity_level=payload.complexity_level or kit.complexity_level,
             current_events_toggle=payload.current_events_toggle,
             model_answer=payload.model_answer,
             rubric=[r.model_dump() for r in payload.rubric],
@@ -829,9 +995,13 @@ class CourseKitService:
         kit_id: UUID,
         payload: KitAssignmentUpdate,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> KitAssignment:
-        await _require_editable(kit_id, db=db)
+        await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         assignment = await AssignmentRepository.get_by_id(assignment_id, db=db)
         if assignment is None or assignment.kit_id != kit_id:
             raise KitServiceError("NOT_FOUND", "Assignment not found.", 404)
@@ -853,11 +1023,180 @@ class CourseKitService:
         assignment_id: UUID,
         kit_id: UUID,
         *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> None:
-        await _require_editable(kit_id, db=db)
+        await _require_editable(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
         assignment = await AssignmentRepository.get_by_id(assignment_id, db=db)
         if assignment is None or assignment.kit_id != kit_id:
             raise KitServiceError("NOT_FOUND", "Assignment not found.", 404)
         await AssignmentRepository.delete(assignment_id, db=db)
+        await db.commit()
+
+    # =========================================================================
+    # Faculty-uploaded resources (PDF/PPT/DOCX/notes)
+    #
+    # Reuses the generic storage module (StorageService/StorageRepository,
+    # backend/app/core/storage/) — no new table, no new S3 code. This layer
+    # only adds Course-Kit-specific authorization: the router's FACULTY/ADMIN
+    # (_WRITE) / ADMIN+DEAN+FACULTY (_READ) gates, plus verifying the asset
+    # actually belongs to this kit before allowing download/delete. Any kit
+    # status may receive resources — they are supplementary material, not
+    # part of the generated/compliance-gated kit content.
+    # =========================================================================
+
+    @staticmethod
+    async def generate_resource_upload_url(
+        kit_id: UUID,
+        payload: KitResourceUploadUrlRequest,
+        *,
+        tenant_slug: str,
+        current_user_id: UUID,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.schemas import GenerateUploadUrlRequest
+        from app.core.storage.service import StorageError, StorageService
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        try:
+            return await StorageService.generate_upload_url(
+                GenerateUploadUrlRequest(
+                    entity_type=StorageEntityType.COURSE_KIT.value,
+                    entity_id=kit_id,
+                    original_filename=payload.original_filename,
+                    content_type=payload.content_type,
+                    size_bytes=payload.size_bytes,
+                ),
+                tenant_slug=tenant_slug,
+                current_user_id=current_user_id,
+                db=db,
+            )
+        except StorageError as e:
+            raise KitServiceError(e.code, e.message, e.status_code)
+
+    @staticmethod
+    async def add_resource(
+        kit_id: UUID,
+        payload: KitResourceConfirmRequest,
+        *,
+        tenant_id: UUID,
+        tenant_slug: str,
+        current_user_id: UUID,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.service import StorageError, StorageService
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        try:
+            return await StorageService.create_asset(
+                object_key=payload.object_key,
+                uploaded_by_user_id=current_user_id,
+                entity_type=StorageEntityType.COURSE_KIT.value,
+                entity_id=kit_id,
+                original_filename=payload.original_filename,
+                size_bytes=payload.size_bytes,
+                content_type=payload.content_type,
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                db=db,
+            )
+        except StorageError as e:
+            raise KitServiceError(e.code, e.message, e.status_code)
+
+    @staticmethod
+    async def list_resources(
+        kit_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.repository import StorageRepository
+        from app.core.storage.schemas import StorageAssetResponse
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        rows = await StorageRepository.list_by_entity(
+            entity_type=StorageEntityType.COURSE_KIT.value,
+            entity_id=kit_id,
+            limit=200,
+            db=db,
+        )
+        return [StorageAssetResponse.model_validate(r) for r in rows]
+
+    @staticmethod
+    async def _require_kit_resource(
+        kit_id: UUID,
+        asset_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.repository import StorageRepository
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        asset = await StorageRepository.get_by_id(asset_id, db=db)
+        if (
+            asset is None
+            or asset.entity_type != StorageEntityType.COURSE_KIT.value
+            or asset.entity_id != kit_id
+        ):
+            raise KitServiceError("NOT_FOUND", "Resource not found on this kit.", 404)
+        return asset
+
+    @staticmethod
+    async def get_resource_download_url(
+        kit_id: UUID,
+        asset_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> str:
+        from app.config import settings
+        from app.core.storage.repository import StorageRepository
+
+        asset = await CourseKitService._require_kit_resource(
+            kit_id, asset_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        expires_in_sec = settings.PRESIGNED_URL_EXPIRY_MINUTES_GET * 60
+        return await StorageRepository.generate_presigned_get_url(
+            object_key=asset.object_key,
+            expires_in_seconds=expires_in_sec,
+        )
+
+    @staticmethod
+    async def delete_resource(
+        kit_id: UUID,
+        asset_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> None:
+        from app.core.storage.repository import StorageRepository
+
+        await CourseKitService._require_kit_resource(
+            kit_id, asset_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        await StorageRepository.delete(asset_id, db=db)
         await db.commit()

@@ -17,15 +17,13 @@ from app.database import AsyncSessionLocal
 from sqlalchemy import text
 from tests.conftest import make_tenant_headers
 from tests.modules.m03_course_kit.conftest import (
+    assign_faculty_to_course,
     build_compliant_kit_via_db,
     force_kit_status_committed,
+    grant_dean_program_scope,
     make_kit_payload,
 )
 from app.modules.m03_course_kit.models import CourseKitStatus
-from app.modules.m03_course_kit.repository import (
-    QuizletRepository,
-    SlideRepository,
-)
 
 BASE = "/course-kits"
 
@@ -145,25 +143,6 @@ async def test_dean_cannot_add_slide(
     assert resp.status_code == 403
 
 
-async def test_dean_cannot_add_quizlet(
-    async_client, test_tenant_a, admin_user_a, dean_user_a, m02_setup
-):
-    admin_h = make_tenant_headers(admin_user_a)
-    dean_h  = make_tenant_headers(dean_user_a)
-    data = await _create_kit(async_client, admin_h, m02_setup["syllabus_id"])
-
-    resp = await async_client.post(
-        f"{BASE}/{data['id']}/quizlets",
-        json={
-            "question_number": 1,
-            "question_text": "Blocked quizlet question text here?",
-            "answer_key": {"correct": "A"},
-        },
-        headers=dean_h,
-    )
-    assert resp.status_code == 403
-
-
 async def test_dean_cannot_add_assignment(
     async_client, test_tenant_a, admin_user_a, dean_user_a, m02_setup
 ):
@@ -216,6 +195,9 @@ async def test_student_cannot_read_kit_list(
 async def test_dean_can_read_kit_list(
     async_client, test_tenant_a, admin_user_a, dean_user_a, m02_setup
 ):
+    await grant_dean_program_scope(
+        dean_user_a["id"], m02_setup["program_id"], test_tenant_a["schema_name"]
+    )
     admin_h = make_tenant_headers(admin_user_a)
     dean_h  = make_tenant_headers(dean_user_a)
     await _create_kit(async_client, admin_h, m02_setup["syllabus_id"])
@@ -234,6 +216,9 @@ async def test_dean_can_read_kit_list(
 async def test_dean_can_read_compliance(
     async_client, test_tenant_a, admin_user_a, dean_user_a, m02_setup
 ):
+    await grant_dean_program_scope(
+        dean_user_a["id"], m02_setup["program_id"], test_tenant_a["schema_name"]
+    )
     admin_h = make_tenant_headers(admin_user_a)
     dean_h  = make_tenant_headers(dean_user_a)
     data = await _create_kit(async_client, admin_h, m02_setup["syllabus_id"])
@@ -251,32 +236,30 @@ async def test_dean_can_read_compliance(
 # DEAN sensitive-field gating (non-mutating masking verification)
 # ===========================================================================
 
-async def test_dean_gating_nulls_speaker_notes_answer_key_model_answer(
+async def test_dean_gating_nulls_speaker_notes_model_answer(
     async_client, test_tenant_a, admin_user_a, dean_user_a, faculty_user_a, m02_setup
 ):
+    await grant_dean_program_scope(
+        dean_user_a["id"], m02_setup["program_id"], test_tenant_a["schema_name"]
+    )
     admin_h   = make_tenant_headers(admin_user_a)
     dean_h    = make_tenant_headers(dean_user_a)
     faculty_h = make_tenant_headers(faculty_user_a)
 
+    await assign_faculty_to_course(
+        m02_setup["course_id"], faculty_user_a["id"], test_tenant_a["schema_name"]
+    )
+
     data = await _create_kit(async_client, admin_h, m02_setup["syllabus_id"])
     kit_id = data["id"]
 
-    # Seed slide with speaker_notes, quizlet with answer_key, assignment with model_answer
+    # Seed slide with speaker_notes, assignment with model_answer
     await async_client.post(
         f"{BASE}/{kit_id}/slides",
         json={
             "slide_number": 1,
             "title": "Gating Test Slide",
             "speaker_notes": "Secret faculty notes",
-        },
-        headers=admin_h,
-    )
-    await async_client.post(
-        f"{BASE}/{kit_id}/quizlets",
-        json={
-            "question_number": 1,
-            "question_text": "What is the correct answer in this test?",
-            "answer_key": {"correct": "B"},
         },
         headers=admin_h,
     )
@@ -296,7 +279,6 @@ async def test_dean_gating_nulls_speaker_notes_answer_key_model_answer(
     assert dean_resp.status_code == 200
     body = dean_resp.json()
     assert body["slides"][0]["speaker_notes"] is None
-    assert body["quizlets"][0]["answer_key"] is None
     assert body["assignments"][0]["model_answer"] is None
 
     # FACULTY view — sensitive fields must be present (non-null)
@@ -304,7 +286,6 @@ async def test_dean_gating_nulls_speaker_notes_answer_key_model_answer(
     assert faculty_resp.status_code == 200
     fac_body = faculty_resp.json()
     assert fac_body["slides"][0]["speaker_notes"] == "Secret faculty notes"
-    assert fac_body["quizlets"][0]["answer_key"] == {"correct": "B"}
     assert fac_body["assignments"][0]["model_answer"] == "Secret model answer text"
 
 
@@ -312,6 +293,9 @@ async def test_dean_gating_is_non_mutating_db_record_unchanged(
     async_client, test_tenant_a, admin_user_a, dean_user_a, m02_setup
 ):
     """DEAN GET must not modify the DB record — verify by reading as ADMIN after."""
+    await grant_dean_program_scope(
+        dean_user_a["id"], m02_setup["program_id"], test_tenant_a["schema_name"]
+    )
     admin_h = make_tenant_headers(admin_user_a)
     dean_h  = make_tenant_headers(dean_user_a)
 
@@ -372,10 +356,8 @@ async def test_get_kit_detail_includes_child_lists(
     assert resp.status_code == 200
     body = resp.json()
     assert "slides" in body
-    assert "quizlets" in body
     assert "assignments" in body
     assert isinstance(body["slides"], list)
-    assert isinstance(body["quizlets"], list)
     assert isinstance(body["assignments"], list)
 
 

@@ -23,24 +23,27 @@ import type { ComplexityLevel } from '@/types/courseKit'
 // ---------------------------------------------------------------------------
 
 interface GenerateDialogProps {
-  open:         boolean
-  onOpenChange: (open: boolean) => void
-  onSubmit:     (opts: { custom_instructions?: string; complexity_level?: ComplexityLevel; tone?: string }) => void
-  isPending?:   boolean
+  open:               boolean
+  onOpenChange:       (open: boolean) => void
+  onSubmit:           (opts: { custom_instructions?: string; complexity_level?: ComplexityLevel; tone?: string }) => void
+  isPending?:         boolean
+  initialComplexity?: ComplexityLevel
 }
 
-export function GenerateKitDialog({ open, onOpenChange, onSubmit, isPending }: GenerateDialogProps) {
+export function GenerateKitDialog({
+  open, onOpenChange, onSubmit, isPending, initialComplexity,
+}: GenerateDialogProps) {
   const [instructions, setInstructions] = useState('')
-  const [complexity,   setComplexity]   = useState<ComplexityLevel>('UG')
+  const [complexity,   setComplexity]   = useState<ComplexityLevel>(initialComplexity ?? 'UG')
   const [tone,         setTone]         = useState('')
 
   useEffect(() => {
     if (open) {
       setInstructions('')
-      setComplexity('UG')
+      setComplexity(initialComplexity ?? 'UG')
       setTone('')
     }
-  }, [open])
+  }, [open, initialComplexity])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -250,7 +253,7 @@ export function ForkKitDialog({ open, onOpenChange, onSubmit, isPending }: ForkD
             />
           </div>
           <p className="text-sm text-gray-500">
-            Creates a new DRAFT kit copying all slides, quizlets, and assignments.
+            Creates a new DRAFT kit copying all slides and assignments.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

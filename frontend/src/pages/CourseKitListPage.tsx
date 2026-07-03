@@ -22,6 +22,13 @@ const STATUS_OPTIONS: Array<{ value: CourseKitStatus | ''; label: string }> = [
   { value: 'ARCHIVED',      label: 'Archived' },
 ]
 
+function semesterLabel(n: number | null | undefined): string {
+  if (!n) return ''
+  const suffixes: Record<number, string> = { 1: 'st', 2: 'nd', 3: 'rd' }
+  const suffix = suffixes[n] ?? 'th'
+  return `${n}${suffix} Semester`
+}
+
 function SkeletonRow() {
   return (
     <div className="px-5 py-4 animate-pulse">
@@ -169,21 +176,35 @@ export default function CourseKitListPage() {
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    {/* Course name — primary heading */}
+                    <h2 className="text-[15px] font-semibold text-gray-900 leading-snug truncate">
+                      {kit.course_title ?? 'Untitled Course'} — Unit {kit.unit_number}
+                    </h2>
+
+                    {/* Program · Semester */}
+                    {(kit.program_name || kit.semester) && (
+                      <p className="text-sm text-gray-500 mt-0.5 truncate">
+                        {[kit.program_name, semesterLabel(kit.semester)].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+
+                    {/* Course code */}
+                    {kit.course_code && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Course Code: <span className="font-medium text-gray-600">{kit.course_code}</span>
+                      </p>
+                    )}
+
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-gray-800">
-                        Unit {kit.unit_number} — v{kit.version}
+                        v{kit.version}
                       </span>
                       <CourseKitStatusBadge status={kit.status} />
                       <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                         {kit.complexity_level}
                       </span>
                     </div>
-                    {!syllabusId && (
-                      <p className="text-[11px] font-mono text-gray-400 truncate">
-                        Syllabus: {kit.syllabus_id}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-400 mt-1">
                       Created {new Date(kit.created_at).toLocaleDateString()}
                       {kit.published_at && ` · Published ${new Date(kit.published_at).toLocaleDateString()}`}
                     </p>

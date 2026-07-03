@@ -16,11 +16,9 @@ from app.modules.m03_course_kit.schemas import (
     CourseKitCreate,
     CourseKitUpdate,
     KitAssignmentCreate,
-    KitQuizletCreate,
     KitSlideCreate,
     KitSlideReorder,
     KitSlideUpdate,
-    QuizletOption,
     RubricCriterion,
     SlideContent,
 )
@@ -298,24 +296,6 @@ async def test_fork_deep_copies_slides_with_speaker_notes(
     assert forked_slides[0].speaker_notes == orig_slides[0].speaker_notes
 
 
-async def test_fork_deep_copies_quizlets_with_answer_key(
-    tenant_db_a, m02_setup, test_tenant_a
-):
-    kit = await _create_draft(tenant_db_a, m02_setup["syllabus_id"])
-    await build_compliant_kit_via_db(kit.id, test_tenant_a["schema_name"])
-
-    forked = await CourseKitService.fork_kit(
-        kit.id, forked_by=uuid.uuid4(), change_note=None, db=tenant_db_a
-    )
-
-    orig_quizlets   = await CourseKitService.list_quizlets(kit.id, db=tenant_db_a)
-    forked_quizlets = await CourseKitService.list_quizlets(forked.id, db=tenant_db_a)
-
-    assert len(forked_quizlets) == len(orig_quizlets)
-    assert forked_quizlets[0].answer_key == orig_quizlets[0].answer_key
-    assert forked_quizlets[0].answer_key is not None
-
-
 async def test_fork_blocked_when_ai_generating(tenant_db_a, m02_setup):
     kit = await _create_draft(tenant_db_a, m02_setup["syllabus_id"])
     await force_kit_status(kit.id, CourseKitStatus.AI_GENERATING, tenant_db_a)
@@ -338,7 +318,6 @@ async def test_compliance_check_fails_on_empty_kit(tenant_db_a, m02_setup):
     assert result.passed is False
     codes = {v.code for v in result.violations}
     assert "SLIDE_MIN_NOT_MET" in codes
-    assert "QUIZLET_MIN_NOT_MET" in codes
 
 
 async def test_compliance_check_passes_on_compliant_kit(
@@ -428,82 +407,6 @@ async def test_reorder_slides_updates_slide_numbers(tenant_db_a, m02_setup):
     numbers = {s.id: s.slide_number for s in slides}
     assert numbers[s1.id] == 10
     assert numbers[s2.id] == 20
-
-
-# ===========================================================================
-# Quizlets
-# ===========================================================================
-
-async def test_add_quizlet_with_answer_key_succeeds(tenant_db_a, m02_setup):
-    kit = await _create_draft(tenant_db_a, m02_setup["syllabus_id"])
-    quizlet = await CourseKitService.add_quizlet(
-        kit.id,
-        KitQuizletCreate(
-            question_number=1,
-            question_text="What is the time complexity of binary search?",
-            options=[
-                QuizletOption(label="A", text="O(n)"),
-                QuizletOption(label="B", text="O(log n)"),
-            ],
-            answer_key={"correct": "B"},
-        ),
-        db=tenant_db_a,
-    )
-    assert quizlet.question_number == 1
-    assert quizlet.answer_key == {"correct": "B"}
-
-
-async def test_add_quizlet_without_answer_key_raises(tenant_db_a, m02_setup):
-    kit = await _create_draft(tenant_db_a, m02_setup["syllabus_id"])
-
-    with pytest.raises(KitServiceError) as exc:
-        await CourseKitService.add_quizlet(
-            kit.id,
-            KitQuizletCreate(
-                question_number=1,
-                question_text="What is the time complexity of binary search?",
-                answer_key={},  # empty — should raise
-            ),
-            db=tenant_db_a,
-        )
-    assert exc.value.code == "MISSING_ANSWER_KEY"
-    assert exc.value.status_code == 422
-
-
-async def test_update_quizlet_changes_question_text(tenant_db_a, m02_setup):
-    kit = await _create_draft(tenant_db_a, m02_setup["syllabus_id"])
-    quizlet = await CourseKitService.add_quizlet(
-        kit.id,
-        KitQuizletCreate(
-            question_number=1,
-            question_text="What is the original question text here?",
-            answer_key={"correct": "A"},
-        ),
-        db=tenant_db_a,
-    )
-    from app.modules.m03_course_kit.schemas import KitQuizletUpdate
-    updated = await CourseKitService.update_quizlet(
-        quizlet.id, kit.id,
-        KitQuizletUpdate(question_text="What is the updated question text now?"),
-        db=tenant_db_a,
-    )
-    assert updated.question_text == "What is the updated question text now?"
-
-
-async def test_delete_quizlet_removes_it(tenant_db_a, m02_setup):
-    kit = await _create_draft(tenant_db_a, m02_setup["syllabus_id"])
-    quizlet = await CourseKitService.add_quizlet(
-        kit.id,
-        KitQuizletCreate(
-            question_number=1,
-            question_text="What is the question to be deleted?",
-            answer_key={"correct": "A"},
-        ),
-        db=tenant_db_a,
-    )
-    await CourseKitService.delete_quizlet(quizlet.id, kit.id, db=tenant_db_a)
-    quizlets = await CourseKitService.list_quizlets(kit.id, db=tenant_db_a)
-    assert all(q.id != quizlet.id for q in quizlets)
 
 
 # ===========================================================================

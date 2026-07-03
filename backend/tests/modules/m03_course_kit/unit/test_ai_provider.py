@@ -7,8 +7,10 @@ Covers:
   - _enrich_slide_content: ensures slide_type is always present after enrichment
   - _scan_slide_answer_leak: covers all text fields including new enriched ones
   - _validate_result: end-to-end validation catches leakage + counts
-  - _salvage_parsed_kit: deduplication and MCQ answer_key repair
+  - _salvage_parsed_kit: deduplication (slides/assignments)
   - _is_soft_violation: classifier for recoverable validation violations
+
+Assignments are the only assessment artifact this module generates.
 """
 from __future__ import annotations
 
@@ -20,7 +22,6 @@ from app.modules.m03_course_kit.ai_provider import (
     _KitAI,
     _SlideAI,
     _SlideContentAI,
-    _QuizletAI,
     _AssignmentAI,
     _enrich_slide_content,
     _infer_slide_type,
@@ -51,7 +52,6 @@ def _make_ctx(**overrides) -> KitGenerationContext:
         custom_instructions=None,
         cos=[COContext(code="CO1", description="Understand basics", bloom_level="UNDERSTAND")],
         min_slides=2,
-        min_quizlets=1,
     )
     defaults.update(overrides)
     return KitGenerationContext(**defaults)
@@ -64,20 +64,6 @@ def _make_slide(
 ) -> _SlideAI:
     content = _SlideContentAI(**content_kwargs)
     return _SlideAI(slide_number=slide_number, title=title, content=content)
-
-
-def _make_mcq(question_number: int = 1) -> _QuizletAI:
-    return _QuizletAI(
-        question_number=question_number,
-        question_text="What is the capital of France?",
-        question_type="MCQ",
-        options=[
-            {"label": "A", "text": "Berlin"},
-            {"label": "B", "text": "Paris"},
-        ],
-        answer_key={"correct": "B"},
-        answer_explanation="Paris is the capital.",
-    )
 
 
 def _make_assignment(assignment_number: int = 1) -> _AssignmentAI:
@@ -312,68 +298,42 @@ class TestScanSlideAnswerLeak:
 
 class TestValidateResult:
 
-    def _make_kit_ai(self, slides, quizlets, assignments=None) -> _KitAI:
+    def _make_kit_ai(self, slides, assignments=None) -> _KitAI:
         return _KitAI(
             slides=slides,
-            quizlets=quizlets,
             assignments=assignments or [],
         )
 
     def test_valid_kit_passes(self):
-        ctx = _make_ctx(min_slides=2, min_quizlets=1)
+        ctx = _make_ctx(min_slides=2)
         kit = self._make_kit_ai(
             slides=[_make_slide(1), _make_slide(2)],
-            quizlets=[_make_mcq(1)],
         )
         errors = _validate_result(kit, ctx)
         assert errors == []
 
     def test_too_few_slides_is_error(self):
-        ctx = _make_ctx(min_slides=3, min_quizlets=1)
+        ctx = _make_ctx(min_slides=3)
         kit = self._make_kit_ai(
             slides=[_make_slide(1)],
-            quizlets=[_make_mcq(1)],
         )
         errors = _validate_result(kit, ctx)
         assert any("slides" in e.lower() for e in errors)
 
-    def test_too_few_quizlets_is_error(self):
-        ctx = _make_ctx(min_slides=1, min_quizlets=2)
-        kit = self._make_kit_ai(
-            slides=[_make_slide(1)],
-            quizlets=[_make_mcq(1)],
-        )
-        errors = _validate_result(kit, ctx)
-        assert any("quizlet" in e.lower() for e in errors)
-
     def test_duplicate_slide_numbers_is_error(self):
-        ctx = _make_ctx(min_slides=1, min_quizlets=0)
+        ctx = _make_ctx(min_slides=1)
         kit = self._make_kit_ai(
             slides=[_make_slide(1), _make_slide(1)],
-            quizlets=[],
         )
         errors = _validate_result(kit, ctx)
         assert any("duplicate" in e.lower() for e in errors)
 
     def test_answer_key_in_definitions_is_error(self):
-        ctx = _make_ctx(min_slides=1, min_quizlets=0)
+        ctx = _make_ctx(min_slides=1)
         slide = _make_slide(definitions=["The answer_key for question 1 is B"])
-        kit = self._make_kit_ai(slides=[slide], quizlets=[])
+        kit = self._make_kit_ai(slides=[slide])
         errors = _validate_result(kit, ctx)
         assert any("answer" in e.lower() for e in errors)
-
-    def test_mcq_missing_options_is_error(self):
-        ctx = _make_ctx(min_slides=1, min_quizlets=1)
-        bad_mcq = _QuizletAI(
-            question_number=1,
-            question_text="Which is correct?",
-            question_type="MCQ",
-            options=[{"label": "A", "text": "Only one option"}],
-            answer_key={"correct": "A"},
-        )
-        kit = self._make_kit_ai(slides=[_make_slide(1)], quizlets=[bad_mcq])
-        errors = _validate_result(kit, ctx)
-        assert any("option" in e.lower() for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +348,6 @@ class TestBuildResult:
                 _make_slide(1, "Overview"),
                 _make_slide(2, "Core Concepts"),
             ],
-            quizlets=[_make_mcq(1)],
             assignments=[_make_assignment(1)],
         )
         result = _build_result(kit, model_used="test-model", prompt_hash="abc123")
@@ -402,7 +361,6 @@ class TestBuildResult:
             slides=[
                 _make_slide(2, "Live Coding Demo", slide_type="CODE", code_snippet="x=1"),
             ],
-            quizlets=[_make_mcq(1)],
             assignments=[],
         )
         result = _build_result(kit, model_used="test-model", prompt_hash="abc123")
@@ -419,7 +377,6 @@ class TestBuildResult:
                     student_summary="You learned X",
                 )
             ],
-            quizlets=[_make_mcq(1)],
             assignments=[],
         )
         result = _build_result(kit, model_used="test-model", prompt_hash="abc123")
@@ -439,7 +396,6 @@ class TestSalvageParsedKit:
     def test_no_changes_on_clean_kit(self):
         kit = _KitAI(
             slides=[_make_slide(1), _make_slide(2)],
-            quizlets=[_make_mcq(1)],
             assignments=[],
         )
         warns = _salvage_parsed_kit(kit)
@@ -451,7 +407,6 @@ class TestSalvageParsedKit:
     def test_deduplicates_slides_keeps_first(self):
         kit = _KitAI(
             slides=[_make_slide(1, "First"), _make_slide(1, "Duplicate")],
-            quizlets=[_make_mcq(1)],
             assignments=[],
         )
         warns = _salvage_parsed_kit(kit)
@@ -462,80 +417,29 @@ class TestSalvageParsedKit:
     def test_renumbers_slides_sequentially_after_dedup(self):
         kit = _KitAI(
             slides=[_make_slide(3, "Concept Slide"), _make_slide(7, "Summary Slide")],
-            quizlets=[_make_mcq(1)],
             assignments=[],
         )
         _salvage_parsed_kit(kit)
         assert kit.slides[0].slide_number == 1
         assert kit.slides[1].slide_number == 2
 
-    def test_deduplicates_quizlets(self):
+    def test_deduplicates_assignments(self):
         kit = _KitAI(
             slides=[_make_slide(1)],
-            quizlets=[_make_mcq(1), _make_mcq(1)],
-            assignments=[],
+            assignments=[_make_assignment(1), _make_assignment(1)],
         )
         warns = _salvage_parsed_kit(kit)
-        assert len(kit.quizlets) == 1
+        assert len(kit.assignments) == 1
         assert any("duplicate" in w.lower() for w in warns)
 
-    def test_renumbers_quizlets_sequentially(self):
+    def test_renumbers_assignments_sequentially(self):
         kit = _KitAI(
             slides=[_make_slide(1)],
-            quizlets=[_make_mcq(5), _make_mcq(9)],
-            assignments=[],
+            assignments=[_make_assignment(5), _make_assignment(9)],
         )
         _salvage_parsed_kit(kit)
-        assert kit.quizlets[0].question_number == 1
-        assert kit.quizlets[1].question_number == 2
-
-    def test_fixes_mcq_empty_answer_key_uses_first_option(self):
-        mcq = _QuizletAI(
-            question_number=1,
-            question_text="Which is the capital?",
-            question_type="MCQ",
-            options=[{"label": "A", "text": "Berlin"}, {"label": "B", "text": "Paris"}],
-            answer_key={},
-        )
-        kit = _KitAI(slides=[_make_slide(1)], quizlets=[mcq], assignments=[])
-        warns = _salvage_parsed_kit(kit)
-        assert kit.quizlets[0].answer_key == {"correct": "A"}
-        assert any("inferred" in w.lower() or "answer_key" in w.lower() for w in warns)
-
-    def test_fixes_mcq_empty_answer_key_no_options(self):
-        mcq = _QuizletAI(
-            question_number=1,
-            question_text="Which is correct?",
-            question_type="MCQ",
-            options=[],
-            answer_key={},
-        )
-        kit = _KitAI(slides=[_make_slide(1)], quizlets=[mcq], assignments=[])
-        _salvage_parsed_kit(kit)
-        assert kit.quizlets[0].answer_key == {"correct": "A"}
-
-    def test_short_answer_empty_answer_key_not_modified(self):
-        sa = _QuizletAI(
-            question_number=1,
-            question_text="Explain the concept in 2-3 sentences.",
-            question_type="SHORT_ANSWER",
-            options=[],
-            answer_key={},
-        )
-        kit = _KitAI(slides=[_make_slide(1)], quizlets=[sa], assignments=[])
-        warns = _salvage_parsed_kit(kit)
-        assert kit.quizlets[0].answer_key == {}
-        assert warns == []
-
-    def test_mcq_with_valid_answer_key_not_overwritten(self):
-        kit = _KitAI(
-            slides=[_make_slide(1)],
-            quizlets=[_make_mcq(1)],
-            assignments=[],
-        )
-        original_key = kit.quizlets[0].answer_key.copy()
-        _salvage_parsed_kit(kit)
-        assert kit.quizlets[0].answer_key == original_key
+        assert kit.assignments[0].assignment_number == 1
+        assert kit.assignments[1].assignment_number == 2
 
 
 # ---------------------------------------------------------------------------
@@ -549,11 +453,6 @@ class TestIsSoftViolation:
             "AI returned 5 slides; minimum required is 10 (M03_MIN_SLIDES_PER_UNIT)."
         )
 
-    def test_min_quizlet_count_is_soft(self):
-        assert _is_soft_violation(
-            "AI returned 1 quizlets; minimum required is 2 (M03_MIN_QUIZLETS_PER_UNIT)."
-        )
-
     def test_answer_leak_is_soft(self):
         assert _is_soft_violation(
             "Slide 3 'Introduction' appears to contain answer-key content (matched: ['answer_key'])."
@@ -562,19 +461,8 @@ class TestIsSoftViolation:
     def test_duplicate_slide_numbers_is_soft(self):
         assert _is_soft_violation("Duplicate slide_number values in AI response.")
 
-    def test_duplicate_question_numbers_is_soft(self):
-        assert _is_soft_violation("Duplicate question_number values in AI quizlets.")
-
-    def test_mcq_empty_answer_key_is_soft(self):
-        assert _is_soft_violation(
-            "Quizlet 2 has an empty answer_key. "
-            "answer_key must never be empty (DB NOT NULL constraint)."
-        )
-
-    def test_mcq_insufficient_options_is_soft(self):
-        assert _is_soft_violation(
-            "Quizlet 1 is MCQ but has fewer than 2 options."
-        )
+    def test_duplicate_assignment_numbers_is_soft(self):
+        assert _is_soft_violation("Duplicate assignment_number values in AI assignments.")
 
     def test_empty_string_is_hard(self):
         assert not _is_soft_violation("")
@@ -590,13 +478,11 @@ class TestIsSoftViolation:
 import json as _json
 
 
-def _wrap(slides=None, quizlets=None, assignments=None, **extra) -> str:
+def _wrap(slides=None, assignments=None, **extra) -> str:
     """Build a minimal valid JSON payload for normalization tests."""
     payload: dict = {}
     if slides is not None:
         payload["slides"] = slides
-    if quizlets is not None:
-        payload["quizlets"] = quizlets
     if assignments is not None:
         payload["assignments"] = assignments
     payload.update(extra)
@@ -604,82 +490,6 @@ def _wrap(slides=None, quizlets=None, assignments=None, **extra) -> str:
 
 
 class TestNormalizeGroqKitResponse:
-
-    # ------------------------------------------------------------------
-    # options: null / missing / non-list — the original TypeError source
-    # ------------------------------------------------------------------
-
-    def test_options_null_does_not_crash(self):
-        """options: null must be treated as [] without raising TypeError."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "What is X?",
-            "question_type": "MCQ",
-            "options": None,
-            "answer_key": {"correct": "A"},
-        }])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"][0]["options"] == []
-
-    def test_options_missing_does_not_crash(self):
-        """Quizlet without 'options' key at all is safe."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "What is Y?",
-            "question_type": "MCQ",
-            "answer_key": {"correct": "B"},
-        }])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"][0]["options"] == []
-
-    def test_options_non_list_coerced_to_empty(self):
-        """options: "A, B, C" (string) is coerced to []."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "What is Z?",
-            "question_type": "MCQ",
-            "options": "A, B, C",
-            "answer_key": {"correct": "A"},
-        }])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"][0]["options"] == []
-
-    def test_options_list_of_strings_converted_to_dicts(self):
-        """options: ["Paris", "Berlin"] → [{label, text}]."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "Capital of France?",
-            "question_type": "MCQ",
-            "options": ["Paris", "Berlin"],
-            "answer_key": {"correct": "A"},
-        }])
-        result = _normalize_groq_kit_response(raw)
-        opts = result["quizlets"][0]["options"]
-        assert opts[0] == {"label": "A", "text": "Paris"}
-        assert opts[1] == {"label": "B", "text": "Berlin"}
-
-    def test_mcq_answer_key_inferred_from_options_when_null(self):
-        """MCQ with options but null answer_key gets answer_key inferred."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "Which is correct?",
-            "question_type": "MCQ",
-            "options": [{"label": "A", "text": "Right"}, {"label": "B", "text": "Wrong"}],
-            "answer_key": None,
-        }])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"][0]["answer_key"] == {"correct": "A"}
-
-    def test_mcq_answer_key_defaults_to_a_when_no_options(self):
-        """MCQ with no options and no answer_key defaults to {'correct': 'A'}."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "Which is correct?",
-            "question_type": "MCQ",
-            "options": None,
-        }])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"][0]["answer_key"] == {"correct": "A"}
 
     # ------------------------------------------------------------------
     # Non-dict items in collections
@@ -695,15 +505,6 @@ class TestNormalizeGroqKitResponse:
         assert len(result["slides"]) == 1
         assert result["slides"][0]["title"] == "Valid Slide"
 
-    def test_non_dict_quizlet_dropped(self):
-        """A non-dict entry in quizlets is silently dropped."""
-        raw = _wrap(quizlets=[
-            42,
-            {"question_number": 1, "question_text": "What is X?", "answer_key": {"correct": "A"}},
-        ])
-        result = _normalize_groq_kit_response(raw)
-        assert len(result["quizlets"]) == 1
-
     def test_non_dict_assignment_dropped(self):
         """A non-dict entry in assignments is silently dropped."""
         raw = _wrap(assignments=[
@@ -714,47 +515,18 @@ class TestNormalizeGroqKitResponse:
         assert len(result["assignments"]) == 1
 
     # ------------------------------------------------------------------
-    # Quizlet without question_text
-    # ------------------------------------------------------------------
-
-    def test_quizlet_without_question_text_dropped(self):
-        """Quizlet with no question_text (and no aliases) is dropped."""
-        raw = _wrap(quizlets=[
-            {"question_number": 1, "answer_key": {"correct": "A"}},
-        ])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"] == []
-
-    def test_quizlet_question_text_alias_prompt(self):
-        """'prompt' key is accepted as question_text alias."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "prompt": "Explain recursion.",
-            "question_type": "SHORT_ANSWER",
-            "answer_key": {"answer_points": ["Base case", "Recursive call"]},
-        }])
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"][0]["question_text"] == "Explain recursion."
-
-    # ------------------------------------------------------------------
     # Null top-level collections
     # ------------------------------------------------------------------
 
     def test_null_slides_list_coerced_to_empty(self):
         """slides: null → [] without crashing."""
-        raw = _json.dumps({"slides": None, "quizlets": [], "assignments": []})
+        raw = _json.dumps({"slides": None, "assignments": []})
         result = _normalize_groq_kit_response(raw)
         assert result["slides"] == []
 
-    def test_null_quizlets_list_coerced_to_empty(self):
-        """quizlets: null → []."""
-        raw = _json.dumps({"slides": [], "quizlets": None, "assignments": []})
-        result = _normalize_groq_kit_response(raw)
-        assert result["quizlets"] == []
-
     def test_null_assignments_list_coerced_to_empty(self):
         """assignments: null → []."""
-        raw = _json.dumps({"slides": [], "quizlets": [], "assignments": None})
+        raw = _json.dumps({"slides": [], "assignments": None})
         result = _normalize_groq_kit_response(raw)
         assert result["assignments"] == []
 
@@ -771,26 +543,6 @@ class TestNormalizeGroqKitResponse:
         ])
         result = _normalize_groq_kit_response(raw)
         assert len(result["slides"]) == 2
-
-    def test_malformed_option_entry_skipped(self):
-        """Malformed option dict (no 'text') is silently skipped."""
-        raw = _wrap(quizlets=[{
-            "question_number": 1,
-            "question_text": "Which?",
-            "question_type": "MCQ",
-            "options": [
-                {"label": "A", "text": "Good option"},
-                {"label": "B"},  # missing 'text' → skip
-                "raw string",    # str → converted
-            ],
-            "answer_key": {"correct": "A"},
-        }])
-        result = _normalize_groq_kit_response(raw)
-        opts = result["quizlets"][0]["options"]
-        # {"label": "B"} (no text) is skipped; "raw string" is converted
-        assert len(opts) == 2
-        assert opts[0]["text"] == "Good option"
-        assert opts[1]["text"] == "raw string"
 
     def test_invalid_json_raises_parse_error(self):
         """Non-JSON string raises CourseKitAIParseError."""

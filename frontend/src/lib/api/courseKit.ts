@@ -21,9 +21,12 @@ import type {
   KitExportJobResponse,
   KitExportRequest,
   KitJobStatusResponse,
-  KitQuizlet,
-  KitQuizletCreate,
-  KitQuizletUpdate,
+  KitResourceConfirmRequest,
+  KitResourceDownloadUrlResponse,
+  KitResourceFile,
+  KitResourceListResponse,
+  KitResourceUploadUrlRequest,
+  KitResourceUploadUrlResponse,
   KitSlide,
   KitSlideCreate,
   KitSlideReorder,
@@ -194,39 +197,6 @@ export async function reorderSlides(
 }
 
 // ---------------------------------------------------------------------------
-// Quizlets
-// ---------------------------------------------------------------------------
-
-export async function listQuizlets(kitId: string): Promise<KitQuizlet[]> {
-  const { data } = await api.get<KitQuizlet[]>(`${BASE}/${kitId}/quizlets`)
-  return data
-}
-
-export async function addQuizlet(
-  kitId: string,
-  payload: KitQuizletCreate,
-): Promise<KitQuizlet> {
-  const { data } = await api.post<KitQuizlet>(`${BASE}/${kitId}/quizlets`, payload)
-  return data
-}
-
-export async function updateQuizlet(
-  kitId: string,
-  quizletId: string,
-  payload: KitQuizletUpdate,
-): Promise<KitQuizlet> {
-  const { data } = await api.patch<KitQuizlet>(
-    `${BASE}/${kitId}/quizlets/${quizletId}`,
-    payload,
-  )
-  return data
-}
-
-export async function deleteQuizlet(kitId: string, quizletId: string): Promise<void> {
-  await api.delete(`${BASE}/${kitId}/quizlets/${quizletId}`)
-}
-
-// ---------------------------------------------------------------------------
 // Assignments
 // ---------------------------------------------------------------------------
 
@@ -257,4 +227,46 @@ export async function updateAssignment(
 
 export async function deleteAssignment(kitId: string, assignmentId: string): Promise<void> {
   await api.delete(`${BASE}/${kitId}/assignments/${assignmentId}`)
+}
+
+// ---------------------------------------------------------------------------
+// Faculty-uploaded resources (PDF/PPT/DOCX/notes)
+// ---------------------------------------------------------------------------
+
+export async function listResources(kitId: string): Promise<KitResourceListResponse> {
+  const { data } = await api.get<KitResourceListResponse>(`${BASE}/${kitId}/resources`)
+  return data
+}
+
+export async function generateResourceUploadUrl(
+  kitId: string,
+  payload: KitResourceUploadUrlRequest,
+): Promise<KitResourceUploadUrlResponse> {
+  const { data } = await api.post<KitResourceUploadUrlResponse>(
+    `${BASE}/${kitId}/resources/upload-url`,
+    payload,
+  )
+  return data
+}
+
+export async function confirmResourceUpload(
+  kitId: string,
+  payload: KitResourceConfirmRequest,
+): Promise<KitResourceFile> {
+  const { data } = await api.post<KitResourceFile>(`${BASE}/${kitId}/resources`, payload)
+  return data
+}
+
+export async function getResourceDownloadUrl(
+  kitId: string,
+  assetId: string,
+): Promise<KitResourceDownloadUrlResponse> {
+  const { data } = await api.get<KitResourceDownloadUrlResponse>(
+    `${BASE}/${kitId}/resources/${assetId}/download-url`,
+  )
+  return data
+}
+
+export async function deleteResource(kitId: string, assetId: string): Promise<void> {
+  await api.delete(`${BASE}/${kitId}/resources/${assetId}`)
 }

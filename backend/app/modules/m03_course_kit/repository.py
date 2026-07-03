@@ -13,9 +13,7 @@ from app.modules.m03_course_kit.models import (
     CourseKit,
     CourseKitStatus,
     KitAssignment,
-    KitQuizlet,
     KitSlide,
-    QuizletType,
 )
 
 # Re-export so callers only need one import path for job tracking.
@@ -185,7 +183,6 @@ class CourseKitRepository:
             .where(CourseKit.id == kit_id)
             .options(
                 selectinload(CourseKit.slides),
-                selectinload(CourseKit.quizlets),
                 selectinload(CourseKit.assignments),
             )
         )
@@ -225,6 +222,46 @@ class CourseKitRepository:
         )
         if status_filter is not None:
             stmt = stmt.where(CourseKit.status == status_filter)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
+    async def list_by_syllabus_ids(
+        syllabus_ids: list[UUID],
+        *,
+        status_filter: CourseKitStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[CourseKit]:
+        if not syllabus_ids:
+            return []
+        conditions = [CourseKit.syllabus_id.in_(syllabus_ids)]
+        if status_filter is not None:
+            conditions.append(CourseKit.status == status_filter)
+        stmt = (
+            select(CourseKit)
+            .where(and_(*conditions))
+            .order_by(CourseKit.unit_number.asc(), CourseKit.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_by_syllabus_ids(
+        syllabus_ids: list[UUID],
+        *,
+        status_filter: CourseKitStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        if not syllabus_ids:
+            return 0
+        conditions = [CourseKit.syllabus_id.in_(syllabus_ids)]
+        if status_filter is not None:
+            conditions.append(CourseKit.status == status_filter)
+        stmt = select(func.count(CourseKit.id)).where(and_(*conditions))
         result = await db.execute(stmt)
         return result.scalar_one()
 
@@ -498,150 +535,6 @@ class SlideRepository:
         db: AsyncSession,
     ) -> int:
         stmt = select(func.count(KitSlide.id)).where(KitSlide.kit_id == kit_id)
-        result = await db.execute(stmt)
-        return result.scalar_one()
-
-
-# ---------------------------------------------------------------------------
-# QuizletRepository
-# ---------------------------------------------------------------------------
-
-class QuizletRepository:
-
-    # ------------------------------------------------------------------
-    # Write
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def create(
-        kit_id: UUID,
-        question_number: int,
-        question_text: str,
-        question_type: QuizletType = QuizletType.MCQ,
-        options: list | None = None,
-        answer_key: dict | None = None,
-        answer_explanation: str | None = None,
-        bloom_level: BloomLevel | None = None,
-        co_reference: str | None = None,
-        *,
-        db: AsyncSession,
-    ) -> KitQuizlet:
-        quizlet = KitQuizlet(
-            kit_id=kit_id,
-            question_number=question_number,
-            question_text=question_text,
-            question_type=question_type,
-            options=options or [],
-            answer_key=answer_key or {},
-            answer_explanation=answer_explanation,
-            bloom_level=bloom_level,
-            co_reference=co_reference,
-        )
-        db.add(quizlet)
-        await db.flush()
-        await db.refresh(quizlet)
-        return quizlet
-
-    @staticmethod
-    async def bulk_create(
-        kit_id: UUID,
-        items: list[dict],
-        *,
-        db: AsyncSession,
-    ) -> list[KitQuizlet]:
-        quizlets = [
-            KitQuizlet(
-                kit_id=kit_id,
-                question_number=item["question_number"],
-                question_text=item["question_text"],
-                question_type=item.get("question_type", QuizletType.MCQ),
-                options=item.get("options", []),
-                answer_key=item.get("answer_key", {}),
-                answer_explanation=item.get("answer_explanation"),
-                bloom_level=item.get("bloom_level"),
-                co_reference=item.get("co_reference"),
-            )
-            for item in items
-        ]
-        db.add_all(quizlets)
-        await db.flush()
-        for q in quizlets:
-            await db.refresh(q)
-        return quizlets
-
-    @staticmethod
-    async def update(
-        quizlet_id: UUID,
-        updates: dict,
-        *,
-        db: AsyncSession,
-    ) -> KitQuizlet | None:
-        stmt = select(KitQuizlet).where(KitQuizlet.id == quizlet_id)
-        result = await db.execute(stmt)
-        quizlet = result.scalar_one_or_none()
-        if quizlet is None:
-            return None
-        for key, value in updates.items():
-            setattr(quizlet, key, value)
-        await db.flush()
-        await db.refresh(quizlet)
-        return quizlet
-
-    @staticmethod
-    async def delete(
-        quizlet_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> bool:
-        stmt = delete(KitQuizlet).where(KitQuizlet.id == quizlet_id)
-        result = await db.execute(stmt)
-        return result.rowcount > 0
-
-    @staticmethod
-    async def delete_all(
-        kit_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> int:
-        stmt = delete(KitQuizlet).where(KitQuizlet.kit_id == kit_id)
-        result = await db.execute(stmt)
-        return result.rowcount
-
-    # ------------------------------------------------------------------
-    # Read
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def get_by_id(
-        quizlet_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> KitQuizlet | None:
-        stmt = select(KitQuizlet).where(KitQuizlet.id == quizlet_id)
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    @staticmethod
-    async def list_by_kit(
-        kit_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> list[KitQuizlet]:
-        stmt = (
-            select(KitQuizlet)
-            .where(KitQuizlet.kit_id == kit_id)
-            .order_by(KitQuizlet.question_number.asc())
-        )
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-    @staticmethod
-    async def count_by_kit(
-        kit_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> int:
-        stmt = select(func.count(KitQuizlet.id)).where(KitQuizlet.kit_id == kit_id)
         result = await db.execute(stmt)
         return result.scalar_one()
 

@@ -10,8 +10,6 @@ export type CourseKitStatus =
 
 export type ComplexityLevel = 'UG' | 'PG'
 
-export type QuizletType = 'MCQ' | 'SHORT_ANSWER'
-
 export type AssignmentType = 'CLASSWORK' | 'HOMEWORK' | 'CASE_STUDY'
 
 export type BloomLevel =
@@ -42,11 +40,6 @@ export interface SlideContent {
   classroom_activity:  string | null
   student_summary:     string | null
   teaching_notes:      string | null    // faculty-only
-}
-
-export interface QuizletOption {
-  label: string
-  text:  string
 }
 
 export interface RubricCriterion {
@@ -102,21 +95,6 @@ export interface KitSlide {
   updated_at:    string | null
 }
 
-export interface KitQuizlet {
-  id:                 string
-  kit_id:             string
-  question_number:    number
-  question_text:      string
-  question_type:      QuizletType
-  options:            Record<string, unknown>[]
-  answer_key:         Record<string, unknown> | null   // null when DEAN role — gated at router
-  answer_explanation: string | null
-  bloom_level:        BloomLevel | null
-  co_reference:       string | null
-  created_at:         string
-  updated_at:         string | null
-}
-
 export interface KitAssignment {
   id:                    string
   kit_id:                string
@@ -150,6 +128,11 @@ export interface CourseKit {
   published_at:         string | null
   created_at:           string
   updated_at:           string | null
+
+  course_title?: string | null
+  course_code?:  string | null
+  program_name?: string | null
+  semester?:     number | null
 }
 
 export interface CourseKitDetail extends CourseKit {
@@ -157,7 +140,6 @@ export interface CourseKitDetail extends CourseKit {
   lesson_plans:  Record<string, unknown>[]
   resources:     Record<string, unknown>[]
   slides:        KitSlide[]
-  quizlets:      KitQuizlet[]
   assignments:   KitAssignment[]
 }
 
@@ -279,27 +261,6 @@ export interface KitSlideReorder {
   order: [string, number][]
 }
 
-export interface KitQuizletCreate {
-  question_number:     number
-  question_text:       string
-  question_type?:      QuizletType
-  options?:            QuizletOption[]
-  answer_key?:         Record<string, unknown>
-  answer_explanation?: string
-  bloom_level?:        BloomLevel
-  co_reference?:       string
-}
-
-export interface KitQuizletUpdate {
-  question_text?:      string
-  question_type?:      QuizletType
-  options?:            QuizletOption[]
-  answer_key?:         Record<string, unknown>
-  answer_explanation?: string
-  bloom_level?:        BloomLevel
-  co_reference?:       string
-}
-
 export interface KitAssignmentCreate {
   assignment_number:      number
   title:                  string
@@ -345,4 +306,54 @@ export interface ForkRequest {
 
 export interface KitExportRequest {
   format: 'pdf' | 'pptx' | 'handout'
+}
+
+// ---------------------------------------------------------------------------
+// Faculty-uploaded resources (PDF/PPT/DOCX/notes) — backed by the generic
+// storage module (StorageAsset), scoped to this kit via entity_type/entity_id.
+// ---------------------------------------------------------------------------
+
+export interface KitResourceFile {
+  id:                  string
+  uploaded_by_user_id: string
+  entity_type:         string
+  entity_id:           string
+  object_key:          string
+  original_filename:   string
+  size_bytes:          number
+  content_type:        string
+  created_at:          string
+  expires_at:          string | null
+  deleted_at:          string | null
+}
+
+export interface KitResourceListResponse {
+  total:     number
+  page:      number
+  page_size: number
+  items:     KitResourceFile[]
+}
+
+export interface KitResourceUploadUrlRequest {
+  original_filename: string
+  content_type:      string
+  size_bytes:        number
+}
+
+export interface KitResourceUploadUrlResponse {
+  object_key:         string
+  presigned_url:      string
+  expires_in_seconds: number
+}
+
+export interface KitResourceConfirmRequest {
+  object_key:        string
+  original_filename: string
+  content_type:      string
+  size_bytes:        number
+}
+
+export interface KitResourceDownloadUrlResponse {
+  presigned_url:      string
+  expires_in_seconds: number
 }

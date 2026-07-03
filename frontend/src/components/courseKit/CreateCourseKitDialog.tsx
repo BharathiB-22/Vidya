@@ -25,9 +25,11 @@ interface Props {
   syllabusId:     string
 }
 
+const AUTO = 'AUTO' as const
+
 export function CreateCourseKitDialog({ open, onOpenChange, syllabusId }: Props) {
   const [unitNumber,    setUnitNumber]    = useState('')
-  const [complexity,    setComplexity]    = useState<ComplexityLevel>('UG')
+  const [complexity,    setComplexity]    = useState<ComplexityLevel | typeof AUTO>(AUTO)
   const [tone,          setTone]          = useState('')
   const [instructions,  setInstructions]  = useState('')
 
@@ -41,12 +43,14 @@ export function CreateCourseKitDialog({ open, onOpenChange, syllabusId }: Props)
       await create.mutateAsync({
         syllabus_id:         syllabusId,
         unit_number:         unit,
-        complexity_level:    complexity,
+        // Omit when AUTO — the backend derives UG/PG from the program's
+        // actual degree type instead of defaulting to UG.
+        complexity_level:    complexity === AUTO ? undefined : complexity,
         tone:                tone || undefined,
         custom_instructions: instructions || undefined,
       })
       setUnitNumber('')
-      setComplexity('UG')
+      setComplexity(AUTO)
       setTone('')
       setInstructions('')
       onOpenChange(false)
@@ -81,9 +85,10 @@ export function CreateCourseKitDialog({ open, onOpenChange, syllabusId }: Props)
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Complexity Level</label>
-            <Select value={complexity} onValueChange={(v) => setComplexity(v as ComplexityLevel)}>
+            <Select value={complexity} onValueChange={(v) => setComplexity(v as ComplexityLevel | typeof AUTO)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value={AUTO}>Auto (based on program's degree type)</SelectItem>
                 <SelectItem value="UG">UG (Undergraduate)</SelectItem>
                 <SelectItem value="PG">PG (Postgraduate)</SelectItem>
               </SelectContent>

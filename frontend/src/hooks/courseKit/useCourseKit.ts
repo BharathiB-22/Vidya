@@ -15,8 +15,8 @@ export const courseKitKeys = {
   versions:   (id: string) => [...courseKitKeys.all, id, 'versions'] as const,
   compliance: (id: string) => [...courseKitKeys.all, id, 'compliance'] as const,
   slides:     (id: string) => [...courseKitKeys.all, id, 'slides'] as const,
-  quizlets:   (id: string) => [...courseKitKeys.all, id, 'quizlets'] as const,
   assignments:(id: string) => [...courseKitKeys.all, id, 'assignments'] as const,
+  resources:  (id: string) => [...courseKitKeys.all, id, 'resources'] as const,
   exports:    (id: string) => [...courseKitKeys.all, id, 'exports'] as const,
   job:        (id: string, jobId: string) => [...courseKitKeys.all, id, 'jobs', jobId] as const,
 }
@@ -72,18 +72,18 @@ export function useKitSlides(kitId: string) {
   })
 }
 
-export function useKitQuizlets(kitId: string) {
-  return useQuery({
-    queryKey: courseKitKeys.quizlets(kitId),
-    queryFn:  () => courseKitApi.listQuizlets(kitId),
-    enabled:  Boolean(kitId),
-  })
-}
-
 export function useKitAssignments(kitId: string) {
   return useQuery({
     queryKey: courseKitKeys.assignments(kitId),
     queryFn:  () => courseKitApi.listAssignments(kitId),
+    enabled:  Boolean(kitId),
+  })
+}
+
+export function useKitResources(kitId: string) {
+  return useQuery({
+    queryKey: courseKitKeys.resources(kitId),
+    queryFn:  () => courseKitApi.listResources(kitId),
     enabled:  Boolean(kitId),
   })
 }

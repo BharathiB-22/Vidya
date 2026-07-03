@@ -61,7 +61,6 @@ def _kit(slides=None, teaching_plan=None, resources=None, **kw):
         status=_FakeStatus.PUBLISHED,
         complexity_level=_FakeComplexity.UG,
         slides=slides or [],
-        quizlets=[],
         assignments=[],
         teaching_plan=teaching_plan or [],
         resources=resources or [],

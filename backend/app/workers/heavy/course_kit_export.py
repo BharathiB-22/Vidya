@@ -7,11 +7,12 @@ dispatching, and this task double-checks on entry.
 
 Sensitive field gating (role-aware):
   - speaker_notes  â€” omitted for DEAN
-  - answer_key     â€” omitted for DEAN
   - model_answer   â€” omitted for DEAN
 
+Assignments are the only assessment artifact this module exports.
+
 Data loaded per export:
-  - Kit detail (slides, quizlets, assignments, JSONB plan fields)
+  - Kit detail (slides, assignments, JSONB plan fields)
   - Syllabus (for course_id)
   - Course from M01 (code, title)
 """
@@ -342,6 +343,14 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         r.font.color.rgb = color or _TXT
         return box
 
+    def _wrapped_lines(text: str, width_in: float, sz: int) -> int:
+        """Estimate how many lines `text` wraps to in a box `width_in` inches
+        wide at font size `sz` pt, so callers can space stacked text blocks
+        far enough apart to avoid overlapping — PowerPoint text boxes don't
+        clip overflow, they just render past their nominal height."""
+        chars_per_line = max(10, int(width_in * 96 / (sz * 0.55)))
+        return max(1, -(-len(text) // chars_per_line))  # ceil division
+
     def _header(slide, title: str, subtitle: str = '', color: RGBColor = None):
         hc = color or _NAV
         _rect(slide, 0, 0, W, Inches(1.02), hc)
@@ -504,12 +513,17 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         items = bullets or key_concepts
         oy = Inches(1.52)
         for i, obj in enumerate(items[:8], 1):
+            if oy > Inches(6.5):
+                break
+            obj_str = str(obj)
+            lines = _wrapped_lines(obj_str, 11.7, 14)
+            row_h = max(0.62, 0.06 + lines * 0.3)
             _rect(sl, Inches(0.45), oy, Inches(0.46), Inches(0.48), _GRN)
             _txt(sl, str(i), Inches(0.45), oy, Inches(0.46), Inches(0.48),
                  sz=15, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
-            _txt(sl, str(obj), Inches(1.02), oy + Inches(0.06),
-                 Inches(11.7), Inches(0.4), sz=14, color=_TXT)
-            oy += Inches(0.62)
+            _txt(sl, obj_str, Inches(1.02), oy + Inches(0.06),
+                 Inches(11.7), Inches(row_h), sz=14, color=_TXT)
+            oy += Inches(row_h)
         if not items:
             _txt(sl, 'Objectives will be listed here.',
                  Inches(0.45), Inches(1.52), Inches(12.5), Inches(0.4), sz=14, color=_GRY)
@@ -546,13 +560,19 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             _txt(sl, 'SOLUTION STEPS', Inches(0.5), Inches(2.18), Inches(3), Inches(0.27),
                  sz=9, bold=True, color=_WHT)
             sy = Inches(2.52)
-            for i, step in enumerate(steps[:5], 1):
+            step_ceiling = Inches(4.95 if code_snippet else 6.5)
+            max_steps = 4 if code_snippet else 5
+            for i, step in enumerate(steps[:max_steps], 1):
+                if sy > step_ceiling:
+                    break
+                lines  = _wrapped_lines(str(step), 11.9, 13)
+                step_h = max(0.5, 0.04 + lines * 0.26)
                 _rect(sl, Inches(0.4), sy, Inches(0.4), Inches(0.4), _ACC)
                 _txt(sl, str(i), Inches(0.4), sy, Inches(0.4), Inches(0.4),
                      sz=13, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
                 _txt(sl, step, Inches(0.92), sy + Inches(0.04),
-                     Inches(11.9), Inches(0.36), sz=13, color=_TXT)
-                sy += Inches(0.5)
+                     Inches(11.9), Inches(step_h), sz=13, color=_TXT)
+                sy += Inches(step_h)
         if code_snippet:
             _rect(sl, Inches(0.4), Inches(5.1), Inches(12.5), Inches(0.27), _CODE_BG)
             _txt(sl, 'CODE', Inches(0.5), Inches(5.1), Inches(1), Inches(0.27),
@@ -839,9 +859,14 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                            'open Course Kit to add content before presenting']
         by = Inches(1.15)
         for bullet in bullets[:7]:
-            _txt(sl, '  ' + str(bullet), Inches(0.45), by,
-                 Inches(8.25), Inches(0.65), sz=14, color=_TXT)
-            by += Inches(0.68)
+            if by > Inches(5.9):
+                break
+            bullet_str = '  ' + str(bullet)
+            lines  = _wrapped_lines(bullet_str, 8.25, 14)
+            row_h  = max(0.65, 0.05 + lines * 0.32)
+            _txt(sl, bullet_str, Inches(0.45), by,
+                 Inches(8.25), Inches(row_h), sz=14, color=_TXT)
+            by += Inches(row_h + 0.03)
         if activity and len(bullets) < 5:
             _rect(sl, Inches(0.45), by + Inches(0.1), Inches(8.25), Inches(0.26), _TEAL)
             _txt(sl, 'Activity: ' + activity, Inches(0.55), by + Inches(0.1),
@@ -1204,30 +1229,6 @@ def _generate_pdf(buf, kit, course, *, is_dean: bool) -> None:
         story.append(t)
         story.append(Spacer(1, 1*cm))
 
-    # â”€â”€ Quizlets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    quizlets_sorted = sorted(kit.quizlets or [], key=lambda q: q.question_number)
-    if quizlets_sorted:
-        story.append(Paragraph("Quizlets", h1))
-        story.append(Spacer(1, 0.3*cm))
-        for qz in quizlets_sorted:
-            story.append(Paragraph(
-                f"Q{qz.question_number}. [{qz.question_type.value}] {qz.question_text}",
-                small,
-            ))
-            for opt in (qz.options or []):
-                if isinstance(opt, dict):
-                    story.append(Paragraph(
-                        f"  ({opt.get('label','?')}) {opt.get('text','')}", tiny
-                    ))
-            if not is_dean and qz.answer_key:
-                story.append(Paragraph(f"  Answer: {qz.answer_key}", tiny))
-            if qz.answer_explanation:
-                story.append(Paragraph(
-                    f"  Explanation: {qz.answer_explanation}", tiny
-                ))
-            story.append(Spacer(1, 0.3*cm))
-        story.append(PageBreak())
-
     # â”€â”€ Assignments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     assignments_sorted = sorted(
         kit.assignments or [], key=lambda a: a.assignment_number
@@ -1292,7 +1293,6 @@ def _generate_handout_pdf(buf, kit, course) -> None:
     Produces a student-facing A4 PDF with a diagonal watermark.
     All faculty-sensitive fields are excluded:
       - KitSlide.speaker_notes
-      - KitQuizlet.answer_key and answer_explanation
       - KitAssignment.model_answer and rubric
     Available to ADMIN, FACULTY, and DEAN roles.
     """
@@ -1409,27 +1409,6 @@ def _generate_handout_pdf(buf, kit, course) -> None:
             if footer_parts:
                 story.append(Paragraph(" | ".join(footer_parts), ho_tiny))
             story.append(Spacer(1, 0.4*cm))
-        story.append(PageBreak())
-
-    # â”€â”€ Quizlets (questions + options only â€” no answer_key, no explanation) â”€â”€
-    quizlets_sorted = sorted(kit.quizlets or [], key=lambda q: q.question_number)
-    if quizlets_sorted:
-        story.append(Paragraph("Quizlets", ho_h1))
-        story.append(Spacer(1, 0.3*cm))
-        for qz in quizlets_sorted:
-            story.append(Paragraph(
-                f"Q{qz.question_number}. [{qz.question_type.value}] {qz.question_text}",
-                ho_small,
-            ))
-            for opt in (qz.options or []):
-                if isinstance(opt, dict):
-                    story.append(Paragraph(
-                        f"  ({opt.get('label','?')}) {opt.get('text','')}", ho_tiny,
-                    ))
-            if qz.question_type.value == "SHORT_ANSWER":
-                for _ in range(3):
-                    story.append(Paragraph("_" * 80, ho_tiny))
-            story.append(Spacer(1, 0.3*cm))
         story.append(PageBreak())
 
     # â”€â”€ Assignments (question text only â€” no model_answer, no rubric) â”€â”€â”€â”€â”€

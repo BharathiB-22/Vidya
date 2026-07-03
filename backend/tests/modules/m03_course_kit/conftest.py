@@ -160,6 +160,97 @@ async def m02_setup(test_tenant_a, tenant_db_a):
 
 
 # ---------------------------------------------------------------------------
+# DEAN program-scope grant (Phase 2 refinements — dean isolation).
+#
+# m02_setup's curriculum `programs` row has a NULL acad_program_id (created
+# via ProgramService.create_program with no institutional linkage), so a
+# DEAN caller governs it by default. This helper links it to a fresh
+# acad_programs row and grants the given dean governance over it, matching
+# what a real dean-scoped kit would look like.
+# ---------------------------------------------------------------------------
+
+async def grant_dean_program_scope(
+    dean_user_id: uuid.UUID,
+    program_id: uuid.UUID,
+    schema_name: str,
+) -> None:
+    dept_id = uuid.uuid4()
+    acad_prog_id = uuid.uuid4()
+    suffix = str(acad_prog_id)[:8]
+
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(text(f"SET LOCAL search_path = {schema_name}, public"))
+            await session.execute(text(
+                "INSERT INTO acad_departments (id, name, code, is_active) "
+                "VALUES (:id, :name, :code, true)"
+            ), {"id": str(dept_id), "name": f"Dept {suffix}", "code": f"D{suffix[:7]}"})
+            await session.execute(text(
+                "INSERT INTO acad_programs "
+                "(id, department_id, name, code, degree_type, duration_years, is_active) "
+                "VALUES (:id, :dep, :name, :code, 'UG', 4, true)"
+            ), {"id": str(acad_prog_id), "dep": str(dept_id), "name": "Scoped Program", "code": f"P{suffix[:7]}"})
+            await session.execute(text(
+                "UPDATE programs SET acad_program_id = :ap WHERE id = :pid"
+            ), {"ap": str(acad_prog_id), "pid": str(program_id)})
+            await session.execute(text(
+                "INSERT INTO dean_program_assignments (dean_user_id, program_id, is_active, assigned_by) "
+                "VALUES (:uid, :pid, true, :uid)"
+            ), {"uid": str(dean_user_id), "pid": str(acad_prog_id)})
+
+
+# ---------------------------------------------------------------------------
+# Faculty course-assignment seeding (H-33 style assignment gate — mirrors
+# tests/modules/m02_syllabus/test_router.py's _assign_faculty_to_course)
+# ---------------------------------------------------------------------------
+
+async def assign_faculty_to_course(
+    course_id: uuid.UUID,
+    faculty_user_id: uuid.UUID,
+    schema_name: str,
+) -> None:
+    """Seed a minimal SubjectAssignment chain (dept->program->batch->semester->
+    assignment) so the faculty passes the course-kit visibility/ownership gate."""
+    dep_id  = uuid.uuid4()
+    prog_id = uuid.uuid4()
+    bat_id  = uuid.uuid4()
+    sem_id  = uuid.uuid4()
+    suffix  = str(dep_id)[:8]
+
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(text(f"SET LOCAL search_path = {schema_name}, public"))
+            await session.execute(text(
+                "INSERT INTO acad_departments (id, name, code, is_active) "
+                "VALUES (:id, :name, :code, true)"
+            ), {"id": str(dep_id), "name": f"Dept {suffix}", "code": f"D{suffix[:7]}"})
+            await session.execute(text(
+                "INSERT INTO acad_programs "
+                "(id, department_id, name, code, degree_type, duration_years, is_active) "
+                "VALUES (:id, :dep, :name, :code, 'UG', 4, true)"
+            ), {"id": str(prog_id), "dep": str(dep_id), "name": "B.Tech Test", "code": f"P{suffix[:7]}"})
+            await session.execute(text(
+                "INSERT INTO acad_batches (id, program_id, name, start_year, end_year, is_active) "
+                "VALUES (:id, :prog, :name, 2024, 2028, true)"
+            ), {"id": str(bat_id), "prog": str(prog_id), "name": "Batch 2024"})
+            await session.execute(text(
+                "INSERT INTO acad_semesters (id, batch_id, number, is_active) "
+                "VALUES (:id, :bat, 1, true)"
+            ), {"id": str(sem_id), "bat": str(bat_id)})
+            await session.execute(text(
+                "INSERT INTO subject_assignments "
+                "(id, course_id, faculty_user_id, semester_id, assigned_by_user_id, is_active, role_in_course) "
+                "VALUES (:id, :course, :faculty, :sem, :by, true, 'PRIMARY')"
+            ), {
+                "id":      str(uuid.uuid4()),
+                "course":  str(course_id),
+                "faculty": str(faculty_user_id),
+                "sem":     str(sem_id),
+                "by":      str(uuid.uuid4()),
+            })
+
+
+# ---------------------------------------------------------------------------
 # Status override helpers
 # ---------------------------------------------------------------------------
 
@@ -211,14 +302,14 @@ def make_kit_payload(syllabus_id: uuid.UUID, **overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Compliant kit seeder (10 slides + 5 quizlets + teaching_plan)
+# Compliant kit seeder (10 slides + teaching_plan)
 # ---------------------------------------------------------------------------
 
 async def build_compliant_kit_via_db(
     kit_id: uuid.UUID,
     schema_name: str,
 ) -> None:
-    """Seed 10 slides, 5 quizlets, and a teaching_plan into a kit.
+    """Seed 10 slides and a teaching_plan into a kit.
 
     Uses a standalone committed session so the data is visible to the HTTP
     layer (separate connection) in router tests.  SET search_path (no LOCAL)
@@ -226,9 +317,7 @@ async def build_compliant_kit_via_db(
     """
     from app.modules.m03_course_kit.repository import CourseKitRepository
     from app.modules.m03_course_kit.schemas import (
-        KitQuizletCreate,
         KitSlideCreate,
-        QuizletOption,
         SlideContent,
     )
     from app.modules.m03_course_kit.service import CourseKitService
@@ -247,21 +336,6 @@ async def build_compliant_kit_via_db(
                         bullets=[f"Key point {i}.1", f"Key point {i}.2"],
                     ),
                     speaker_notes=f"Faculty notes for slide {i}.",
-                ),
-                db=session,
-            )
-
-        for i in range(1, 6):
-            await CourseKitService.add_quizlet(
-                kit_id,
-                KitQuizletCreate(
-                    question_number=i,
-                    question_text=f"What is the main concept introduced in section {i}?",
-                    options=[
-                        QuizletOption(label="A", text="First option text"),
-                        QuizletOption(label="B", text="Second option text"),
-                    ],
-                    answer_key={"correct": "A", "explanation": "A is correct."},
                 ),
                 db=session,
             )

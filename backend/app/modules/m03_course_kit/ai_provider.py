@@ -1,12 +1,13 @@
 """
-M03 AI provider — course kit generation via Gemini (primary) with Groq fallback.
+M03 AI provider — course kit generation via Gemini (primary), DeepSeek, then Groq fallback.
 
 Safety contract:
-  - AI generates: slides (content, speaker_notes), quizlets (questions + answer_key),
+  - AI generates: slides (content, speaker_notes),
     assignments (question_text, model_answer, rubric), teaching_plan, lesson_plans, resources.
-  - CRITICAL: answer_key values MUST ONLY appear in the quizlets output.
-    They must NEVER be embedded in slide bullets, key_concepts, image_hint, or speaker_notes.
-  - The prompt explicitly prohibits answer_key leakage into slide content.
+  - Assignments are the only assessment artifact this module generates.
+  - CRITICAL: assignment model_answer values MUST NEVER be embedded in slide
+    bullets, key_concepts, image_hint, or speaker_notes.
+  - The prompt explicitly prohibits answer leakage into slide content.
   - _validate_result() scans for obvious leakage patterns as a safety net.
   - Malformed or under-specified AI responses are rejected with typed exceptions.
   - Gemini and Groq clients are imported lazily so the module loads cleanly in tests.
@@ -24,7 +25,7 @@ logger = logging.getLogger("vidya.m03.ai_provider")
 from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
-from app.modules.m03_course_kit.models import BloomLevel, QuizletType, AssignmentType, ComplexityLevel
+from app.modules.m03_course_kit.models import BloomLevel, AssignmentType, ComplexityLevel
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +72,6 @@ class KitGenerationContext:
     custom_instructions: str | None
     cos:                 list[COContext]  # approved COs for CO mapping guidance
     min_slides:          int              # from settings.M03_MIN_SLIDES_PER_UNIT
-    min_quizlets:        int              # from settings.M03_MIN_QUIZLETS_PER_UNIT
 
 
 @dataclasses.dataclass
@@ -82,18 +82,6 @@ class SlideAI:
     speaker_notes: str | None
     bloom_level:   str | None
     co_reference:  str | None
-
-
-@dataclasses.dataclass
-class QuizletAI:
-    question_number:    int
-    question_text:      str
-    question_type:      str             # MCQ | SHORT_ANSWER
-    options:            list[dict]      # [{label, text}] — MCQ only
-    answer_key:         dict[str, Any]  # {"correct": "A"} or {"answer_points": [...]}
-    answer_explanation: str | None
-    bloom_level:        str | None
-    co_reference:       str | None
 
 
 @dataclasses.dataclass
@@ -115,11 +103,10 @@ class KitGenerationResult:
     """
     Validated, provider-neutral output from the AI kit generator.
 
-    The answer_key fields on quizlets are always populated (NOT NULL contract from DB).
-    They are never present in slide content — enforced by prompt + _validate_result.
+    Assignment model_answer/rubric fields are the only assessment content —
+    they must never be present in slide content, enforced by prompt + _validate_result.
     """
     slides:        list[SlideAI]
-    quizlets:      list[QuizletAI]
     assignments:   list[AssignmentAI]
     teaching_plan: list[dict]   # TeachingPlanWeek-shaped dicts
     lesson_plans:  list[dict]   # LessonPlanSession-shaped dicts
@@ -134,7 +121,6 @@ class KitGenerationResult:
 # ---------------------------------------------------------------------------
 
 _VALID_BLOOM           = {b.value for b in BloomLevel}
-_VALID_QUIZ_TYPES      = {q.value for q in QuizletType}
 _VALID_ASSIGNMENT_TYPES = {a.value for a in AssignmentType}
 _VALID_COMPLEXITY      = {c.value for c in ComplexityLevel}
 
@@ -270,31 +256,6 @@ class _SlideAI(BaseModel):
         return self
 
 
-class _QuizletOptionAI(BaseModel):
-    label: str = Field(..., min_length=1, max_length=4)
-    text:  str = Field(..., min_length=1)
-
-
-class _QuizletAI(BaseModel):
-    question_number:    int                    = Field(..., ge=1)
-    question_text:      str                    = Field(..., min_length=10)
-    question_type:      str                    = "MCQ"
-    options:            list[_QuizletOptionAI] = Field(default_factory=list)
-    answer_key:         dict[str, Any]         = Field(default_factory=dict)
-    answer_explanation: str | None             = None
-    bloom_level:        str | None             = None
-    co_reference:       str | None             = None
-
-    @model_validator(mode="after")
-    def _normalise_enums(self) -> _QuizletAI:
-        up = self.question_type.upper()
-        self.question_type = up if up in _VALID_QUIZ_TYPES else "MCQ"
-        if self.bloom_level:
-            ub = self.bloom_level.upper()
-            self.bloom_level = ub if ub in _VALID_BLOOM else None
-        return self
-
-
 class _RubricAI(BaseModel):
     criterion:  str = Field(..., min_length=2)
     description: str = ""
@@ -357,7 +318,6 @@ class _ResourceItemAI(BaseModel):
 
 class _KitAI(BaseModel):
     slides:        list[_SlideAI]
-    quizlets:      list[_QuizletAI]
     assignments:   list[_AssignmentAI]
     teaching_plan: list[_TeachingWeekAI]  = Field(default_factory=list)
     lesson_plans:  list[_LessonSessionAI] = Field(default_factory=list)
@@ -398,7 +358,7 @@ def _scan_slide_answer_leak(slides: list[_SlideAI]) -> list[str]:
             violations.append(
                 f"Slide {slide.slide_number} '{slide.title[:50]}' appears to contain "
                 f"answer-key content (matched: {found}). "
-                "Answer keys must appear only in quizlet answer_key fields."
+                "Answer-looking content must not appear in slide text."
             )
     return violations
 
@@ -413,13 +373,10 @@ def _validate_result(parsed: _KitAI, ctx: KitGenerationContext) -> list[str]:
 
     Checks:
       1. Minimum slide count (settings.M03_MIN_SLIDES_PER_UNIT).
-      2. Minimum quizlet count (settings.M03_MIN_QUIZLETS_PER_UNIT).
-      3. Slide numbers unique and 1-based.
-      4. Question numbers unique and 1-based.
-      5. Assignment numbers unique and 1-based.
-      6. All bloom_levels are from the approved set (or None).
-      7. MCQ quizlets have at least 2 options and a non-empty answer_key.
-      8. Safety scan: no answer-key content embedded in slide text.
+      2. Slide numbers unique and 1-based.
+      3. Assignment numbers unique and 1-based.
+      4. All bloom_levels are from the approved set (or None).
+      5. Safety scan: no answer-key content embedded in slide text.
     """
     errors: list[str] = []
 
@@ -430,42 +387,17 @@ def _validate_result(parsed: _KitAI, ctx: KitGenerationContext) -> list[str]:
             f"minimum required is {ctx.min_slides} (M03_MIN_SLIDES_PER_UNIT)."
         )
 
-    # 2. Quizlet minimum
-    if len(parsed.quizlets) < ctx.min_quizlets:
-        errors.append(
-            f"AI returned {len(parsed.quizlets)} quizlets; "
-            f"minimum required is {ctx.min_quizlets} (M03_MIN_QUIZLETS_PER_UNIT)."
-        )
-
-    # 3. Unique slide numbers
+    # 2. Unique slide numbers
     slide_nums = [s.slide_number for s in parsed.slides]
     if len(slide_nums) != len(set(slide_nums)):
         errors.append("Duplicate slide_number values in AI response.")
 
-    # 4. Unique question numbers
-    q_nums = [q.question_number for q in parsed.quizlets]
-    if len(q_nums) != len(set(q_nums)):
-        errors.append("Duplicate question_number values in AI quizlets.")
-
-    # 5. Unique assignment numbers
+    # 3. Unique assignment numbers
     a_nums = [a.assignment_number for a in parsed.assignments]
     if len(a_nums) != len(set(a_nums)):
         errors.append("Duplicate assignment_number values in AI assignments.")
 
-    # 6. MCQ options + answer_key non-empty
-    for q in parsed.quizlets:
-        if q.question_type == "MCQ":
-            if len(q.options) < 2:
-                errors.append(
-                    f"Quizlet {q.question_number} is MCQ but has fewer than 2 options."
-                )
-            if not q.answer_key:
-                errors.append(
-                    f"Quizlet {q.question_number} has an empty answer_key. "
-                    "answer_key must never be empty (DB NOT NULL constraint)."
-                )
-
-    # 7. Safety: no answer-key leakage into slide content
+    # 4. Safety: no answer-key leakage into slide content
     leak_violations = _scan_slide_answer_leak(parsed.slides)
     errors.extend(leak_violations)
 
@@ -482,8 +414,7 @@ def _salvage_parsed_kit(parsed: _KitAI) -> list[str]:
 
     Mutates parsed in-place; returns warning strings for the caller to log.
     Handles:
-      - Duplicate slide / quizlet / assignment numbers → deduplicate then renumber
-      - MCQ with empty answer_key → default to first option label (or "A")
+      - Duplicate slide / assignment numbers → deduplicate then renumber
     """
     warns: list[str] = []
 
@@ -502,19 +433,6 @@ def _salvage_parsed_kit(parsed: _KitAI) -> list[str]:
     for i, s in enumerate(parsed.slides, 1):
         s.slide_number = i
 
-    # Deduplicate + renumber quizlets
-    seen = set()
-    kept_qs: list[_QuizletAI] = []
-    for q in parsed.quizlets:
-        if q.question_number in seen:
-            warns.append(f"Dropped duplicate question_number={q.question_number}")
-        else:
-            seen.add(q.question_number)
-            kept_qs.append(q)
-    parsed.quizlets = kept_qs
-    for i, q in enumerate(parsed.quizlets, 1):
-        q.question_number = i
-
     # Deduplicate + renumber assignments
     seen = set()
     kept_as: list[_AssignmentAI] = []
@@ -528,16 +446,6 @@ def _salvage_parsed_kit(parsed: _KitAI) -> list[str]:
     for i, a in enumerate(parsed.assignments, 1):
         a.assignment_number = i
 
-    # Fix empty MCQ answer_key — default to first option label
-    for q in parsed.quizlets:
-        if q.question_type == "MCQ" and not q.answer_key:
-            first_label = q.options[0].label if q.options else "A"
-            q.answer_key = {"correct": first_label}
-            warns.append(
-                f"Quizlet {q.question_number}: inferred answer_key "
-                f"{{'correct': {first_label!r}}} (AI omitted answer_key)."
-            )
-
     return warns
 
 
@@ -550,7 +458,7 @@ def _is_soft_violation(violation: str) -> bool:
     Return True when a validation violation is recoverable.
 
     Soft violations → log a warning and proceed with generation.
-    Hard violations (zero slides or zero quizlets from AI) → raise.
+    Hard violations (zero slides from AI) → raise.
     """
     vl = violation.lower()
     # Count shortfalls: accept fewer items than the ideal minimum
@@ -558,9 +466,6 @@ def _is_soft_violation(violation: str) -> bool:
         return True
     # Answer-key safety scan: warn but preserve the slide content
     if "appears to contain answer-key content" in vl:
-        return True
-    # MCQ structural issues: handled by salvage; soft if still present
-    if "fewer than 2 options" in vl or "empty answer_key" in vl:
         return True
     # Duplicate numbers: fixed by salvage; soft if somehow still present
     if "duplicate" in vl:
@@ -585,13 +490,24 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
     topic_list = ", ".join(ctx.unit_topics) if ctx.unit_topics else "all unit topics"
 
     system = (
-        "You are an expert academic curriculum designer. "
+        "You are an expert academic curriculum designer and a senior university lecturer "
+        "writing a lecture deck you would personally deliver in a classroom. "
         "You create complete, unit-level teaching kits aligned with outcome-based education "
         "and Bloom's revised taxonomy. "
         "Adapt the teaching style, tone, slide content, and examples to the university "
         "framework implied by the course context and faculty instructions — this may include "
         "NEP 2020, VTU norms, autonomous university models, NBA/NAAC accreditation, "
         "industry-integrated, research-oriented, practical-oriented, or skill-based curricula.\n\n"
+
+        "QUALITY BAR — every slide must read like a professionally prepared university "
+        "lecture slide, not a generic outline:\n"
+        "  - Explanations must teach the 'why', not just the 'what' — connect each idea to "
+        "a real-world or industry consequence a student would care about.\n"
+        "  - Never pad with vague filler ('this is important', 'students should know this'). "
+        "Every sentence must carry specific, checkable content.\n"
+        "  - Maintain a coherent teaching flow across the deck: each slide's speaker_notes "
+        "must explicitly bridge from the idea on the previous slide and set up the next one, "
+        "so the unit reads as one continuous lecture, not 10 disconnected slides.\n\n"
 
         "GENERATE EXACTLY 10 SLIDES in this fixed order:\n"
         "  Slide 1  : TITLE          — unit overview and scope\n"
@@ -615,7 +531,8 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "  co_reference  : one or more CO codes, e.g. 'CO1' or 'CO1, CO2'\n"
         "  speaker_notes : 120-200 word faculty delivery script per slide —\n"
         "    what to say verbatim, timing guidance, likely student questions with brief answers,\n"
-        "    connection to previous/next slide, and one pacing cue\n\n"
+        "    an explicit one-sentence bridge from the previous slide's idea and one sentence\n"
+        "    setting up the next slide, and one pacing cue\n\n"
 
         "PER SLIDE TYPE — additional requirements:\n\n"
 
@@ -625,32 +542,50 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "  student_summary: 'By the end of this unit you will be able to [unit outcome].'\n\n"
 
         "OBJECTIVES slide:\n"
-        "  bullets: 4-5 items, each starting with a Bloom verb\n"
-        "    (Identify / Explain / Apply / Analyse / Evaluate / Create)\n"
+        "  bullets: 4-5 measurable, observable learning outcomes, each starting with a\n"
+        "    Bloom verb (Identify / Explain / Apply / Analyse / Evaluate / Create) and stating\n"
+        "    what the student will be able to DO, not just 'understand' or 'know about'\n"
         "  bloom_level: highest level targeted in this unit\n"
         "  co_reference: all COs addressed in the unit\n\n"
 
         "CONCEPT slide:\n"
-        "  bullets: 5-6 sentences explaining the primary concept clearly\n"
+        "  bullets: 5-6 sentences explaining the primary concept clearly — build from a\n"
+        "    plain-language intuition first, then the precise mechanism, then one concrete\n"
+        "    consequence of getting it wrong in practice\n"
         "  key_concepts: the 4-5 terms that define this concept\n"
         "  definitions: 2-3 formal definitions of terms introduced here\n"
-        "  diagram_prompt: one-sentence description for a diagram if it aids understanding\n\n"
+        "  diagram_prompt: a specific, renderable diagram description — name the diagram type\n"
+        "    (flowchart / block diagram / sequence diagram / labelled architecture), list the\n"
+        "    exact boxes/nodes and the labelled arrows/relationships between them, in the order\n"
+        "    they should appear left-to-right or top-to-bottom\n\n"
 
         "DEFINITION slide:\n"
-        "  definitions: 5-6 entries in 'Term: formal definition' format\n"
+        "  definitions: 5-6 entries in 'Term: formal definition' format — state the definition\n"
+        "    precisely, then in the same entry contrast it with the term students most often\n"
+        "    confuse it with (e.g. 'Term: formal definition. Not to be confused with X, which...')\n"
         "  key_concepts: the terms being defined\n"
         "  bullets: 1-2 sentences linking these terms as a coherent vocabulary set\n\n"
 
         "WORKED_EXAMPLE slide:\n"
         "  title: MUST start with 'Worked Example: ' then a named real scenario\n"
-        "  examples: 4-5 steps, each 'Step N: [action]'\n"
-        "  bullets: expected output or result of the example\n"
+        "  examples: 4-6 steps, each 'Step N: [action] -> [intermediate result or output]' —\n"
+        "    state the starting inputs/conditions in Step 1 and the final output in the last step\n"
+        "  bullets: expected final output or result of the example, plus one sentence on why this\n"
+        "    approach was chosen over an obvious alternative\n"
         "  student_summary: state the outcome plainly\n\n"
 
         "CODE slide:\n"
         "  code_snippet: minimum 10 well-commented lines in the subject language\n"
         "  bullets: 4-5 annotation lines, e.g. 'Line 3: opens a file handle using with'\n"
         "  teaching_notes: 2 specific syntax errors students commonly make here\n\n"
+
+        "DIAGRAM slide (used in place of CODE for non-programming subjects):\n"
+        "  diagram_prompt: a specific, renderable description — name the diagram type,\n"
+        "    list every box/node and labelled arrow/relationship in presentation order,\n"
+        "    detailed enough that a designer with no subject knowledge could draw it\n"
+        "  bullets: 4-5 sentences walking through the diagram in the same order as drawn,\n"
+        "    each explaining what one part of the diagram means\n"
+        "  key_concepts: the 3-4 labelled elements a student must be able to name\n\n"
 
         "COMMON_MISTAKES slide:\n"
         "  bullets: 6-8 items — alternate wrong then correct for each mistake:\n"
@@ -659,7 +594,9 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "  teaching_notes: cognitive root cause of the most critical mistake\n\n"
 
         "ACTIVITY slide:\n"
-        "  classroom_activity: '[N min] Method: step-by-step instructions. Expected output.'\n"
+        "  classroom_activity: '[N min] Method: step-by-step instructions. Expected output.' —\n"
+        "    the method must directly practice the concept from the CONCEPT/WORKED_EXAMPLE\n"
+        "    slides earlier in this same deck, not a generic unrelated exercise\n"
         "  bullets: 4-5 facilitator instructions (what the TEACHER does)\n"
         "  teaching_notes: what to do if students finish early or get stuck\n\n"
 
@@ -670,20 +607,17 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "  student_summary: 'Attempt these before checking the answer key.'\n\n"
 
         "SUMMARY slide:\n"
-        "  bullets: 5-6 unit-wide takeaways starting with 'Key point:'\n"
+        "  bullets: 5-6 unit-wide takeaways starting with 'Key point:' — each must explicitly\n"
+        "    tie back to one of the OBJECTIVES slide's learning outcomes, not just restate topics\n"
         "  key_concepts: all major terms from the unit\n"
         "  co_reference: all COs covered in this unit\n"
         "  examples: 2-3 real-world applications of what was learned\n"
         "  student_summary: one assessment preparation tip\n\n"
 
-        "QUIZLETS (separate from the QUIZ slide — for the assessment bank):\n"
-        f"  Generate minimum {ctx.min_quizlets} questions. Mix MCQ and SHORT_ANSWER.\n"
-        "  MCQ: 4 options A/B/C/D; answer_key: {\"correct\": \"<label>\"}.\n"
-        "  SHORT_ANSWER: answer_key: {\"answer_points\": [\"key point 1\", \"key point 2\"]}.\n"
-        "  CRITICAL: answer_key MUST NOT appear anywhere in slide content.\n\n"
-
-        "ASSIGNMENTS: 2-4 tasks (at least 1 CLASSWORK and 1 HOMEWORK).\n"
-        "  Each needs model_answer and rubric with 3+ criteria.\n\n"
+        "ASSIGNMENTS (the only assessment artifact generated here): 2-4 tasks "
+        "(at least 1 CLASSWORK and 1 HOMEWORK).\n"
+        "  Each needs model_answer and rubric with 3+ criteria.\n"
+        "  CRITICAL: model_answer MUST NOT appear anywhere in slide content.\n\n"
 
         "TEACHING PLAN: 1 row per major topic — week, topic, objectives, activities, "
         "hours, co_references.\n"
@@ -691,7 +625,7 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "RESOURCES: 4-6 references. No author names, DOIs, or ISBNs.\n\n"
 
         "JSON STRUCTURE — strictly flat, no nesting by topic:\n"
-        "  {\"slides\": [...10 slides...], \"quizlets\": [...], \"assignments\": [...],\n"
+        "  {\"slides\": [...10 slides...], \"assignments\": [...],\n"
         "   \"teaching_plan\": [...], \"lesson_plans\": [...], \"resources\": [...]}\n"
         "Return only valid JSON. No prose. No markdown fences."
     )
@@ -718,7 +652,7 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         f"  Tone         : {tone_str}\n\n"
         f"Topics covered in this unit:\n"
         f"  {topic_list}\n\n"
-        f"Course Outcomes (use co_reference to map each slide/quizlet/assignment):\n"
+        f"Course Outcomes (use co_reference to map each slide/assignment):\n"
         f"{co_lines}\n\n"
         f"SLIDE REQUIREMENTS:\n"
         f"- Generate exactly 10 slides following the numbered order in the system prompt.\n"
@@ -726,16 +660,14 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         f"  teaching_notes, student_summary, and speaker_notes.\n"
         f"- Slide 5 title MUST start with 'Worked Example: '.\n"
         f"- Slide 6 MUST include code_snippet with 10+ lines if the subject involves\n"
-        f"  programming; otherwise use DIAGRAM with diagram_prompt.\n"
+        f"  programming; otherwise use DIAGRAM with a specific, fully-labelled diagram_prompt\n"
+        f"  (see DIAGRAM slide requirements in the system prompt).\n"
         f"- Slide 7 bullets MUST alternate Wrong/Correct pairs.\n"
         f"- Slide 9 bullets MUST be full written-out questions (no answers on slide face).\n\n"
-        f"QUIZLETS & ASSIGNMENTS:\n"
-        f"- Quizlets: minimum {ctx.min_quizlets}. Mix MCQ and SHORT_ANSWER.\n"
-        f"  MCQ: 4 options A/B/C/D; answer_key: {{\"correct\": \"<label>\"}}.\n"
-        f"  SHORT_ANSWER: answer_key: {{\"answer_points\": [\"point 1\", ...]}}.\n"
-        f"  NEVER embed answers in slide content.\n"
-        f"- Assignments: 2-4 tasks. At least 1 CLASSWORK and 1 HOMEWORK.\n"
+        f"ASSIGNMENTS:\n"
+        f"- 2-4 tasks. At least 1 CLASSWORK and 1 HOMEWORK.\n"
         f"  Each needs model_answer and rubric with 3+ criteria.\n"
+        f"  NEVER embed model_answer content in slide content.\n"
         f"- Teaching plan: 1+ row per major topic.\n"
         f"- Lesson plans: 1 session per major topic.\n"
         f"- Resources: 4-6 items. No author names, DOIs, or ISBNs.\n"
@@ -810,19 +742,6 @@ def _build_result(parsed: _KitAI, model_used: str, prompt_hash: str, provider_na
                 co_reference=s.co_reference,
             )
             for s in parsed.slides
-        ],
-        quizlets=[
-            QuizletAI(
-                question_number=q.question_number,
-                question_text=q.question_text,
-                question_type=q.question_type,
-                options=[o.model_dump() for o in q.options],
-                answer_key=q.answer_key,
-                answer_explanation=q.answer_explanation,
-                bloom_level=q.bloom_level,
-                co_reference=q.co_reference,
-            )
-            for q in parsed.quizlets
         ],
         assignments=[
             AssignmentAI(
@@ -913,9 +832,8 @@ class GeminiCourseKitProvider:
             soft = [v for v in violations if _is_soft_violation(v)]
             if soft:
                 logger.warning(
-                    "m03.gemini: soft violations — proceeding with %d slides, "
-                    "%d quizlets: %s",
-                    len(parsed.slides), len(parsed.quizlets), soft,
+                    "m03.gemini: soft violations — proceeding with %d slides: %s",
+                    len(parsed.slides), soft,
                 )
             if hard:
                 raise CourseKitAIValidationError(
@@ -941,17 +859,14 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
     ------------------
     - Never raises TypeError or AttributeError on malformed AI output.
     - null / non-list collections are coerced to [].
-    - Non-dict items within slides / quizlets / assignments are silently dropped.
-    - Quizlets without question_text (and no recognised alias) are dropped.
+    - Non-dict items within slides / assignments are silently dropped.
     - Assignments without title AND question_text are dropped.
-    - options: null / non-list → [] before iteration (fixes TypeError).
     - Returns a dict safe to pass to _KitAI.model_validate().
 
     Aliases handled
     ---------------
     Top-level:
       slide_deck / slides_list / presentation_slides  -> slides
-      quiz_questions / questions / quiz_items         -> quizlets
       tasks / exercises / assessment_tasks            -> assignments
       weekly_plan / course_schedule                   -> teaching_plan
       sessions / class_sessions                       -> lesson_plans
@@ -959,10 +874,6 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
 
     Per slide:
       content (str/list)     -> {"bullets": [...]}
-    Per quizlet:
-      question/prompt/text   -> question_text
-      answer/correct_answer  -> answer_key  (string → {"correct": ...})
-      options: list[str]     -> list[{label, text}]
     Per assignment:
       task                   -> title
       question/prompt        -> question_text
@@ -1006,11 +917,6 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             data["slides"] = data.pop(alias)
             break
 
-    for alias in ("quiz_questions", "questions", "quiz_items"):
-        if alias in data and "quizlets" not in data:
-            data["quizlets"] = data.pop(alias)
-            break
-
     for alias in ("tasks", "exercises", "assessment_tasks"):
         if alias in data and "assignments" not in data:
             data["assignments"] = data.pop(alias)
@@ -1036,7 +942,7 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
             break
 
     # Coerce null / non-list top-level collections to [] so iteration never crashes.
-    for _field in ("slides", "quizlets", "assignments", "teaching_plan", "lesson_plans", "resources"):
+    for _field in ("slides", "assignments", "teaching_plan", "lesson_plans", "resources"):
         if not isinstance(data.get(_field), list):
             data[_field] = []
 
@@ -1153,63 +1059,6 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
 
         valid_slides.append(slide)
     data["slides"] = valid_slides
-
-    # --- quizlet normalization ---
-    valid_quizlets: list[dict] = []
-    for i, q in enumerate(data["quizlets"]):
-        if not isinstance(q, dict):
-            logger.warning("m03.normalizer: dropped non-dict quizlet at index %d", i)
-            continue
-        if not q.get("question_number"):
-            q["question_number"] = i + 1
-        # Normalise question_text aliases before the required-field check
-        for alias in ("question", "prompt", "text"):
-            if alias in q and "question_text" not in q:
-                q["question_text"] = q.pop(alias)
-                break
-        if not q.get("question_text"):
-            logger.warning(
-                "m03.normalizer: dropped quizlet %d — no question_text", i
-            )
-            continue
-        # Normalize answer_key: string or alternative key names → dict
-        if "answer_key" not in q:
-            for alias in ("answer", "correct_answer", "correct"):
-                if alias in q:
-                    raw_ans = q.pop(alias)
-                    q["answer_key"] = (
-                        {"correct": raw_ans}
-                        if not isinstance(raw_ans, dict)
-                        else raw_ans
-                    )
-                    break
-        # Normalize MCQ options: null / non-list → [], list[str] → list[{label, text}]
-        # KEY FIX: q.get("options", []) returns None when key exists with null value.
-        # Use `or []` to handle both missing-key and explicit-null cases.
-        options = q.get("options") or []
-        if not isinstance(options, list):
-            options = []
-        normalised_options: list[Any] = []
-        for j, opt in enumerate(options):
-            if isinstance(opt, str):
-                normalised_options.append(
-                    {"label": chr(ord("A") + j), "text": opt}
-                )
-            elif isinstance(opt, dict) and opt.get("text"):
-                normalised_options.append(opt)
-            # else: skip malformed option entry silently
-        q["options"] = normalised_options
-        # Ensure MCQ has a non-empty answer_key after all alias normalisation
-        q_type = (q.get("question_type") or "MCQ").upper()
-        if q_type == "MCQ" and not q.get("answer_key"):
-            if normalised_options:
-                first = normalised_options[0]
-                label = first.get("label", "A") if isinstance(first, dict) else "A"
-                q["answer_key"] = {"correct": label}
-            else:
-                q["answer_key"] = {"correct": "A"}
-        valid_quizlets.append(q)
-    data["quizlets"] = valid_quizlets
 
     # --- assignment normalization ---
     valid_assignments: list[dict] = []
@@ -1430,9 +1279,8 @@ class GroqCourseKitProvider:
             soft = [v for v in violations if _is_soft_violation(v)]
             if soft:
                 logger.warning(
-                    "m03.groq: soft violations — proceeding with %d slides, "
-                    "%d quizlets: %s",
-                    len(parsed.slides), len(parsed.quizlets), soft,
+                    "m03.groq: soft violations — proceeding with %d slides: %s",
+                    len(parsed.slides), soft,
                 )
             if hard:
                 raise CourseKitAIValidationError(
@@ -1532,9 +1380,8 @@ class DeepSeekCourseKitProvider:
             soft = [v for v in violations if _is_soft_violation(v)]
             if soft:
                 logger.warning(
-                    "m03.deepseek: soft violations — proceeding with %d slides, "
-                    "%d quizlets: %s",
-                    len(parsed.slides), len(parsed.quizlets), soft,
+                    "m03.deepseek: soft violations — proceeding with %d slides: %s",
+                    len(parsed.slides), soft,
                 )
             if hard:
                 raise CourseKitAIValidationError(
@@ -1547,15 +1394,15 @@ class DeepSeekCourseKitProvider:
 
 class FallbackCourseKitProvider:
     """
-    Tries Gemini → Groq → DeepSeek in order, stopping at first success.
+    Tries Gemini → DeepSeek → Groq in order, stopping at first success.
     Any exception from a provider causes the next provider to be tried.
     """
 
     def __init__(self) -> None:
         self._chain: list[tuple[str, object]] = [
             ("gemini",   GeminiCourseKitProvider()),
-            ("groq",     GroqCourseKitProvider()),
             ("deepseek", DeepSeekCourseKitProvider()),
+            ("groq",     GroqCourseKitProvider()),
         ]
 
     def _is_available(self, name: str) -> bool:

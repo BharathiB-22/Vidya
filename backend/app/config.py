@@ -89,7 +89,6 @@ class Settings(BaseSettings):
 
     # Course Kit Builder (M03)
     M03_MIN_SLIDES_PER_UNIT: int = 10
-    M03_MIN_QUIZLETS_PER_UNIT: int = 5
     M03_DEFAULT_COMPLEXITY: str = "UG"   # UG or PG; overridable per kit
 
     # Labs & Assignment Evaluator (M06)
@@ -142,7 +141,15 @@ class Settings(BaseSettings):
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ],
         "viva_recording": ["video/mp4", "video/webm"],
-        "course_kit": ["application/pdf"],
+        "course_kit": [
+            # Faculty-uploaded supporting resources (PDF/PPT/DOCX/reference notes).
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword",
+            "text/plain",
+        ],
         "program_export": [
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

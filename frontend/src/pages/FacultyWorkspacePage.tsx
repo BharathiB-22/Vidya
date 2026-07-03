@@ -38,7 +38,7 @@ const TEACH_CARDS: WorkspaceCard[] = [
   },
   {
     title: 'Course Kits',
-    description: 'Generate lecture slides, quizlets, and assignments for your courses.',
+    description: 'Generate lecture slides and assignments for your courses.',
     to: '/course-kits',
     icon: Layers,
     badge: 'bg-indigo-50 text-indigo-600 border-indigo-100',

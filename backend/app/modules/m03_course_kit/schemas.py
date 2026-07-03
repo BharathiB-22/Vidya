@@ -11,7 +11,6 @@ from app.modules.m03_course_kit.models import (
     BloomLevel,
     ComplexityLevel,
     CourseKitStatus,
-    QuizletType,
 )
 
 
@@ -45,12 +44,6 @@ class SlideContent(BaseModel):
     classroom_activity: Optional[str]  = None
     student_summary:    Optional[str]  = None
     teaching_notes:     Optional[str]  = None   # faculty-only guidance
-
-
-class QuizletOption(BaseModel):
-    """One MCQ option stored in KitQuizlet.options JSONB."""
-    label: str = Field(..., min_length=1, max_length=4)   # e.g. "A", "B", "C", "D"
-    text:  str = Field(..., min_length=1)
 
 
 class RubricCriterion(BaseModel):
@@ -136,51 +129,6 @@ class KitSlideReorder(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# KitQuizlet schemas
-# ---------------------------------------------------------------------------
-
-class KitQuizletCreate(BaseModel):
-    question_number:    int                  = Field(..., ge=1)
-    question_text:      str                  = Field(..., min_length=10)
-    question_type:      QuizletType          = QuizletType.MCQ
-    options:            list[QuizletOption]  = Field(default_factory=list)
-    answer_key:         dict[str, Any]       = Field(default_factory=dict)
-    answer_explanation: Optional[str]        = None
-    bloom_level:        Optional[BloomLevel] = None
-    co_reference:       Optional[str]        = None
-
-
-class KitQuizletUpdate(BaseModel):
-    question_text:      Optional[str]               = Field(default=None, min_length=10)
-    question_type:      Optional[QuizletType]        = None
-    options:            Optional[list[QuizletOption]] = None
-    answer_key:         Optional[dict[str, Any]]     = None
-    answer_explanation: Optional[str]               = None
-    bloom_level:        Optional[BloomLevel]         = None
-    co_reference:       Optional[str]               = None
-
-
-class KitQuizletResponse(BaseModel):
-    """Full response including answer_key.
-    Router sets answer_key=None for DEAN role (faculty/admin only field).
-    """
-    model_config = {"from_attributes": True}
-
-    id:                 UUID
-    kit_id:             UUID
-    question_number:    int
-    question_text:      str
-    question_type:      QuizletType
-    options:            list[dict[str, Any]]
-    answer_key:         Optional[dict[str, Any]]   # None when redacted for DEAN
-    answer_explanation: Optional[str]
-    bloom_level:        Optional[BloomLevel]
-    co_reference:       Optional[str]
-    created_at:         datetime
-    updated_at:         Optional[datetime]
-
-
-# ---------------------------------------------------------------------------
 # KitAssignment schemas
 # ---------------------------------------------------------------------------
 
@@ -189,7 +137,8 @@ class KitAssignmentCreate(BaseModel):
     title:                 str                    = Field(..., min_length=3)
     assignment_type:       AssignmentType         = AssignmentType.CLASSWORK
     question_text:         str                    = Field(..., min_length=10)
-    complexity_level:      ComplexityLevel        = ComplexityLevel.UG
+    # None -> inherit the parent CourseKit's complexity_level (service layer).
+    complexity_level:      Optional[ComplexityLevel] = None
     current_events_toggle: bool                   = False
     model_answer:          Optional[str]          = None
     rubric:                list[RubricCriterion]  = Field(default_factory=list)
@@ -238,7 +187,8 @@ class KitAssignmentResponse(BaseModel):
 class CourseKitCreate(BaseModel):
     syllabus_id:         UUID
     unit_number:         int             = Field(..., ge=1)
-    complexity_level:    ComplexityLevel = ComplexityLevel.UG
+    # None -> service derives UG/PG from the program's actual degree type.
+    complexity_level:    Optional[ComplexityLevel] = None
     tone:                Optional[str]   = None
     custom_instructions: Optional[str]  = None
 
@@ -275,15 +225,29 @@ class CourseKitDetail(CourseKitResponse):
     lesson_plans:  list[dict[str, Any]]
     resources:     list[dict[str, Any]]
     slides:        list[KitSlideResponse]
-    quizlets:      list[KitQuizletResponse]
     assignments:   list[KitAssignmentResponse]
+
+    course_title: Optional[str] = None
+    course_code:  Optional[str] = None
+    program_name: Optional[str] = None
+    semester:     Optional[int] = None
+
+
+class CourseKitListItem(CourseKitResponse):
+    """List-row shape enriched with course/program/semester (resolved from
+    syllabus_id -> Syllabus.course_id -> Course.program_id), mirroring the
+    Syllabus module's SyllabusListItem pattern."""
+    course_title: Optional[str] = None
+    course_code:  Optional[str] = None
+    program_name: Optional[str] = None
+    semester:     Optional[int] = None
 
 
 class CourseKitListResponse(BaseModel):
     total:     int
     page:      int
     page_size: int
-    items:     list[CourseKitResponse]
+    items:     list[CourseKitListItem]
 
 
 class CourseKitStatusResponse(BaseModel):
@@ -381,4 +345,23 @@ class KitExportJobResponse(BaseModel):
     job_id:  UUID
     kit_id:  UUID
     format:  str
+
+
+# ---------------------------------------------------------------------------
+# Faculty-uploaded resources (PDF/PPT/DOCX/notes) — kit_id is a path param,
+# so requests only carry file metadata; entity_type/entity_id are filled in
+# server-side before delegating to the generic storage module.
+# ---------------------------------------------------------------------------
+
+class KitResourceUploadUrlRequest(BaseModel):
+    original_filename: str = Field(..., min_length=1)
+    content_type:      str
+    size_bytes:        int = Field(..., ge=1)
+
+
+class KitResourceConfirmRequest(BaseModel):
+    object_key:        str
+    original_filename: str = Field(..., min_length=1)
+    content_type:      str
+    size_bytes:        int = Field(..., ge=1)
     status:  str = "queued"

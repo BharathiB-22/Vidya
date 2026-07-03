@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { CourseKitStatusBadge } from '@/components/courseKit/CourseKitStatusBadge'
 import { CourseKitActionBar } from '@/components/courseKit/CourseKitActionBar'
 import { SlidesSection } from '@/components/courseKit/SlidesSection'
-import { QuizletsSection } from '@/components/courseKit/QuizletsSection'
 import { AssignmentsSection } from '@/components/courseKit/AssignmentsSection'
+import { ResourcesSection } from '@/components/courseKit/ResourcesSection'
 import { TeachingPlanSection } from '@/components/courseKit/TeachingPlanSection'
 import { KitCompliancePanel } from '@/components/courseKit/KitCompliancePanel'
 import { ExportPanel } from '@/components/courseKit/ExportPanel'
@@ -15,14 +15,14 @@ import { KitVersionHistory } from '@/components/courseKit/KitVersionHistory'
 import {
   useCourseKit,
   useKitSlides,
-  useKitQuizlets,
   useKitAssignments,
+  useKitResources,
 } from '@/hooks/courseKit'
 import { courseKitKeys } from '@/hooks/courseKit/useCourseKit'
 import type { CourseKitStatus } from '@/types/courseKit'
 import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
 
-type Tab = 'overview' | 'slides' | 'quizlets' | 'assignments' | 'teaching-plan' | 'compliance' | 'exports'
+type Tab = 'overview' | 'slides' | 'assignments' | 'resources' | 'teaching-plan' | 'compliance' | 'exports'
 
 interface TabDef {
   key:    Tab
@@ -32,15 +32,15 @@ interface TabDef {
 
 interface ContentCounts {
   slides:      number
-  quizlets:    number
   assignments: number
+  resources:   number
 }
 
 const TABS: TabDef[] = [
   { key: 'overview',      label: 'Overview' },
   { key: 'slides',        label: 'Slides',       badge: (c) => c.slides      || null },
-  { key: 'quizlets',      label: 'Quizlets',     badge: (c) => c.quizlets    || null },
   { key: 'assignments',   label: 'Assignments',  badge: (c) => c.assignments || null },
+  { key: 'resources',     label: 'Resources',    badge: (c) => c.resources   || null },
   { key: 'teaching-plan', label: 'Teaching Plan' },
   { key: 'compliance',    label: 'Compliance' },
   { key: 'exports',       label: 'Exports' },
@@ -60,15 +60,15 @@ export default function CourseKitDetailPage() {
   const isDean    = role === 'DEAN'
   const canWrite  = WRITE_ROLES.includes(role)
 
-  // DEAN: speaker_notes, answer_key, model_answer are fully hidden (not rendered at all)
+  // DEAN: speaker_notes, model_answer are fully hidden (not rendered at all)
   const showSpeakerNotes = !isDean
-  const showAnswerKey    = !isDean
   const showModelAnswer  = !isDean
 
   const { data: kit, isLoading, isError }                      = useCourseKit(kitId)
   const { data: slides      = [], isLoading: slidesLoading }   = useKitSlides(kitId)
-  const { data: quizlets    = [], isLoading: quizletsLoading } = useKitQuizlets(kitId)
   const { data: assignments = [], isLoading: assignsLoading }  = useKitAssignments(kitId)
+  const { data: resourcesData, isLoading: resourcesLoading }   = useKitResources(kitId)
+  const resources = resourcesData?.items ?? []
 
   const isGenerating = kit?.status === 'AI_GENERATING'
   const isEditable   = kit?.status === 'DRAFT' && canWrite
@@ -82,9 +82,9 @@ export default function CourseKitDetailPage() {
   }, [isGenerating])
   const generationFailed =
     wasGenerating && !isGenerating &&
-    !slidesLoading && !quizletsLoading && !assignsLoading &&
+    !slidesLoading && !assignsLoading &&
     kit?.status === 'DRAFT' &&
-    slides.length === 0 && quizlets.length === 0 && assignments.length === 0
+    slides.length === 0 && assignments.length === 0
 
   // Auto-poll while AI_GENERATING
   useEffect(() => {
@@ -95,19 +95,18 @@ export default function CourseKitDetailPage() {
     return () => clearInterval(timer)
   }, [isGenerating, kitId, qc])
 
-  // A2: invalidate child caches once generation completes so slides/quizlets/assignments refresh
+  // A2: invalidate child caches once generation completes so slides/assignments refresh
   useEffect(() => {
     if (wasGenerating && !isGenerating) {
       qc.invalidateQueries({ queryKey: courseKitKeys.slides(kitId) })
-      qc.invalidateQueries({ queryKey: courseKitKeys.quizlets(kitId) })
       qc.invalidateQueries({ queryKey: courseKitKeys.assignments(kitId) })
     }
   }, [wasGenerating, isGenerating, kitId, qc])
 
   const counts: ContentCounts = {
     slides:      slides.length,
-    quizlets:    quizlets.length,
     assignments: assignments.length,
+    resources:   resources.length,
   }
 
   if (isLoading) {
@@ -139,14 +138,22 @@ export default function CourseKitDetailPage() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-gray-900">
-              Course Kit — Unit {kit.unit_number} v{kit.version}
+              {kit.course_title ?? 'Course Kit'} — Unit {kit.unit_number} v{kit.version}
             </h1>
             <CourseKitStatusBadge status={kit.status} />
             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
               {kit.complexity_level}
             </span>
           </div>
-          <p className="text-sm text-gray-400 mt-0.5 font-mono">{kit.syllabus_id}</p>
+          {(kit.program_name || kit.semester || kit.course_code) && (
+            <p className="text-sm text-gray-500 mt-0.5">
+              {[
+                kit.program_name,
+                kit.semester ? `Semester ${kit.semester}` : null,
+                kit.course_code,
+              ].filter(Boolean).join(' · ')}
+            </p>
+          )}
           {kit.tone && (
             <p className="text-xs text-gray-400 mt-0.5 italic">Tone: {kit.tone}</p>
           )}
@@ -212,8 +219,8 @@ export default function CourseKitDetailPage() {
             {/* Stats grid */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <StatCard label="Slides"      value={counts.slides}      onClick={() => setTab('slides')}      />
-              <StatCard label="Quizlets"    value={counts.quizlets}    onClick={() => setTab('quizlets')}    />
               <StatCard label="Assignments" value={counts.assignments} onClick={() => setTab('assignments')} />
+              <StatCard label="Resources"   value={counts.resources}   onClick={() => setTab('resources')}   />
             </div>
 
             {/* Learning Packages shortcut */}
@@ -263,12 +270,12 @@ export default function CourseKitDetailPage() {
             </div>
 
             {/* Get started hint */}
-            {isEditable && counts.slides === 0 && counts.quizlets === 0 && counts.assignments === 0 && (
+            {isEditable && counts.slides === 0 && counts.assignments === 0 && (
               <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-700 space-y-1">
                 <p className="font-semibold">Get started</p>
                 <p>
-                  Use <strong>Generate with AI</strong> to populate slides, quizlets, and assignments automatically,
-                  or add them manually via the Slides, Quizlets, and Assignments tabs.
+                  Use <strong>Generate with AI</strong> to populate slides and assignments automatically,
+                  or add them manually via the Slides and Assignments tabs.
                 </p>
               </div>
             )}
@@ -285,16 +292,6 @@ export default function CourseKitDetailPage() {
           />
         )}
 
-        {tab === 'quizlets' && (
-          <QuizletsSection
-            kitId={kitId}
-            quizlets={quizlets}
-            isEditable={isEditable}
-            showAnswerKey={showAnswerKey}
-            isLoading={quizletsLoading}
-          />
-        )}
-
         {tab === 'assignments' && (
           <AssignmentsSection
             kitId={kitId}
@@ -302,6 +299,15 @@ export default function CourseKitDetailPage() {
             isEditable={isEditable}
             showModelAnswer={showModelAnswer}
             isLoading={assignsLoading}
+          />
+        )}
+
+        {tab === 'resources' && (
+          <ResourcesSection
+            kitId={kitId}
+            resources={resources}
+            canUpload={canWrite}
+            isLoading={resourcesLoading}
           />
         )}
 

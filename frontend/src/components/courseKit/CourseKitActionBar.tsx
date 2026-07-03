@@ -150,6 +150,7 @@ export function CourseKitActionBar({ kit }: Props) {
         onOpenChange={setGenerateOpen}
         onSubmit={(opts) => generate.mutate(opts)}
         isPending={generate.isPending}
+        initialComplexity={kit.complexity_level}
       />
       <PublishKitDialog
         open={publishOpen}

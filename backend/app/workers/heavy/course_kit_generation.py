@@ -11,8 +11,8 @@ Flow
   6. Load approved COs (M02) for CO mapping context.
   7. Load syllabus unit (M02) for unit_title + topic list.
   8. Build KitGenerationContext and call get_kit_provider().generate_kit().
-  9. Idempotent cleanup: delete any pre-existing slides, quizlets, assignments.
- 10. Bulk create slides, quizlets, assignments from AI result.
+  9. Idempotent cleanup: delete any pre-existing slides, assignments.
+ 10. Bulk create slides, assignments from AI result.
  11. Update kit: ai_model, prompt_hash, teaching_plan, lesson_plans, resources, status → DRAFT.
  12. Commit, then audit COURSE_KIT_GENERATION_COMPLETED.
 
@@ -110,7 +110,6 @@ async def _run_generation(
     from app.modules.m03_course_kit.repository import (
         AssignmentRepository,
         CourseKitRepository,
-        QuizletRepository,
         SlideRepository,
     )
 
@@ -226,7 +225,6 @@ async def _run_generation(
                 custom_instructions=kit.custom_instructions,
                 cos=co_contexts,
                 min_slides=settings.M03_MIN_SLIDES_PER_UNIT,
-                min_quizlets=settings.M03_MIN_QUIZLETS_PER_UNIT,
             )
 
             provider = get_kit_provider()
@@ -237,12 +235,11 @@ async def _run_generation(
             #    (safe on retry — CASCADE deletes ensure no orphans).
             # ------------------------------------------------------------------
             del_slides      = await SlideRepository.delete_all(kit_id, db=session)
-            del_quizlets    = await QuizletRepository.delete_all(kit_id, db=session)
             del_assignments = await AssignmentRepository.delete_all(kit_id, db=session)
-            if del_slides or del_quizlets or del_assignments:
+            if del_slides or del_assignments:
                 logger.info(
-                    "m03.generate: cleared %d slides, %d quizlets, %d assignments (kit=%s)",
-                    del_slides, del_quizlets, del_assignments, kit_id,
+                    "m03.generate: cleared %d slides, %d assignments (kit=%s)",
+                    del_slides, del_assignments, kit_id,
                 )
 
             # ------------------------------------------------------------------
@@ -262,29 +259,6 @@ async def _run_generation(
             new_slides = await SlideRepository.bulk_create(kit_id, slides_data, db=session)
             logger.info(
                 "m03.generate: created %d slides (kit=%s)", len(new_slides), kit_id
-            )
-
-            # ------------------------------------------------------------------
-            # 11. Bulk create quizlets
-            # ------------------------------------------------------------------
-            quizlets_data = [
-                {
-                    "question_number":    q.question_number,
-                    "question_text":      q.question_text,
-                    "question_type":      q.question_type,
-                    "options":            q.options,
-                    "answer_key":         q.answer_key,
-                    "answer_explanation": q.answer_explanation,
-                    "bloom_level":        q.bloom_level,
-                    "co_reference":       q.co_reference,
-                }
-                for q in result.quizlets
-            ]
-            new_quizlets = await QuizletRepository.bulk_create(
-                kit_id, quizlets_data, db=session
-            )
-            logger.info(
-                "m03.generate: created %d quizlets (kit=%s)", len(new_quizlets), kit_id
             )
 
             # ------------------------------------------------------------------
@@ -344,7 +318,6 @@ async def _run_generation(
             target_id=str(kit_id),
             metadata={
                 "slides_created":      len(new_slides),
-                "quizlets_created":    len(new_quizlets),
                 "assignments_created": len(new_assignments),
                 "model_used":          result.model_used,
                 "prompt_hash":         result.prompt_hash[:16],
@@ -353,14 +326,13 @@ async def _run_generation(
         )
 
         logger.info(
-            "m03.generate: complete (kit=%s slides=%d quizlets=%d assignments=%d)",
-            kit_id, len(new_slides), len(new_quizlets), len(new_assignments),
+            "m03.generate: complete (kit=%s slides=%d assignments=%d)",
+            kit_id, len(new_slides), len(new_assignments),
         )
 
         return {
             "kit_id":              str(kit_id),
             "slides_created":      len(new_slides),
-            "quizlets_created":    len(new_quizlets),
             "assignments_created": len(new_assignments),
             "model_used":          result.model_used,
             "provider":            result.provider_name,
