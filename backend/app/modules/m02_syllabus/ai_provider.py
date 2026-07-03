@@ -75,7 +75,7 @@ class SyllabusGenerationResult:
     or publisher names.  The reference enrichment task (STEP-07) calls CrossRef /
     OpenLibrary using these queries to fetch real bibliographic metadata.
     """
-    outcomes:          list[dict]   # code, description, bloom_level, suggested_po_codes[]
+    outcomes:          list[dict]   # code, description, bloom_level, suggested_po_codes[], po_mapping_strengths{}
     units:             list[dict]   # unit_number, title, topics[], total_hours, pedagogy
     reference_queries: list[dict]   # query_str, ref_type
     model_used:        str
@@ -91,6 +91,7 @@ class SyllabusGenerationResult:
 _VALID_BLOOM = {b.value for b in BloomLevel}
 _VALID_REF_TYPES = {r.value for r in RefType}
 _VALID_PEDAGOGIES = {"lecture", "lab", "seminar", "case_study", "mixed"}
+_VALID_MAPPING_STRENGTHS = {"HIGH", "MEDIUM", "LOW"}
 
 
 class _TopicAI(BaseModel):
@@ -103,15 +104,26 @@ class _TopicAI(BaseModel):
 
 
 class _COAI(BaseModel):
-    code:               str = Field(..., min_length=1, max_length=20)
-    description:        str = Field(..., min_length=15)
-    bloom_level:        str = "APPLY"
-    suggested_po_codes: list[str] = Field(default_factory=list)
+    code:                  str = Field(..., min_length=1, max_length=20)
+    description:           str = Field(..., min_length=15)
+    bloom_level:           str = "APPLY"
+    suggested_po_codes:    list[str] = Field(default_factory=list)
+    po_mapping_strengths:  dict[str, str] = Field(default_factory=dict)
+    # po_code -> "HIGH" | "MEDIUM" | "LOW" — how strongly this CO supports that PO.
 
     @model_validator(mode="after")
     def _check_bloom(self) -> _COAI:
         up = (self.bloom_level or "").upper().strip()
         self.bloom_level = up if up in _VALID_BLOOM else "APPLY"
+        return self
+
+    @model_validator(mode="after")
+    def _check_mapping_strengths(self) -> _COAI:
+        normalized: dict[str, str] = {}
+        for po_code in self.suggested_po_codes:
+            raw = str(self.po_mapping_strengths.get(po_code, "")).upper().strip()
+            normalized[po_code] = raw if raw in _VALID_MAPPING_STRENGTHS else "MEDIUM"
+        self.po_mapping_strengths = normalized
         return self
 
 
@@ -204,9 +216,15 @@ def _validate_result(
     for co in parsed.outcomes:
         unknown = [c for c in co.suggested_po_codes if c not in valid_po_codes]
         if unknown:
-            # Warn but don't reject — AI may suggest sensible codes not in the list
-            # The service layer will filter these out during CO-PO mapping creation.
-            pass
+            # Warn but don't reject — AI may suggest sensible codes not in the list.
+            # The worker filters these out during CO-PO mapping creation, so a
+            # hallucinated code silently drops that CO-PO link; log it so a
+            # persistent mismatch (e.g. wrong PO codes passed in context) is visible.
+            logger.warning(
+                "CO '%s' suggested unknown PO code(s) %s; valid codes are %s. "
+                "These will be dropped, not mapped.",
+                co.code, unknown, sorted(valid_po_codes),
+            )
 
     # 4. Reference queries must not contain bibliographic metadata
     for i, rq in enumerate(parsed.reference_queries):
@@ -288,6 +306,12 @@ def _build_prompt(ctx: SyllabusGenerationContext) -> tuple[str, str]:
         f"    * Have a distinct Bloom's level "
         f"(Remember/Understand/Apply/Analyse/Evaluate/Create)\n"
         f"    * List suggested_po_codes using only codes from the PO list above\n"
+        f"    * For EACH code in suggested_po_codes, set po_mapping_strengths[code] to "
+        f"HIGH, MEDIUM, or LOW based on how directly this CO supports that PO — "
+        f"HIGH when the CO is a primary driver of the PO, MEDIUM for a moderate/partial "
+        f"contribution, LOW for a tangential one. Judge each CO-PO pair independently: "
+        f"a realistic CO-PO matrix has a natural mixture of HIGH, MEDIUM, and LOW across "
+        f"different COs and POs — do NOT default every mapping to MEDIUM.\n"
         f"- Generate units covering the full course scope with academic depth — "
         f"aim for at least 4 units (typically 5-6 for a standard course).\n"
         f"  Each unit must have:\n"
@@ -405,6 +429,7 @@ class GeminiSyllabusProvider:
                     "description":        co.description,
                     "bloom_level":        co.bloom_level,
                     "suggested_po_codes": co.suggested_po_codes,
+                    "po_mapping_strengths": co.po_mapping_strengths,
                 }
                 for co in parsed.outcomes
             ],
@@ -528,6 +553,16 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
             co["code"] = f"CO{i + 1}"
         if "suggested_po_codes" not in co:
             co["suggested_po_codes"] = []
+
+        # po_mapping_strengths aliases; Pydantic validator fills in any missing
+        # per-code entries with MEDIUM, so a partial or absent dict is fine here.
+        if "po_mapping_strengths" not in co:
+            for alias in ("po_strengths", "mapping_strengths", "po_code_strengths"):
+                if alias in co:
+                    co["po_mapping_strengths"] = co.pop(alias)
+                    break
+            else:
+                co["po_mapping_strengths"] = {}
 
     # --- unit normalization ---
     units: list[Any] = data.get("units", [])
@@ -695,6 +730,7 @@ class GroqSyllabusProvider:
                     "description":        co.description,
                     "bloom_level":        co.bloom_level,
                     "suggested_po_codes": co.suggested_po_codes,
+                    "po_mapping_strengths": co.po_mapping_strengths,
                 }
                 for co in parsed.outcomes
             ],
@@ -810,6 +846,7 @@ class DeepSeekSyllabusProvider:
                     "description":        co.description,
                     "bloom_level":        co.bloom_level,
                     "suggested_po_codes": co.suggested_po_codes,
+                    "po_mapping_strengths": co.po_mapping_strengths,
                 }
                 for co in parsed.outcomes
             ],

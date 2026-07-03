@@ -3,7 +3,8 @@ M02 Syllabus router — ~33 endpoints, RBAC enforced.
 
 RBAC
 ----
-  _WRITE  = ADMIN + FACULTY   create / edit / generate / approve / reject / fork
+  _WRITE  = ADMIN + (FACULTY role OR active FACULTY grant, e.g. a DEAN with a
+            FACULTY grant)   create / edit / generate / approve / reject / fork
   _READ   = ADMIN + DEAN + FACULTY   any view
   _LOCK   = ADMIN + DEAN   lock / unlock (semester gate, not content approval)
   _EXPORT = ADMIN + DEAN + FACULTY   export (same population as _READ)
@@ -24,7 +25,7 @@ logger = logging.getLogger("vidya.router.m02")
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.core.rate_limiting import limiter
@@ -116,7 +117,7 @@ def _404(entity: str = "Syllabus") -> HTTPException:
 @router.post("", response_model=SyllabusResponse, status_code=201)
 async def create_syllabus(
     payload: SyllabusCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusResponse:
     try:
@@ -217,7 +218,8 @@ async def dean_overview(
     """
     from sqlalchemy import text, func, select
     from app.modules.m02_syllabus.models import Syllabus, CourseOutcome, SyllabusUnit
-    from app.modules.m01_program_advisor.models import Course
+    from app.modules.m01_program_advisor.models import Course, Program
+    from app.modules.m_academics.dean_scope import get_dean_program_ids
 
     offset = (page - 1) * page_size
 
@@ -230,10 +232,22 @@ async def dean_overview(
         .offset(offset)
         .limit(page_size)
     )
+    count_stmt = select(func.count(Syllabus.id)).where(Syllabus.status.in_(status))
+
+    if current_user.role == "DEAN":
+        governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+        if governed is not None:
+            course_subq = (
+                select(Course.id)
+                .join(Program, Program.id == Course.program_id)
+                .where(Program.acad_program_id.in_(governed))
+            )
+            stmt = stmt.where(Syllabus.course_id.in_(course_subq))
+            count_stmt = count_stmt.where(Syllabus.course_id.in_(course_subq))
+
     result = await db.execute(stmt)
     syllabuses = result.scalars().all()
 
-    count_stmt = select(func.count(Syllabus.id)).where(Syllabus.status.in_(status))
     total = (await db.execute(count_stmt)).scalar_one()
 
     if not syllabuses:
@@ -300,6 +314,7 @@ async def get_syllabus(
 ) -> SyllabusDetail:
     from sqlalchemy import select
     from app.modules.m01_program_advisor.models import Course, Program
+    from app.modules.m_academics.dean_scope import get_dean_program_ids
 
     syllabus = await SyllabusService.get_syllabus_detail(syllabus_id, db=db)
     if syllabus is None:
@@ -312,6 +327,11 @@ async def get_syllabus(
     if course:
         program_result = await db.execute(select(Program).where(Program.id == course.program_id))
         program = program_result.scalar_one_or_none()
+        if current_user.role == "DEAN":
+            governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+            owned_acad_id = program.acad_program_id if program else None
+            if governed is not None and owned_acad_id not in governed:
+                raise _404()
         detail = detail.model_copy(update={
             "course_title": course.title,
             "course_code":  course.code,
@@ -338,7 +358,7 @@ async def get_syllabus_status(
 async def update_syllabus(
     syllabus_id: UUID,
     payload: SyllabusUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusResponse:
     try:
@@ -361,7 +381,7 @@ async def update_syllabus(
 @router.delete("/{syllabus_id}", status_code=200)
 async def delete_syllabus(
     syllabus_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
@@ -407,7 +427,7 @@ async def generate_syllabus(
     request: Request,
     syllabus_id: UUID,
     payload: GenerateSyllabusRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusAIJobResponse:
     # If caller provides updated instructions, persist them first (DRAFT guard in service).
@@ -464,10 +484,45 @@ async def get_generation_job(
 # State transitions
 # ===========================================================================
 
+async def _notify_deans_of_syllabus_submission(
+    syllabus_id: UUID, version: int, db: AsyncSession
+) -> None:
+    """Best-effort: notify deans governing this syllabus's program that it awaits review."""
+    from sqlalchemy import select
+    from app.core.notifications.dispatch import notify_program_deans
+    from app.core.notifications.models import NotificationType
+    from app.modules.m01_program_advisor.models import Course, Program
+    from app.modules.m02_syllabus.models import Syllabus
+
+    try:
+        acad_program_id = (
+            await db.execute(
+                select(Program.acad_program_id)
+                .select_from(Syllabus)
+                .join(Course, Course.id == Syllabus.course_id)
+                .join(Program, Program.id == Course.program_id)
+                .where(Syllabus.id == syllabus_id)
+            )
+        ).scalar_one_or_none()
+        if not acad_program_id:
+            return
+        await notify_program_deans(
+            db,
+            notification_type=NotificationType.SYLLABUS_SUBMITTED,
+            program_id=acad_program_id,
+            title="Faculty submitted a syllabus",
+            body=f"A syllabus (version {version}) is awaiting your review.",
+            entity_type="Syllabus",
+            entity_id=str(syllabus_id),
+        )
+    except Exception:
+        logger.exception("syllabus submission dean-notify failed syllabus=%s", syllabus_id)
+
+
 @router.post("/{syllabus_id}/submit-for-review", response_model=SyllabusStatusResponse)
 async def submit_syllabus_for_review(
     syllabus_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
     """DRAFT → PENDING_REVIEW. Faculty submits syllabus for Dean approval."""
@@ -487,13 +542,14 @@ async def submit_syllabus_for_review(
         target_id=str(syllabus_id),
         metadata={"action": "SUBMIT_FOR_REVIEW", "version": syllabus.version},
     )
+    await _notify_deans_of_syllabus_submission(syllabus_id, syllabus.version, db)
     return SyllabusStatusResponse.model_validate(syllabus)
 
 
 @router.post("/{syllabus_id}/resubmit", response_model=SyllabusStatusResponse)
 async def resubmit_syllabus(
     syllabus_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
     """REJECTED → PENDING_REVIEW. Faculty resubmits after addressing Dean feedback."""
@@ -513,6 +569,7 @@ async def resubmit_syllabus(
         target_id=str(syllabus_id),
         metadata={"version": syllabus.version},
     )
+    await _notify_deans_of_syllabus_submission(syllabus_id, syllabus.version, db)
     return SyllabusStatusResponse.model_validate(syllabus)
 
 
@@ -817,7 +874,7 @@ async def list_outcomes(
 async def add_outcome(
     syllabus_id: UUID,
     payload: CourseOutcomeCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseOutcomeResponse:
     try:
@@ -845,7 +902,7 @@ async def update_outcome(
     syllabus_id: UUID,
     co_id: UUID,
     payload: CourseOutcomeUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseOutcomeResponse:
     try:
@@ -869,7 +926,7 @@ async def update_outcome(
 async def delete_outcome(
     syllabus_id: UUID,
     co_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
@@ -901,7 +958,7 @@ async def update_copo_mappings(
     syllabus_id: UUID,
     co_id: UUID,
     payload: COPOMappingBulkUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[COPOMappingResponse]:
     try:
@@ -955,7 +1012,7 @@ async def list_units(
 async def add_unit(
     syllabus_id: UUID,
     payload: SyllabusUnitCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusUnitResponse:
     try:
@@ -980,7 +1037,7 @@ async def update_unit(
     syllabus_id: UUID,
     unit_id: UUID,
     payload: SyllabusUnitUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusUnitResponse:
     try:
@@ -1004,7 +1061,7 @@ async def update_unit(
 async def delete_unit(
     syllabus_id: UUID,
     unit_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
@@ -1028,7 +1085,7 @@ async def delete_unit(
 async def reorder_units(
     syllabus_id: UUID,
     payload: SyllabusUnitReorder,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     order_map = {uid: num for uid, num in payload.order}
@@ -1069,7 +1126,7 @@ async def list_references(
 async def add_reference(
     syllabus_id: UUID,
     payload: SyllabusReferenceCreate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
@@ -1094,7 +1151,7 @@ async def update_reference(
     syllabus_id: UUID,
     ref_id: UUID,
     payload: SyllabusReferenceUpdate,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
@@ -1118,7 +1175,7 @@ async def update_reference(
 async def delete_reference(
     syllabus_id: UUID,
     ref_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
@@ -1145,7 +1202,7 @@ async def delete_reference(
 async def confirm_reference(
     syllabus_id: UUID,
     ref_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:

@@ -101,7 +101,7 @@ async def _run_generation(
         SyllabusGenerationContext,
         get_syllabus_provider,
     )
-    from app.modules.m02_syllabus.models import SyllabusStatus
+    from app.modules.m02_syllabus.models import MappingStrength, SyllabusStatus
     from app.modules.m02_syllabus.repository import (
         COPOMappingRepository,
         CourseOutcomeRepository,
@@ -209,12 +209,18 @@ async def _run_generation(
             mapping_items = []
             co_code_to_id = {co.code: co.id for co in new_cos}
             for ai_co, db_co in zip(result.outcomes, new_cos):
+                strengths = ai_co.get("po_mapping_strengths", {})
                 for po_code in ai_co.get("suggested_po_codes", []):
                     po_id = po_code_to_id.get(po_code)
                     if po_id is not None:
+                        try:
+                            strength = MappingStrength(strengths.get(po_code, "MEDIUM"))
+                        except ValueError:
+                            strength = MappingStrength.MEDIUM
                         mapping_items.append({
                             "co_id": db_co.id,
                             "po_id": po_id,
+                            "mapping_strength": strength,
                         })
 
             if mapping_items:

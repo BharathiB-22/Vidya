@@ -381,6 +381,38 @@ class SyllabusService:
     ):
         offset = (page - 1) * page_size
 
+        if caller_role == "DEAN" and faculty_user_id is not None:
+            from sqlalchemy import select
+            from app.modules.m01_program_advisor.models import Course, Program
+            from app.modules.m_academics.dean_scope import get_dean_program_ids
+
+            governed = await get_dean_program_ids(faculty_user_id, "DEAN", db)
+            if governed is not None:
+                course_subq = (
+                    select(Course.id)
+                    .join(Program, Program.id == Course.program_id)
+                    .where(Program.acad_program_id.in_(governed))
+                )
+                governed_course_ids = set(
+                    (await db.execute(course_subq)).scalars().all()
+                )
+                if course_id is not None:
+                    if course_id not in governed_course_ids:
+                        raise SyllabusServiceError(
+                            "NOT_IN_SCOPE",
+                            "You may only view syllabuses for programs you govern.",
+                            403,
+                        )
+                else:
+                    course_ids = list(governed_course_ids)
+                    total = await SyllabusRepository.count_by_courses(
+                        course_ids, status_filter=status_filter, db=db
+                    )
+                    items = await SyllabusRepository.list_by_courses(
+                        course_ids, status_filter=status_filter, offset=offset, limit=page_size, db=db
+                    )
+                    return total, items
+
         if caller_role == "FACULTY" and faculty_user_id is not None:
             from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
             if course_id is not None:
