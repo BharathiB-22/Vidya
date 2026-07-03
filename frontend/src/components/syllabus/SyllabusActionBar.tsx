@@ -32,6 +32,7 @@ import {
 } from '@/hooks/syllabuses'
 import { useDeleteSyllabus } from '@/hooks/syllabuses'
 import type { Syllabus } from '@/types/syllabus'
+import { useWorkspace } from '@/lib/workspace'
 
 // Governance roles
 const FACULTY_ROLES = ['FACULTY']
@@ -47,7 +48,7 @@ interface Props {
 
 export function SyllabusActionBar({ syllabus }: Props) {
   const navigate   = useNavigate()
-  const role       = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const isFaculty  = FACULTY_ROLES.includes(role)
   const isDean     = DEAN_ROLES.includes(role)
   const canView    = VIEW_ROLES.includes(role)

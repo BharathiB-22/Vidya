@@ -143,7 +143,7 @@ export default function FacultyWorkspacePage() {
       {/* Teach & Prepare */}
       <div>
         <div className="flex items-center gap-3 mb-4">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+          <h2 className="text-xs font-bold text-foreground uppercase tracking-widest whitespace-nowrap">
             Teach &amp; Prepare
           </h2>
           <div className="flex-1 h-px bg-gray-100" />
@@ -158,7 +158,7 @@ export default function FacultyWorkspacePage() {
       {/* Assess & Research */}
       <div>
         <div className="flex items-center gap-3 mb-4">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">
+          <h2 className="text-xs font-bold text-foreground uppercase tracking-widest whitespace-nowrap">
             Assess &amp; Research
           </h2>
           <div className="flex-1 h-px bg-gray-100" />

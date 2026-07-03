@@ -201,7 +201,7 @@ export default function ExamPaperCreatePage() {
 
         {/* Basic info */}
         <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Paper Details</h2>
+          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Paper Details</h2>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Title *</label>
@@ -216,7 +216,7 @@ export default function ExamPaperCreatePage() {
 
           {/* Course selection — Program → Semester → Course */}
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Course Selection</p>
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Course Selection</p>
 
             {/* Program */}
             <div className="space-y-1">
@@ -337,7 +337,7 @@ export default function ExamPaperCreatePage() {
 
         {/* Exam Workflow */}
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Exam Workflow</h2>
+          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Exam Workflow</h2>
           <div className="grid grid-cols-2 gap-3">
             {(
               [
@@ -391,7 +391,7 @@ export default function ExamPaperCreatePage() {
         {/* Section Layout */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Section Layout</h2>
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Section Layout</h2>
             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -495,7 +495,7 @@ export default function ExamPaperCreatePage() {
 
         {/* Question format */}
         <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Question Format</h2>
+          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Question Format</h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {(
               [
@@ -531,7 +531,7 @@ export default function ExamPaperCreatePage() {
         {/* Bloom's distribution */}
         <section className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Bloom's Distribution (%)</h2>
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Bloom's Distribution (%)</h2>
             <span className={`text-sm font-semibold ${Math.abs(bloomSum - 100) > 1 ? 'text-red-600' : 'text-green-600'}`}>
               Total: {bloomSum.toFixed(0)}%
             </span>

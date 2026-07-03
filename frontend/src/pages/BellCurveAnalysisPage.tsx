@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { getAnalysis, getAnalysisJobStatus, getGradeSummary, listNormalisedLedger } from '@/lib/api/bellCurve'
 import type { AnalysisStatus, AnomalyItem, BellCurveAnalysis, GradeSummaryResponse, HistogramBin, NormalisedScore } from '@/types/bellCurve'
+import { useWorkspace } from '@/lib/workspace'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -364,7 +365,7 @@ function JobPoller({ analysis }: { analysis: BellCurveAnalysis }) {
 export default function BellCurveAnalysisPage() {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const role     = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   const isBoard  = role === 'BOARD'
   const canRatify = isBoard
 

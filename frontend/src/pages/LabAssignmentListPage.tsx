@@ -10,6 +10,7 @@ import { useCreateAssignment, usePublishAssignment, useCloseAssignment } from '@
 import { getModerationReportUrl } from '@/lib/api/labs'
 import { addToast } from '@/hooks/useToast'
 import type { AssignmentStatus, AssignmentCreate } from '@/types/labs'
+import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 
@@ -195,7 +196,7 @@ export default function LabAssignmentListPage() {
   const navigate          = useNavigate()
   const [params]          = useSearchParams()
   const syllabusId        = params.get('syllabus_id') ?? ''
-  const role              = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canWrite          = WRITE_ROLES.includes(role)
 
   const [statusFilter, setStatusFilter] = useState<AssignmentStatus | ''>('')

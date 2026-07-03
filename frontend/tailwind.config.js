@@ -4,6 +4,16 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Semantic typography tokens: `foreground` for primary content
+        // (headings, titles, table/card data), `muted-foreground` for
+        // secondary-only content (timestamps, helper text, placeholders,
+        // metadata, disabled hints). See src/index.css for the CSS
+        // variable definitions.
+        foreground: 'rgb(var(--foreground) / <alpha-value>)',
+        muted: {
+          DEFAULT: 'rgb(var(--muted) / <alpha-value>)',
+          foreground: 'rgb(var(--muted-foreground) / <alpha-value>)',
+        },
         // University workspace (tenant side)
         sv: {
           dark:    '#0f2044',

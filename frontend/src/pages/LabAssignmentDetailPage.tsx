@@ -12,6 +12,7 @@ import { useUpdateAssignment } from '@/hooks/labs'
 import { getModerationReportUrl } from '@/lib/api/labs'
 import { addToast } from '@/hooks/useToast'
 import type { LabSubmission, RubricCriterion, SubmissionStatus } from '@/types/labs'
+import { useWorkspace } from '@/lib/workspace'
 
 type Tab = 'overview' | 'submissions' | 'evaluators'
 
@@ -339,7 +340,7 @@ function RubricEditor({
 export default function LabAssignmentDetailPage() {
   const { id }    = useParams<{ id: string }>()
   const navigate  = useNavigate()
-  const role      = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canWrite  = WRITE_ROLES.includes(role)
   const [tab, setTab] = useState<Tab>('overview')
 

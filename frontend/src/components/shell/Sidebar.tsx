@@ -12,6 +12,8 @@ import {
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
+import { useWorkspace } from '@/lib/workspace'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 type LucideIconType = typeof LayoutDashboard
 
@@ -19,9 +21,18 @@ interface NavItem {
   label: string
   to: string
   icon: LucideIconType
-  roles: string[]        // OR: visible if roleSet has any of these
-  allRoles?: string[]    // AND: roleSet must also contain all of these
-  excludeRoles?: string[]// NOT: hidden if roleSet contains any of these
+  // Base-workspace item (the default): visible only when the user's
+  // currently active workspace (see WorkspaceSwitcher — user-selectable,
+  // not simply user.role) is one of these. This is what keeps a DEAN who
+  // also holds a FACULTY grant inside one workspace's navigation at a time
+  // instead of the union of every held role.
+  roles: string[]
+  // Grant-overlay item: attaches to whichever primary workspace holds the
+  // grant (e.g. a FACULTY user who also holds an EVALUATOR grant). Ignores
+  // primary-role gating and checks the full effective role set instead.
+  grantOverlay?: boolean
+  allRoles?: string[]     // AND (grant-overlay only): effective role set must also contain all of these
+  excludeRoles?: string[] // NOT: hidden if the effective role set contains any of these
   exact?: boolean
 }
 
@@ -39,6 +50,14 @@ const NAV_SECTIONS: NavSection[] = [
     heading: '',
     items: [
       { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, roles: ALL_ROLES, exact: true },
+    ],
+  },
+
+  // ── FACULTY / DEAN: Account (single shared location — do not duplicate per role) ──
+  {
+    heading: 'Account',
+    items: [
+      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY', 'DEAN'] },
     ],
   },
 
@@ -74,14 +93,6 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Analytics',
     items: [
       { label: 'Performance Analytics', to: '/sis/attendance/shortage', icon: BarChart2, roles: ['FACULTY'] },
-    ],
-  },
-
-  // ── FACULTY: Account ──────────────────────────────────────────────────────
-  {
-    heading: 'Account',
-    items: [
-      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY'] },
     ],
   },
 
@@ -166,14 +177,6 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── DEAN: My Account ──────────────────────────────────────────────────────
-  {
-    heading: 'My Account',
-    items: [
-      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['DEAN'] },
-    ],
-  },
-
   // ── ADMIN: Academic Structure ─────────────────────────────────────────────
   {
     heading: 'Academic Structure',
@@ -234,19 +237,25 @@ const NAV_SECTIONS: NavSection[] = [
   },
 
   // ── BOARD: Examination ────────────────────────────────────────────────────
+  // BOARD can be a base role (its own login) OR a grant layered onto a
+  // FACULTY account (faculty_role_grants.role_code = 'BOARD'), same as
+  // GUIDE/EVALUATOR — hence grantOverlay so a FACULTY-primary user who also
+  // holds a BOARD grant keeps this section. excludeRoles: DEAN so a Dean
+  // holding a BOARD grant isn't handed the full raw Board workspace (no
+  // dean-scoped Board view exists yet, matching the GUIDE/EVALUATOR pattern).
   {
     heading: 'Examination',
     items: [
-      { label: 'Exam Paper Review', to: '/exams/board/pending',        icon: ClipboardCheck, roles: ['BOARD'] },
-      { label: 'Answer Scripts',    to: '/scripts',                     icon: ClipboardList,  roles: ['BOARD'] },
-      { label: 'Script Evaluation', to: '/scripts/board',               icon: FileText,       roles: ['BOARD'] },
-      { label: 'Mark Sheet',        to: '/scripts/ledger',              icon: BookLock,       roles: ['BOARD'] },
-      { label: 'Grade Analytics',   to: '/bell-curve',                  icon: BarChart2,      roles: ['BOARD'] },
-      { label: 'Digital Sessions',  to: '/exams/digital',               icon: Monitor,        roles: ['BOARD'] },
-      { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',    icon: Activity,       roles: ['BOARD'] },
-      { label: 'Exam Analytics',    to: '/exams/digital/analytics',     icon: BarChart2,      roles: ['BOARD'] },
-      { label: 'Board Analytics',   to: '/board/exam-analytics',        icon: Scale,          roles: ['BOARD'] },
-      { label: 'Compliance & Audit', to: '/board/compliance',           icon: ShieldCheck,    roles: ['BOARD'] },
+      { label: 'Exam Paper Review', to: '/exams/board/pending',        icon: ClipboardCheck, roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Answer Scripts',    to: '/scripts',                     icon: ClipboardList,  roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Script Evaluation', to: '/scripts/board',               icon: FileText,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Mark Sheet',        to: '/scripts/ledger',              icon: BookLock,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Grade Analytics',   to: '/bell-curve',                  icon: BarChart2,      roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Digital Sessions',  to: '/exams/digital',               icon: Monitor,        roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',    icon: Activity,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Exam Analytics',    to: '/exams/digital/analytics',     icon: BarChart2,      roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Board Analytics',   to: '/board/exam-analytics',        icon: Scale,          roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Compliance & Audit', to: '/board/compliance',           icon: ShieldCheck,    roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
     ],
   },
 
@@ -272,7 +281,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Evaluate',
     items: [
-      { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'], excludeRoles: ['DEAN'] },
+      { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'], grantOverlay: true, excludeRoles: ['DEAN'] },
     ],
   },
 
@@ -282,7 +291,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Research',
     items: [
-      { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['GUIDE'], excludeRoles: ['DEAN'] },
+      { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['GUIDE'], grantOverlay: true, excludeRoles: ['DEAN'] },
     ],
   },
 ]
@@ -369,8 +378,16 @@ export function Sidebar({ onClose }: SidebarProps) {
   const { user: authUser } = useAuth()
   const { branding } = useBranding()
   const role = user?.role ?? ''
-  // Visibility is driven by base role + active responsibility grants, so a
-  // single FACULTY account surfaces the Guide / Evaluator / Board dashboards.
+  // The active workspace — user-selectable (see WorkspaceSwitcher), defaults
+  // to the base login role, persisted per-user in localStorage. Base-workspace
+  // nav items are gated to this alone so a DEAN who also holds a FACULTY
+  // grant stays inside one workspace's navigation at a time instead of seeing
+  // the union of every held role, and can explicitly switch to the other.
+  const { activeWorkspace } = useWorkspace()
+  // Full effective role set (base role + active responsibility grants) —
+  // used only for grant-overlay items (roles held ON TOP of the active
+  // workspace, e.g. a FACULTY user who also evaluates) and for allRoles/
+  // excludeRoles intersection checks, never for base-workspace visibility.
   const roleSet = effectiveRoles(user)
 
   // Use the registered institution name from branding; fall back to slug-derived label
@@ -445,11 +462,18 @@ export function Sidebar({ onClose }: SidebarProps) {
         </button>
       </div>
 
+      {/* ── Workspace switcher — hidden when the user has only one workspace ── */}
+      <WorkspaceSwitcher />
+
       {/* ── Nav ──────────────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0">
         {NAV_SECTIONS.map((section) => {
           const visibleItems = section.items.filter((item) => {
-            if (!item.roles.some((r) => roleSet.has(r))) return false
+            if (item.grantOverlay) {
+              if (!item.roles.some((r) => roleSet.has(r))) return false
+            } else if (!item.roles.includes(activeWorkspace)) {
+              return false
+            }
             if (item.allRoles && !item.allRoles.every((r) => roleSet.has(r))) return false
             if (item.excludeRoles && item.excludeRoles.some((r) => roleSet.has(r))) return false
             return true
@@ -528,7 +552,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                 : getGreeting()}
             </p>
             <p className="text-[9px] text-slate-600 leading-tight mt-0.5 uppercase tracking-wide font-medium">
-              {role}
+              {activeWorkspace}
             </p>
           </div>
         </div>

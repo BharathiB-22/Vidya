@@ -3,6 +3,19 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Typography tokens (space-separated RGB, used via rgb(var(--x) / <alpha-value>)).
+       foreground = primary content (headings, titles, table/card data) — near-black.
+       muted-foreground = secondary readable content (labels, metadata, session
+       info, timestamps) — a dark, readable slate, NOT light grey. Anything the
+       user is expected to read must stay dark. Genuinely non-readable greys
+       (placeholders, disabled controls, borders, muted icons) use explicit
+       gray-300/gray-400 utilities, not this token. */
+    --foreground: 15 23 42;
+    --muted-foreground: 51 65 85;
+    --muted: 241 245 249;
+  }
+
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;

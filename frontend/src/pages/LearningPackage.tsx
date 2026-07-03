@@ -51,6 +51,7 @@ import type {
   PackageItem,
 } from '@/types/learningPackage'
 import { SOURCE_ORDER } from '@/types/learningPackage'
+import { useWorkspace } from '@/lib/workspace'
 
 // ---------------------------------------------------------------------------
 // Source configuration
@@ -553,7 +554,7 @@ export default function LearningPackagePage() {
   const navigate = useNavigate()
 
   const packageId  = id ?? ''
-  const role       = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   const canCurate  = FACULTY_ROLES.includes(role)
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('ALL')

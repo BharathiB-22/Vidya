@@ -50,6 +50,7 @@ import type {
   PackageItem,
   PackageStatus,
 } from '@/types/learningPackage'
+import { useWorkspace } from '@/lib/workspace'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -510,7 +511,7 @@ export default function FacultyCuratePage() {
   const qc       = useQueryClient()
 
   const packageId = id ?? ''
-  const role      = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   const isDean    = role === 'DEAN'
 
   const { data: pkg, isLoading: pkgLoading, isError: pkgError } =

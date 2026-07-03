@@ -9,6 +9,7 @@ import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
 import { usePrograms } from '@/hooks/programs'
 import type { ProgramStatus } from '@/types/program'
+import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'DEAN']
 
@@ -22,7 +23,7 @@ const STATUS_OPTIONS: Array<{ value: ProgramStatus | ''; label: string }> = [
 
 export default function ProgramListPage() {
   const navigate = useNavigate()
-  const role = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canCreate = WRITE_ROLES.includes(role)
 
   const [statusFilter, setStatusFilter] = useState<ProgramStatus | ''>('')

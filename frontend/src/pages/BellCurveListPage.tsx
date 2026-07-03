@@ -16,6 +16,7 @@ import { listAllExamPapers } from '@/lib/api/exam'
 import { getErrorMessage } from '@/lib/api'
 import { addToast } from '@/hooks/useToast'
 import type { BellCurveAnalysis, AnalysisStatus } from '@/types/bellCurve'
+import { useWorkspace } from '@/lib/workspace'
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -111,7 +112,7 @@ function TriggerPanel({ onDone }: { onDone: () => void }) {
 function AnalysisCard({ analysis }: { analysis: BellCurveAnalysis }) {
   const navigate = useNavigate()
   const canRatify = analysis.status === 'READY' || analysis.status === 'BOARD_REVIEWED'
-  const role = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   const isBoard = role === 'BOARD'
 
   return (
@@ -166,7 +167,7 @@ function AnalysisCard({ analysis }: { analysis: BellCurveAnalysis }) {
 export default function BellCurveListPage() {
   const navigate  = useNavigate()
   const qc        = useQueryClient()
-  const role      = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   const canTrigger = role === 'BOARD' || role === 'ADMIN'
 
   const [offset, setOffset]       = useState(0)

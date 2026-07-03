@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { PackageStatusBadge } from '@/components/learningPackage/PackageStatusBadge'
 import { useLearningPackages, useTriggerCuration } from '@/hooks/learningPackage'
 import type { PackageStatus } from '@/types/learningPackage'
+import { useWorkspace } from '@/lib/workspace'
 
 const STATUS_OPTIONS: Array<{ value: PackageStatus | ''; label: string }> = [
   { value: '',          label: 'All'      },
@@ -32,7 +33,7 @@ export default function LearningPackageListPage() {
   const syllabusId  = params.get('syllabus_id') ?? ''
   const unitNumber  = params.get('unit_number') ?? ''
 
-  const role      = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   const canCreate = ['ADMIN', 'FACULTY'].includes(role)
 
   const [statusFilter, setStatusFilter] = useState<PackageStatus | ''>('')

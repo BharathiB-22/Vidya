@@ -6,6 +6,7 @@ import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
 import { CreateSyllabusDialog } from '@/components/syllabus/CreateSyllabusDialog'
 import { useSyllabuses } from '@/hooks/syllabuses'
 import type { SyllabusStatus } from '@/types/syllabus'
+import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 
@@ -54,7 +55,7 @@ export default function SyllabusListPage() {
   const [params]   = useSearchParams()
   const courseId   = params.get('course_id') ?? ''
   const programId  = params.get('program_id') ?? ''
-  const role       = localStorage.getItem('vidya_role') ?? 'FACULTY'
+  const { activeWorkspace: role } = useWorkspace()
   const canCreate  = WRITE_ROLES.includes(role)
 
   const [statusFilter, setStatusFilter] = useState<SyllabusStatus | ''>('')

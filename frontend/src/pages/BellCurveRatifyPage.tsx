@@ -18,6 +18,7 @@ import type {
   NormalisationMethod,
   PreviewNormalisationResponse,
 } from '@/types/bellCurve'
+import { useWorkspace } from '@/lib/workspace'
 
 // ---------------------------------------------------------------------------
 // Method descriptions
@@ -168,7 +169,7 @@ export default function BellCurveRatifyPage() {
   const navigate = useNavigate()
   const qc       = useQueryClient()
 
-  const role = localStorage.getItem('vidya_role') ?? ''
+  const { activeWorkspace: role } = useWorkspace()
   if (role !== 'BOARD') {
     return (
       <div className="max-w-xl mx-auto p-8 text-center text-gray-500">
