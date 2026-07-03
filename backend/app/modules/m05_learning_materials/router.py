@@ -3,7 +3,8 @@ M05 Learning Material Packager — router (STEP-12).
 
 RBAC
 ----
-  _WRITE  = ADMIN + FACULTY  (curation trigger, RAG index, item mutations)
+  _WRITE  = ADMIN + (FACULTY role OR active FACULTY grant, e.g. a DEAN with a
+            FACULTY grant)  (curation trigger, RAG index, item mutations)
   _READ   = ADMIN + DEAN + FACULTY  (package list/get, job status)
   _FULL   = ADMIN + DEAN + FACULTY + STUDENT  (package/item reads, Q&A)
 
@@ -36,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.core.rate_limiting import limiter
@@ -94,7 +95,7 @@ def _404(entity: str = "Learning package") -> HTTPException:
 async def trigger_curation(
     request: Request,
     payload: CurationTriggerRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CurationJobResponse:
     try:
@@ -121,7 +122,7 @@ async def trigger_curation(
 async def trigger_rag_indexing(
     request: Request,
     package_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
@@ -175,6 +176,8 @@ async def list_packages(
         status_filter=status,
         page=page,
         page_size=page_size,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
         db=db,
     )
     return LearningPackageListResponse(
@@ -191,7 +194,12 @@ async def get_package(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> LearningPackageResponse:
-    pkg = await LearningPackageService.get_package(package_id, db=db)
+    pkg = await LearningPackageService.get_package(
+        package_id,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
+    )
     if pkg is None:
         raise _404()
     return LearningPackageResponse.model_validate(pkg)
@@ -203,7 +211,12 @@ async def get_package_status(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageStatusResponse:
-    pkg = await LearningPackageService.get_package(package_id, db=db)
+    pkg = await LearningPackageService.get_package(
+        package_id,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
+    )
     if pkg is None:
         raise _404()
     return PackageStatusResponse.model_validate(pkg)
@@ -230,7 +243,7 @@ async def list_items(
 async def add_faculty_item(
     package_id: UUID,
     payload: FacultyAddItemRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageItemResponse:
     try:
@@ -264,7 +277,7 @@ async def add_faculty_item(
 async def remove_item(
     package_id: UUID,
     item_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
@@ -298,7 +311,7 @@ async def upload_faculty_note(
     package_id: UUID,
     file: UploadFile = File(..., description="PDF, plain-text, or DOCX file (max 20 MB)"),
     title: str | None = Form(default=None, description="Override display title (defaults to filename)"),
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageItemResponse:
     """Upload a faculty note file and add it as a FACULTY_NOTE item.
@@ -322,6 +335,8 @@ async def upload_faculty_note(
             title=title,
             added_by=current_user.user_id,
             tenant_slug=current_user.schema_name.replace("tenant_", "", 1),
+            tenant_id=current_user.tenant_id,
+            tenant_schema=current_user.schema_name,
             db=db,
         )
     except PackageServiceError as e:
@@ -353,7 +368,7 @@ async def toggle_recommendation(
     package_id: UUID,
     item_id: UUID,
     payload: FacultyRecommendToggle,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageItemResponse:
     try:

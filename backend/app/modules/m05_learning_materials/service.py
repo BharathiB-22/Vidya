@@ -239,17 +239,22 @@ class LearningPackageService:
         *,
         db: AsyncSession,
     ) -> CurationJobResponse:
-        """Create a PENDING package and dispatch the curation Celery task.
+        """Upsert the package for this (syllabus_id, unit_number, version) and
+        dispatch the curation Celery task.
 
         Rejects with 409 if a curation is already running for this unit.
-        Multiple versions (re-curations) are allowed; each creates a new package row.
+        A non-OUTDATED package for the same syllabus unit is reused (re-curated
+        in place) rather than creating a duplicate row — each syllabus + unit +
+        version has exactly one LearningPackage. Only a syllabus version bump
+        (handled by on_syllabus_version_bump) marks the old package OUTDATED
+        and starts a new versioned one.
         """
         from app.modules.m02_syllabus.repository import TaskJobPublicRepository
         from app.core.audit_log.models import AuditEventType
         from app.core.audit_log.service import AuditService
         from app.workers.heavy.curate_learning_package import curate_learning_package
 
-        # Block duplicate dispatch while a curation is in flight.
+        # Reuse the current (non-OUTDATED) package for this syllabus unit, if any.
         existing = await LearningPackageRepository.get_by_syllabus_unit(
             syllabus_id, unit_number, db=db
         )
@@ -264,13 +269,21 @@ class LearningPackageService:
         from app.config import settings
         effective_top_n = top_n if top_n is not None else settings.M05_TOP_N_PER_UNIT
 
-        pkg = await LearningPackageRepository.create(
-            syllabus_id=syllabus_id,
-            unit_number=unit_number,
-            created_by_user_id=created_by,
-            top_n=effective_top_n,
-            db=db,
-        )
+        if existing is not None:
+            # Re-curate in place — reset to PENDING so the worker's precondition
+            # passes; curate_learning_package already deletes stale AI items
+            # idempotently before rebuilding, so this is safe to repeat.
+            pkg = await LearningPackageRepository.reset_for_recuration(
+                existing.id, effective_top_n, db=db
+            )
+        else:
+            pkg = await LearningPackageRepository.create(
+                syllabus_id=syllabus_id,
+                unit_number=unit_number,
+                created_by_user_id=created_by,
+                top_n=effective_top_n,
+                db=db,
+            )
 
         job_id = await TaskJobPublicRepository.create(
             tenant_id=tenant_id,
@@ -367,9 +380,40 @@ class LearningPackageService:
     async def get_package(
         package_id: UUID,
         *,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> LearningPackage | None:
-        return await LearningPackageRepository.get_by_id(package_id, db=db)
+        pkg = await LearningPackageRepository.get_by_id(package_id, db=db)
+        if pkg is not None and caller_role == "DEAN" and caller_user_id is not None:
+            if not await LearningPackageService._dean_can_see_syllabus(
+                pkg.syllabus_id, caller_user_id, db=db
+            ):
+                return None
+        return pkg
+
+    @staticmethod
+    async def _dean_can_see_syllabus(
+        syllabus_id: UUID, dean_user_id: UUID, *, db: AsyncSession
+    ) -> bool:
+        from sqlalchemy import select
+        from app.modules.m01_program_advisor.models import Course, Program
+        from app.modules.m02_syllabus.repository import SyllabusRepository
+        from app.modules.m_academics.dean_scope import get_dean_program_ids
+
+        governed = await get_dean_program_ids(dean_user_id, "DEAN", db)
+        if governed is None:
+            return True
+        syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
+        if syllabus is None:
+            return False
+        result = await db.execute(
+            select(Program.acad_program_id)
+            .join(Course, Course.program_id == Program.id)
+            .where(Course.id == syllabus.course_id)
+        )
+        acad_program_id = result.scalar_one_or_none()
+        return acad_program_id is not None and acad_program_id in governed
 
     @staticmethod
     async def list_packages(
@@ -378,9 +422,50 @@ class LearningPackageService:
         status_filter: PackageStatus | None = None,
         page: int = 1,
         page_size: int = 50,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> tuple[int, list[LearningPackage]]:
         offset = (page - 1) * page_size
+
+        if caller_role == "DEAN" and caller_user_id is not None:
+            from sqlalchemy import select
+            from app.modules.m01_program_advisor.models import Course, Program
+            from app.modules.m02_syllabus.models import Syllabus
+            from app.modules.m_academics.dean_scope import get_dean_program_ids
+
+            governed = await get_dean_program_ids(caller_user_id, "DEAN", db)
+            if governed is not None:
+                if syllabus_id is not None:
+                    if not await LearningPackageService._dean_can_see_syllabus(
+                        syllabus_id, caller_user_id, db=db
+                    ):
+                        return 0, []
+                else:
+                    course_subq = (
+                        select(Course.id)
+                        .join(Program, Program.id == Course.program_id)
+                        .where(Program.acad_program_id.in_(governed))
+                    )
+                    governed_syllabus_ids = list(
+                        (
+                            await db.execute(
+                                select(Syllabus.id).where(Syllabus.course_id.in_(course_subq))
+                            )
+                        ).scalars().all()
+                    )
+                    total = await LearningPackageRepository.count_by_syllabus_ids(
+                        governed_syllabus_ids, status_filter=status_filter, db=db
+                    )
+                    items = await LearningPackageRepository.list_by_syllabus_ids(
+                        governed_syllabus_ids,
+                        status_filter=status_filter,
+                        offset=offset,
+                        limit=page_size,
+                        db=db,
+                    )
+                    return total, items
+
         if syllabus_id is not None:
             total = await LearningPackageRepository.count_by_syllabus(
                 syllabus_id, status_filter=status_filter, db=db
@@ -646,6 +731,8 @@ class LearningPackageService:
         added_by: UUID,
         tenant_slug: str,
         *,
+        tenant_id: UUID | None = None,
+        tenant_schema: str | None = None,
         db: AsyncSession,
     ) -> PackageItem:
         """Extract text from an uploaded PDF/TXT/DOCX and add as a FACULTY_NOTE item.
@@ -657,12 +744,32 @@ class LearningPackageService:
           4. Dedup by content_hash (title-based for notes).
           5. Bulk-create one PackageItem with extracted_text in metadata_.
           6. Increment item_count on the parent package.
+          7. If the package is READY, immediately (re)dispatch RAG indexing so
+             the new note is searchable without a separate manual trigger
+             (best-effort — a failure here does not fail the upload).
         """
         _ALLOWED = {
             "application/pdf",
             "text/plain",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
+        _EXT_TO_TYPE = {
+            "pdf":  "application/pdf",
+            "txt":  "text/plain",
+            "text": "text/plain",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+
+        # Strip charset/parameters (e.g. "text/plain; charset=utf-8") before matching.
+        content_type = (content_type or "").split(";", 1)[0].strip().lower()
+
+        # Some browsers/clients send a generic or missing content-type for
+        # otherwise-valid files; fall back to the filename extension so a
+        # correctly-named PDF/TXT/DOCX isn't rejected on that basis alone.
+        if content_type not in _ALLOWED:
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            content_type = _EXT_TO_TYPE.get(ext, content_type)
+
         if content_type not in _ALLOWED:
             raise PackageServiceError(
                 "UNSUPPORTED_FILE_TYPE",
@@ -749,6 +856,21 @@ class LearningPackageService:
             "m05.service: faculty note ingested (package=%s item=%s words=%d file=%r)",
             package_id, items[0].id, word_count, filename,
         )
+
+        # Best-effort: re-index immediately so the note is searchable right away.
+        # Only meaningful once the package has already been curated (READY);
+        # a PENDING/CURATING package will be indexed by its normal pipeline.
+        if pkg.status == PackageStatus.READY and tenant_id is not None and tenant_schema:
+            try:
+                await LearningPackageService.dispatch_rag_indexing(
+                    package_id, tenant_id, tenant_schema, db=db
+                )
+            except Exception as exc:
+                logger.warning(
+                    "m05.service: auto re-index after faculty note upload failed "
+                    "(package=%s): %s", package_id, exc,
+                )
+
         return items[0]
 
     # =========================================================================

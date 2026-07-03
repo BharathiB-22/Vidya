@@ -89,6 +89,29 @@ class LearningPackageRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def reset_for_recuration(
+        package_id: UUID,
+        top_n: int,
+        *,
+        db: AsyncSession,
+    ) -> LearningPackage | None:
+        """Reset an existing package to PENDING for an in-place re-curation
+        (upsert path — avoids creating a duplicate row for the same
+        syllabus_id + unit_number + version)."""
+        stmt = (
+            update(LearningPackage)
+            .where(LearningPackage.id == package_id)
+            .values(
+                status=PackageStatus.PENDING,
+                top_n=top_n,
+                updated_at=func.now(),
+            )
+            .returning(LearningPackage)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
     async def set_curating(
         package_id: UUID,
         ai_model: str,
@@ -290,6 +313,46 @@ class LearningPackageRepository:
         db: AsyncSession,
     ) -> int:
         stmt = select(func.count(LearningPackage.id))
+        if status_filter is not None:
+            stmt = stmt.where(LearningPackage.status == status_filter)
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    @staticmethod
+    async def list_by_syllabus_ids(
+        syllabus_ids: list[UUID],
+        *,
+        status_filter: PackageStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+        db: AsyncSession,
+    ) -> list[LearningPackage]:
+        if not syllabus_ids:
+            return []
+        stmt = (
+            select(LearningPackage)
+            .where(LearningPackage.syllabus_id.in_(syllabus_ids))
+            .order_by(LearningPackage.unit_number.asc(), LearningPackage.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        if status_filter is not None:
+            stmt = stmt.where(LearningPackage.status == status_filter)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def count_by_syllabus_ids(
+        syllabus_ids: list[UUID],
+        *,
+        status_filter: PackageStatus | None = None,
+        db: AsyncSession,
+    ) -> int:
+        if not syllabus_ids:
+            return 0
+        stmt = select(func.count(LearningPackage.id)).where(
+            LearningPackage.syllabus_id.in_(syllabus_ids)
+        )
         if status_filter is not None:
             stmt = stmt.where(LearningPackage.status == status_filter)
         result = await db.execute(stmt)

@@ -103,9 +103,11 @@ export async function uploadFacultyNote(
   const form = new FormData()
   form.append('file', payload.file, payload.file.name)
   if (payload.title) form.append('title', payload.title)
-  const { data } = await api.post<PackageItem>(`${BASE}/${packageId}/notes`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  // Do NOT set Content-Type manually — axios/the browser must compute the
+  // multipart boundary itself. A hardcoded 'multipart/form-data' header has
+  // no boundary parameter, so the server can't parse the body and the
+  // upload fails.
+  const { data } = await api.post<PackageItem>(`${BASE}/${packageId}/notes`, form)
   return data
 }
 
