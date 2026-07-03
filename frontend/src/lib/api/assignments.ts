@@ -89,12 +89,13 @@ export const assignmentsApi = {
   revoke: (assignmentId: string) =>
     api.post<Assignment>(`${B}/${assignmentId}/revoke`, {}).then(r => r.data),
 
-  listByCourse: (courseId: string, semesterId?: string, includeInactive = false) =>
+  listByCourse: (courseId: string, semesterId?: string, includeInactive = false, sectionId?: string) =>
     api
       .get<AssignmentListResponse>(B, {
         params: {
           course_id: courseId,
           semester_id: semesterId || undefined,
+          section_id: sectionId || undefined,
           include_inactive: includeInactive,
         },
       })
@@ -107,11 +108,12 @@ export const assignmentsApi = {
       })
       .then(r => r.data),
 
-  listAll: (semesterId?: string, includeInactive = false) =>
+  listAll: (semesterId?: string, includeInactive = false, sectionId?: string) =>
     api
       .get<AssignmentListResponse>(B, {
         params: {
           semester_id:      semesterId || undefined,
+          section_id:       sectionId || undefined,
           include_inactive: includeInactive,
           page_size:        500,
         },

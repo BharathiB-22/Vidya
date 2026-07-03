@@ -4,7 +4,7 @@ M09 Paper Administration & Scanning — Router.
 RBAC
 ----
   _INGEST   = ADMIN + BOARD           (upload / assign evaluator)
-  _EVALUATE = FACULTY + ADMIN         (update marks / Gate 1 submit)
+  _EVALUATE = ADMIN + (FACULTY role OR active FACULTY grant)   (update marks / Gate 1 submit)
   _BOARD    = BOARD + ADMIN           (Gate 2 finalise / ledger read)
   _READ     = all tenant roles        (script detail / evaluations / list)
 
@@ -43,7 +43,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_context_dep, require_roles
+from app.core.auth.dependencies import get_tenant_context_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m09_paper_admin.schemas import (
@@ -134,7 +134,7 @@ _STUDENT_ONLY    = [TenantRole.STUDENT]  # M09.5: exam taking
 _FACULTY_REVIEW  = [TenantRole.FACULTY, TenantRole.ADMIN]  # M09.5 Phase D: subjective scoring
 
 def _ingest_dep():          return require_roles(*_INGEST)
-def _eval_dep():            return require_roles(*_EVALUATE)
+def _eval_dep():            return require_responsibility(*_EVALUATE)
 def _board_dep():           return require_roles(*_BOARD)
 def _read_dep():            return require_roles(*_READ)
 def _admin_dep():           return require_roles(*_ADMIN_ONLY)
@@ -143,7 +143,7 @@ def _board_approve_dep():   return require_roles(*_BOARD_APPROVE)
 def _digital_admin_dep():   return require_roles(*_DIGITAL_ADMIN)
 def _digital_read_dep():    return require_roles(*_DIGITAL_READ)
 def _student_dep():         return require_roles(*_STUDENT_ONLY)
-def _faculty_review_dep():  return require_roles(*_FACULTY_REVIEW)
+def _faculty_review_dep():  return require_responsibility(*_FACULTY_REVIEW)
 
 
 # ---------------------------------------------------------------------------
@@ -1253,10 +1253,10 @@ async def reject_revaluation_request(
 async def submit_revaluation_marks(
     request_id: UUID,
     payload: RevaluationSubmitMarksRequest,
-    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY, TenantRole.ADMIN)),
+    current_user: CurrentUser = Depends(require_responsibility(TenantRole.FACULTY, TenantRole.ADMIN)),
     db_info=Depends(get_tenant_context_dep),
 ):
-    """Faculty (assigned evaluator): submit per-question revaluation marks."""
+    """Faculty (assigned evaluator, or a DEAN holding an active FACULTY grant): submit per-question revaluation marks."""
     db: AsyncSession = db_info["db"]
     tenant_id = db_info["tenant_id"]
     try:

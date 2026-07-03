@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("vidya.academics.assignment")
@@ -21,6 +21,7 @@ logger = logging.getLogger("vidya.academics.assignment")
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+from app.modules.m_academics.dean_scope import get_dean_program_ids
 from app.modules.m_academics.assignment_schemas import (
     AssignmentCreate,
     AssignmentListResponse,
@@ -29,6 +30,8 @@ from app.modules.m_academics.assignment_schemas import (
     FacultyInfo,
     SectionInfo,
     SemesterInfo,
+    ValidSemesterOut,
+    ValidSemestersOut,
 )
 from app.modules.m_academics.models import CourseRoleInCourse, SubjectAssignment
 
@@ -112,6 +115,62 @@ async def _fetch_semester(semester_id: UUID, db: AsyncSession) -> SemesterInfo:
     if row is None:
         raise AssignmentServiceError("SEMESTER_NOT_FOUND", "Semester not found.", 404)
     return SemesterInfo(id=row["id"], number=row["number"], label=row["label"])
+
+
+async def _check_program_alignment(
+    course_id: UUID, semester_id: UUID, db: AsyncSession
+) -> None:
+    """Reject an assignment whose course and semester belong to different
+    institutional programs.
+
+    A course's own program (``courses.program_id`` -> curriculum ``programs``
+    table) and a semester's program (``acad_semesters`` -> ``acad_batches`` ->
+    ``acad_programs``) are two independently-editable hierarchies, bridged only
+    by ``programs.acad_program_id``.  Nothing previously checked that a course
+    being assigned and the semester it is being assigned into actually agree on
+    which program they belong to, which let a course from one program (e.g.
+    MCA) be paired with a semester from a completely unrelated program (e.g.
+    BSc Chemistry) purely because both existed and both validated in isolation.
+
+    Resolved entirely from existing foreign keys — no hardcoded program names
+    or ids. If the course's curriculum program has no ``acad_program_id``
+    bridge yet (nullable, tenant may not have linked it), alignment cannot be
+    determined and the assignment is allowed through unchanged.
+    """
+    row = (
+        await db.execute(
+            text(
+                "SELECT "
+                "  course_prog.id   AS course_program_id, "
+                "  course_prog.name AS course_program_name, "
+                "  sem_prog.id      AS semester_program_id, "
+                "  sem_prog.name    AS semester_program_name "
+                "FROM   courses c "
+                "JOIN   programs p              ON p.id  = c.program_id "
+                "LEFT   JOIN acad_programs course_prog ON course_prog.id = p.acad_program_id "
+                "CROSS  JOIN acad_semesters sem "
+                "JOIN   acad_batches ab         ON ab.id = sem.batch_id "
+                "JOIN   acad_programs sem_prog  ON sem_prog.id = ab.program_id "
+                "WHERE  c.id = :course_id AND sem.id = :semester_id"
+            ),
+            {"course_id": str(course_id), "semester_id": str(semester_id)},
+        )
+    ).mappings().one_or_none()
+
+    if row is None or row["course_program_id"] is None:
+        # Course's program has no acad-program bridge yet — nothing to
+        # validate against; do not invent a new blocking rule here.
+        return
+
+    if row["course_program_id"] != row["semester_program_id"]:
+        raise AssignmentServiceError(
+            "PROGRAM_MISMATCH",
+            (
+                f"This course belongs to '{row['course_program_name']}', but the "
+                f"selected semester belongs to '{row['semester_program_name']}'. "
+                "Choose a semester that belongs to the course's own program."
+            ),
+        )
 
 
 async def _fetch_faculty(user_id: UUID, db: AsyncSession) -> FacultyInfo:
@@ -242,6 +301,78 @@ async def _enrich(
 class AssignmentService:
 
     @staticmethod
+    async def list_valid_semesters(course_id: UUID, db: AsyncSession) -> ValidSemestersOut:
+        """Semesters a course may legitimately be assigned into.
+
+        Scoped strictly to the course's own institutional program (course ->
+        curriculum program -> acad_program_id -> acad_batches -> acad_semesters)
+        so the Assign Faculty dialog can offer only semesters that actually
+        belong to this course's program — structurally preventing the mistake
+        that _check_program_alignment only used to catch after the fact.
+
+        If the course's curriculum program has no acad_program_id bridge yet,
+        scoping is impossible; every active semester is returned instead
+        (``scoped=False``), matching _check_program_alignment's own permissive
+        policy for that same edge case so the picker and the guard never
+        disagree.
+        """
+        course_row = (
+            await db.execute(
+                text(
+                    "SELECT c.id, p.acad_program_id, ap.name AS program_name "
+                    "FROM   courses c "
+                    "JOIN   programs p ON p.id = c.program_id "
+                    "LEFT   JOIN acad_programs ap ON ap.id = p.acad_program_id "
+                    "WHERE  c.id = :id"
+                ),
+                {"id": str(course_id)},
+            )
+        ).mappings().one_or_none()
+        if course_row is None:
+            raise AssignmentServiceError("COURSE_NOT_FOUND", "Course not found.", 404)
+
+        acad_program_id = course_row["acad_program_id"]
+
+        sem_query = (
+            "SELECT sem.id, sem.number, sem.label, "
+            "       ab.id AS batch_id, ab.name AS batch_name, "
+            "       ap.id AS program_id, ap.name AS program_name, ap.code AS program_code "
+            "FROM   acad_semesters sem "
+            "JOIN   acad_batches ab  ON ab.id = sem.batch_id "
+            "JOIN   acad_programs ap ON ap.id = ab.program_id "
+            "WHERE  sem.is_active = true AND ab.is_active = true "
+        )
+
+        if acad_program_id is None:
+            rows = (
+                await db.execute(
+                    text(sem_query + "ORDER BY ap.name, ab.start_year DESC, sem.number")
+                )
+            ).mappings().all()
+            return ValidSemestersOut(
+                course_id=course_id,
+                program_id=None,
+                program_name=None,
+                scoped=False,
+                items=[ValidSemesterOut(**r) for r in rows],
+            )
+
+        rows = (
+            await db.execute(
+                text(sem_query + "AND ap.id = :pid ORDER BY ab.start_year DESC, sem.number"),
+                {"pid": str(acad_program_id)},
+            )
+        ).mappings().all()
+
+        return ValidSemestersOut(
+            course_id=course_id,
+            program_id=acad_program_id,
+            program_name=course_row["program_name"],
+            scoped=True,
+            items=[ValidSemesterOut(**r) for r in rows],
+        )
+
+    @staticmethod
     async def create(
         body: AssignmentCreate,
         *,
@@ -257,34 +388,35 @@ class AssignmentService:
         section  = await _fetch_section(body.section_id, db) if body.section_id else None
         faculty  = await _fetch_faculty(body.faculty_user_id, db)
 
+        # Structural guard: the course and the semester must belong to the same
+        # institutional program. See _check_program_alignment for why this is
+        # necessary — course/semester existence alone does not guarantee they
+        # belong together.
+        await _check_program_alignment(body.course_id, body.semester_id, db)
+
         # Dean scope enforcement: DEAN may only assign to courses in programs they govern.
         # ADMIN and SUPER_ADMIN bypass this check.
         if actor_role == "DEAN":
-            prog_row = (
+            acad_program_id = (
                 await db.execute(
                     text(
-                        "SELECT acad_program_id FROM programs WHERE id = :cid LIMIT 1"
+                        "SELECT p.acad_program_id FROM programs p "
+                        "JOIN courses c ON c.program_id = p.id "
+                        "WHERE c.id = :cid LIMIT 1"
                     ),
                     {"cid": str(body.course_id)},
                 )
             ).scalar_one_or_none()
-            if prog_row is not None:
-                scope = (
-                    await db.execute(
-                        text(
-                            "SELECT 1 FROM dean_program_assignments "
-                            "WHERE dean_user_id = :uid AND program_id = :pid AND is_active = true "
-                            "LIMIT 1"
-                        ),
-                        {"uid": str(assigned_by), "pid": str(prog_row)},
-                    )
-                ).one_or_none()
-                if scope is None:
-                    raise AssignmentServiceError(
-                        "PROGRAM_NOT_IN_SCOPE",
-                        "You may only assign faculty to courses within programs you govern.",
-                        403,
-                    )
+            governed = await get_dean_program_ids(assigned_by, actor_role, db)
+            if (
+                governed is not None
+                and (acad_program_id is None or acad_program_id not in governed)
+            ):
+                raise AssignmentServiceError(
+                    "PROGRAM_NOT_IN_SCOPE",
+                    "You may only assign faculty to courses within programs you govern.",
+                    403,
+                )
 
         # Duplicate check: same faculty already active on this course+semester
         dup = await SubjectAssignmentRepository.find_duplicate(
@@ -428,16 +560,38 @@ class AssignmentService:
         return enriched
 
     @staticmethod
+    async def _governed_course_ids(governed: list[UUID], db: AsyncSession) -> list[UUID]:
+        from app.modules.m01_program_advisor.models import Course, Program
+
+        result = await db.execute(
+            select(Course.id)
+            .join(Program, Program.id == Course.program_id)
+            .where(Program.acad_program_id.in_(governed))
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
     async def list_all(
         *,
         semester_id: UUID | None = None,
+        section_id: UUID | None = None,
         include_inactive: bool = False,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> AssignmentListResponse:
         """List all assignments in the tenant (no course filter). DEAN/ADMIN only."""
+        course_ids: list[UUID] | None = None
+        if caller_role == "DEAN" and caller_user_id is not None:
+            governed = await get_dean_program_ids(caller_user_id, caller_role, db)
+            if governed is not None:
+                course_ids = await AssignmentService._governed_course_ids(governed, db)
+
         rows = await SubjectAssignmentRepository.list_all(
             semester_id=semester_id,
+            section_id=section_id,
             include_inactive=include_inactive,
+            course_ids=course_ids,
             db=db,
         )
         items = await _enrich(rows, db)
@@ -448,23 +602,92 @@ class AssignmentService:
         course_id: UUID,
         *,
         semester_id: UUID | None = None,
+        section_id: UUID | None = None,
         include_inactive: bool = False,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> AssignmentListResponse:
+        if caller_role == "DEAN" and caller_user_id is not None:
+            governed = await get_dean_program_ids(caller_user_id, caller_role, db)
+            if governed is not None:
+                governed_course_ids = await AssignmentService._governed_course_ids(governed, db)
+                if course_id not in governed_course_ids:
+                    raise AssignmentServiceError(
+                        "PROGRAM_NOT_IN_SCOPE",
+                        "You may only view assignments for courses within programs you govern.",
+                        403,
+                    )
+
         rows = await SubjectAssignmentRepository.list_by_course(
-            course_id, semester_id=semester_id,
+            course_id, semester_id=semester_id, section_id=section_id,
             include_inactive=include_inactive, db=db
         )
         items = await _enrich(rows, db)
         return AssignmentListResponse(total=len(items), items=items)
 
     @staticmethod
-    async def list_faculty_users(*, db: AsyncSession) -> list[dict]:
+    async def list_faculty_users(
+        *,
+        caller_role: str | None = None,
+        caller_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> list[dict]:
         """Return all active users who may be assigned to courses.
 
         Includes FACULTY primary-role users plus DEAN users who hold an active
         FACULTY responsibility grant (DEAN+FACULTY dual-role accounts).
+
+        For a DEAN caller, scoped by DEPARTMENT (not program): a dean governs
+        exactly one department and may assign ANY faculty in that department,
+        regardless of which program that faculty currently teaches. The dean's
+        department(s) are resolved from their governed programs; a faculty
+        member is "in" that department if it is their home department
+        (sis_faculty_profiles.primary_department_id) OR they hold an active
+        coordinator tie to a program in it — mirroring
+        directory_repository._faculty_in_department.
         """
+        scope_clause = ""
+        params: dict = {}
+        if caller_role == "DEAN" and caller_user_id is not None:
+            dept_rows = (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT ap.department_id "
+                        "FROM   dean_program_assignments dpa "
+                        "JOIN   acad_programs ap ON ap.id = dpa.program_id "
+                        "WHERE  dpa.dean_user_id = :uid AND dpa.is_active = true "
+                        "  AND  ap.department_id IS NOT NULL"
+                    ),
+                    {"uid": str(caller_user_id)},
+                )
+            ).all()
+            dept_ids = [str(r[0]) for r in dept_rows]
+            if not dept_ids:
+                # Dean governs no department → sees no assignable faculty.
+                # Never fall back to "everyone".
+                return []
+            scope_clause = (
+                "  AND id IN ("
+                # Home department (belongs to the dept even with no assignments yet)
+                "    SELECT user_id FROM sis_faculty_profiles "
+                "    WHERE primary_department_id = ANY(:dept_ids) "
+                "    UNION "
+                # Active coordinator tie to a program in the dept
+                "    SELECT fpa.faculty_user_id FROM faculty_program_assignments fpa "
+                "    JOIN acad_programs ap ON ap.id = fpa.program_id "
+                "    WHERE fpa.is_active = true AND ap.department_id = ANY(:dept_ids) "
+                "    UNION "
+                # Active teaching tie to a course whose program is in the dept
+                "    SELECT sa.faculty_user_id FROM subject_assignments sa "
+                "    JOIN courses c ON c.id = sa.course_id "
+                "    JOIN programs p ON p.id = c.program_id "
+                "    JOIN acad_programs ap2 ON ap2.id = p.acad_program_id "
+                "    WHERE sa.is_active = true AND ap2.department_id = ANY(:dept_ids) "
+                "  ) "
+            )
+            params["dept_ids"] = dept_ids
+
         rows = (
             await db.execute(
                 text(
@@ -481,8 +704,10 @@ class AssignmentService:
                     "      )"
                     "    )"
                     "  ) "
+                    f"{scope_clause}"
                     "ORDER BY full_name"
-                )
+                ),
+                params,
             )
         ).mappings().all()
         return [

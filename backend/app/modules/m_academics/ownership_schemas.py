@@ -74,6 +74,10 @@ class FacultyResponsibilityProgram(BaseModel):
     is_primary:     bool
     assigned_by_name: Optional[str]
     assigned_at:    datetime
+    # How this program entered the faculty's scope:
+    #   APPOINTED — explicit faculty_program_assignments grant (coordinator / membership)
+    #   TEACHING  — implied purely by courses the faculty teaches in this program
+    source:         str = "TEACHING"
 
 
 class FacultyCourseEntry(BaseModel):
@@ -86,10 +90,24 @@ class FacultyCourseEntry(BaseModel):
     section_name:   Optional[str]
     role_in_course: str
     is_active:      bool
+    # Resolved strictly via Course -> Semester -> Program -> Department so the
+    # UI can nest a course under its real program/department instead of
+    # rendering it disconnected from the Programs/Departments sections.
+    program_id:      Optional[UUID] = None
+    program_name:    Optional[str] = None
+    program_code:    Optional[str] = None
+    department_id:   Optional[UUID] = None
+    department_name: Optional[str] = None
 
 
 class FacultyAcademicResponsibilities(BaseModel):
     faculty_user_id:  UUID
+    # The faculty's own home department (sis_faculty_profiles.primary_department_id),
+    # distinct from departments derived from program/course scope below.
+    home_department:  Optional[DeptInfo] = None
+    # Active responsibility grants (GUIDE / EVALUATOR / BOARD) plus DEAN when the
+    # base login role is DEAN — the "hats" a single login carries.
+    responsibilities: list[str] = []
     departments:      list[DeptInfo]
     programs:         list[FacultyResponsibilityProgram]
     course_assignments: list[FacultyCourseEntry]
@@ -129,7 +147,7 @@ class FacultyWorkloadResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Ownership Matrix
+# Ownership Matrix — Department -> Program -> Semester -> Section -> Course -> Faculty
 # ---------------------------------------------------------------------------
 
 class MatrixFaculty(BaseModel):
@@ -146,11 +164,20 @@ class MatrixCourse(BaseModel):
     faculty:     list[MatrixFaculty]
 
 
+# A `None` section_id/name is the "General" bucket: courses assigned at the
+# whole-semester level (subject_assignments.section_id IS NULL) rather than
+# to one specific acad_section.
+class MatrixSection(BaseModel):
+    section_id: Optional[UUID]
+    name:       str
+    courses:    list[MatrixCourse]
+
+
 class MatrixSemester(BaseModel):
     semester_id: UUID
     number:      int
     label:       Optional[str]
-    courses:     list[MatrixCourse]
+    sections:    list[MatrixSection]
 
 
 class MatrixProgram(BaseModel):
@@ -161,5 +188,32 @@ class MatrixProgram(BaseModel):
     semesters:   list[MatrixSemester]
 
 
+class MatrixDepartment(BaseModel):
+    department_id: Optional[UUID]
+    name:          str
+    code:          Optional[str]
+    programs:      list[MatrixProgram]
+
+
 class OwnershipMatrixOut(BaseModel):
-    programs: list[MatrixProgram]
+    departments: list[MatrixDepartment]
+
+
+# ---------------------------------------------------------------------------
+# Ownership dashboard summary — existing data only, no new states
+# ---------------------------------------------------------------------------
+
+class DashboardFacultyWorkload(BaseModel):
+    faculty_user_id: UUID
+    faculty_name:    str
+    course_count:    int
+    program_count:   int
+
+
+class OwnershipDashboardSummary(BaseModel):
+    total_programs:    int
+    total_courses:     int
+    total_faculty:     int
+    vacant_courses:    int
+    program_coverage_pct: float  # % of courses (across governed programs) with an active PRIMARY faculty
+    faculty_workload:  list[DashboardFacultyWorkload]

@@ -114,7 +114,7 @@ export interface FacultyWorkloadResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Ownership matrix
+// Ownership matrix — Department -> Program -> Semester -> Section -> Course -> Faculty
 // ---------------------------------------------------------------------------
 
 export interface MatrixFaculty {
@@ -131,11 +131,18 @@ export interface MatrixCourse {
   faculty:     MatrixFaculty[]
 }
 
+/** `section_id === null` is the "General" bucket (assigned at the whole-semester level). */
+export interface MatrixSection {
+  section_id: string | null
+  name:       string
+  courses:    MatrixCourse[]
+}
+
 export interface MatrixSemester {
   semester_id: string
   number:      number
   label:       string | null
-  courses:     MatrixCourse[]
+  sections:    MatrixSection[]
 }
 
 export interface MatrixProgram {
@@ -146,8 +153,35 @@ export interface MatrixProgram {
   semesters:   MatrixSemester[]
 }
 
+export interface MatrixDepartment {
+  department_id: string | null
+  name:          string
+  code:          string | null
+  programs:      MatrixProgram[]
+}
+
 export interface OwnershipMatrix {
-  programs: MatrixProgram[]
+  departments: MatrixDepartment[]
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard summary
+// ---------------------------------------------------------------------------
+
+export interface DashboardFacultyWorkload {
+  faculty_user_id: string
+  faculty_name:    string
+  course_count:    number
+  program_count:   number
+}
+
+export interface OwnershipDashboardSummary {
+  total_programs:       number
+  total_courses:        number
+  total_faculty:        number
+  vacant_courses:       number
+  program_coverage_pct: number
+  faculty_workload:     DashboardFacultyWorkload[]
 }
 
 // ---------------------------------------------------------------------------
@@ -190,4 +224,8 @@ export const ownershipApi = {
     return api.get<OwnershipMatrix>('/academics/ownership-matrix', { params })
       .then(r => r.data)
   },
+
+  getDashboardSummary: () =>
+    api.get<OwnershipDashboardSummary>('/academics/dean/dashboard-summary')
+      .then(r => r.data),
 }

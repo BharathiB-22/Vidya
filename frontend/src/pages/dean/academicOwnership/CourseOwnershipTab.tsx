@@ -1,14 +1,7 @@
-/**
- * Course Assignments — DEAN only.
- * Groups courses by Program, shows assigned faculty per course.
- * Dean can assign/revoke without drilling through menus.
- */
-import { useState, useEffect } from 'react'
-import { UserCheck, Plus, X, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, X, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { PageShell } from '@/components/shell/PageShell'
-import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -20,6 +13,7 @@ import { getErrorMessage } from '@/lib/api'
 import { listPrograms, listCourses } from '@/lib/api/programs'
 import { academicsApi } from '@/lib/api/academics'
 import { assignmentsApi, Assignment, CourseRoleInCourse } from '@/lib/api/assignments'
+import { useDeanPrograms } from '@/hooks/useOwnership'
 import api from '@/lib/api'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -367,11 +361,14 @@ function ProgramSection({
   )
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// ── Tab ─────────────────────────────────────────────────────────────────────
 
-export default function CourseAssignmentsPage() {
+/** Course Ownership — assign faculty to courses. Replaces the old "Course Assignments" page. */
+export default function CourseOwnershipTab() {
   const qc = useQueryClient()
+  const [deptId,    setDeptId]    = useState('')
   const [semId,     setSemId]     = useState('')
+  const [sectionId, setSectionId] = useState('')
   const [assignTarget, setAssignTarget] = useState<
     { courseId: string; courseName: string; courseSemesterNumber: number } | null
   >(null)
@@ -380,7 +377,36 @@ export default function CourseAssignmentsPage() {
     queryKey: ['programs', 'list'],
     queryFn:  () => listPrograms(),
   })
-  const programs = programsData?.items ?? []
+  const allPrograms = programsData?.items ?? []
+
+  // Department filter is derived client-side: cross-reference each curriculum
+  // program's acad_program_id bridge against the dean's governed acad
+  // programs (which carry a real DeptInfo) — no backend change needed.
+  const { data: deanPrograms } = useDeanPrograms()
+  const deptByAcadProgramId = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string }>()
+    for (const p of deanPrograms ?? []) {
+      if (p.department) map.set(p.id, p.department)
+    }
+    return map
+  }, [deanPrograms])
+
+  const departments = useMemo(() => {
+    const seen = new Map<string, { id: string; name: string; code: string }>()
+    for (const p of allPrograms) {
+      const dept = p.acad_program_id ? deptByAcadProgramId.get(p.acad_program_id) : undefined
+      if (dept) seen.set(dept.id, dept)
+    }
+    return Array.from(seen.values())
+  }, [allPrograms, deptByAcadProgramId])
+
+  const programs = useMemo(() => {
+    if (!deptId) return allPrograms
+    return allPrograms.filter(p => {
+      const dept = p.acad_program_id ? deptByAcadProgramId.get(p.acad_program_id) : undefined
+      return dept?.id === deptId
+    })
+  }, [allPrograms, deptId, deptByAcadProgramId])
 
   const { data: semesters = [] } = useQuery({
     queryKey: ['semesters', 'all'],
@@ -388,9 +414,17 @@ export default function CourseAssignmentsPage() {
   })
   const activeSemesters = semesters.filter((s: any) => s.is_active)
 
+  const { data: sections = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['sections-for-semester', semId],
+    queryFn:  () => semId
+      ? api.get('/academics/sections', { params: { semester_id: semId } }).then(r => r.data)
+      : Promise.resolve([]),
+    enabled: !!semId,
+  })
+
   const { data: allAssignments, refetch: refetchAssignments } = useQuery({
-    queryKey: ['assignments', 'all', semId],
-    queryFn:  () => assignmentsApi.listAll(semId || undefined, false),
+    queryKey: ['assignments', 'all', semId, sectionId],
+    queryFn:  () => assignmentsApi.listAll(semId || undefined, false, sectionId || undefined),
   })
 
   const assignmentMap = new Map<string, Assignment[]>()
@@ -412,19 +446,26 @@ export default function CourseAssignmentsPage() {
   })
 
   return (
-    <PageShell>
-      <PageHeader
-        icon={UserCheck}
-        title="Course Assignments"
-        subtitle="Faculty assignments grouped by program. Unassigned courses are highlighted."
-      />
-
+    <div className="space-y-4">
       {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
+        <div className="w-48">
+          <Select value={deptId || '_all_'} onValueChange={v => setDeptId(v === '_all_' ? '' : v)}>
+            <SelectTrigger>
+              <SelectValue placeholder="All departments" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all_">All departments</SelectItem>
+              {departments.map(d => (
+                <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="w-56">
           <Select
             value={semId || '_all_'}
-            onValueChange={v => setSemId(v === '_all_' ? '' : v)}
+            onValueChange={v => { setSemId(v === '_all_' ? '' : v); setSectionId('') }}
           >
             <SelectTrigger>
               <SelectValue placeholder="All semesters" />
@@ -439,6 +480,23 @@ export default function CourseAssignmentsPage() {
             </SelectContent>
           </Select>
         </div>
+        <div className="w-44">
+          <Select
+            value={sectionId || '_all_'}
+            onValueChange={v => setSectionId(v === '_all_' ? '' : v)}
+            disabled={!semId}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="All sections" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all_">All sections</SelectItem>
+              {sections.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <p className="text-sm text-gray-500">
           {allAssignments?.total ?? 0} active assignment{allAssignments?.total !== 1 ? 's' : ''}
         </p>
@@ -449,7 +507,7 @@ export default function CourseAssignmentsPage() {
         <PageLoading />
       ) : programs.length === 0 ? (
         <div className="text-center py-16 text-sm text-gray-400 rounded-xl border border-dashed border-gray-200">
-          No programs found. Create programs in Program Advisor first.
+          No programs found for this filter.
         </div>
       ) : (
         <div className="space-y-3">
@@ -481,6 +539,6 @@ export default function CourseAssignmentsPage() {
           }}
         />
       )}
-    </PageShell>
+    </div>
   )
 }

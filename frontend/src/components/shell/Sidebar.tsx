@@ -102,7 +102,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Faculty',         to: '/dean/my-faculty',    icon: UserCheck,      roles: ['DEAN'] },
       { label: 'My Students',        to: '/dean/my-students',   icon: UsersRound,     roles: ['DEAN'] },
-      { label: 'Course Assignments', to: '/course-assignments', icon: ClipboardCheck, roles: ['DEAN'] },
     ],
   },
 
@@ -110,8 +109,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Academic Governance',
     items: [
-      { label: 'Ownership Matrix',    to: '/dean/ownership-matrix',          icon: LayoutList,    roles: ['DEAN'] },
-      { label: 'Faculty Programs',    to: '/dean/assign-faculty-program',    icon: UserCheck,     roles: ['DEAN'] },
+      { label: 'Academic Ownership', to: '/dean/academic-ownership',        icon: LayoutList,    roles: ['DEAN'] },
       { label: 'Programs',            to: '/programs',                       icon: BookMarked,    roles: ['DEAN'] },
       { label: 'Syllabus Review',     to: '/dean-review',                    icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'Syllabuses',          to: '/syllabuses',                     icon: GraduationCap, roles: ['DEAN'] },

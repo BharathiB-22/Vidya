@@ -3,9 +3,10 @@ M06 Labs & Assignment Evaluator — router.
 
 RBAC
 ----
-  _WRITE    = ADMIN + FACULTY    (create/update/publish/close assignments, ratify)
+  _WRITE    = ADMIN + (FACULTY role OR active FACULTY grant, e.g. a DEAN with a
+              FACULTY grant)    (create/update/publish/close assignments, ratify)
   _READ     = ADMIN + DEAN + FACULTY
-  _EVALUATE = ADMIN + FACULTY + EVALUATOR  (evaluator recommendation path)
+  _EVALUATE = ADMIN + (FACULTY role OR active FACULTY grant) + EVALUATOR  (evaluator recommendation path)
   _STUDENT  = STUDENT            (submit, view own, view ratified result)
   _FULL     = ADMIN + DEAN + FACULTY + STUDENT + EVALUATOR
   _EVAL_ONLY = EVALUATOR only    (evaluator-scoped routes)
@@ -82,9 +83,9 @@ from app.modules.m06_labs_evaluator.service import (
 
 router = APIRouter(tags=["labs-evaluator"])
 
-_WRITE    = require_roles(TenantRole.ADMIN, TenantRole.FACULTY)
+_WRITE    = require_responsibility(TenantRole.ADMIN, TenantRole.FACULTY)
 _READ     = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
-_EVALUATE = require_roles(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.EVALUATOR)
+_EVALUATE = require_responsibility(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.EVALUATOR)
 _STUDENT  = require_roles(TenantRole.STUDENT)
 # Evaluator-scoped routes: legacy standalone EVALUATOR users OR a FACULTY
 # account granted the EVALUATOR responsibility (single login, multiple roles).

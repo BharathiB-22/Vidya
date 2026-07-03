@@ -22,7 +22,10 @@ logger = logging.getLogger("vidya.academics.ownership")
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
+from app.core.notifications.dispatch import notify_user
+from app.core.notifications.models import NotificationType
 from app.modules.m_academics.ownership_schemas import (
+    DashboardFacultyWorkload,
     DeanProgramOut,
     DeptInfo,
     FacultyAcademicResponsibilities,
@@ -34,9 +37,12 @@ from app.modules.m_academics.ownership_schemas import (
     FacultyWorkloadItem,
     FacultyWorkloadResponse,
     MatrixCourse,
+    MatrixDepartment,
     MatrixFaculty,
     MatrixProgram,
+    MatrixSection,
     MatrixSemester,
+    OwnershipDashboardSummary,
     OwnershipMatrixOut,
 )
 
@@ -132,7 +138,56 @@ class OwnershipService:
         faculty_user_id: UUID, *, db: AsyncSession
     ) -> FacultyAcademicResponsibilities:
         """Aggregated academic scope for a faculty member."""
-        # Program-scope assignments
+        # Faculty identity: base login role + home department. The home
+        # department is the faculty's OWN department (primary_department_id),
+        # resolved independently of any program/course scope so it is never
+        # masked by a stale program→department pairing.
+        identity = (
+            await db.execute(
+                text(
+                    "SELECT u.role, "
+                    "       d.id AS dept_id, d.name AS dept_name, d.code AS dept_code "
+                    "FROM   users u "
+                    "LEFT   JOIN sis_faculty_profiles p ON p.user_id = u.id "
+                    "LEFT   JOIN acad_departments     d ON d.id = p.primary_department_id "
+                    "WHERE  u.id = :uid"
+                ),
+                {"uid": str(faculty_user_id)},
+            )
+        ).mappings().one_or_none()
+
+        home_department = (
+            DeptInfo(id=identity["dept_id"], name=identity["dept_name"], code=identity["dept_code"])
+            if identity and identity["dept_id"] else None
+        )
+
+        # Active responsibility grants (GUIDE / EVALUATOR / BOARD, and sometimes
+        # FACULTY itself — e.g. a DEAN explicitly granted FACULTY to unlock the
+        # teaching workspace, per faculty_role_grants.role_code) plus the base
+        # login role (FACULTY or DEAN) placed first. The base role is only
+        # appended if a grant with that exact code doesn't already cover it —
+        # a DEAN holding an explicit FACULTY grant must render as
+        # ["DEAN", "FACULTY"], never ["FACULTY", "DEAN", "FACULTY"].
+        grant_rows = (
+            await db.execute(
+                text(
+                    "SELECT role_code FROM faculty_role_grants "
+                    "WHERE faculty_user_id = :uid AND is_active = true"
+                ),
+                {"uid": str(faculty_user_id)},
+            )
+        ).fetchall()
+        grants = sorted({r[0] for r in grant_rows})
+        base_role = identity["role"] if identity else None
+        responsibilities: list[str] = []
+        if base_role in ("FACULTY", "DEAN"):
+            responsibilities.append(base_role)
+        responsibilities.extend(g for g in grants if g not in responsibilities)
+
+        # Program-scope assignments. Department is resolved from the program's
+        # OWN live department (ap.department_id) — never the stamped, possibly
+        # stale fpa.department_id — so a program that has since moved departments
+        # never renders under the wrong one.
         assign_rows = (
             await db.execute(
                 text(
@@ -144,7 +199,7 @@ class OwnershipService:
                     "       u.full_name AS assigned_by_name "
                     "FROM   faculty_program_assignments fpa "
                     "JOIN   acad_programs    ap ON ap.id = fpa.program_id "
-                    "LEFT   JOIN acad_departments d ON d.id = COALESCE(fpa.department_id, ap.department_id) "
+                    "LEFT   JOIN acad_departments d ON d.id = ap.department_id "
                     "LEFT   JOIN users         u  ON u.id  = fpa.assigned_by "
                     "WHERE  fpa.faculty_user_id = :uid "
                     "  AND  fpa.is_active = true "
@@ -157,12 +212,14 @@ class OwnershipService:
         # Deduplicate departments
         depts_seen: dict[str, DeptInfo] = {}
         programs: list[FacultyResponsibilityProgram] = []
+        programs_seen: set[str] = set()
         for r in assign_rows:
             if r["dept_id"] and str(r["dept_id"]) not in depts_seen:
                 depts_seen[str(r["dept_id"])] = DeptInfo(
                     id=r["dept_id"], name=r["dept_name"], code=r["dept_code"]
                 )
             dept = depts_seen.get(str(r["dept_id"])) if r["dept_id"] else None
+            programs_seen.add(str(r["program_id"]))
             programs.append(
                 FacultyResponsibilityProgram(
                     id=r["program_id"],
@@ -173,10 +230,97 @@ class OwnershipService:
                     is_primary=r["is_primary"],
                     assigned_by_name=r["assigned_by_name"],
                     assigned_at=r["assigned_at"],
+                    source="APPOINTED",
                 )
             )
 
-        # Course-level assignments from subject_assignments
+        # Programs/departments implied by actual course-teaching assignments.
+        #
+        # Authoritative source: the COURSE's own program
+        # (courses.program_id -> programs.acad_program_id -> acad_programs),
+        # never the semester's scheduling chain (acad_semesters -> acad_batches
+        # -> acad_programs). A subject_assignment's semester_id says WHEN a
+        # course is taught; it does not redefine WHICH program the course
+        # belongs to. Trusting the semester chain as ownership let a course
+        # keep its own correct program while a data-entry mistake on its
+        # semester_id (pointing into an unrelated program's batch) silently
+        # overrode the displayed program/department with the wrong one.
+        #
+        # The semester chain is used only as a fallback, for courses whose
+        # curriculum program has no acad_program_id bridge yet (tenants that
+        # have not linked their curriculum to the ERP academic structure) —
+        # for those, resolution keeps prior behavior unchanged rather than
+        # returning nothing.
+        implied_rows = (
+            await db.execute(
+                text(
+                    "SELECT resolved.program_id, resolved.program_name, "
+                    "       resolved.program_code, resolved.degree_type, "
+                    "       resolved.dept_id, resolved.dept_name, resolved.dept_code, "
+                    "       MIN(resolved.assigned_at) AS earliest_assigned_at "
+                    "FROM ( "
+                    "  SELECT sa.assigned_at, "
+                    "         COALESCE(course_ap.id, sem_ap.id)     AS program_id, "
+                    "         COALESCE(course_ap.name, sem_ap.name) AS program_name, "
+                    "         COALESCE(course_ap.code, sem_ap.code) AS program_code, "
+                    "         COALESCE(course_ap.degree_type, sem_ap.degree_type) AS degree_type, "
+                    "         COALESCE(course_d.id, sem_d.id)     AS dept_id, "
+                    "         COALESCE(course_d.name, sem_d.name) AS dept_name, "
+                    "         COALESCE(course_d.code, sem_d.code) AS dept_code "
+                    "  FROM   subject_assignments sa "
+                    "  JOIN   courses c  ON c.id = sa.course_id "
+                    "  LEFT   JOIN programs cp               ON cp.id = c.program_id "
+                    "  LEFT   JOIN acad_programs course_ap    ON course_ap.id = cp.acad_program_id "
+                    "  LEFT   JOIN acad_departments course_d  ON course_d.id = course_ap.department_id "
+                    "  JOIN   acad_semesters sem ON sem.id = sa.semester_id "
+                    "  LEFT   JOIN acad_batches   ab     ON ab.id = sem.batch_id "
+                    "  LEFT   JOIN acad_programs  sem_ap ON sem_ap.id = ab.program_id "
+                    "  LEFT   JOIN acad_departments sem_d ON sem_d.id = sem_ap.department_id "
+                    "  WHERE  sa.faculty_user_id = :uid AND sa.is_active = true "
+                    ") resolved "
+                    "WHERE  resolved.program_id IS NOT NULL "
+                    "GROUP  BY resolved.program_id, resolved.program_name, resolved.program_code, "
+                    "          resolved.degree_type, resolved.dept_id, resolved.dept_name, resolved.dept_code "
+                    "ORDER  BY resolved.program_name"
+                ),
+                {"uid": str(faculty_user_id)},
+            )
+        ).mappings().all()
+
+        for r in implied_rows:
+            if r["dept_id"] and str(r["dept_id"]) not in depts_seen:
+                depts_seen[str(r["dept_id"])] = DeptInfo(
+                    id=r["dept_id"], name=r["dept_name"], code=r["dept_code"]
+                )
+            if str(r["program_id"]) in programs_seen:
+                continue
+            programs_seen.add(str(r["program_id"]))
+            dept = depts_seen.get(str(r["dept_id"])) if r["dept_id"] else None
+            programs.append(
+                FacultyResponsibilityProgram(
+                    id=r["program_id"],
+                    name=r["program_name"],
+                    code=r["program_code"],
+                    degree_type=r["degree_type"],
+                    department=dept,
+                    is_primary=False,
+                    assigned_by_name=None,
+                    assigned_at=r["earliest_assigned_at"],
+                    source="TEACHING",
+                )
+            )
+
+        # Course-level assignments from subject_assignments.
+        #
+        # Program/department are resolved from the COURSE's own program
+        # (courses.program_id -> programs.acad_program_id -> acad_programs),
+        # exactly as in `implied_rows` above — never from the semester's
+        # scheduling chain. Semester number/label and section name are still
+        # read directly off the actual subject_assignment row (that is a
+        # correct use of the FK: it says WHEN/WHERE this teaching happens),
+        # but they no longer double as the source of WHICH program/department
+        # owns the course. The semester/batch chain remains only as a fallback
+        # for courses whose curriculum program has no acad_program_id bridge.
         course_rows = (
             await db.execute(
                 text(
@@ -184,13 +328,24 @@ class OwnershipService:
                     "       sa.is_active, "
                     "       c.code AS course_code, c.title AS course_title, "
                     "       sem.number AS sem_number, sem.label AS sem_label, "
-                    "       sec.name AS section_name "
+                    "       sec.name AS section_name, "
+                    "       COALESCE(course_ap.id, sem_ap.id)     AS program_id, "
+                    "       COALESCE(course_ap.name, sem_ap.name) AS program_name, "
+                    "       COALESCE(course_ap.code, sem_ap.code) AS program_code, "
+                    "       COALESCE(course_d.id, sem_d.id)     AS department_id, "
+                    "       COALESCE(course_d.name, sem_d.name) AS department_name "
                     "FROM   subject_assignments sa "
                     "JOIN   courses       c   ON c.id   = sa.course_id "
                     "JOIN   acad_semesters sem ON sem.id = sa.semester_id "
                     "LEFT   JOIN acad_sections sec ON sec.id = sa.section_id "
+                    "LEFT   JOIN programs cp               ON cp.id = c.program_id "
+                    "LEFT   JOIN acad_programs course_ap    ON course_ap.id = cp.acad_program_id "
+                    "LEFT   JOIN acad_departments course_d  ON course_d.id = course_ap.department_id "
+                    "LEFT   JOIN acad_batches   ab      ON ab.id  = sem.batch_id "
+                    "LEFT   JOIN acad_programs  sem_ap  ON sem_ap.id = ab.program_id "
+                    "LEFT   JOIN acad_departments sem_d ON sem_d.id = sem_ap.department_id "
                     "WHERE  sa.faculty_user_id = :uid "
-                    "ORDER  BY sem.number, c.code"
+                    "ORDER  BY COALESCE(course_ap.name, sem_ap.name), sem.number, c.code"
                 ),
                 {"uid": str(faculty_user_id)},
             )
@@ -207,12 +362,19 @@ class OwnershipService:
                 section_name=r["section_name"],
                 role_in_course=r["role_in_course"],
                 is_active=r["is_active"],
+                program_id=r["program_id"],
+                program_name=r["program_name"],
+                program_code=r["program_code"],
+                department_id=r["department_id"],
+                department_name=r["department_name"],
             )
             for r in course_rows
         ]
 
         return FacultyAcademicResponsibilities(
             faculty_user_id=faculty_user_id,
+            home_department=home_department,
+            responsibilities=responsibilities,
             departments=list(depts_seen.values()),
             programs=programs,
             course_assignments=course_entries,
@@ -222,19 +384,55 @@ class OwnershipService:
     async def get_faculty_summary(
         faculty_user_id: UUID, *, db: AsyncSession
     ) -> FacultyAcademicSummary:
-        """Quick stats: course count, program count, department count."""
+        """Quick stats: course count, program count, department count.
+
+        Program/department are resolved from the UNION of two sources:
+          1. Explicit dean-granted coordinator scope (faculty_program_assignments),
+             using the program's own (live) department — never the assignment's
+             stamped department_id, which can go stale if the program is later
+             moved to a different department.
+          2. Programs/departments implied by the faculty's actual course-teaching
+             assignments, resolved via the COURSE's own program
+             (courses.program_id -> programs.acad_program_id -> acad_programs) —
+             never via the semester's scheduling chain (acad_semesters ->
+             acad_batches -> acad_programs), which only says WHEN a course is
+             taught, not WHICH program it belongs to. The semester chain is
+             used only as a fallback for courses with no acad_program_id bridge.
+        """
         row = (
             await db.execute(
                 text(
                     "SELECT "
                     "  (SELECT COUNT(*) FROM subject_assignments "
                     "   WHERE faculty_user_id = :uid AND is_active = true) AS course_count, "
-                    "  (SELECT COUNT(*) FROM faculty_program_assignments "
-                    "   WHERE faculty_user_id = :uid AND is_active = true) AS program_count, "
-                    "  (SELECT COUNT(DISTINCT COALESCE(fpa.department_id, ap.department_id)) "
-                    "   FROM faculty_program_assignments fpa "
-                    "   JOIN acad_programs ap ON ap.id = fpa.program_id "
-                    "   WHERE fpa.faculty_user_id = :uid AND fpa.is_active = true) AS dept_count"
+                    "  (SELECT COUNT(DISTINCT program_id) FROM ( "
+                    "     SELECT program_id FROM faculty_program_assignments "
+                    "     WHERE faculty_user_id = :uid AND is_active = true "
+                    "     UNION "
+                    "     SELECT COALESCE(cp.acad_program_id, ab.program_id) AS program_id "
+                    "     FROM subject_assignments sa "
+                    "     JOIN courses c ON c.id = sa.course_id "
+                    "     LEFT JOIN programs cp ON cp.id = c.program_id "
+                    "     JOIN acad_semesters sem ON sem.id = sa.semester_id "
+                    "     LEFT JOIN acad_batches ab ON ab.id = sem.batch_id "
+                    "     WHERE sa.faculty_user_id = :uid AND sa.is_active = true "
+                    "   ) all_programs WHERE program_id IS NOT NULL) AS program_count, "
+                    "  (SELECT COUNT(DISTINCT department_id) FROM ( "
+                    "     SELECT ap.department_id "
+                    "     FROM faculty_program_assignments fpa "
+                    "     JOIN acad_programs ap ON ap.id = fpa.program_id "
+                    "     WHERE fpa.faculty_user_id = :uid AND fpa.is_active = true "
+                    "     UNION "
+                    "     SELECT COALESCE(course_ap.department_id, sem_ap.department_id) AS department_id "
+                    "     FROM subject_assignments sa "
+                    "     JOIN courses c ON c.id = sa.course_id "
+                    "     LEFT JOIN programs cp ON cp.id = c.program_id "
+                    "     LEFT JOIN acad_programs course_ap ON course_ap.id = cp.acad_program_id "
+                    "     JOIN acad_semesters sem ON sem.id = sa.semester_id "
+                    "     LEFT JOIN acad_batches  ab     ON ab.id  = sem.batch_id "
+                    "     LEFT JOIN acad_programs sem_ap ON sem_ap.id = ab.program_id "
+                    "     WHERE sa.faculty_user_id = :uid AND sa.is_active = true "
+                    "   ) all_depts WHERE department_id IS NOT NULL) AS dept_count"
                 ),
                 {"uid": str(faculty_user_id)},
             )
@@ -407,6 +605,19 @@ class OwnershipService:
             },
         )
 
+        await notify_user(
+            db,
+            notification_type=NotificationType.PROGRAM_ASSIGNED,
+            recipient_user_id=body.faculty_user_id,
+            title="New program assigned",
+            body=(
+                f"You have been assigned to {program['name']}"
+                + (" as program coordinator." if body.is_primary else ".")
+            ),
+            entity_type="FacultyProgramAssignment",
+            entity_id=str(result["id"]),
+        )
+
         return FacultyProgramAssignOut(
             id=result["id"],
             faculty_user_id=result["faculty_user_id"],
@@ -493,6 +704,16 @@ class OwnershipService:
                 "program_id":      str(row["program_id"]),
                 "program_name":    row["program_name"],
             },
+        )
+
+        await notify_user(
+            db,
+            notification_type=NotificationType.PROGRAM_ASSIGNMENT_REVOKED,
+            recipient_user_id=row["faculty_user_id"],
+            title="Program assignment removed",
+            body=f"Your assignment to {row['program_name']} has been removed.",
+            entity_type="FacultyProgramAssignment",
+            entity_id=str(assignment_id),
         )
 
         return FacultyProgramAssignOut(
@@ -588,9 +809,16 @@ class OwnershipService:
     async def get_ownership_matrix(
         program_ids: list[UUID], *, db: AsyncSession
     ) -> OwnershipMatrixOut:
-        """Nested program → semester → course → faculty matrix."""
+        """Nested Department -> Program -> Semester -> Section -> Course -> Faculty matrix.
+
+        The course roster per semester is the FULL catalog for that program
+        (courses.program_id -> programs.acad_program_id -> acad_programs,
+        matched on courses.semester = acad_semesters.number), not merely the
+        courses that happen to already have an assignment — otherwise a course
+        with zero faculty never appears at all, and "vacant" can't be shown.
+        """
         if not program_ids:
-            return OwnershipMatrixOut(programs=[])
+            return OwnershipMatrixOut(departments=[])
 
         ids_str = [str(p) for p in program_ids]
 
@@ -623,65 +851,128 @@ class OwnershipService:
             )
         ).mappings().all()
 
-        # Group semesters by program
         prog_sems: dict[str, list] = {}
         for r in sem_rows:
             prog_sems.setdefault(str(r["program_id"]), []).append(r)
 
-        sem_ids_str = [str(r["id"]) for r in sem_rows]
-        if not sem_ids_str:
-            # No semesters yet — return programs with empty semesters
-            return OwnershipMatrixOut(
-                programs=[
+        def _empty_matrix() -> OwnershipMatrixOut:
+            depts: dict[str, MatrixDepartment] = {}
+            for pid_str in ids_str:
+                if pid_str not in prog_map:
+                    continue
+                prog = prog_map[pid_str]
+                dept_key = str(prog["dept_id"]) if prog["dept_id"] else "unassigned"
+                if dept_key not in depts:
+                    depts[dept_key] = MatrixDepartment(
+                        department_id=prog["dept_id"],
+                        name=prog["dept_name"] or "Unassigned Department",
+                        code=prog["dept_code"],
+                        programs=[],
+                    )
+                depts[dept_key].programs.append(
                     MatrixProgram(
-                        program_id=p,
-                        name=prog_map[p]["name"],
-                        code=prog_map[p]["code"],
+                        program_id=pid_str,
+                        name=prog["name"],
+                        code=prog["code"],
                         department=(
-                            {"id": prog_map[p]["dept_id"],
-                             "name": prog_map[p]["dept_name"],
-                             "code": prog_map[p]["dept_code"]}
-                            if prog_map[p]["dept_id"] else None
+                            DeptInfo(id=prog["dept_id"], name=prog["dept_name"], code=prog["dept_code"])
+                            if prog["dept_id"] else None
                         ),
                         semesters=[],
                     )
-                    for p in ids_str if p in prog_map
-                ]
-            )
+                )
+            return OwnershipMatrixOut(departments=list(depts.values()))
 
-        # Bulk-fetch active subject assignments for those semesters
-        assign_rows = (
+        sem_ids_str = [str(r["id"]) for r in sem_rows]
+        if not sem_ids_str:
+            return _empty_matrix()
+
+        # Full course roster per semester = UNION of:
+        #   (a) catalog-declared: courses.program_id -> curriculum
+        #       programs.acad_program_id -> acad_programs, matched on
+        #       courses.semester = acad_semesters.number. This is what surfaces
+        #       a genuinely VACANT course (zero assignments) at all.
+        #   (b) actually-assigned: subject_assignments joined straight to
+        #       courses, trusting the assignment's own semester_id — never
+        #       re-derived through the catalog bridge. A real, active
+        #       assignment must never be invisible just because its course's
+        #       catalog semester number doesn't line up with the acad_semester
+        #       it was actually assigned into (a pre-existing data-alignment
+        #       gap this module already guards against elsewhere, e.g.
+        #       _check_program_alignment) — without (b), such a course drops
+        #       out of the roster entirely, silently deflating total_courses
+        #       and coverage even though Faculty Workload (which reads
+        #       subject_assignments directly) still shows it.
+        roster_rows = (
             await db.execute(
                 text(
-                    "SELECT sa.id, sa.semester_id, sa.course_id, sa.faculty_user_id, "
-                    "       sa.role_in_course, "
-                    "       c.code AS course_code, c.title AS course_title, c.course_type, "
-                    "       u.full_name AS faculty_name "
-                    "FROM   subject_assignments sa "
-                    "JOIN   courses c ON c.id = sa.course_id "
-                    "JOIN   users   u ON u.id = sa.faculty_user_id "
-                    "WHERE  sa.semester_id = ANY(:sids) AND sa.is_active = true "
-                    "ORDER  BY c.code, u.full_name"
+                    "SELECT DISTINCT semester_id, course_id, code, title, course_type FROM ( "
+                    "  SELECT sem.id AS semester_id, c.id AS course_id, "
+                    "         c.code, c.title, c.course_type "
+                    "  FROM   acad_semesters sem "
+                    "  JOIN   acad_batches ab   ON ab.id = sem.batch_id "
+                    "  JOIN   programs p        ON p.acad_program_id = ab.program_id "
+                    "  JOIN   courses c         ON c.program_id = p.id AND c.semester = sem.number "
+                    "  WHERE  sem.id = ANY(:sids) "
+                    "  UNION "
+                    "  SELECT sa.semester_id, c2.id, c2.code, c2.title, c2.course_type "
+                    "  FROM   subject_assignments sa "
+                    "  JOIN   courses c2 ON c2.id = sa.course_id "
+                    "  WHERE  sa.is_active = true AND sa.semester_id = ANY(:sids) "
+                    ") roster "
+                    "ORDER  BY code"
                 ),
                 {"sids": sem_ids_str},
             )
         ).mappings().all()
 
-        # Group assignments by (semester_id, course_id)
-        sem_course_faculty: dict[str, dict[str, dict]] = {}
+        roster_by_sem: dict[str, list] = {}
+        for r in roster_rows:
+            roster_by_sem.setdefault(str(r["semester_id"]), []).append(r)
+
+        # Active sections per semester
+        section_rows = (
+            await db.execute(
+                text(
+                    "SELECT id, semester_id, name FROM acad_sections "
+                    "WHERE semester_id = ANY(:sids) AND is_active = true "
+                    "ORDER BY name"
+                ),
+                {"sids": sem_ids_str},
+            )
+        ).mappings().all()
+        sections_by_sem: dict[str, list] = {}
+        for r in section_rows:
+            sections_by_sem.setdefault(str(r["semester_id"]), []).append(r)
+
+        # Active assignments for those semesters, including section_id so a
+        # course can be placed under the specific section it was assigned to
+        # (NULL section_id = assigned at the whole-semester / "General" level).
+        assign_rows = (
+            await db.execute(
+                text(
+                    "SELECT sa.semester_id, sa.section_id, sa.course_id, "
+                    "       sa.faculty_user_id, sa.role_in_course, "
+                    "       u.full_name AS faculty_name "
+                    "FROM   subject_assignments sa "
+                    "JOIN   users   u ON u.id = sa.faculty_user_id "
+                    "WHERE  sa.semester_id = ANY(:sids) AND sa.is_active = true "
+                    "ORDER  BY u.full_name"
+                ),
+                {"sids": sem_ids_str},
+            )
+        ).mappings().all()
+
+        # Group faculty by (semester_id, section_id-or-None, course_id)
+        faculty_by_slot: dict[tuple[str, str | None, str], list[MatrixFaculty]] = {}
+        general_assignment_sems: set[str] = set()
         for r in assign_rows:
             sid = str(r["semester_id"])
-            cid = str(r["course_id"])
-            if sid not in sem_course_faculty:
-                sem_course_faculty[sid] = {}
-            if cid not in sem_course_faculty[sid]:
-                sem_course_faculty[sid][cid] = {
-                    "code": r["course_code"],
-                    "title": r["course_title"],
-                    "course_type": r["course_type"],
-                    "faculty": [],
-                }
-            sem_course_faculty[sid][cid]["faculty"].append(
+            secid = str(r["section_id"]) if r["section_id"] else None
+            if secid is None:
+                general_assignment_sems.add(sid)
+            key = (sid, secid, str(r["course_id"]))
+            faculty_by_slot.setdefault(key, []).append(
                 MatrixFaculty(
                     user_id=r["faculty_user_id"],
                     full_name=r["faculty_name"],
@@ -690,7 +981,7 @@ class OwnershipService:
             )
 
         # Assemble matrix
-        matrix_programs: list[MatrixProgram] = []
+        depts: dict[str, MatrixDepartment] = {}
         for pid_str in ids_str:
             if pid_str not in prog_map:
                 continue
@@ -699,37 +990,183 @@ class OwnershipService:
             matrix_sems: list[MatrixSemester] = []
             for sem in sems:
                 sid_str = str(sem["id"])
-                courses_map = sem_course_faculty.get(sid_str, {})
-                matrix_courses = [
-                    MatrixCourse(
-                        course_id=cid,
-                        code=c["code"],
-                        title=c["title"],
-                        course_type=c["course_type"],
-                        faculty=c["faculty"],
+                roster = roster_by_sem.get(sid_str, [])
+                active_sections = sections_by_sem.get(sid_str, [])
+
+                if active_sections:
+                    slot_defs: list[tuple[str | None, str]] = [
+                        (str(sec["id"]), sec["name"]) for sec in active_sections
+                    ]
+                    if sid_str in general_assignment_sems:
+                        slot_defs.append((None, "General"))
+                else:
+                    slot_defs = [(None, "General")]
+
+                matrix_sections: list[MatrixSection] = []
+                for sec_id, sec_name in slot_defs:
+                    matrix_courses = [
+                        MatrixCourse(
+                            course_id=c["course_id"],
+                            code=c["code"],
+                            title=c["title"],
+                            course_type=c["course_type"],
+                            faculty=faculty_by_slot.get((sid_str, sec_id, str(c["course_id"])), []),
+                        )
+                        for c in roster
+                    ]
+                    matrix_sections.append(
+                        MatrixSection(
+                            section_id=sec_id,
+                            name=sec_name,
+                            courses=matrix_courses,
+                        )
                     )
-                    for cid, c in courses_map.items()
-                ]
+
                 matrix_sems.append(
                     MatrixSemester(
                         semester_id=sem["id"],
                         number=sem["number"],
                         label=sem["label"],
-                        courses=matrix_courses,
+                        sections=matrix_sections,
                     )
                 )
-            dept = (
-                {"id": prog["dept_id"], "name": prog["dept_name"], "code": prog["dept_code"]}
-                if prog["dept_id"] else None
-            )
-            matrix_programs.append(
+
+            dept_key = str(prog["dept_id"]) if prog["dept_id"] else "unassigned"
+            if dept_key not in depts:
+                depts[dept_key] = MatrixDepartment(
+                    department_id=prog["dept_id"],
+                    name=prog["dept_name"] or "Unassigned Department",
+                    code=prog["dept_code"],
+                    programs=[],
+                )
+            depts[dept_key].programs.append(
                 MatrixProgram(
                     program_id=pid_str,
                     name=prog["name"],
                     code=prog["code"],
-                    department=dept,
+                    department=(
+                        DeptInfo(id=prog["dept_id"], name=prog["dept_name"], code=prog["dept_code"])
+                        if prog["dept_id"] else None
+                    ),
                     semesters=matrix_sems,
                 )
             )
 
-        return OwnershipMatrixOut(programs=matrix_programs)
+        return OwnershipMatrixOut(departments=list(depts.values()))
+
+    # ------------------------------------------------------------------
+    # Dashboard summary — existing data only, no new states/approvals
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_dashboard_summary(
+        actor_user_id: UUID, *, actor_role: str, db: AsyncSession
+    ) -> OwnershipDashboardSummary:
+        """Totals + vacancy + workload for the governed program set.
+
+        ADMIN sees all active programs; DEAN sees only governed programs.
+        Every figure is derived from existing tables (subject_assignments,
+        faculty_program_assignments, courses) — no new state.
+        """
+        if actor_role == "ADMIN":
+            pids = (
+                await db.execute(text("SELECT id FROM acad_programs WHERE is_active = true"))
+            ).scalars().all()
+        else:
+            programs = await OwnershipService.get_dean_programs(actor_user_id, db=db)
+            pids = [p.id for p in programs]
+
+        if not pids:
+            return OwnershipDashboardSummary(
+                total_programs=0, total_courses=0, total_faculty=0,
+                vacant_courses=0, program_coverage_pct=0.0, faculty_workload=[],
+            )
+
+        ids_str = [str(p) for p in pids]
+
+        # Roster = UNION of catalog-declared course slots (surfaces genuinely
+        # vacant courses) and actually-assigned (course_id, semester_id) pairs
+        # read straight off subject_assignments (never re-derived through the
+        # catalog bridge) — see get_ownership_matrix's roster_rows for why:
+        # without the union branch, a real assignment whose course.semester
+        # doesn't line up with its acad_semester's number silently disappears
+        # from the roster, deflating total_courses/coverage even though
+        # Faculty Workload (below) still shows the same assignment.
+        roster_row = (
+            await db.execute(
+                text(
+                    "SELECT "
+                    "  COUNT(*) AS total_courses, "
+                    "  COUNT(*) FILTER (WHERE NOT EXISTS ( "
+                    "    SELECT 1 FROM subject_assignments sa "
+                    "    WHERE sa.course_id = roster.course_id AND sa.semester_id = roster.semester_id "
+                    "      AND sa.is_active = true AND sa.role_in_course = 'PRIMARY' "
+                    "  )) AS vacant_courses "
+                    "FROM ( "
+                    "  SELECT DISTINCT course_id, semester_id FROM ( "
+                    "    SELECT c.id AS course_id, sem.id AS semester_id "
+                    "    FROM   acad_semesters sem "
+                    "    JOIN   acad_batches ab ON ab.id = sem.batch_id AND ab.is_active = true "
+                    "    JOIN   programs p      ON p.acad_program_id = ab.program_id "
+                    "    JOIN   courses c       ON c.program_id = p.id AND c.semester = sem.number "
+                    "    WHERE  ab.program_id = ANY(:pids) AND sem.is_active = true "
+                    "    UNION "
+                    "    SELECT sa2.course_id, sa2.semester_id "
+                    "    FROM   subject_assignments sa2 "
+                    "    JOIN   acad_semesters sem2 ON sem2.id = sa2.semester_id "
+                    "    JOIN   acad_batches ab2    ON ab2.id = sem2.batch_id "
+                    "    WHERE  sa2.is_active = true AND ab2.program_id = ANY(:pids) "
+                    "  ) combined "
+                    ") roster"
+                ),
+                {"pids": ids_str},
+            )
+        ).mappings().one()
+
+        total_courses = roster_row["total_courses"] or 0
+        vacant_courses = roster_row["vacant_courses"] or 0
+        coverage_pct = (
+            round(100.0 * (total_courses - vacant_courses) / total_courses, 1)
+            if total_courses else 0.0
+        )
+
+        workload_rows = (
+            await db.execute(
+                text(
+                    "SELECT sa.faculty_user_id, u.full_name AS faculty_name, "
+                    "       COUNT(DISTINCT sa.course_id) AS course_count, "
+                    "       COUNT(DISTINCT ap.id) AS program_count "
+                    "FROM   subject_assignments sa "
+                    "JOIN   courses c   ON c.id = sa.course_id "
+                    "JOIN   programs p  ON p.id = c.program_id "
+                    "JOIN   acad_programs ap ON ap.id = p.acad_program_id "
+                    "JOIN   users u     ON u.id = sa.faculty_user_id "
+                    "WHERE  sa.is_active = true AND ap.id = ANY(:pids) "
+                    "GROUP  BY sa.faculty_user_id, u.full_name "
+                    "ORDER  BY course_count DESC, faculty_name"
+                ),
+                {"pids": ids_str},
+            )
+        ).mappings().all()
+
+        from app.modules.m_academics.assignment_service import AssignmentService
+        faculty_pool = await AssignmentService.list_faculty_users(
+            caller_role=actor_role, caller_user_id=actor_user_id, db=db
+        )
+
+        return OwnershipDashboardSummary(
+            total_programs=len(pids),
+            total_courses=total_courses,
+            total_faculty=len(faculty_pool),
+            vacant_courses=vacant_courses,
+            program_coverage_pct=coverage_pct,
+            faculty_workload=[
+                DashboardFacultyWorkload(
+                    faculty_user_id=r["faculty_user_id"],
+                    faculty_name=r["faculty_name"],
+                    course_count=r["course_count"],
+                    program_count=r["program_count"],
+                )
+                for r in workload_rows
+            ],
+        )

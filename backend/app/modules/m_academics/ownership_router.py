@@ -31,6 +31,7 @@ from app.modules.m_academics.ownership_schemas import (
     FacultyProgramAssignOut,
     FacultyWorkloadItem,
     FacultyWorkloadResponse,
+    OwnershipDashboardSummary,
     OwnershipMatrixOut,
 )
 from app.modules.m_academics.ownership_service import OwnershipService, OwnershipServiceError
@@ -237,6 +238,31 @@ async def remove_faculty_from_program(
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
+        )
+    except OwnershipServiceError as e:
+        raise _err(e)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summary
+# ---------------------------------------------------------------------------
+
+@ownership_router.get(
+    "/dean/dashboard-summary",
+    response_model=OwnershipDashboardSummary,
+)
+async def get_dashboard_summary(
+    current_user: CurrentUser = Depends(require_roles(*_MANAGE)),
+    db: AsyncSession          = Depends(get_tenant_db_dep),
+) -> OwnershipDashboardSummary:
+    """Totals + vacancy + workload for the Academic Ownership dashboard tab.
+
+    DEAN sees only governed programs; ADMIN sees all. Every figure is
+    derived from existing assignment/program data — no new pending state.
+    """
+    try:
+        return await OwnershipService.get_dashboard_summary(
+            current_user.user_id, actor_role=current_user.role, db=db
         )
     except OwnershipServiceError as e:
         raise _err(e)

@@ -1,7 +1,5 @@
 import { useState } from 'react'
-import { UserCheck, Trash2, Building2, GraduationCap, Star, AlertTriangle } from 'lucide-react'
-import { PageShell } from '@/components/shell/PageShell'
-import { PageHeader } from '@/components/shell/PageHeader'
+import { Trash2, Building2, GraduationCap, Star, AlertTriangle } from 'lucide-react'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -63,7 +61,8 @@ function AssignmentRow({
   )
 }
 
-export default function DeanAssignFacultyProgramPage() {
+/** Program Ownership — assign / change / remove program coordinators. Replaces the old "Faculty Programs" page. */
+export default function ProgramOwnershipTab() {
   const [selectedProgram, setSelectedProgram] = useState('')
   const [selectedFaculty, setSelectedFaculty] = useState('')
   const [isPrimary, setIsPrimary]             = useState(false)
@@ -124,16 +123,10 @@ export default function DeanAssignFacultyProgramPage() {
   }
 
   return (
-    <PageShell>
-      <PageHeader
-        title="Faculty Program Assignments"
-        subtitle="Assign faculty to programs you govern. Faculty can belong to multiple programs."
-        icon={UserCheck}
-      />
-
+    <div className="space-y-6">
       {/* Assignment form */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-700">Assign Faculty to Program</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Assign Program Coordinator</h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
@@ -203,14 +196,14 @@ export default function DeanAssignFacultyProgramPage() {
           disabled={assign.isPending || !selectedProgram || !selectedFaculty}
           className="w-full sm:w-auto"
         >
-          {assign.isPending ? 'Assigning…' : 'Assign Faculty'}
+          {assign.isPending ? 'Assigning…' : 'Assign Coordinator'}
         </Button>
       </div>
 
       {/* Current assignments table */}
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">Current Assignments</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Current Coordinators</h3>
           <Select value={selectedProgram || 'all'} onValueChange={v => setSelectedProgram(v === 'all' ? '' : v)}>
             <SelectTrigger className="w-44 h-8 text-xs">
               <SelectValue placeholder="All Programs" />
@@ -243,6 +236,6 @@ export default function DeanAssignFacultyProgramPage() {
           ))}
         </div>
       </div>
-    </PageShell>
+    </div>
   )
 }

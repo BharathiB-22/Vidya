@@ -8,6 +8,7 @@ export const ownershipKeys = {
   deanFacultyAssignments:  () => ['ownership', 'dean-faculty-assignments'] as const,
   facultyWorkload:         () => ['ownership', 'faculty-workload'] as const,
   ownershipMatrix:         (ids?: string[]) => ['ownership', 'matrix', ids] as const,
+  dashboardSummary:        () => ['ownership', 'dashboard-summary'] as const,
 }
 
 export function useFacultyResponsibilities() {
@@ -54,6 +55,14 @@ export function useOwnershipMatrix(programIds?: string[]) {
   return useQuery({
     queryKey: ownershipKeys.ownershipMatrix(programIds),
     queryFn:  () => ownershipApi.getOwnershipMatrix(programIds),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useOwnershipDashboardSummary() {
+  return useQuery({
+    queryKey: ownershipKeys.dashboardSummary(),
+    queryFn:  ownershipApi.getDashboardSummary,
     staleTime: 60 * 1000,
   })
 }

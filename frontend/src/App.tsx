@@ -67,7 +67,6 @@ import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
-import CourseAssignmentsPage from '@/pages/CourseAssignmentsPage'
 import DeanReviewPage from '@/pages/DeanReviewPage'
 import MyCoursesPage from '@/pages/MyCoursesPage'
 import DepartmentsPage from '@/pages/academics/DepartmentsPage'
@@ -86,9 +85,9 @@ import FacultyProfilePage from '@/pages/sis/FacultyProfilePage'
 import GovernanceDirectoryPage from '@/pages/sis/GovernanceDirectoryPage'
 import DeanMyFacultyPage from '@/pages/dean/DeanMyFacultyPage'
 import DeanMyStudentsPage from '@/pages/dean/DeanMyStudentsPage'
-import DeanOwnershipMatrixPage from '@/pages/dean/DeanOwnershipMatrixPage'
-import DeanAssignFacultyProgramPage from '@/pages/dean/DeanAssignFacultyProgramPage'
+import AcademicOwnershipPage from '@/pages/dean/AcademicOwnershipPage'
 import FacultyResponsibilitiesPage from '@/pages/faculty/FacultyResponsibilitiesPage'
+import NotificationCenterPage from '@/pages/NotificationCenterPage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
@@ -194,21 +193,20 @@ export default function App() {
 
           {/* DEAN pages */}
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
-            <Route path="/course-assignments" element={<CourseAssignmentsPage />} />
-            <Route path="/dean-review"        element={<DeanReviewPage />} />
+            <Route path="/dean/academic-ownership" element={<AcademicOwnershipPage />} />
+            <Route path="/dean-review"             element={<DeanReviewPage />} />
           </Route>
 
           {/* Dean department-scoped pages */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/dean/my-faculty"             element={<DeanMyFacultyPage />} />
             <Route path="/dean/my-students"            element={<DeanMyStudentsPage />} />
-            <Route path="/dean/ownership-matrix"       element={<DeanOwnershipMatrixPage />} />
-            <Route path="/dean/assign-faculty-program" element={<DeanAssignFacultyProgramPage />} />
           </Route>
 
           {/* Faculty governance pages */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/faculty/my-responsibilities" element={<FacultyResponsibilitiesPage />} />
+            <Route path="/notifications" element={<NotificationCenterPage />} />
           </Route>
 
           {/* Dean Digital Exam Analytics — DEAN, ADMIN, BOARD */}
@@ -382,10 +380,14 @@ export default function App() {
             <Route path="/my-profile" element={<InstitutionAdminProfilePage />} />
           </Route>
 
-          {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}
-          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
+          {/* Academic Programs / Program Builder — governance scope: DEAN, ADMIN only */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/programs" element={<ProgramListPage />} />
             <Route path="/programs/:id" element={<ProgramDetailPage />} />
+          </Route>
+
+          {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
             <Route path="/syllabuses" element={<SyllabusListPage />} />
             <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
             <Route path="/course-kits" element={<CourseKitListPage />} />

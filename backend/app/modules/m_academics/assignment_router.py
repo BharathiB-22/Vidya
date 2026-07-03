@@ -24,6 +24,7 @@ from app.modules.m_academics.assignment_schemas import (
     AssignmentListResponse,
     AssignmentOut,
     AssignmentRevokeRequest,
+    ValidSemestersOut,
 )
 from app.modules.m_academics.assignment_service import AssignmentService, AssignmentServiceError
 
@@ -81,6 +82,21 @@ async def revoke_assignment(
         raise _err(e)
 
 
+@router.get("/valid-semesters", response_model=ValidSemestersOut)
+async def get_valid_semesters(
+    course_id: UUID = Query(..., description="Course to scope the semester picker to"),
+    current_user: CurrentUser = Depends(require_roles(*_MANAGE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ValidSemestersOut:
+    """Semesters valid for assigning faculty to this course — scoped to the
+    course's own program so the Assign dialog can never offer an unrelated
+    program's semester. DEAN/ADMIN only."""
+    try:
+        return await AssignmentService.list_valid_semesters(course_id, db)
+    except AssignmentServiceError as e:
+        raise _err(e)
+
+
 @router.get("/faculty-list")
 async def list_faculty_users(
     current_user: CurrentUser = Depends(require_roles(*_MANAGE)),
@@ -88,13 +104,16 @@ async def list_faculty_users(
 ):
     """Return all active FACULTY users — used by the assignment dialog. DEAN only."""
     from app.modules.m_academics.assignment_service import AssignmentService
-    return await AssignmentService.list_faculty_users(db=db)
+    return await AssignmentService.list_faculty_users(
+        caller_role=current_user.role, caller_user_id=current_user.user_id, db=db
+    )
 
 
 @router.get("", response_model=AssignmentListResponse)
 async def list_assignments(
     course_id:        UUID | None         = Query(None, description="Filter by course (omit for all)"),
     semester_id:      UUID | None         = Query(None, description="Optionally filter by semester"),
+    section_id:       UUID | None         = Query(None, description="Optionally filter by section"),
     include_inactive: bool                = Query(False, description="Include revoked assignments"),
     current_user: CurrentUser             = Depends(require_roles(*_READ)),
     db: AsyncSession                      = Depends(get_tenant_db_dep),
@@ -105,12 +124,18 @@ async def list_assignments(
             return await AssignmentService.list_by_course(
                 course_id,
                 semester_id=semester_id,
+                section_id=section_id,
                 include_inactive=include_inactive,
+                caller_role=current_user.role,
+                caller_user_id=current_user.user_id,
                 db=db,
             )
         return await AssignmentService.list_all(
             semester_id=semester_id,
+            section_id=section_id,
             include_inactive=include_inactive,
+            caller_role=current_user.role,
+            caller_user_id=current_user.user_id,
             db=db,
         )
     except AssignmentServiceError as e:

@@ -3,7 +3,8 @@ M07 Research Supervision — Router.
 
 RBAC
 ----
-  _GUIDE    = ADMIN + FACULTY + GUIDE   (supervise, review, ratify)
+  _GUIDE    = ADMIN + (FACULTY role OR active FACULTY grant, e.g. a DEAN with a
+              FACULTY grant) + GUIDE   (supervise, review, ratify)
   _STUDENT  = STUDENT                   (submit, attend viva, view own)
   _READ     = ADMIN + DEAN + FACULTY + GUIDE
 
@@ -49,7 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.core.auth.dependencies import get_tenant_db_dep, require_roles
+from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.core.rate_limiting import limiter
@@ -85,7 +86,7 @@ from app.modules.m07_research_supervision.service import (
 
 router = APIRouter(tags=["research-supervision"])
 
-_GUIDE    = require_roles(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.GUIDE)
+_GUIDE    = require_responsibility(TenantRole.ADMIN, TenantRole.FACULTY, TenantRole.GUIDE)
 _STUDENT  = require_roles(TenantRole.STUDENT)
 _READ     = require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.GUIDE)
 _ALL      = require_roles(
