@@ -1,7 +1,7 @@
 import { useNavigate, Link } from 'react-router-dom'
 import {
   BookOpen, Layers, FlaskConical, Microscope, FileText, ClipboardList,
-  BarChart2, ChevronRight, CheckCircle, Circle, GraduationCap, Package,
+  BarChart2, CheckCircle, Circle, GraduationCap, Package,
   ClipboardCheck, Cpu, ShieldCheck, Building2, Users,
   School2, CalendarRange, Calendar, LayoutList, UserCheck, UsersRound,
   CalendarCheck, BookMarked, Ticket, CalendarDays, MapPin,
@@ -14,19 +14,11 @@ import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 import { useWorkspace } from '@/lib/workspace'
 import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
-
-type IconComponent = React.FC<{ className?: string }>
-
-interface ModuleCard {
-  title: string
-  description: string
-  to: string
-  icon: IconComponent
-  roles: string[]
-  badge: string
-  bar: string
-  section: string
-}
+import { StudentDashboard } from '@/pages/student/StudentDashboard'
+import {
+  StatCard, ModuleCardItem, AdminActionCard, getGreeting, getDisplayFirstName,
+  type ModuleCard, type AdminCard,
+} from '@/components/dashboard/shared'
 
 const CARDS: ModuleCard[] = [
   // ── Teach & Prepare — Program Builder is governance/ADMIN scope; DEAN only ─
@@ -137,28 +129,6 @@ const CARDS: ModuleCard[] = [
     section: 'analytics',
   },
 
-  // ── Student ───────────────────────────────────────────────────────────────
-  {
-    title: 'My Labs',
-    description: 'View your published lab assignments and submit solutions.',
-    to: '/student/labs',
-    icon: FlaskConical,
-    roles: ['STUDENT'],
-    badge: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-    bar:   'bg-emerald-500',
-    section: 'student',
-  },
-  {
-    title: 'My Research',
-    description: 'Submit your research proposal and prepare for your viva voce.',
-    to: '/student/research',
-    icon: Microscope,
-    roles: ['STUDENT'],
-    badge: 'bg-purple-50 text-purple-600 border-purple-100',
-    bar:   'bg-purple-500',
-    section: 'student',
-  },
-
   // ── Evaluate ──────────────────────────────────────────────────────────────
   {
     title: 'My Evaluations',
@@ -176,7 +146,6 @@ const MODULE_SECTIONS = [
   { key: 'teach',    label: 'Teach & Prepare' },
   { key: 'assess',   label: 'Assess & Research' },
   { key: 'analytics',label: 'Analytics' },
-  { key: 'student',  label: 'Student Portal' },
   { key: 'evaluate', label: 'Evaluation' },
 ]
 
@@ -200,7 +169,7 @@ const ROLE_SUBTITLE: Record<string, string> = {
   FACULTY:   'Build courses, set exams, evaluate labs, and supervise research.',
   BOARD:     'Review exam papers, evaluate scripts, and advise on grade distributions.',
   GUIDE:     'Review research proposals assigned to you and supervise student projects.',
-  STUDENT:   'Access your lab assignments and research project below.',
+  STUDENT:   'Your academic workspace — attendance, marks, exams, and research at a glance.',
   EVALUATOR: 'Review and score student submissions assigned to you.',
 }
 
@@ -209,70 +178,10 @@ const ROLE_CONTEXT: Partial<Record<string, { heading: string; body: string }>> =
     heading: 'How supervision works',
     body: 'Students submit proposals → you receive a notification → review via Research Supervision to accept, request revision, or reject. Viva sessions are scheduled by the admin.',
   },
-  STUDENT: {
-    heading: 'What to expect',
-    body: 'Lab assignments appear in My Labs when your faculty publishes them. Use My Research to register your thesis topic and track progress with your assigned guide.',
-  },
   BOARD: {
     heading: 'Board responsibilities',
     body: 'Review submitted exam papers and approve or return with feedback. Once evaluators finalise scripts, review and ratify marks. Bell curve analysis is advisory — raw scores are never altered.',
   },
-}
-
-// ---------------------------------------------------------------------------
-// Stat card
-// ---------------------------------------------------------------------------
-
-interface StatCardProps {
-  label: string
-  value: string
-  icon: IconComponent
-  accent?: boolean
-}
-
-function StatCard({ label, value, icon: Icon, accent }: StatCardProps) {
-  return (
-    <div className={`rounded-xl border px-4 py-3.5 flex items-start gap-3 ${
-      accent
-        ? 'bg-sv-light border-sv-primary/20'
-        : 'bg-white border-gray-200'
-    }`}>
-      <div className={`p-1.5 rounded-lg mt-0.5 ${accent ? 'bg-sv-primary/10' : 'bg-gray-100'}`}>
-        <Icon className={`h-3.5 w-3.5 ${accent ? 'text-sv-primary' : 'text-gray-400'}`} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
-        <p className={`text-sm font-bold mt-0.5 truncate ${accent ? 'text-sv-primary' : 'text-gray-900'}`}>
-          {value}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Module card (non-admin roles)
-// ---------------------------------------------------------------------------
-
-function ModuleCardItem({ card, onClick }: { card: ModuleCard; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="text-left w-full rounded-xl border border-gray-200 bg-white hover:border-sv-primary/30 hover:shadow-lg hover:shadow-sv-primary/5 transition-all duration-200 group relative overflow-hidden"
-    >
-      <div className={`absolute inset-x-0 top-0 h-[3px] ${card.bar}`} />
-      <div className="p-5 pt-6">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className={`p-2 rounded-lg border ${card.badge}`}>
-            <card.icon className="h-4 w-4" />
-          </div>
-          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200" />
-        </div>
-        <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
-      </div>
-    </button>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -356,15 +265,6 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
 // ---------------------------------------------------------------------------
 // Admin workspace sections
 // ---------------------------------------------------------------------------
-
-interface AdminCard {
-  title: string
-  description: string
-  to?: string
-  icon: IconComponent
-  bar: string
-  badge: string
-}
 
 interface AdminSection {
   heading: string
@@ -588,57 +488,6 @@ const DEAN_SECTIONS: AdminSection[] = [
   },
 ]
 
-function AdminActionCard({ card, onClick }: { card: AdminCard; onClick?: () => void }) {
-  const soon = !card.to
-  return (
-    <button
-      onClick={soon ? undefined : onClick}
-      disabled={soon}
-      className={`text-left w-full rounded-xl border border-gray-200 bg-white transition-all duration-200 group relative overflow-hidden disabled:opacity-40 disabled:cursor-not-allowed ${
-        soon ? '' : 'hover:border-sv-primary/30 hover:shadow-lg hover:shadow-sv-primary/5'
-      }`}
-    >
-      <div className={`absolute inset-x-0 top-0 h-[3px] ${card.bar}`} />
-      <div className="p-5 pt-6">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className={`p-2 rounded-lg border ${card.badge}`}>
-            <card.icon className="h-4 w-4" />
-          </div>
-          {soon ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-gray-100 text-gray-400 border border-gray-200 self-start mt-0.5 flex-shrink-0">
-              Soon
-            </span>
-          ) : (
-            <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200 flex-shrink-0" />
-          )}
-        </div>
-        <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
-      </div>
-    </button>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Greeting
-// ---------------------------------------------------------------------------
-
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Good morning'
-  if (hour < 17) return 'Good afternoon'
-  return 'Good evening'
-}
-
-const HONORIFICS = new Set(['dr.', 'prof.', 'mr.', 'ms.', 'mrs.', 'mx.', 'sir'])
-
-function getDisplayFirstName(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean)
-  if (parts.length <= 1) return parts[0] ?? ''
-  if (HONORIFICS.has(parts[0].toLowerCase())) return `${parts[0]} ${parts[1]}`
-  return parts[0]
-}
-
 function prettifySlug(slug: string): string {
   if (!slug) return 'Institution'
   return slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
@@ -675,10 +524,15 @@ export default function DashboardPage() {
           <p className="text-[10px] font-bold text-sv-primary uppercase tracking-[0.18em] mb-1.5">
             {institution} · VIDYA AI Workspace
           </p>
-          <h1 className="text-2xl font-bold text-gray-900 leading-tight">
-            {getGreeting()}{displayFirstName ? `, ${displayFirstName}` : ''}
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+          {/* STUDENT's greeting lives in the richer WelcomeCard below (photo + program/batch/section) */}
+          {role !== 'STUDENT' && (
+            <>
+              <h1 className="text-2xl font-bold text-gray-900 leading-tight">
+                {getGreeting()}{displayFirstName ? `, ${displayFirstName}` : ''}
+              </h1>
+              <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+            </>
+          )}
         </div>
         <div className="hidden sm:flex items-center gap-1.5 bg-sv-light border border-sv-primary/20 text-sv-primary text-[11px] font-bold px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-sv-accent animate-pulse" />
@@ -798,8 +652,11 @@ export default function DashboardPage() {
       {/* ── My Courses — FACULTY only ──────────────────────────── */}
       {role === 'FACULTY' && <MyCoursesBanner />}
 
-      {/* ── Module sections — Faculty, Student, Board, Guide, Evaluator ── */}
-      {!['ADMIN', 'DEAN'].includes(role) && visibleCards.length > 0 && (
+      {/* ── Student workspace — its own composed dashboard, not the generic module grid ── */}
+      {role === 'STUDENT' && <StudentDashboard />}
+
+      {/* ── Module sections — Faculty, Board, Guide, Evaluator ── */}
+      {!['ADMIN', 'DEAN', 'STUDENT'].includes(role) && visibleCards.length > 0 && (
         <div className="space-y-8">
           {MODULE_SECTIONS.map((section) => {
             const sectionCards = visibleCards.filter((c) => c.section === section.key)
@@ -828,7 +685,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Contextual guidance (GUIDE, STUDENT) ──────────────── */}
+      {/* ── Contextual guidance (GUIDE, BOARD) ──────────────── */}
       {roleContext && (
         <div className="rounded-xl border border-sv-primary/10 bg-sv-light px-5 py-4 space-y-1.5">
           <p className="text-sm font-semibold text-sv-dark">{roleContext.heading}</p>
@@ -837,7 +694,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Empty state ────────────────────────────────────────── */}
-      {!['ADMIN', 'DEAN'].includes(role) && visibleCards.length === 0 && (
+      {!['ADMIN', 'DEAN', 'STUDENT'].includes(role) && visibleCards.length === 0 && (
         <PageEmpty message="No modules are available for your role. Contact your administrator." />
       )}
 
