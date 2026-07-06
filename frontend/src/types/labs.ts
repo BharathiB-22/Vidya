@@ -48,6 +48,10 @@ export interface LabAssignment {
   // Enriched on detail endpoints from syllabi → courses join
   course_title: string | null
   course_code: string | null
+  // Lab Program workflow — e.g. lab_group "Python Lab", program_number 1..10.
+  // Both nullable: assignments without a lab_group render flat/ungrouped as before.
+  lab_group: string | null
+  program_number: number | null
 }
 
 export interface LabAssignmentListResponse {
@@ -70,6 +74,8 @@ export interface AssignmentCreate {
   ai_not_permitted?: boolean
   allow_late?: boolean
   plagiarism_threshold?: number
+  lab_group?: string
+  program_number?: number
 }
 
 export interface AssignmentUpdate {
@@ -82,6 +88,8 @@ export interface AssignmentUpdate {
   ai_not_permitted?: boolean
   allow_late?: boolean
   language?: string
+  lab_group?: string
+  program_number?: number
 }
 
 // ── Submission ──────────────────────────────────────────────────────────────
@@ -92,6 +100,7 @@ export interface LabSubmission {
   student_user_id: string
   submission_type: SubmissionType
   content_url: string | null
+  github_url: string | null
   submitted_at: string
   is_late: boolean
   eval_job_id: string | null
@@ -122,6 +131,7 @@ export interface SubmissionListResponse {
 export interface SubmitPayload {
   content_text?: string
   content_url?: string
+  github_url?: string
 }
 
 // ── Evaluation ──────────────────────────────────────────────────────────────

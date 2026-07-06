@@ -1,10 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   CalendarCheck, FlaskConical, CalendarDays, Ticket,
-  Award, BookMarked, Microscope, Bell,
+  Award, BookMarked, Microscope, Bell, GraduationCap, ClipboardList,
 } from 'lucide-react'
 import { sisApi } from '@/lib/api/sis'
 import { useStudentAssignments, useMySubmissions } from '@/hooks/labs'
+import {
+  useStudentAssignments as useStudentCoursework,
+  useMySubmissions as useMyCourseworkSubmissions,
+} from '@/hooks/coursework'
 import { studentListProblems } from '@/lib/api/research'
 import { listNotifications } from '@/lib/api/notifications'
 import { StatCard } from '@/components/dashboard/shared'
@@ -36,6 +40,18 @@ export function AcademicSummary({ semesterId, sessionId }: AcademicSummaryProps)
   const submissionsQ = useMySubmissions()
   const submittedAssignmentIds = new Set((submissionsQ.data?.items ?? []).map((s) => s.assignment_id))
   const pendingLabs = (assignmentsQ.data?.items ?? []).filter((a) => !submittedAssignmentIds.has(a.id)).length
+
+  const courseworkQ = useStudentCoursework()
+  const courseworkSubmissionsQ = useMyCourseworkSubmissions()
+  const submittedCourseworkIds = new Set((courseworkSubmissionsQ.data?.items ?? []).map((s) => s.assignment_id))
+  const pendingCoursework = (courseworkQ.data?.items ?? []).filter((a) => !submittedCourseworkIds.has(a.id)).length
+  const submittedCourseworkCount = courseworkSubmissionsQ.data?.items?.length ?? 0
+
+  const subjectsQ = useQuery({
+    queryKey: ['my-subjects-summary'],
+    queryFn: () => sisApi.getMySubjects(),
+  })
+  const creditsRegistered = (subjectsQ.data?.subjects ?? []).reduce((sum, s) => sum + (s.credits ?? 0), 0)
 
   const timetableQ = useQuery({
     queryKey: ['my-timetable', sessionId],
@@ -95,6 +111,18 @@ export function AcademicSummary({ semesterId, sessionId }: AcademicSummaryProps)
 
       <TileShell isLoading={assignmentsQ.isLoading || submissionsQ.isLoading}>
         <StatCard label="Pending Labs" value={String(pendingLabs)} icon={FlaskConical} accent={pendingLabs > 0} />
+      </TileShell>
+
+      <TileShell isLoading={courseworkQ.isLoading || courseworkSubmissionsQ.isLoading}>
+        <StatCard label="Assignments Pending" value={String(pendingCoursework)} icon={ClipboardList} accent={pendingCoursework > 0} />
+      </TileShell>
+
+      <TileShell isLoading={courseworkSubmissionsQ.isLoading}>
+        <StatCard label="Assignments Submitted" value={String(submittedCourseworkCount)} icon={ClipboardList} />
+      </TileShell>
+
+      <TileShell isLoading={subjectsQ.isLoading}>
+        <StatCard label="Credits Registered" value={String(creditsRegistered)} icon={GraduationCap} />
       </TileShell>
 
       <TileShell isLoading={!!sessionId && timetableQ.isLoading}>

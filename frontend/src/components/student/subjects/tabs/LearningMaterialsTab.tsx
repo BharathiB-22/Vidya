@@ -2,15 +2,18 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Library, Search, MessageCircle, Send } from 'lucide-react'
 import * as learningPackageApi from '@/lib/api/learningPackage'
-import type { PackageItem, MaterialSourceType } from '@/types/learningPackage'
+import type { PackageItem } from '@/types/learningPackage'
 import { UnitSelector } from '../UnitSelector'
 import type { SubjectTabProps } from './types'
 
-const FILTERS: { key: string; label: string; match: (t: MaterialSourceType) => boolean }[] = [
+const FILTERS: { key: string; label: string; match: (i: PackageItem) => boolean }[] = [
   { key: 'ALL', label: 'All', match: () => true },
-  { key: 'FACULTY_NOTE', label: 'Faculty Notes', match: (t) => t === 'FACULTY_NOTE' },
-  { key: 'YOUTUBE', label: 'Videos', match: (t) => t === 'YOUTUBE' },
-  { key: 'REFERENCES', label: 'References', match: (t) => t === 'ARXIV' || t === 'NPTEL' || t === 'MIT_OCW' },
+  { key: 'FACULTY_NOTE', label: 'Faculty Notes', match: (i) => i.source_type === 'FACULTY_NOTE' },
+  { key: 'REFERENCE_BOOKS', label: 'Reference Books', match: (i) => i.source_type === 'NPTEL' || i.source_type === 'MIT_OCW' },
+  { key: 'ARTICLES', label: 'Articles', match: (i) => i.source_type === 'ARXIV' },
+  { key: 'VIDEOS', label: 'Videos', match: (i) => i.source_type === 'YOUTUBE' },
+  { key: 'AI_CURATED', label: 'AI Curated', match: (i) => !i.faculty_recommended },
+  { key: 'DOWNLOADS', label: 'Downloads', match: (i) => !!i.url },
 ]
 
 interface QATurn {
@@ -43,7 +46,7 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
     const list = items ?? []
     const q = search.trim().toLowerCase()
     const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0]
-    return list.filter((i: PackageItem) => active.match(i.source_type) && (!q || i.title.toLowerCase().includes(q)))
+    return list.filter((i: PackageItem) => active.match(i) && (!q || i.title.toLowerCase().includes(q)))
   }, [items, filter, search])
 
   const askMutation = useMutation({
@@ -77,6 +80,10 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
         </div>
       ) : (
         <>
+          <p className="text-xs text-gray-400">
+            Looking for slides or PPTs? See the <span className="font-medium text-gray-500">Course Kit</span> tab.
+          </p>
+
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />

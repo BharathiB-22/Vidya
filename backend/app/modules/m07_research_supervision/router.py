@@ -53,6 +53,8 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.notifications.dispatch import notify_user
+from app.core.notifications.models import NotificationType
 from app.core.rate_limiting import limiter
 from app.modules.m07_research_supervision.schemas import (
     AIGeneratedProblemCreate,
@@ -373,6 +375,17 @@ async def schedule_viva(
             "document_id": str(payload.document_id),
             "student_id":  str(viva.student_user_id),
         },
+    )
+
+    await notify_user(
+        db,
+        notification_type=NotificationType.VIVA_SCHEDULED,
+        recipient_user_id=viva.student_user_id,
+        title="Viva scheduled",
+        body="A viva session has been scheduled for your research submission."
+             + (f" Complete it by {viva.expires_at:%d %b %Y, %H:%M}." if viva.expires_at else ""),
+        entity_type="VivaSession",
+        entity_id=str(viva.id),
     )
     return VivaSessionResponse.model_validate(viva)
 

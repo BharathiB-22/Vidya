@@ -49,6 +49,8 @@ function CreateDialog({
   const [deadline, setDeadline]     = useState('')
   const [allowLate, setAllowLate]   = useState(false)
   const [rubricName, setRubricName] = useState('Content Quality')
+  const [labGroup, setLabGroup]     = useState('')
+  const [programNumber, setProgramNumber] = useState('')
   const { mutateAsync, isPending }  = useCreateAssignment()
 
   async function handleSubmit(e: React.FormEvent) {
@@ -61,6 +63,8 @@ function CreateDialog({
       language: type === 'CODE' ? lang : undefined,
       deadline: deadline || undefined,
       allow_late: allowLate,
+      lab_group: labGroup.trim() || undefined,
+      program_number: programNumber ? Number(programNumber) : undefined,
       rubric: [{
         criterion_id: 'c1',
         name: rubricName,
@@ -144,6 +148,33 @@ function CreateDialog({
             onChange={(e) => setInstructions(e.target.value)}
             placeholder="e.g. Write 500 words. Cite sources in APA format."
           />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              Lab Group <span className="text-xs font-normal text-gray-400">(optional)</span>
+            </label>
+            <input
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              value={labGroup}
+              onChange={(e) => setLabGroup(e.target.value)}
+              placeholder="e.g. Python Lab"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              Program # <span className="text-xs font-normal text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="number"
+              min={1}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              value={programNumber}
+              onChange={(e) => setProgramNumber(e.target.value)}
+              placeholder="e.g. 1"
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

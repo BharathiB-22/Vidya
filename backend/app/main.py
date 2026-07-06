@@ -25,9 +25,11 @@ from app.core.monitoring.platform_health_router import router as platform_health
 from app.core.notifications.router import router as notifications_router
 from app.core.storage.router import router as storage_router
 from app.core.storage.provisioner import ensure_bucket_exists
+from app.core.calendar.router import router as calendar_router
 from app.modules.m01_program_advisor.router import router as program_router
 from app.modules.m02_syllabus.router import router as syllabus_router
 from app.modules.m03_course_kit.router import router as course_kit_router
+from app.modules.m04_assignments.router import router as assignments_router
 from app.modules.m05_learning_materials.router import router as learning_router
 from app.modules.m06_labs_evaluator.router import router as labs_router
 from app.modules.m07_research_supervision.router import router as research_router
@@ -40,6 +42,7 @@ from app.modules.m09_paper_admin.ocr_router import router as ocr_review_router
 from app.modules.m10_bell_curve.router import router as bell_curve_router
 from app.modules.m_academics.router import router as academics_router
 from app.modules.m_academics.assignment_router import router as assignment_router
+from app.modules.m_academics.elective_router import router as elective_router
 from app.modules.m_academics.ownership_router import ownership_router
 from app.modules.m11_sis.router import router as sis_router
 from app.modules.m11_sis.transcript_router import verify_router
@@ -171,9 +174,11 @@ app.include_router(storage_router, prefix="/storage")
 app.include_router(program_router, prefix="/programs")
 app.include_router(syllabus_router, prefix="/syllabi")
 app.include_router(course_kit_router, prefix="/course-kits")
+app.include_router(assignments_router, prefix="/assignments")
 app.include_router(learning_router, prefix="/learning-packages")
 app.include_router(labs_router, prefix="/labs")
 app.include_router(research_router, prefix="/research")
+app.include_router(calendar_router, prefix="/calendar")
 app.include_router(exam_router,        prefix="/exams")
 app.include_router(paper_admin_router, prefix="/scripts")
 app.include_router(evaluation_assignment_router, prefix="/evaluation-assignments")
@@ -183,6 +188,7 @@ app.include_router(ocr_review_router, prefix="/ocr-review")
 app.include_router(bell_curve_router, prefix="/bell-curve")
 app.include_router(academics_router,  prefix="/academics")
 app.include_router(assignment_router, prefix="/course-assignments")
+app.include_router(elective_router,   prefix="/electives")
 app.include_router(ownership_router,  prefix="/academics")
 app.include_router(sis_router,          prefix="/sis")
 app.include_router(verify_router,       prefix="/verify")

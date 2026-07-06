@@ -64,6 +64,8 @@ class AssignmentRepository:
         ai_not_permitted: bool = True,
         allow_late: bool = False,
         plagiarism_threshold: float = 0.85,
+        lab_group: str | None = None,
+        program_number: int | None = None,
         db: AsyncSession,
     ) -> LabAssignment:
         obj = LabAssignment(
@@ -81,6 +83,8 @@ class AssignmentRepository:
             ai_not_permitted=ai_not_permitted,
             allow_late=allow_late,
             plagiarism_threshold=plagiarism_threshold,
+            lab_group=lab_group,
+            program_number=program_number,
             status=AssignmentStatus.DRAFT,
         )
         db.add(obj)
@@ -198,6 +202,7 @@ class SubmissionRepository:
         *,
         content_url: str | None = None,
         content_text: str | None = None,
+        github_url: str | None = None,
         is_late: bool = False,
         db: AsyncSession,
     ) -> LabSubmission:
@@ -207,6 +212,7 @@ class SubmissionRepository:
             submission_type=submission_type,
             content_url=content_url,
             content_text=content_text,
+            github_url=github_url,
             is_late=is_late,
             ai_scan_status=AIScanStatus.PENDING,
             status=SubmissionStatus.SUBMITTED,

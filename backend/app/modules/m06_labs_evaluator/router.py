@@ -49,6 +49,8 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.dependencies import get_tenant_db_dep, require_responsibility, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.core.notifications.dispatch import notify_section_students, notify_user
+from app.core.notifications.models import NotificationType
 from app.modules.m06_labs_evaluator.evaluator_schemas import (
     EvaluatorAnalytics,
     EvaluatorAssignmentList,
@@ -250,6 +252,29 @@ async def publish_assignment(
         target_id=str(assignment_id),
         metadata={"max_marks": assignment.max_marks},
     )
+
+    if assignment.syllabus_id:
+        section_rows = (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT sa.section_id FROM syllabi s "
+                    "JOIN subject_assignments sa ON sa.course_id = s.course_id "
+                    "WHERE s.id = :sid AND sa.is_active = true AND sa.section_id IS NOT NULL"
+                ),
+                {"sid": str(assignment.syllabus_id)},
+            )
+        ).fetchall()
+        for (section_id,) in section_rows:
+            await notify_section_students(
+                db,
+                notification_type=NotificationType.LAB_PUBLISHED,
+                section_id=section_id,
+                title=f"New lab assignment: {assignment.title}",
+                body=f"\"{assignment.title}\" has been published."
+                     + (f" Deadline {assignment.deadline:%d %b %Y, %H:%M}." if assignment.deadline else ""),
+                entity_type="LabAssignment",
+                entity_id=str(assignment.id),
+            )
     return AssignmentResponse.model_validate(assignment)
 
 
@@ -394,6 +419,17 @@ async def ratify_submission(
             "final_score":  float(grade.final_score),
             "max_marks":    grade.max_marks,
         },
+    )
+
+    assignment = await AssignmentService.get(grade.assignment_id, db=db)
+    await notify_user(
+        db,
+        notification_type=NotificationType.LAB_GRADED,
+        recipient_user_id=grade.student_user_id,
+        title=f"Lab graded: {assignment.title}",
+        body=f"You scored {float(grade.final_score)}/{grade.max_marks}.",
+        entity_type="LabSubmission",
+        entity_id=str(submission_id),
     )
     return GradeLedgerResponse.model_validate(grade)
 
@@ -853,6 +889,7 @@ async def student_submit(
             student_user_id=current_user.user_id,
             content_text=payload.content_text,
             content_url=payload.content_url,
+            github_url=payload.github_url,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,

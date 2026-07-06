@@ -44,27 +44,33 @@ export async function markAllRead(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export type NotificationCategory =
-  | 'Academic' | 'Approvals' | 'Attendance' | 'Results' | 'Materials' | 'Governance' | 'System'
+  | 'Academic' | 'Assignments' | 'Labs' | 'Research' | 'Attendance' | 'Exam'
+  | 'Announcements' | 'System'
 
 const NOTIFICATION_CATEGORY: Record<string, NotificationCategory> = {
   COURSE_ASSIGNED:             'Academic',
   COURSE_ASSIGNMENT_REVOKED:   'Academic',
   PROGRAM_ASSIGNED:            'Academic',
   PROGRAM_ASSIGNMENT_REVOKED:  'Academic',
-  SYLLABUS_SUBMITTED:          'Approvals',
-  SYLLABUS_APPROVED:           'Approvals',
-  SYLLABUS_REJECTED:           'Approvals',
-  SYLLABUS_REVISION_REQUESTED: 'Approvals',
-  SYLLABUS_VERSION_CREATED:    'Approvals',
-  COURSE_KIT_SUBMITTED:        'Approvals',
-  COURSE_KIT_APPROVED:         'Approvals',
-  COURSE_KIT_REJECTED:         'Approvals',
-  ASSIGNMENT_PUBLISHED:        'Academic',
-  ATTENDANCE_SHORTAGE_WARNING: 'Attendance',
-  INTERNAL_MARKS_PUBLISHED:    'Results',
   ENROLLMENT_CREATED:          'Academic',
   ENROLLMENT_MOVED:            'Academic',
   ENROLLMENT_UNENROLLED:       'Academic',
+  SYLLABUS_SUBMITTED:          'Academic',
+  SYLLABUS_APPROVED:           'Academic',
+  SYLLABUS_REJECTED:           'Academic',
+  SYLLABUS_REVISION_REQUESTED: 'Academic',
+  SYLLABUS_VERSION_CREATED:    'Academic',
+  COURSE_KIT_SUBMITTED:        'Academic',
+  COURSE_KIT_APPROVED:         'Academic',
+  COURSE_KIT_REJECTED:         'Academic',
+  ATTENDANCE_SHORTAGE_WARNING: 'Attendance',
+  INTERNAL_MARKS_PUBLISHED:    'Exam',
+  ASSIGNMENT_PUBLISHED:        'Assignments',
+  ASSIGNMENT_GRADED:           'Assignments',
+  ASSIGNMENT_RETURNED:         'Assignments',
+  LAB_PUBLISHED:               'Labs',
+  LAB_GRADED:                  'Labs',
+  VIVA_SCHEDULED:              'Research',
 }
 
 export function notificationCategory(type: string): NotificationCategory {
@@ -82,6 +88,12 @@ export function notificationHref(n: NotificationItem): string | null {
     case 'InternalMarksComponent':
     case 'InternalMarks':
       return '/sis/marks/me'
+    case 'Assignment':
+      return n.entity_id ? `/student/assignments/${n.entity_id}` : null
+    case 'LabAssignment':
+      return n.entity_id ? `/student/labs/${n.entity_id}` : null
+    case 'VivaSession':
+      return n.entity_id ? `/student/viva/${n.entity_id}` : null
     default:
       return null
   }

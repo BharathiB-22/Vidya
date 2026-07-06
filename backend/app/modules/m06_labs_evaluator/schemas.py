@@ -52,6 +52,9 @@ class AssignmentCreate(BaseModel):
     ai_not_permitted: bool = True
     allow_late: bool = False
     plagiarism_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    # Grouping, e.g. lab_group="Python Lab", program_number=1..10 -> "Program 3"
+    lab_group: str | None = None
+    program_number: int | None = None
 
     @field_validator("rubric")
     @classmethod
@@ -81,6 +84,8 @@ class AssignmentUpdate(BaseModel):
     allow_late: bool | None = None
     plagiarism_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     language: str | None = None
+    lab_group: str | None = None
+    program_number: int | None = None
 
 
 class AssignmentResponse(BaseModel):
@@ -105,6 +110,8 @@ class AssignmentResponse(BaseModel):
     closed_at: datetime | None
     created_at: datetime
     updated_at: datetime | None
+    lab_group: str | None = None
+    program_number: int | None = None
     # Enriched from syllabi → courses join (populated on detail endpoints only)
     course_title: str | None = None
     course_code: str | None = None
@@ -124,11 +131,13 @@ class AssignmentListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class SubmissionCreate(BaseModel):
-    content_text: str | None = None    # inline code or text
-    # For file uploads: client uses storage presigned URL, then passes the object key here
+    content_text: str | None = None    # inline code/text, or remarks alongside a file/GitHub link
+    # For file uploads (PDF or ZIP): client uses storage presigned URL, then passes the object key here
     content_url: str | None = None
+    # Optional GitHub repository/commit link, alongside content_url/content_text
+    github_url: str | None = None
 
-    @field_validator("content_text", "content_url", mode="before")
+    @field_validator("content_text", "content_url", "github_url", mode="before")
     @classmethod
     def at_least_one(cls, v: Any, info: Any) -> Any:
         return v
@@ -140,6 +149,7 @@ class SubmissionResponse(BaseModel):
     student_user_id: UUID
     submission_type: str
     content_url: str | None
+    github_url: str | None = None
     # content_text not returned in list view — too large
     submitted_at: datetime
     is_late: bool

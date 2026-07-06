@@ -43,6 +43,18 @@ import StudentResearchDetailPage from '@/pages/StudentResearchDetailPage'
 import StudentVivaPage from '@/pages/StudentVivaPage'
 import MySubjectsPage from '@/pages/student/MySubjectsPage'
 import SubjectDetailsPage from '@/pages/student/SubjectDetailsPage'
+import CalendarPage from '@/pages/student/CalendarPage'
+import ElectivesPage from '@/pages/student/ElectivesPage'
+import CourseKitsPage from '@/pages/student/CourseKitsPage'
+import LearningMaterialsPage from '@/pages/student/LearningMaterialsPage'
+import SemesterResultsPage from '@/pages/student/SemesterResultsPage'
+import EventsPage from '@/pages/student/EventsPage'
+import StudentAssignmentListPage from '@/pages/coursework/StudentAssignmentListPage'
+import StudentAssignmentSubmitPage from '@/pages/coursework/StudentAssignmentSubmitPage'
+import StudentAssignmentResultPage from '@/pages/coursework/StudentAssignmentResultPage'
+import FacultyAssignmentListPage from '@/pages/coursework/FacultyAssignmentListPage'
+import FacultyAssignmentFormPage from '@/pages/coursework/FacultyAssignmentFormPage'
+import FacultyAssignmentGradingPage from '@/pages/coursework/FacultyAssignmentGradingPage'
 import ExamPaperListPage from '@/pages/ExamPaperListPage'
 import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
 import ExamPaperEditorPage from '@/pages/ExamPaperEditorPage'
@@ -410,6 +422,14 @@ export default function App() {
             <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
           </Route>
 
+          {/* Coursework Assignments (theory/essay/report — distinct from Labs) — FACULTY, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN']} />}>
+            <Route path="/faculty/assignments" element={<FacultyAssignmentListPage />} />
+            <Route path="/faculty/assignments/new" element={<FacultyAssignmentFormPage />} />
+            <Route path="/faculty/assignments/:id/edit" element={<FacultyAssignmentFormPage />} />
+            <Route path="/faculty/assignments/:id/submissions" element={<FacultyAssignmentGradingPage />} />
+          </Route>
+
           {/* Evaluator area — EVALUATOR only */}
           <Route element={<AuthGuard allowedRoles={['EVALUATOR']} />}>
             <Route path="/evaluator" element={<EvaluatorDashboardPage />} />
@@ -427,6 +447,15 @@ export default function App() {
             <Route path="/student/viva/:token" element={<StudentVivaPage />} />
             <Route path="/student/subjects" element={<MySubjectsPage />} />
             <Route path="/student/subjects/:courseId" element={<SubjectDetailsPage />} />
+            <Route path="/student/assignments" element={<StudentAssignmentListPage />} />
+            <Route path="/student/assignments/:id" element={<StudentAssignmentSubmitPage />} />
+            <Route path="/student/assignment-submissions/:submissionId/result" element={<StudentAssignmentResultPage />} />
+            <Route path="/student/calendar" element={<CalendarPage />} />
+            <Route path="/student/electives" element={<ElectivesPage />} />
+            <Route path="/student/course-kits" element={<CourseKitsPage />} />
+            <Route path="/student/learning-materials" element={<LearningMaterialsPage />} />
+            <Route path="/student/semester-results" element={<SemesterResultsPage />} />
+            <Route path="/student/events" element={<EventsPage />} />
           </Route>
 
           {/* Self-service profile — STUDENT, FACULTY, DEAN */}

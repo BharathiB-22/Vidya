@@ -137,6 +137,8 @@ class AssignmentService:
             ai_not_permitted=payload.ai_not_permitted,
             allow_late=payload.allow_late,
             plagiarism_threshold=float(payload.plagiarism_threshold),
+            lab_group=payload.lab_group,
+            program_number=payload.program_number,
             db=db,
         )
         await db.commit()
@@ -209,6 +211,10 @@ class AssignmentService:
             fields["plagiarism_threshold"] = payload.plagiarism_threshold
         if payload.language is not None:
             fields["language"] = payload.language
+        if payload.lab_group is not None:
+            fields["lab_group"] = payload.lab_group
+        if payload.program_number is not None:
+            fields["program_number"] = payload.program_number
 
         updated = await AssignmentRepository.update(assignment_id, fields, db=db)
         await db.commit()
@@ -277,6 +283,7 @@ class SubmissionService:
         *,
         content_text: str | None = None,
         content_url: str | None = None,
+        github_url: str | None = None,
         tenant_id: UUID,
         schema_name: str,
         db: AsyncSession,
@@ -304,10 +311,10 @@ class SubmissionService:
                 409,
             )
 
-        if content_text is None and content_url is None:
+        if content_text is None and content_url is None and github_url is None:
             raise LabServiceError(
                 "NO_CONTENT",
-                "Provide either content_text or content_url.",
+                "Provide at least one of content_text, content_url, or github_url.",
             )
 
         now = datetime.now(timezone.utc)
@@ -329,6 +336,7 @@ class SubmissionService:
             submission_type=assignment.submission_type,
             content_text=content_text,
             content_url=content_url,
+            github_url=github_url,
             is_late=assignment.deadline is not None and now > assignment.deadline,
             db=db,
         )

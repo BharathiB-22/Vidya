@@ -57,14 +57,30 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="slides">PPT Slides</TabsTrigger>
+            <TabsTrigger value="experiments">Experiments</TabsTrigger>
             <TabsTrigger value="resources">Resources</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
-            <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-2 text-sm">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3 text-sm">
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: kit.complexity_level === 'PG' ? 'rgba(139,92,246,0.10)' : 'rgba(14,165,233,0.10)',
+                    color: kit.complexity_level === 'PG' ? '#7c3aed' : '#0284c7',
+                    border: `1px solid ${kit.complexity_level === 'PG' ? 'rgba(139,92,246,0.3)' : 'rgba(14,165,233,0.3)'}`,
+                  }}
+                >
+                  {kit.complexity_level} level
+                </span>
+                {kit.tone && (
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                    {kit.tone}
+                  </span>
+                )}
+              </div>
               <div className="flex gap-4 flex-wrap text-gray-600">
-                <span><span className="text-gray-400">Complexity:</span> {kit.complexity_level}</span>
-                {kit.tone && <span><span className="text-gray-400">Tone:</span> {kit.tone}</span>}
                 <span><span className="text-gray-400">Slides:</span> {kit.slides.length}</span>
                 <span><span className="text-gray-400">Assignments:</span> {kit.assignments.length}</span>
               </div>
@@ -73,6 +89,31 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
 
           <TabsContent value="slides">
             <SlideViewer slides={kit.slides} />
+          </TabsContent>
+
+          <TabsContent value="experiments">
+            {kit.assignments.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 text-center">No activities in this course kit yet.</p>
+            ) : (
+              <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+                {kit.assignments.map((ka) => (
+                  <div key={ka.assignment_number} className="px-5 py-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-gray-800">{ka.title}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-purple-50 text-purple-700">
+                        {ka.assignment_type}
+                      </span>
+                      {ka.bloom_level && (
+                        <span className="text-xs text-gray-400">{ka.bloom_level}</span>
+                      )}
+                    </div>
+                    {ka.question_text && (
+                      <p className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{ka.question_text}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="resources">

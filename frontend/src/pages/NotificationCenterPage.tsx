@@ -13,13 +13,14 @@ import {
 const PAGE_SIZE = 25
 
 const CATEGORY_COLORS: Record<string, string> = {
-  Academic:   '#6366f1',
-  Approvals:  '#f59e0b',
-  Attendance: '#0ea5e9',
-  Results:    '#10b981',
-  Materials:  '#8b5cf6',
-  Governance: '#ec4899',
-  System:     '#64748b',
+  Academic:      '#6366f1',
+  Assignments:   '#f59e0b',
+  Labs:          '#0ea5e9',
+  Research:      '#8b5cf6',
+  Attendance:    '#ec4899',
+  Exam:          '#10b981',
+  Announcements: '#64748b',
+  System:        '#94a3b8',
 }
 
 function timeAgo(dateStr: string): string {

@@ -67,6 +67,36 @@ function Card({ title, icon: Icon, locked = false, children }: {
 const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
 const labelCls = "block text-xs text-gray-500 mb-1"
 
+/** Client-side completion % over the student's optional/editable profile fields. */
+function studentProfileCompletion(profile: StudentDetailOut): number {
+  const fields = [
+    profile.photo_url,
+    profile.phone,
+    profile.address_line1,
+    profile.address_city,
+    profile.address_state,
+    profile.emergency_contact_name,
+    profile.emergency_contact_phone,
+  ]
+  const filled = fields.filter((v) => !!v && String(v).trim().length > 0).length
+  return Math.round((filled / fields.length) * 100)
+}
+
+function ProfileCompletionBar({ pct }: { pct: number }) {
+  const color = pct >= 100 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444'
+  return (
+    <div className="mt-2 max-w-xs">
+      <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+        <span>Profile completion</span>
+        <span className="font-semibold" style={{ color }}>{pct}%</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Student self-service view
 // ---------------------------------------------------------------------------
@@ -130,6 +160,7 @@ function StudentProfileView({ profile }: { profile: StudentDetailOut }) {
               {profile.program.name} · {profile.program.degree_type}
             </p>
           )}
+          <ProfileCompletionBar pct={studentProfileCompletion(profile)} />
         </div>
         {!editing && (
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>

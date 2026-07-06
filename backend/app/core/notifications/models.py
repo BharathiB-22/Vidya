@@ -49,10 +49,17 @@ class NotificationType(str, enum.Enum):
     COURSE_KIT_APPROVED         = "COURSE_KIT_APPROVED"
     COURSE_KIT_REJECTED         = "COURSE_KIT_REJECTED"
 
-    # Student assignments — reserved. No student-homework module exists yet
-    # (the "assignments" pages are exam-script evaluation allocation), so no
-    # emitter fires this today.
+    # Assignments — M04 (theory/coursework assignments, separate from M06 Labs)
     ASSIGNMENT_PUBLISHED        = "ASSIGNMENT_PUBLISHED"
+    ASSIGNMENT_GRADED           = "ASSIGNMENT_GRADED"
+    ASSIGNMENT_RETURNED         = "ASSIGNMENT_RETURNED"
+
+    # Labs & Assignment Evaluator — M06 (wired up in Phase 3; previously silent)
+    LAB_PUBLISHED               = "LAB_PUBLISHED"
+    LAB_GRADED                  = "LAB_GRADED"
+
+    # Research Supervision — M07 (wired up in Phase 3; previously silent)
+    VIVA_SCHEDULED              = "VIVA_SCHEDULED"
 
 
 class Notification(Base):

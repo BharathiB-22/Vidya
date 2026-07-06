@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ChevronLeft, Clock, AlertTriangle, CheckCircle2, Circle,
-  Upload, FileText, X, Loader2,
+  Upload, FileText, X, Loader2, Github,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useStudentAssignments, useMySubmissions } from '@/hooks/labs'
@@ -128,6 +128,10 @@ export default function StudentSubmitPage() {
   const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Lab Program workflow (WRITTEN only) — optional alongside file/text.
+  const [githubUrl, setGithubUrl] = useState('')
+  const [remarks, setRemarks] = useState('')
+
   const assignment: LabAssignment | undefined = assignData?.items.find((a) => a.id === assignmentId)
   const existingSub = mySubData?.items.find((s) => s.assignment_id === assignmentId)
 
@@ -156,25 +160,30 @@ export default function StudentSubmitPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    if (submitMode === 'file' && selectedFile) {
-      // ── File upload path ──────────────────────────────────────────────
+    const github_url = githubUrl.trim() || undefined
+
+    if (submitMode === 'file' && (selectedFile || github_url)) {
+      // ── File / GitHub link path ────────────────────────────────────────
       setIsUploading(true)
       try {
-        const urlResp = await requestSubmissionUploadUrl({
-          entity_type: 'submission',
-          entity_id: assignmentId,
-          original_filename: selectedFile.name,
-          content_type: resolveContentType(selectedFile),
-          size_bytes: selectedFile.size,
-        })
+        let content_url: string | undefined
+        if (selectedFile) {
+          const urlResp = await requestSubmissionUploadUrl({
+            entity_type: 'submission',
+            entity_id: assignmentId,
+            original_filename: selectedFile.name,
+            content_type: resolveContentType(selectedFile),
+            size_bytes: selectedFile.size,
+          })
+          await uploadFileToPresignedUrl(urlResp.presigned_url, selectedFile, setUploadProgress)
+          content_url = urlResp.object_key
+        }
 
-        await uploadFileToPresignedUrl(urlResp.presigned_url, selectedFile, setUploadProgress)
-
-        await submit({ content_url: urlResp.object_key })
+        await submit({ content_url, github_url, content_text: remarks.trim() || undefined })
         setSubmitted(true)
       } catch (err) {
         addToast(
-          err instanceof Error ? err.message : 'File upload failed. Please try again.',
+          err instanceof Error ? err.message : 'Submission failed. Please try again.',
           'error'
         )
         setIsUploading(false)
@@ -183,8 +192,8 @@ export default function StudentSubmitPage() {
       setIsUploading(false)
     } else {
       // ── Inline text path ──────────────────────────────────────────────
-      if (!content.trim()) return
-      await submit({ content_text: content })
+      if (!content.trim() && !github_url) return
+      await submit({ content_text: content.trim() || undefined, github_url })
       setSubmitted(true)
     }
   }
@@ -241,6 +250,7 @@ export default function StudentSubmitPage() {
                 Submitted {new Date(sub.submitted_at).toLocaleString()}
                 {sub.is_late && <span className="ml-2 text-orange-600">· Late</span>}
                 {sub.content_url && <span className="ml-2">· File uploaded</span>}
+                {sub.github_url && <span className="ml-2">· GitHub link submitted</span>}
               </div>
             )}
             <div className="mt-5 flex gap-3 justify-center">
@@ -256,12 +266,13 @@ export default function StudentSubmitPage() {
 
   const isCode = assignment.submission_type === 'CODE'
   const isPending = submitting || isUploading
+  const hasGithubUrl = githubUrl.trim().length > 0
 
   const canSubmit = isPending
     ? false
     : submitMode === 'file'
-    ? selectedFile != null
-    : content.trim().length > 0
+    ? selectedFile != null || hasGithubUrl
+    : content.trim().length > 0 || hasGithubUrl
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
@@ -388,6 +399,23 @@ export default function StudentSubmitPage() {
           </div>
         )}
 
+        {/* GitHub Link — optional, alongside file/text (WRITTEN only) */}
+        {!isCode && (
+          <div>
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Github className="h-3.5 w-3.5 text-gray-400" />
+              GitHub Link <span className="text-xs font-normal text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="url"
+              className="mt-1.5 w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              placeholder="https://github.com/your-username/your-repo"
+              value={githubUrl}
+              onChange={(e) => setGithubUrl(e.target.value)}
+            />
+          </div>
+        )}
+
         {/* Text input */}
         {(isCode || submitMode === 'text') && (
           <>
@@ -404,7 +432,7 @@ export default function StudentSubmitPage() {
                 : 'Write your response here…'}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              required={!isCode}
+              required={isCode}
             />
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-400">{content.length} characters</p>
@@ -473,6 +501,19 @@ export default function StudentSubmitPage() {
                 )}
               </div>
             )}
+
+            <div>
+              <label className="text-sm font-medium text-gray-700">
+                Remarks <span className="text-xs font-normal text-gray-400">(optional)</span>
+              </label>
+              <textarea
+                className="mt-1.5 w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y leading-relaxed"
+                rows={3}
+                placeholder="Any notes for the evaluator…"
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+              />
+            </div>
 
             <div className="flex justify-end">
               <Button type="submit" disabled={!canSubmit}>

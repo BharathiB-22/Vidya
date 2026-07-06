@@ -7,7 +7,8 @@ import {
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
-  Activity, Scale, ShieldCheck, ScanSearch, Crown,
+  Activity, Scale, ShieldCheck, ScanSearch, Crown, ListChecks,
+  Bell, Presentation, Library, PartyPopper,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
@@ -67,6 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Courses',          to: '/my-courses',                   icon: BookOpen,      roles: ['FACULTY'] },
       { label: 'My Responsibilities', to: '/faculty/my-responsibilities',  icon: UsersRound,    roles: ['FACULTY'] },
+      { label: 'Assignments',         to: '/faculty/assignments',          icon: FileText,      roles: ['FACULTY'] },
       { label: 'Attendance',          to: '/sis/attendance/mark',          icon: CalendarCheck, roles: ['FACULTY'] },
       { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
     ],
@@ -257,20 +259,42 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── STUDENT: My Work ──────────────────────────────────────────────────────
+  // ── STUDENT: Academics ────────────────────────────────────────────────────
   {
-    heading: 'My Work',
+    heading: 'Academics',
     items: [
-      { label: 'My Subjects',       to: '/student/subjects',      icon: BookOpen,      roles: ['STUDENT'] },
-      { label: 'My Labs',           to: '/student/labs',          icon: FlaskConical,  roles: ['STUDENT'] },
-      { label: 'My Research',       to: '/student/research',      icon: Microscope,    roles: ['STUDENT'] },
-      { label: 'Digital Exams',      to: '/student/exams/digital', icon: Monitor,       roles: ['STUDENT'] },
-      { label: 'My Attendance',     to: '/sis/attendance/me',     icon: CalendarCheck, roles: ['STUDENT'] },
-      { label: 'My Marks',          to: '/sis/marks/me',          icon: BookMarked,    roles: ['STUDENT'] },
-      { label: 'My Hall Ticket',    to: '/sis/hall-tickets/me',   icon: Ticket,        roles: ['STUDENT'] },
-      { label: 'My Exam Timetable', to: '/sis/exam/my-timetable', icon: CalendarDays,  roles: ['STUDENT'] },
-      { label: 'My Transcript',     to: '/sis/my-transcript',     icon: Award,         roles: ['STUDENT'] },
-      { label: 'My Profile',        to: '/sis/me/profile',        icon: UserCircle2,   roles: ['STUDENT'] },
+      { label: 'My Subjects',         to: '/student/subjects',           icon: BookOpen,      roles: ['STUDENT'] },
+      { label: 'Assignments',         to: '/student/assignments',        icon: ListChecks,    roles: ['STUDENT'] },
+      { label: 'Labs',                to: '/student/labs',               icon: FlaskConical,  roles: ['STUDENT'] },
+      { label: 'Course Kits',         to: '/student/course-kits',        icon: Presentation,  roles: ['STUDENT'] },
+      { label: 'Learning Materials',  to: '/student/learning-materials', icon: Library,       roles: ['STUDENT'] },
+      { label: 'Research',           to: '/student/research',            icon: Microscope,    roles: ['STUDENT'] },
+      { label: 'Electives',          to: '/student/electives',           icon: LayoutList,    roles: ['STUDENT'] },
+    ],
+  },
+
+  // ── STUDENT: Assessments ──────────────────────────────────────────────────
+  {
+    heading: 'Assessments',
+    items: [
+      { label: 'Digital Exams',    to: '/student/exams/digital',   icon: Monitor,       roles: ['STUDENT'] },
+      { label: 'Attendance',       to: '/sis/attendance/me',       icon: CalendarCheck, roles: ['STUDENT'] },
+      { label: 'Internal Marks',   to: '/sis/marks/me',            icon: BookMarked,    roles: ['STUDENT'] },
+      { label: 'Semester Results', to: '/student/semester-results', icon: BarChart2,     roles: ['STUDENT'] },
+      { label: 'Hall Ticket',      to: '/sis/hall-tickets/me',     icon: Ticket,        roles: ['STUDENT'] },
+      { label: 'Exam Timetable',   to: '/sis/exam/my-timetable',   icon: CalendarDays,  roles: ['STUDENT'] },
+      { label: 'Transcript',       to: '/sis/my-transcript',       icon: Award,         roles: ['STUDENT'] },
+    ],
+  },
+
+  // ── STUDENT: Services ─────────────────────────────────────────────────────
+  {
+    heading: 'Services',
+    items: [
+      { label: 'Calendar',      to: '/student/calendar',   icon: CalendarRange, roles: ['STUDENT'] },
+      { label: 'Events',        to: '/student/events',     icon: PartyPopper,   roles: ['STUDENT'] },
+      { label: 'Notifications', to: '/notifications',      icon: Bell,          roles: ['STUDENT'] },
+      { label: 'My Profile',    to: '/sis/me/profile',     icon: UserCircle2,   roles: ['STUDENT'] },
     ],
   },
 

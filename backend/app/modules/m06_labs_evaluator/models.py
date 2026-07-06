@@ -95,6 +95,7 @@ class LabAssignment(Base):
         Index("ix_lab_assignments_created_by",     "created_by_user_id"),
         Index("ix_lab_assignments_status",         "status"),
         Index("ix_lab_assignments_submission_type", "submission_type"),
+        Index("ix_lab_assignments_lab_group",      "lab_group"),
     )
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -111,6 +112,11 @@ class LabAssignment(Base):
     title               = Column(String, nullable=False)
     description         = Column(Text, nullable=True)   # problem statement (shown to students + LLM)
     instructions        = Column(Text, nullable=True)   # student submission instructions
+    # Groups a set of assignments under one heading, e.g. lab_group="Python Lab",
+    # program_number=1..10 -> displayed as "Python Lab / Program 3". Both nullable;
+    # ungrouped assignments (either field null) display standalone as before.
+    lab_group           = Column(String, nullable=True)
+    program_number      = Column(Integer, nullable=True)
     submission_type     = Column(
         Enum(SubmissionType, native_enum=False),
         nullable=False,
@@ -188,10 +194,13 @@ class LabSubmission(Base):
         nullable=False,
     )
 
-    # File upload path in object storage
+    # File upload path in object storage (PDF or ZIP — same generic blob path,
+    # no schema distinction needed between the two)
     content_url         = Column(String, nullable=True)
-    # Inline text (WRITTEN) or code (CODE)
+    # Inline text (WRITTEN/CODE) or student remarks accompanying a file/GitHub link
     content_text        = Column(Text, nullable=True)
+    # Optional GitHub repository/commit link, alongside content_url/content_text
+    github_url          = Column(String, nullable=True)
 
     submitted_at        = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")

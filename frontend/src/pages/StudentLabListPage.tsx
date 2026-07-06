@@ -2,6 +2,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ClipboardList, ChevronRight, Clock } from 'lucide-react'
 import { AIScanBadge } from '@/components/labs/AIScanBadge'
 import { useStudentAssignments, useMySubmissions } from '@/hooks/labs'
+import { groupByLabGroup, labProgramLabel } from '@/lib/labGrouping'
 import type { LabAssignment, LabSubmission } from '@/types/labs'
 
 function SkeletonRow() {
@@ -17,10 +18,12 @@ function AssignmentRow({
   assignment,
   submission,
   onClick,
+  displayTitle,
 }: {
   assignment: LabAssignment
   submission: LabSubmission | undefined
   onClick: () => void
+  displayTitle?: string
 }) {
   const isDeadlineSoon =
     assignment.deadline != null &&
@@ -36,7 +39,7 @@ function AssignmentRow({
       <div className="flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-800">{assignment.title}</span>
+            <span className="text-sm font-semibold text-gray-800">{displayTitle ?? assignment.title}</span>
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
               assignment.submission_type === 'CODE'
                 ? 'bg-blue-50 text-blue-700'
@@ -108,6 +111,7 @@ export default function StudentLabListPage() {
 
   const assignments = assignData?.items ?? []
   const mySubmissions = mySubData?.items ?? []
+  const { grouped, ungrouped } = groupByLabGroup(assignments)
 
   function getSubmission(assignmentId: string): LabSubmission | undefined {
     return mySubmissions.find((s) => s.assignment_id === assignmentId)
@@ -145,15 +149,38 @@ export default function StudentLabListPage() {
           <p className="text-sm text-gray-400">No assignments available.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-          {assignments.map((a) => (
-            <AssignmentRow
-              key={a.id}
-              assignment={a}
-              submission={getSubmission(a.id)}
-              onClick={() => handleClick(a)}
-            />
+        <div className="space-y-6">
+          {grouped.map((group) => (
+            <div key={group.label}>
+              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                {group.label} ({group.items.length})
+              </h2>
+              <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+                {group.items.map((a) => (
+                  <AssignmentRow
+                    key={a.id}
+                    assignment={a}
+                    submission={getSubmission(a.id)}
+                    onClick={() => handleClick(a)}
+                    displayTitle={labProgramLabel(a)}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
+
+          {ungrouped.length > 0 && (
+            <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+              {ungrouped.map((a) => (
+                <AssignmentRow
+                  key={a.id}
+                  assignment={a}
+                  submission={getSubmission(a.id)}
+                  onClick={() => handleClick(a)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

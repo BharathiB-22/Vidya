@@ -36,6 +36,8 @@ export default function SubjectDetailsPage() {
     )
   }
 
+  const visibleTabs = SUBJECT_TABS.filter((tab) => !tab.isVisible || tab.isVisible(data))
+
   return (
     <PageShell>
       <PageHeader
@@ -47,7 +49,7 @@ export default function SubjectDetailsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <div className="overflow-x-auto pb-1">
           <TabsList className="w-max">
-            {SUBJECT_TABS.map((tab) => (
+            {visibleTabs.map((tab) => (
               <TabsTrigger key={tab.key} value={tab.key} className="gap-1.5">
                 <tab.icon className="h-3.5 w-3.5" />
                 {tab.label}
@@ -56,7 +58,7 @@ export default function SubjectDetailsPage() {
           </TabsList>
         </div>
 
-        {SUBJECT_TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <TabsContent key={tab.key} value={tab.key}>
             <tab.Component subject={data} onNavigateTab={setActiveTab} />
           </TabsContent>

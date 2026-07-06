@@ -1,6 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
-import { GraduationCap, Building2, Users, CalendarRange } from 'lucide-react'
-import { sisApi } from '@/lib/api/sis'
+import { GraduationCap, Building2, Users, BookOpen } from 'lucide-react'
+import { useActiveSemester } from '@/hooks/useActiveSemester'
 import { getGreeting, getDisplayFirstName } from '@/components/dashboard/shared'
 
 function InfoChip({ icon: Icon, label, value }: { icon: React.FC<{ className?: string }>; label: string; value: string }) {
@@ -14,10 +13,7 @@ function InfoChip({ icon: Icon, label, value }: { icon: React.FC<{ className?: s
 }
 
 export function WelcomeCard() {
-  const { data: profile, isLoading, isError } = useQuery({
-    queryKey: ['my-student-profile'],
-    queryFn: sisApi.getMyStudentProfile,
-  })
+  const { profile, activeSemester, isProfileLoading: isLoading } = useActiveSemester()
 
   const firstName = profile?.full_name ? getDisplayFirstName(profile.full_name) : null
 
@@ -41,7 +37,7 @@ export function WelcomeCard() {
             <div className="h-5 w-40 rounded bg-gray-100" />
             <div className="h-3.5 w-64 rounded bg-gray-100" />
           </div>
-        ) : isError ? (
+        ) : !profile ? (
           <p className="text-sm text-red-500">Couldn't load your profile.</p>
         ) : (
           <>
@@ -49,12 +45,10 @@ export function WelcomeCard() {
               {getGreeting()}{firstName ? `, ${firstName}` : ''}
             </h2>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
-              {profile?.program && <InfoChip icon={GraduationCap} label="Program" value={profile.program.name} />}
-              {profile?.department && <InfoChip icon={Building2} label="Dept" value={profile.department.name} />}
-              {profile?.batch && (
-                <InfoChip icon={CalendarRange} label="Batch" value={`${profile.batch.start_year}–${profile.batch.end_year}`} />
-              )}
-              {profile?.current_section && <InfoChip icon={Users} label="Section" value={profile.current_section.name} />}
+              {activeSemester && <InfoChip icon={BookOpen} label="Semester" value={String(activeSemester.number)} />}
+              {profile.program && <InfoChip icon={GraduationCap} label="Program" value={profile.program.name} />}
+              {profile.department && <InfoChip icon={Building2} label="Dept" value={profile.department.name} />}
+              {profile.current_section && <InfoChip icon={Users} label="Section" value={profile.current_section.name} />}
             </div>
           </>
         )}
