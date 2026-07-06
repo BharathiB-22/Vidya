@@ -20,6 +20,43 @@ from sqlalchemy.ext.asyncio import AsyncSession
 UNRESTRICTED_ROLES = ("ADMIN", "SUPER_ADMIN")
 
 
+async def get_semester_program_id(semester_id: UUID, db: AsyncSession) -> UUID | None:
+    """Resolve one semester's program_id via semester -> batch -> program.
+
+    Mirrors `core/timetable/dean_scope.py`'s `get_section_program_id` (same
+    join style, one level shorter since a semester already sits above section
+    in the acad_* hierarchy) -- used to scope Dean-owned resources that are
+    keyed by semester_id rather than section_id (e.g. elective offerings).
+    """
+    row = (
+        await db.execute(
+            text(
+                "SELECT b.program_id "
+                "FROM acad_semesters sem "
+                "JOIN acad_batches b ON b.id = sem.batch_id "
+                "WHERE sem.id = :semester_id"
+            ),
+            {"semester_id": str(semester_id)},
+        )
+    ).scalar_one_or_none()
+    return row
+
+
+async def assert_dean_owns_semester_program(
+    dean_user_id: UUID, semester_id: UUID, db: AsyncSession, not_found_message: str
+) -> None:
+    """Raise a 404-shaped AcadServiceError if the semester's program isn't
+    governed by this dean. Mirrors `core/timetable/dean_scope.py`'s
+    `assert_dean_owns_section` exactly -- 404, not 403, so an out-of-scope
+    resource doesn't leak its existence to a dean who shouldn't see it."""
+    from app.modules.m_academics.service import AcadServiceError
+
+    program_ids = await get_dean_program_ids(dean_user_id, "DEAN", db)
+    semester_program_id = await get_semester_program_id(semester_id, db)
+    if not program_ids or semester_program_id is None or semester_program_id not in program_ids:
+        raise AcadServiceError("NOT_FOUND", not_found_message, 404)
+
+
 async def get_dean_program_ids(
     user_id: UUID, role: str, db: AsyncSession
 ) -> list[UUID] | None:

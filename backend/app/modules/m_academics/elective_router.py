@@ -11,15 +11,20 @@ from app.core.auth.schemas import CurrentUser
 from app.modules.m_academics.elective_schemas import (
     ElectiveOfferingCreate,
     ElectiveOfferingOut,
+    ElectiveOfferingPropose,
     ElectiveOfferingUpdate,
     ElectiveRegistrationOut,
+    ElectiveRejectBody,
 )
 from app.modules.m_academics.elective_service import ElectiveService
 from app.modules.m_academics.service import AcadServiceError
 
 router = APIRouter(tags=["electives"])
 
-_MANAGERS = (TenantRole.ADMIN, TenantRole.DEAN)
+# Ownership correction: Electives are a Dean academic-authority responsibility
+# end-to-end (create/edit/open-close registration/approve final list/publish).
+# Admin no longer creates, edits, approves, or publishes electives.
+_MANAGERS = (TenantRole.DEAN,)
 
 
 def _err(e: AcadServiceError) -> HTTPException:
@@ -40,10 +45,91 @@ async def create_offering(
     return next(r for r in rows if r["id"] == offering.id)
 
 
+@router.post("/offerings/propose", response_model=ElectiveOfferingOut, status_code=201)
+async def propose_offering(
+    body: ElectiveOfferingPropose,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ElectiveOfferingOut:
+    try:
+        offering = await ElectiveService.propose_offering(body, current_user.user_id, db)
+    except AcadServiceError as e:
+        raise _err(e)
+    rows = await ElectiveService.list_mine_for_faculty(current_user.user_id, db)
+    return next(r for r in rows if r["id"] == offering.id)
+
+
+@router.get("/offerings/mine", response_model=list[ElectiveOfferingOut])
+async def list_my_proposed_offerings(
+    current_user: CurrentUser = Depends(require_roles(TenantRole.FACULTY)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[ElectiveOfferingOut]:
+    return await ElectiveService.list_mine_for_faculty(current_user.user_id, db)
+
+
+@router.get("/offerings/pending", response_model=list[ElectiveOfferingOut])
+async def list_pending_offerings(
+    _: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[ElectiveOfferingOut]:
+    return await ElectiveService.list_pending_for_dean(db)
+
+
+@router.get("/offerings/approved", response_model=list[ElectiveOfferingOut])
+async def list_approved_offerings(
+    _: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[ElectiveOfferingOut]:
+    return await ElectiveService.list_approved_for_admin(db)
+
+
+@router.post("/offerings/{offering_id}/approve", response_model=ElectiveOfferingOut)
+async def approve_offering(
+    offering_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ElectiveOfferingOut:
+    try:
+        offering = await ElectiveService.approve_offering(offering_id, current_user.user_id, db)
+    except AcadServiceError as e:
+        raise _err(e)
+    rows = await ElectiveService.list_approved_for_admin(db)
+    return next(r for r in rows if r["id"] == offering.id)
+
+
+@router.post("/offerings/{offering_id}/reject", response_model=ElectiveOfferingOut)
+async def reject_offering(
+    offering_id: UUID,
+    body: ElectiveRejectBody,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ElectiveOfferingOut:
+    try:
+        offering = await ElectiveService.reject_offering(offering_id, current_user.user_id, body.reason, db)
+    except AcadServiceError as e:
+        raise _err(e)
+    rows = await ElectiveService.list_offerings_admin(db, semester_id=offering.semester_id)
+    return next(r for r in rows if r["id"] == offering.id)
+
+
+@router.post("/offerings/{offering_id}/publish", response_model=ElectiveOfferingOut)
+async def publish_offering(
+    offering_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ElectiveOfferingOut:
+    try:
+        offering = await ElectiveService.publish_offering(offering_id, current_user.user_id, db)
+    except AcadServiceError as e:
+        raise _err(e)
+    rows = await ElectiveService.list_offerings_admin(db, semester_id=offering.semester_id)
+    return next(r for r in rows if r["id"] == offering.id)
+
+
 @router.get("/offerings", response_model=list[ElectiveOfferingOut])
 async def list_offerings(
     semester_id: UUID | None = Query(None),
-    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN, TenantRole.DEAN, TenantRole.STUDENT)),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN, TenantRole.STUDENT)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[ElectiveOfferingOut]:
     if current_user.role == TenantRole.STUDENT.value:
@@ -57,11 +143,11 @@ async def list_offerings(
 async def update_offering(
     offering_id: UUID,
     body: ElectiveOfferingUpdate,
-    _: CurrentUser = Depends(require_roles(*_MANAGERS)),
+    current_user: CurrentUser = Depends(require_roles(*_MANAGERS)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ElectiveOfferingOut:
     try:
-        offering = await ElectiveService.update_offering(offering_id, body, db)
+        offering = await ElectiveService.update_offering(offering_id, current_user.user_id, body, db)
     except AcadServiceError as e:
         raise _err(e)
     rows = await ElectiveService.list_offerings_admin(db, semester_id=offering.semester_id)

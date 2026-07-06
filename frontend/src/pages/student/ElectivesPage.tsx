@@ -163,8 +163,9 @@ function MyElectivesTab() {
     )
   }
 
-  const current = data?.current ?? []
-  const past = data?.past ?? []
+  const items = data ?? []
+  const current = items.filter((r) => r.is_current)
+  const past = items.filter((r) => !r.is_current)
 
   return (
     <div className="space-y-8">

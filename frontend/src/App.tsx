@@ -49,6 +49,13 @@ import CourseKitsPage from '@/pages/student/CourseKitsPage'
 import LearningMaterialsPage from '@/pages/student/LearningMaterialsPage'
 import SemesterResultsPage from '@/pages/student/SemesterResultsPage'
 import EventsPage from '@/pages/student/EventsPage'
+import AcademicProgressPage from '@/pages/student/AcademicProgressPage'
+import StudentTimetablePage from '@/pages/student/TimetablePage'
+import FacultyTimetablePage from '@/pages/FacultyTimetablePage'
+import ElectiveOfferingsPage from '@/pages/ElectiveOfferingsPage'
+import TimetableBuilderPage from '@/pages/dean/TimetableBuilderPage'
+import TimetableReviewPage from '@/pages/dean/TimetableReviewPage'
+import CourseKitCompliancePage from '@/pages/dean/CourseKitCompliancePage'
 import StudentAssignmentListPage from '@/pages/coursework/StudentAssignmentListPage'
 import StudentAssignmentSubmitPage from '@/pages/coursework/StudentAssignmentSubmitPage'
 import StudentAssignmentResultPage from '@/pages/coursework/StudentAssignmentResultPage'
@@ -209,6 +216,20 @@ export default function App() {
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/dean/academic-ownership" element={<AcademicOwnershipPage />} />
             <Route path="/dean-review"             element={<DeanReviewPage />} />
+            <Route path="/dean/course-kit-compliance"   element={<CourseKitCompliancePage />} />
+          </Route>
+
+          {/* Timetable — DEAN owns the class timetable end-to-end (create, assign
+              faculty/subject/room, save draft, review, publish). ADMIN has no access. */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
+            <Route path="/timetable/builder"       element={<TimetableBuilderPage />} />
+            <Route path="/dean/timetable-review"   element={<TimetableReviewPage />} />
+          </Route>
+
+          {/* Elective Offerings — one shared page, role-conditional: FACULTY proposes,
+              DEAN approves and publishes end-to-end. ADMIN has no access. */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN']} />}>
+            <Route path="/elective-offerings" element={<ElectiveOfferingsPage />} />
           </Route>
 
           {/* Dean department-scoped pages */}
@@ -257,7 +278,7 @@ export default function App() {
             <Route path="/my-courses" element={<MyCoursesPage />} />
           </Route>
 
-          {/* Academic structure — ADMIN only */}
+          {/* Academic structure — ADMIN only (infrastructure, not academic decisions) */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
             <Route path="/academics/departments" element={<DepartmentsPage />} />
             <Route path="/academics/programs"    element={<ProgramsPage />} />
@@ -420,6 +441,7 @@ export default function App() {
             <Route path="/labs" element={<LabAssignmentListPage />} />
             <Route path="/labs/review/:submissionId" element={<LabReviewPanel />} />
             <Route path="/labs/:id" element={<LabAssignmentDetailPage />} />
+            <Route path="/faculty/timetable" element={<FacultyTimetablePage />} />
           </Route>
 
           {/* Coursework Assignments (theory/essay/report — distinct from Labs) — FACULTY, ADMIN */}
@@ -456,6 +478,8 @@ export default function App() {
             <Route path="/student/learning-materials" element={<LearningMaterialsPage />} />
             <Route path="/student/semester-results" element={<SemesterResultsPage />} />
             <Route path="/student/events" element={<EventsPage />} />
+            <Route path="/student/academic-progress" element={<AcademicProgressPage />} />
+            <Route path="/student/timetable" element={<StudentTimetablePage />} />
           </Route>
 
           {/* Self-service profile — STUDENT, FACULTY, DEAN */}

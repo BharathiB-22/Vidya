@@ -13,8 +13,8 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 import { useWorkspace } from '@/lib/workspace'
-import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
 import { StudentDashboard } from '@/pages/student/StudentDashboard'
+import { FacultyDashboard } from '@/pages/faculty/FacultyDashboard'
 import {
   StatCard, ModuleCardItem, AdminActionCard, getGreeting, getDisplayFirstName,
   type ModuleCard, type AdminCard,
@@ -541,7 +541,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Stats strip — role-aware, hidden for narrow single-purpose roles ── */}
-      {!['STUDENT', 'GUIDE'].includes(role) && (
+      {!['STUDENT', 'GUIDE', 'FACULTY'].includes(role) && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {role === 'ADMIN' ? (
             <>
@@ -649,14 +649,14 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── My Courses — FACULTY only ──────────────────────────── */}
-      {role === 'FACULTY' && <MyCoursesBanner />}
+      {/* ── Faculty workspace — its own composed dashboard, not the generic module grid ── */}
+      {role === 'FACULTY' && <FacultyDashboard />}
 
       {/* ── Student workspace — its own composed dashboard, not the generic module grid ── */}
       {role === 'STUDENT' && <StudentDashboard />}
 
-      {/* ── Module sections — Faculty, Board, Guide, Evaluator ── */}
-      {!['ADMIN', 'DEAN', 'STUDENT'].includes(role) && visibleCards.length > 0 && (
+      {/* ── Module sections — Board, Guide, Evaluator ── */}
+      {!['ADMIN', 'DEAN', 'STUDENT', 'FACULTY'].includes(role) && visibleCards.length > 0 && (
         <div className="space-y-8">
           {MODULE_SECTIONS.map((section) => {
             const sectionCards = visibleCards.filter((c) => c.section === section.key)
@@ -694,7 +694,7 @@ export default function DashboardPage() {
       )}
 
       {/* ── Empty state ────────────────────────────────────────── */}
-      {!['ADMIN', 'DEAN', 'STUDENT'].includes(role) && visibleCards.length === 0 && (
+      {!['ADMIN', 'DEAN', 'STUDENT', 'FACULTY'].includes(role) && visibleCards.length === 0 && (
         <PageEmpty message="No modules are available for your role. Contact your administrator." />
       )}
 

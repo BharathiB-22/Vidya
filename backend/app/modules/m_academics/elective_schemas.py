@@ -23,6 +23,18 @@ class ElectiveOfferingUpdate(BaseModel):
     status: str | None = None  # OPEN | CLOSED
 
 
+class ElectiveOfferingPropose(BaseModel):
+    course_id: UUID
+    semester_id: UUID
+    max_seats: int
+    registration_opens_at: datetime | None = None
+    registration_closes_at: datetime | None = None
+
+
+class ElectiveRejectBody(BaseModel):
+    reason: str
+
+
 class ElectiveOfferingOut(BaseModel):
     id: UUID
     course_id: UUID
@@ -39,6 +51,12 @@ class ElectiveOfferingOut(BaseModel):
     registration_closes_at: datetime | None
     status: str
     created_at: datetime
+    proposed_by_user_id: UUID | None = None
+    approved_by_user_id: UUID | None = None
+    approved_at: datetime | None = None
+    published_by_user_id: UUID | None = None
+    published_at: datetime | None = None
+    rejection_reason: str | None = None
 
 
 class ElectiveRegistrationOut(BaseModel):

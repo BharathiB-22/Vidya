@@ -10,7 +10,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Index, Integer, String,
+    Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -19,6 +19,11 @@ from app.database import Base
 
 
 class ElectiveOfferingStatus(str, enum.Enum):
+    # New workflow: Faculty proposes -> Dean approves/rejects -> Admin publishes.
+    PROPOSED      = "PROPOSED"
+    DEAN_APPROVED = "DEAN_APPROVED"
+    REJECTED      = "REJECTED"
+    # Existing values, unchanged meaning: OPEN = published/registerable, CLOSED = registration closed.
     OPEN   = "OPEN"
     CLOSED = "CLOSED"
 
@@ -44,8 +49,16 @@ class ElectiveOffering(Base):
     max_seats                = Column(Integer, nullable=False)
     registration_opens_at    = Column(DateTime(timezone=True), nullable=True)
     registration_closes_at   = Column(DateTime(timezone=True), nullable=True)
-    status                   = Column(String(10), nullable=False, default=ElectiveOfferingStatus.OPEN.value)
+    status                   = Column(String(20), nullable=False, default=ElectiveOfferingStatus.OPEN.value)
     created_by_user_id       = Column(UUID(as_uuid=True), nullable=False)
+    # Workflow provenance — all nullable; only populated when the offering goes
+    # through the propose -> approve -> publish path (direct-create leaves these null).
+    proposed_by_user_id      = Column(UUID(as_uuid=True), nullable=True)
+    approved_by_user_id      = Column(UUID(as_uuid=True), nullable=True)
+    approved_at              = Column(DateTime(timezone=True), nullable=True)
+    published_by_user_id     = Column(UUID(as_uuid=True), nullable=True)
+    published_at             = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason         = Column(Text, nullable=True)
     created_at               = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at               = Column(DateTime(timezone=True), nullable=True)
 

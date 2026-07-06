@@ -8,7 +8,7 @@ import {
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
   Activity, Scale, ShieldCheck, ScanSearch, Crown, ListChecks,
-  Bell, Presentation, Library, PartyPopper,
+  Bell, Presentation, Library, PartyPopper, CalendarClock, TrendingUp,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
@@ -68,9 +68,15 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Courses',          to: '/my-courses',                   icon: BookOpen,      roles: ['FACULTY'] },
       { label: 'My Responsibilities', to: '/faculty/my-responsibilities',  icon: UsersRound,    roles: ['FACULTY'] },
+      { label: 'Syllabuses',          to: '/syllabuses',                   icon: GraduationCap, roles: ['FACULTY'] },
+      { label: 'Course Kits',         to: '/course-kits',                  icon: Presentation,  roles: ['FACULTY'] },
+      { label: 'Learning Materials',  to: '/learning-packages',            icon: Library,       roles: ['FACULTY'] },
+      { label: 'Labs',                to: '/labs',                         icon: FlaskConical,  roles: ['FACULTY'] },
       { label: 'Assignments',         to: '/faculty/assignments',          icon: FileText,      roles: ['FACULTY'] },
       { label: 'Attendance',          to: '/sis/attendance/mark',          icon: CalendarCheck, roles: ['FACULTY'] },
       { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
+      { label: 'My Timetable',        to: '/faculty/timetable',            icon: CalendarClock, roles: ['FACULTY'] },
+      { label: 'Propose Elective',    to: '/elective-offerings',           icon: ListChecks,    roles: ['FACULTY'] },
     ],
   },
 
@@ -115,6 +121,10 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Programs',            to: '/programs',                       icon: BookMarked,    roles: ['DEAN'] },
       { label: 'Syllabus Review',     to: '/dean-review',                    icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'Syllabuses',          to: '/syllabuses',                     icon: GraduationCap, roles: ['DEAN'] },
+      { label: 'Course Kit Compliance', to: '/dean/course-kit-compliance',  icon: ShieldCheck,   roles: ['DEAN'] },
+      { label: 'Timetable Builder',   to: '/timetable/builder',              icon: CalendarClock, roles: ['DEAN'] },
+      { label: 'Timetable Review',    to: '/dean/timetable-review',          icon: CalendarClock, roles: ['DEAN'] },
+      { label: 'Elective Offerings',  to: '/elective-offerings',             icon: ListChecks,    roles: ['DEAN'] },
     ],
   },
 
@@ -284,6 +294,8 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Hall Ticket',      to: '/sis/hall-tickets/me',     icon: Ticket,        roles: ['STUDENT'] },
       { label: 'Exam Timetable',   to: '/sis/exam/my-timetable',   icon: CalendarDays,  roles: ['STUDENT'] },
       { label: 'Transcript',       to: '/sis/my-transcript',       icon: Award,         roles: ['STUDENT'] },
+      { label: 'Timetable',        to: '/student/timetable',       icon: CalendarClock, roles: ['STUDENT'] },
+      { label: 'Academic Progress', to: '/student/academic-progress', icon: TrendingUp, roles: ['STUDENT'] },
     ],
   },
 
