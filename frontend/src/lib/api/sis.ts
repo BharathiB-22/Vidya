@@ -1095,6 +1095,16 @@ export const sisApi = {
   getMyMarks: (): Promise<MyMarksOut> =>
     api.get<MyMarksOut>('/sis/marks/me').then(r => r.data),
 
+  // ── My Subjects / Subject Details (Phase 2 — student subject hub) ───────────
+
+  getMySubjects: (semesterId?: string): Promise<MySubjectsOut> =>
+    api.get<MySubjectsOut>('/sis/me/subjects', {
+      params: semesterId ? { semester_id: semesterId } : {},
+    }).then(r => r.data),
+
+  getSubjectDetail: (courseId: string): Promise<SubjectDetailOut> =>
+    api.get<SubjectDetailOut>(`/sis/me/subjects/${courseId}`).then(r => r.data),
+
   // ── H60 Results Management ──────────────────────────────────────────────────
 
   createDeclaration: (body: {
@@ -1466,6 +1476,81 @@ export interface MyMarksOut {
   student_name: string
   usn: string | null
   courses: StudentCourseMarks[]
+}
+
+// ---------------------------------------------------------------------------
+// My Subjects / Subject Details (Phase 2 — student subject hub)
+// ---------------------------------------------------------------------------
+
+export interface MySubjectSummary {
+  course_id: string
+  course_code: string
+  course_title: string
+  credits: number
+  semester: number
+  course_type: string | null
+  is_elective: boolean
+  section_id: string
+  section_name: string
+  faculty_user_id: string | null
+  faculty_name: string | null
+  faculty_designation: string | null
+  syllabus_id: string | null
+  syllabus_status: string | null
+}
+
+export interface MySubjectsOut {
+  student_id: string
+  student_name: string
+  usn: string | null
+  semester_id: string | null
+  subjects: MySubjectSummary[]
+}
+
+export interface SubjectFacultyInfo {
+  user_id: string
+  name: string
+  designation: string | null
+  email: string | null
+  phone: string | null
+  office_location: string | null
+  photo_url: string | null
+}
+
+export interface SyllabusUnitOut {
+  unit_number: number
+  title: string
+  hours: number | null
+}
+
+export interface SubjectCourseOutcomeOut {
+  code: string
+  description: string
+  bloom_level: string | null
+  display_order: number | null
+}
+
+export interface SubjectDetailOut {
+  course_id: string
+  course_code: string
+  course_title: string
+  credits: number
+  semester: number
+  course_type: string | null
+  is_elective: boolean
+  description: string | null
+  hours_lecture: number | null
+  hours_tutorial: number | null
+  hours_practical: number | null
+  section_id: string
+  section_name: string
+  faculty: SubjectFacultyInfo | null
+  syllabus_id: string | null
+  syllabus_version: number | null
+  syllabus_status: string | null
+  units: SyllabusUnitOut[]
+  course_outcomes: SubjectCourseOutcomeOut[]
+  internal_marks: StudentCourseMarks | null
 }
 
 export interface SectionStudentMarks {

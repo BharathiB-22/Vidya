@@ -270,3 +270,37 @@ export async function getResourceDownloadUrl(
 export async function deleteResource(kitId: string, assetId: string): Promise<void> {
   await api.delete(`${BASE}/${kitId}/resources/${assetId}`)
 }
+
+// ---------------------------------------------------------------------------
+// Student access (Phase 2 — read-only, scoped to enrolled courses, PUBLISHED only)
+// ---------------------------------------------------------------------------
+
+export async function studentListKits(
+  syllabusId: string,
+  unitNumber?: number,
+): Promise<CourseKitListResponse> {
+  const { data } = await api.get<CourseKitListResponse>(`${BASE}/student`, {
+    params: { syllabus_id: syllabusId, unit_number: unitNumber },
+  })
+  return data
+}
+
+export async function studentGetKit(kitId: string): Promise<CourseKitDetail> {
+  const { data } = await api.get<CourseKitDetail>(`${BASE}/student/${kitId}`)
+  return data
+}
+
+export async function studentListResources(kitId: string): Promise<KitResourceListResponse> {
+  const { data } = await api.get<KitResourceListResponse>(`${BASE}/student/${kitId}/resources`)
+  return data
+}
+
+export async function studentGetResourceDownloadUrl(
+  kitId: string,
+  assetId: string,
+): Promise<KitResourceDownloadUrlResponse> {
+  const { data } = await api.get<KitResourceDownloadUrlResponse>(
+    `${BASE}/student/${kitId}/resources/${assetId}/download-url`,
+  )
+  return data
+}

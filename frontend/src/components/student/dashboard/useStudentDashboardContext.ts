@@ -1,28 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { sisApi } from '@/lib/api/sis'
-import { academicsApi } from '@/lib/api/academics'
+import { useActiveSemester } from '@/hooks/useActiveSemester'
 
 /**
  * Resolves the values several dashboard widgets need but none of them "own":
- * the student's profile (for batch_id) and the currently-active semester and
- * exam session. Centralised here so each widget doesn't re-derive "active"
+ * the student's profile, the currently-active semester (via useActiveSemester)
+ * and exam session. Centralised here so each widget doesn't re-derive "active"
  * with slightly different logic.
  */
 export function useStudentDashboardContext() {
-  const profileQ = useQuery({
-    queryKey: ['my-student-profile'],
-    queryFn: sisApi.getMyStudentProfile,
-  })
-
-  const batchId = profileQ.data?.batch?.id
-
-  const semestersQ = useQuery({
-    queryKey: ['semesters', batchId],
-    queryFn: () => academicsApi.listSemesters(batchId),
-    enabled: !!batchId,
-  })
-  const semesters = semestersQ.data ?? []
-  const activeSemester = semesters.find((s) => s.is_active) ?? semesters[semesters.length - 1]
+  const { profile, isProfileLoading, semesterId } = useActiveSemester()
 
   const sessionsQ = useQuery({
     queryKey: ['exam-sessions-published'],
@@ -34,9 +21,9 @@ export function useStudentDashboardContext() {
   const activeSession = sessions.find((s) => s.end_date >= today) ?? sessions[sessions.length - 1]
 
   return {
-    profile: profileQ.data,
-    isProfileLoading: profileQ.isLoading,
-    semesterId: activeSemester?.id,
+    profile,
+    isProfileLoading,
+    semesterId,
     sessionId: activeSession?.id,
   }
 }

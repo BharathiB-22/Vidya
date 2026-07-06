@@ -261,6 +261,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'My Work',
     items: [
+      { label: 'My Subjects',       to: '/student/subjects',      icon: BookOpen,      roles: ['STUDENT'] },
       { label: 'My Labs',           to: '/student/labs',          icon: FlaskConical,  roles: ['STUDENT'] },
       { label: 'My Research',       to: '/student/research',      icon: Microscope,    roles: ['STUDENT'] },
       { label: 'Digital Exams',      to: '/student/exams/digital', icon: Monitor,       roles: ['STUDENT'] },

@@ -22,6 +22,7 @@ from app.modules.m11_sis.exam_router import exam_router
 from app.modules.m11_sis.hallticket_router import hallticket_router
 from app.modules.m11_sis.marks_router import marks_router
 from app.modules.m11_sis.me_router import me_router
+from app.modules.m11_sis.student_subjects_router import student_subjects_router
 from app.modules.m11_sis.results_router import results_router
 from app.modules.m11_sis.rollover_router import rollover_router
 from app.modules.m11_sis.transcript_router import transcript_router
@@ -40,6 +41,7 @@ router.include_router(enrollment_router)
 router.include_router(directory_router)
 router.include_router(governance_router)
 router.include_router(me_router)
+router.include_router(student_subjects_router)
 router.include_router(rollover_router)
 router.include_router(attendance_router)
 router.include_router(marks_router)

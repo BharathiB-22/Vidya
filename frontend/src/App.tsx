@@ -41,6 +41,8 @@ import VivaRatifyPage from '@/pages/VivaRatifyPage'
 import StudentResearchPage from '@/pages/StudentResearchPage'
 import StudentResearchDetailPage from '@/pages/StudentResearchDetailPage'
 import StudentVivaPage from '@/pages/StudentVivaPage'
+import MySubjectsPage from '@/pages/student/MySubjectsPage'
+import SubjectDetailsPage from '@/pages/student/SubjectDetailsPage'
 import ExamPaperListPage from '@/pages/ExamPaperListPage'
 import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
 import ExamPaperEditorPage from '@/pages/ExamPaperEditorPage'
@@ -206,6 +208,10 @@ export default function App() {
           {/* Faculty governance pages */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/faculty/my-responsibilities" element={<FacultyResponsibilitiesPage />} />
+          </Route>
+
+          {/* Notifications — STUDENT, FACULTY (student UI already links here) */}
+          <Route element={<AuthGuard allowedRoles={['STUDENT', 'FACULTY']} />}>
             <Route path="/notifications" element={<NotificationCenterPage />} />
           </Route>
 
@@ -419,6 +425,8 @@ export default function App() {
             <Route path="/student/research" element={<StudentResearchPage />} />
             <Route path="/student/research/:id" element={<StudentResearchDetailPage />} />
             <Route path="/student/viva/:token" element={<StudentVivaPage />} />
+            <Route path="/student/subjects" element={<MySubjectsPage />} />
+            <Route path="/student/subjects/:courseId" element={<SubjectDetailsPage />} />
           </Route>
 
           {/* Self-service profile — STUDENT, FACULTY, DEAN */}

@@ -73,6 +73,7 @@ router = APIRouter(tags=["course-kits"])
 # ---------------------------------------------------------------------------
 _WRITE  = (TenantRole.ADMIN, TenantRole.FACULTY)
 _READ   = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
+_STUDENT = (TenantRole.STUDENT,)
 
 
 def _err(e: KitServiceError) -> HTTPException:
@@ -93,8 +94,11 @@ def _404(entity: str = "Course kit") -> HTTPException:
 # Sensitive-field gating for DEAN role
 # ---------------------------------------------------------------------------
 
+_GATED_ROLES = (TenantRole.DEAN.value, TenantRole.STUDENT.value)
+
+
 def _gate_slide(slide: KitSlideResponse, role: str) -> KitSlideResponse:
-    if role == TenantRole.DEAN.value:
+    if role in _GATED_ROLES:
         return slide.model_copy(update={"speaker_notes": None})
     return slide
 
@@ -102,19 +106,141 @@ def _gate_slide(slide: KitSlideResponse, role: str) -> KitSlideResponse:
 def _gate_assignment(
     assignment: KitAssignmentResponse, role: str
 ) -> KitAssignmentResponse:
-    if role == TenantRole.DEAN.value:
+    if role in _GATED_ROLES:
         return assignment.model_copy(update={"model_answer": None})
     return assignment
 
 
 def _gate_detail(detail: CourseKitDetail, role: str) -> CourseKitDetail:
-    """Null sensitive fields in a full CourseKitDetail for DEAN."""
-    if role != TenantRole.DEAN.value:
+    """Null sensitive fields (speaker notes / model answers) for DEAN and STUDENT."""
+    if role not in _GATED_ROLES:
         return detail
     return detail.model_copy(update={
         "slides":      [_gate_slide(s, role) for s in detail.slides],
         "assignments": [_gate_assignment(a, role) for a in detail.assignments],
     })
+
+
+# ---------------------------------------------------------------------------
+# Student self-service — read-only, PUBLISHED kits for enrolled courses only.
+# Declared before the generic "/{kit_id}" route so the literal "/student"
+# path segment matches first (see the slides /reorder comment below for the
+# same FastAPI routing pitfall).
+# ---------------------------------------------------------------------------
+
+async def _student_syllabus_ids(user_id: UUID, db: AsyncSession) -> set[UUID]:
+    from app.modules.m11_sis.student_academic_repository import get_student_enrolled_syllabus_ids
+    return await get_student_enrolled_syllabus_ids(user_id, db)
+
+
+async def _require_student_published_kit(kit_id: UUID, student_user_id: UUID, db: AsyncSession):
+    kit = await CourseKitService.get_kit(kit_id, db=db)
+    if kit is None or kit.status != CourseKitStatus.PUBLISHED:
+        raise _404()
+    allowed = await _student_syllabus_ids(student_user_id, db)
+    if kit.syllabus_id not in allowed:
+        raise _404()
+    return kit
+
+
+@router.get("/student", response_model=CourseKitListResponse)
+async def student_list_kits(
+    syllabus_id: UUID = Query(..., description="Syllabus to list published kits for"),
+    unit_number: int | None = Query(None, description="Optionally filter to one unit"),
+    current_user: CurrentUser = Depends(require_roles(*_STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> CourseKitListResponse:
+    allowed = await _student_syllabus_ids(current_user.user_id, db)
+    if syllabus_id not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "You are not enrolled in this subject."},
+        )
+
+    total, items = await CourseKitService.list_kits(
+        syllabus_id=syllabus_id,
+        status_filter=CourseKitStatus.PUBLISHED,
+        page=1,
+        page_size=200,
+        db=db,
+    )
+    if unit_number is not None:
+        items = [k for k in items if k.unit_number == unit_number]
+        total = len(items)
+
+    cp_map = await _course_program_map(list({k.syllabus_id for k in items}), db=db)
+    enriched = []
+    for k in items:
+        base = CourseKitResponse.model_validate(k)
+        course, program = cp_map.get(k.syllabus_id, (None, None))
+        enriched.append(CourseKitListItem(
+            **base.model_dump(),
+            course_title=course.title if course else None,
+            course_code=course.code if course else None,
+            program_name=program.title if program else None,
+            semester=course.semester if course else None,
+        ))
+
+    return CourseKitListResponse(total=total, page=1, page_size=len(enriched) or 1, items=enriched)
+
+
+@router.get("/student/{kit_id}", response_model=CourseKitDetail)
+async def student_get_kit(
+    kit_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> CourseKitDetail:
+    kit = await CourseKitService.get_kit_detail(kit_id, db=db)
+    if kit is None or kit.status != CourseKitStatus.PUBLISHED:
+        raise _404()
+    allowed = await _student_syllabus_ids(current_user.user_id, db)
+    if kit.syllabus_id not in allowed:
+        raise _404()
+
+    detail = CourseKitDetail.model_validate(kit)
+    cp_map = await _course_program_map([kit.syllabus_id], db=db)
+    course, program = cp_map.get(kit.syllabus_id, (None, None))
+    if course:
+        detail = detail.model_copy(update={
+            "course_title": course.title,
+            "course_code":  course.code,
+            "program_name": program.title if program else None,
+            "semester":     course.semester,
+        })
+    return _gate_detail(detail, current_user.role)
+
+
+@router.get("/student/{kit_id}/resources", response_model=StorageAssetListResponse)
+async def student_list_resources(
+    kit_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> StorageAssetListResponse:
+    await _require_student_published_kit(kit_id, current_user.user_id, db)
+    items = await CourseKitService.list_resources(kit_id, db=db)
+    return StorageAssetListResponse(total=len(items), page=1, page_size=len(items) or 1, items=items)
+
+
+@router.get(
+    "/student/{kit_id}/resources/{asset_id}/download-url", response_model=DownloadUrlResponse
+)
+async def student_get_resource_download_url(
+    kit_id: UUID,
+    asset_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> DownloadUrlResponse:
+    from app.config import settings
+
+    await _require_student_published_kit(kit_id, current_user.user_id, db)
+    try:
+        presigned_url = await CourseKitService.get_resource_download_url(kit_id, asset_id, db=db)
+    except KitServiceError as e:
+        raise _err(e)
+    return DownloadUrlResponse(
+        presigned_url=presigned_url,
+        expires_in_seconds=settings.PRESIGNED_URL_EXPIRY_MINUTES_GET * 60,
+    )
 
 
 # ===========================================================================

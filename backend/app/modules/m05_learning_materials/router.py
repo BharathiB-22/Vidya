@@ -60,6 +60,7 @@ from app.modules.m05_learning_materials.service import (
     LearningPackageService,
     PackageServiceError,
 )
+from app.modules.m11_sis.student_academic_repository import get_student_enrolled_syllabus_ids
 
 router = APIRouter(tags=["learning-packages"])
 logger = logging.getLogger("vidya.m05.router")
@@ -83,6 +84,62 @@ def _404(entity: str = "Learning package") -> HTTPException:
     return HTTPException(
         status_code=404,
         detail={"error": "NOT_FOUND", "message": f"{entity} not found."},
+    )
+
+
+async def _require_student_package_ownership(
+    package_id: UUID, student_user_id: UUID, db: AsyncSession
+) -> None:
+    """STUDENT-only ownership guard: the package's syllabus must belong to one
+    of the student's enrolled courses. FACULTY/DEAN/ADMIN are unaffected —
+    callers must check ``current_user.role == TenantRole.STUDENT.value``
+    before invoking this."""
+    pkg = await LearningPackageService.get_package(package_id, db=db)
+    if pkg is None:
+        raise _404()
+    allowed = await get_student_enrolled_syllabus_ids(student_user_id, db)
+    if pkg.syllabus_id not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "You are not enrolled in this subject."},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Student self-service list — declared before the generic "/{package_id}"
+# route so the literal "/student" path segment matches first.
+# ---------------------------------------------------------------------------
+
+@router.get("/student", response_model=LearningPackageListResponse)
+async def student_list_packages(
+    syllabus_id: UUID = Query(..., description="Syllabus to list READY packages for"),
+    unit_number: int | None = Query(None, description="Optionally filter to one unit"),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> LearningPackageListResponse:
+    allowed = await get_student_enrolled_syllabus_ids(current_user.user_id, db)
+    if syllabus_id not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "You are not enrolled in this subject."},
+        )
+
+    total, pkgs = await LearningPackageService.list_packages(
+        syllabus_id=syllabus_id,
+        status_filter=PackageStatus.READY,
+        page=1,
+        page_size=200,
+        db=db,
+    )
+    if unit_number is not None:
+        pkgs = [p for p in pkgs if p.unit_number == unit_number]
+        total = len(pkgs)
+
+    return LearningPackageListResponse(
+        total=total,
+        page=1,
+        page_size=len(pkgs) or 1,
+        items=[LearningPackageResponse.model_validate(p) for p in pkgs],
     )
 
 
@@ -202,6 +259,13 @@ async def get_package(
     )
     if pkg is None:
         raise _404()
+    if current_user.role == TenantRole.STUDENT.value:
+        allowed = await get_student_enrolled_syllabus_ids(current_user.user_id, db)
+        if pkg.syllabus_id not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "FORBIDDEN", "message": "You are not enrolled in this subject."},
+            )
     return LearningPackageResponse.model_validate(pkg)
 
 
@@ -219,6 +283,13 @@ async def get_package_status(
     )
     if pkg is None:
         raise _404()
+    if current_user.role == TenantRole.STUDENT.value:
+        allowed = await get_student_enrolled_syllabus_ids(current_user.user_id, db)
+        if pkg.syllabus_id not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "FORBIDDEN", "message": "You are not enrolled in this subject."},
+            )
     return PackageStatusResponse.model_validate(pkg)
 
 
@@ -233,6 +304,8 @@ async def list_items(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[PackageItemResponse]:
+    if current_user.role == TenantRole.STUDENT.value:
+        await _require_student_package_ownership(package_id, current_user.user_id, db)
     items = await LearningPackageService.list_items(
         package_id, faculty_only=faculty_only, db=db
     )
@@ -409,6 +482,8 @@ async def ask_question(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> RAGAnswerResponse:
+    if current_user.role == TenantRole.STUDENT.value:
+        await _require_student_package_ownership(package_id, current_user.user_id, db)
     try:
         result = await LearningPackageService.ask_question(
             package_id=package_id,
@@ -436,6 +511,8 @@ async def list_qa_sessions(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[PackageQASessionResponse]:
+    if current_user.role == TenantRole.STUDENT.value:
+        await _require_student_package_ownership(package_id, current_user.user_id, db)
     sessions = await LearningPackageService.list_qa_sessions(
         package_id=package_id,
         student_user_id=current_user.user_id,
@@ -454,6 +531,8 @@ async def get_qa_session(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageQASessionWithMessages:
+    if current_user.role == TenantRole.STUDENT.value:
+        await _require_student_package_ownership(package_id, current_user.user_id, db)
     session = await LearningPackageService.get_qa_session(session_id, db=db)
     if session is None:
         raise _404("Q&A session")

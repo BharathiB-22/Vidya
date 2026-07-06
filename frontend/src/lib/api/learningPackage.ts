@@ -61,6 +61,17 @@ export async function listReadyPackages(
   return listPackages({ syllabus_id: syllabusId, status: 'READY' as PackageStatus })
 }
 
+// Student-scoped discovery (Phase 2): enrollment-checked, forces status=READY server-side.
+export async function studentListPackages(
+  syllabusId: string,
+  unitNumber?: number,
+): Promise<LearningPackageListResponse> {
+  const { data } = await api.get<LearningPackageListResponse>(`${BASE}/student`, {
+    params: { syllabus_id: syllabusId, unit_number: unitNumber },
+  })
+  return data
+}
+
 // ---------------------------------------------------------------------------
 // Faculty curation mutations
 // ---------------------------------------------------------------------------
