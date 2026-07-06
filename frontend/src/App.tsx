@@ -90,6 +90,7 @@ import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
 import DeanReviewPage from '@/pages/DeanReviewPage'
 import MyCoursesPage from '@/pages/MyCoursesPage'
+import FacultySubjectWorkspacePage from '@/pages/faculty/subjects/FacultySubjectWorkspacePage'
 import DepartmentsPage from '@/pages/academics/DepartmentsPage'
 import ProgramsPage from '@/pages/academics/ProgramsPage'
 import BatchesPage from '@/pages/academics/BatchesPage'
@@ -276,6 +277,7 @@ export default function App() {
           {/* My Courses — FACULTY only */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/my-courses" element={<MyCoursesPage />} />
+            <Route path="/faculty/subjects/:assignmentId" element={<FacultySubjectWorkspacePage />} />
           </Route>
 
           {/* Academic structure — ADMIN only (infrastructure, not academic decisions) */}

@@ -298,7 +298,7 @@ async def grade_submission(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
-        submission = await SubmissionService.grade(
+        submission, previous_marks_obtained = await SubmissionService.grade(
             submission_id,
             marks_obtained=payload.marks_obtained,
             feedback=payload.feedback,
@@ -313,7 +313,12 @@ async def grade_submission(
         actor_user_id=current_user.user_id, actor_role=current_user.role,
         tenant_id=current_user.tenant_id, schema_name=current_user.schema_name,
         target_entity="assignment_submission", target_id=str(submission_id),
-        metadata={"marks_obtained": payload.marks_obtained},
+        metadata={
+            "assignment_id": str(submission.assignment_id),
+            "student_id": str(submission.student_user_id),
+            "previous_marks_obtained": previous_marks_obtained,
+            "marks_obtained": payload.marks_obtained,
+        },
     )
 
     assignment = await AssignmentService.get(submission.assignment_id, db=db)

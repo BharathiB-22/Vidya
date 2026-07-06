@@ -252,7 +252,7 @@ class SubmissionService:
         feedback: str | None,
         graded_by_user_id: UUID,
         db: AsyncSession,
-    ) -> AssignmentSubmission:
+    ) -> tuple[AssignmentSubmission, float | None]:
         sub = await _require_submission(submission_id, db=db)
         assignment = await _require_assignment(sub.assignment_id, db=db)
         if marks_obtained > float(assignment.max_marks):
@@ -260,6 +260,7 @@ class SubmissionService:
                 "MARKS_EXCEED_MAX",
                 f"marks_obtained cannot exceed max_marks ({assignment.max_marks}).",
             )
+        previous_marks_obtained = sub.marks_obtained
         updated = await SubmissionRepository.grade(
             submission_id,
             marks_obtained=marks_obtained,
@@ -269,7 +270,7 @@ class SubmissionService:
         )
         await db.commit()
         await db.refresh(updated)
-        return updated
+        return updated, previous_marks_obtained
 
     @staticmethod
     async def mark_returned(submission_id: UUID, *, db: AsyncSession) -> AssignmentSubmission:

@@ -7,7 +7,7 @@
  */
 import { BookOpen, ChevronRight } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { assignmentsApi, Assignment, CourseRoleInCourse } from '@/lib/api/assignments'
 
 const ROLE_LABELS: Record<CourseRoleInCourse, string> = {
@@ -23,8 +23,13 @@ const ROLE_COLORS: Record<CourseRoleInCourse, string> = {
 }
 
 function CourseRow({ a }: { a: Assignment }) {
+  const navigate = useNavigate()
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+    <button
+      type="button"
+      onClick={() => navigate(`/faculty/subjects/${a.id}`)}
+      className="w-full flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 text-left hover:bg-gray-50 transition-colors"
+    >
       <div className="p-2 rounded-lg bg-blue-50">
         <BookOpen className="h-3.5 w-3.5 text-blue-500" />
       </div>
@@ -47,10 +52,11 @@ function CourseRow({ a }: { a: Assignment }) {
           </p>
         )}
       </div>
-      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${ROLE_COLORS[a.role_in_course]}`}>
+      <span className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${ROLE_COLORS[a.role_in_course]}`}>
         {ROLE_LABELS[a.role_in_course]}
       </span>
-    </div>
+      <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+    </button>
   )
 }
 

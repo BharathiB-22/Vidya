@@ -2,7 +2,7 @@
  * My Courses page — FACULTY.
  * Shows active course assignments with quick-links to Syllabus and Course Kit.
  */
-import { BookOpen, FileText, Package, ChevronRight } from 'lucide-react'
+import { BookOpen, FileText, Package, ChevronRight, LayoutGrid } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '@/components/shell/PageShell'
@@ -90,8 +90,19 @@ function CourseCard({ a }: { a: Assignment }) {
             Assigned {new Date(a.assigned_at).toLocaleDateString()}
           </p>
 
+          {/* Primary action — opens the unified Faculty Subject Workspace */}
+          <button
+            type="button"
+            onClick={() => navigate(`/faculty/subjects/${a.id}`)}
+            className="w-full mt-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-white
+                       bg-sv-primary rounded-lg px-3 py-2 hover:opacity-90 transition-opacity"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Open Subject Workspace
+          </button>
+
           {/* Quick actions */}
-          <div className="flex gap-2 mt-3 flex-wrap">
+          <div className="flex gap-2 mt-2 flex-wrap">
             <QuickLink
               icon={FileText}
               label="Syllabus"
