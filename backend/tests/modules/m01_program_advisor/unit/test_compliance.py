@@ -121,8 +121,10 @@ def test_sem_credits_below_min():
 
 
 def test_sem_credits_above_max():
-    # Semester 1 has 8 × 4 = 32 credits, above the maximum of 30.
-    # Semesters 2-8 are compliant (shifted spread courses).
+    # Semester 1 has 8 × 4 = 32 credits, above the typical per-semester load of 30.
+    # Phase 4.2 policy: a program is validated against its TOTAL configured
+    # credits, not a hard per-semester cap. An above-typical semester is an
+    # advisory WARNING (a rebalancing recommendation) and must NOT block approval.
     program = _btech_program()
     heavy_sem = [
         CourseNode(id=uuid.uuid4(), code=f"CS9{j:02d}", credits=4,
@@ -134,9 +136,11 @@ def test_sem_credits_above_max():
         c.semester += 1
     courses = heavy_sem + good_sems
     result = run_compliance_check(program, courses)
-    rule_ids = [v.rule_id for v in result.violations]
-    assert "UGC-SEM-002" in rule_ids
-    assert result.passed is False
+    sem002 = [v for v in result.violations if v.rule_id == "UGC-SEM-002"]
+    assert sem002, "expected an advisory UGC-SEM-002 recommendation"
+    assert all(v.severity == "WARNING" for v in sem002)
+    # A heavy semester alone no longer fails the program.
+    assert result.passed is True
 
 
 def test_sem_balance_warning_only():

@@ -93,6 +93,8 @@ class TimetableSlot(Base):
     course_id      = Column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     faculty_user_id = Column(UUID(as_uuid=True), nullable=True)
     room           = Column(String(50), nullable=True)
+    # Optional free-text note for this slot (e.g. "Tutorial", "Guest lecture").
+    remarks        = Column(String(255), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 

@@ -119,11 +119,8 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Academic Ownership', to: '/dean/academic-ownership',        icon: LayoutList,    roles: ['DEAN'] },
       { label: 'Programs',            to: '/programs',                       icon: BookMarked,    roles: ['DEAN'] },
-      { label: 'Syllabus Review',     to: '/dean-review',                    icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'Syllabuses',          to: '/syllabuses',                     icon: GraduationCap, roles: ['DEAN'] },
-      { label: 'Course Kit Compliance', to: '/dean/course-kit-compliance',  icon: ShieldCheck,   roles: ['DEAN'] },
-      { label: 'Timetable Builder',   to: '/timetable/builder',              icon: CalendarClock, roles: ['DEAN'] },
-      { label: 'Timetable Review',    to: '/dean/timetable-review',          icon: CalendarClock, roles: ['DEAN'] },
+      { label: 'Timetable',           to: '/timetable',                      icon: CalendarClock, roles: ['DEAN'] },
       { label: 'Elective Offerings',  to: '/elective-offerings',             icon: ListChecks,    roles: ['DEAN'] },
     ],
   },

@@ -75,6 +75,13 @@ export interface ValidSemestersResponse {
   items: ValidSemester[]
 }
 
+export interface CourseWithAssignments {
+  course_id: string
+  code: string
+  title: string
+  assignments: Assignment[]
+}
+
 const B = '/course-assignments'
 
 export const assignmentsApi = {
@@ -117,6 +124,16 @@ export const assignmentsApi = {
           include_inactive: includeInactive,
           page_size:        500,
         },
+      })
+      .then(r => r.data),
+
+  /** Every course in this operational semester's program, each with its
+   * (possibly empty) assignments — a course with no faculty yet still
+   * appears, unlike listAll() which only returns existing assignment rows. */
+  listCoursesForSlot: (semesterId: string, sectionId?: string) =>
+    api
+      .get<CourseWithAssignments[]>(`${B}/courses-for-slot`, {
+        params: { semester_id: semesterId, section_id: sectionId || undefined },
       })
       .then(r => r.data),
 }

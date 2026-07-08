@@ -14,10 +14,11 @@ from app.modules.m01_program_advisor.compliance import (
     ProgramNode,
     run_compliance_check,
 )
-from app.modules.m01_program_advisor.models import Course, Program, ProgramOutcome, ProgramStatus
+from app.modules.m01_program_advisor.models import Course, ElectiveBasket, Program, ProgramOutcome, ProgramStatus
 from app.modules.m01_program_advisor.repository import (
     CoursePrerequisiteRepository,
     CourseRepository,
+    ElectiveBasketRepository,
     ProgramOutcomeRepository,
     ProgramRepository,
     TaskJobPublicRepository,
@@ -25,6 +26,8 @@ from app.modules.m01_program_advisor.repository import (
 from app.modules.m01_program_advisor.schemas import (
     CourseCreate,
     CourseUpdate,
+    ElectiveBasketCreate,
+    ElectiveBasketUpdate,
     ProgramCreate,
     ProgramOutcomeCreate,
     ProgramOutcomeUpdate,
@@ -53,6 +56,27 @@ async def _require_status(
         raise ProgramServiceError(
             "INVALID_STATUS",
             f"Expected status {required.value}, got {program.status.value}.",
+            409,
+        )
+    return program
+
+
+async def _require_prepublish_status(
+    program_id: UUID,
+    *,
+    db: AsyncSession,
+) -> Program:
+    """Accept DRAFT or APPROVED — both remain editable/deletable by the Dean.
+    Once PUBLISHED, a program is permanently read-only (no edit, no delete)."""
+    _PREPUBLISH = {ProgramStatus.DRAFT, ProgramStatus.APPROVED}
+    program = await ProgramRepository.get_by_id(program_id, db=db)
+    if program is None:
+        raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+    if program.status not in _PREPUBLISH:
+        raise ProgramServiceError(
+            "INVALID_STATUS",
+            f"Program must be Draft or Approved to edit or delete; "
+            f"current status is {program.status.value}.",
             409,
         )
     return program
@@ -260,7 +284,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> Program:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_prepublish_status(program_id, db=db)
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise ProgramServiceError("NO_FIELDS", "No fields to update.", 422)
@@ -285,7 +309,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> None:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_prepublish_status(program_id, db=db)
         # DB-level CASCADE removes outcomes, courses, and course_prerequisites.
         await db.execute(sql_delete(Program).where(Program.id == program_id))
         await db.commit()
@@ -410,16 +434,43 @@ class ProgramService:
         return updated
 
     @staticmethod
+    async def publish(
+        program_id: UUID,
+        published_by: UUID,
+        *,
+        db: AsyncSession,
+    ) -> Program:
+        """APPROVED -> PUBLISHED. Terminal state: the program becomes
+        permanently read-only (see `_require_prepublish_status`), and its
+        elective-tagged courses become eligible for Elective Offerings."""
+        await _require_status(program_id, ProgramStatus.APPROVED, db=db)
+        published = await ProgramRepository.set_published(program_id, published_by, db=db)
+        if published is None:
+            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+        await db.commit()
+        return published
+
+    @staticmethod
     async def fork_program(
         program_id: UUID,
         created_by: UUID,
         *,
         db: AsyncSession,
     ) -> Program:
-        original = await _require_status(program_id, ProgramStatus.APPROVED, db=db)
+        original = await ProgramRepository.get_by_id(program_id, db=db)
+        if original is None:
+            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+        if original.status not in (ProgramStatus.APPROVED, ProgramStatus.PUBLISHED):
+            raise ProgramServiceError(
+                "INVALID_STATUS",
+                f"Program must be Approved or Published to duplicate; "
+                f"current status is {original.status.value}.",
+                409,
+            )
 
         outcomes = await ProgramOutcomeRepository.list_by_program(program_id, db=db)
         original_courses = await CourseRepository.list_by_program(program_id, db=db)
+        original_baskets = await ElectiveBasketRepository.list_by_program(program_id, db=db)
 
         prereqs_by_course: dict[UUID, list[UUID]] = {}
         for course in original_courses:
@@ -462,6 +513,13 @@ class ProgramService:
                 db=db,
             )
 
+        basket_old_to_new: dict[UUID, UUID] = {}
+        for b in original_baskets:
+            new_basket = await ElectiveBasketRepository.create(
+                new_program.id, b.semester, b.name, b.description, created_by, db=db,
+            )
+            basket_old_to_new[b.id] = new_basket.id
+
         if original_courses:
             new_courses = await CourseRepository.bulk_create(
                 new_program.id,
@@ -473,6 +531,7 @@ class ProgramService:
                         semester=c.semester,
                         course_type=c.course_type,
                         is_elective=c.is_elective,
+                        elective_basket_id=basket_old_to_new.get(c.elective_basket_id) if c.elective_basket_id else None,
                         hours_lecture=c.hours_lecture,
                         hours_tutorial=c.hours_tutorial,
                         hours_practical=c.hours_practical,
@@ -566,6 +625,27 @@ class ProgramService:
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def _validate_basket_assignment(
+        program_id: UUID,
+        semester: int,
+        elective_basket_id: UUID | None,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """A basket may only hold courses from its own program+semester --
+        never a free-floating course marked elective with nowhere to live."""
+        if elective_basket_id is None:
+            return
+        basket = await ElectiveBasketRepository.get_by_id(elective_basket_id, db=db)
+        if basket is None or basket.program_id != program_id:
+            raise ProgramServiceError("BASKET_NOT_FOUND", "Elective basket not found in this program.", 404)
+        if basket.semester != semester:
+            raise ProgramServiceError(
+                "BASKET_SEMESTER_MISMATCH",
+                f"This basket belongs to semester {basket.semester}, not {semester}.", 422,
+            )
+
+    @staticmethod
     async def add_course(
         program_id: UUID,
         payload: CourseCreate,
@@ -578,6 +658,11 @@ class ProgramService:
             raise ProgramServiceError(
                 "CODE_EXISTS", f"Course code {payload.code!r} already exists in this program.", 409
             )
+        await ProgramService._validate_basket_assignment(
+            program_id, payload.semester, payload.elective_basket_id, db=db,
+        )
+        # A course inside a basket is an elective by definition.
+        is_elective = payload.is_elective or payload.elective_basket_id is not None
         course = await CourseRepository.create(
             program_id=program_id,
             code=payload.code,
@@ -585,7 +670,8 @@ class ProgramService:
             credits=payload.credits,
             semester=payload.semester,
             course_type=payload.course_type.value if payload.course_type else None,
-            is_elective=payload.is_elective,
+            is_elective=is_elective,
+            elective_basket_id=payload.elective_basket_id,
             hours_lecture=payload.hours_lecture,
             hours_tutorial=payload.hours_tutorial,
             hours_practical=payload.hours_practical,
@@ -622,6 +708,11 @@ class ProgramService:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise ProgramServiceError("NO_FIELDS", "No fields to update.", 422)
+        if "elective_basket_id" in updates:
+            await ProgramService._validate_basket_assignment(
+                program_id, updates.get("semester", course.semester), updates["elective_basket_id"], db=db,
+            )
+            updates["is_elective"] = True
         updates["updated_at"] = datetime.now(timezone.utc)
         updated = await CourseRepository.update(course_id, updates, db=db)
         await db.commit()
@@ -643,6 +734,88 @@ class ProgramService:
         await db.commit()
 
     # ------------------------------------------------------------------
+    # Elective Basket operations (DRAFT/PENDING_APPROVAL guard, same editable
+    # window as courses/outcomes — Dean can create any number of electives
+    # inside a basket while the Program is still being drafted/reviewed)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def add_basket(
+        program_id: UUID,
+        payload: ElectiveBasketCreate,
+        created_by: UUID,
+        *,
+        db: AsyncSession,
+    ) -> ElectiveBasket:
+        await _require_editable_status(program_id, db=db)
+        basket = await ElectiveBasketRepository.create(
+            program_id=program_id, semester=payload.semester, name=payload.name,
+            description=payload.description, created_by_user_id=created_by, db=db,
+        )
+        await db.commit()
+        return basket
+
+    @staticmethod
+    async def update_basket(
+        basket_id: UUID,
+        program_id: UUID,
+        payload: ElectiveBasketUpdate,
+        *,
+        db: AsyncSession,
+    ) -> ElectiveBasket:
+        await _require_editable_status(program_id, db=db)
+        basket = await ElectiveBasketRepository.get_by_id(basket_id, db=db)
+        if basket is None or basket.program_id != program_id:
+            raise ProgramServiceError("NOT_FOUND", "Elective basket not found.", 404)
+        updates = payload.model_dump(exclude_none=True)
+        if not updates:
+            raise ProgramServiceError("NO_FIELDS", "No fields to update.", 422)
+        updates["updated_at"] = datetime.now(timezone.utc)
+        updated = await ElectiveBasketRepository.update(basket_id, updates, db=db)
+        await db.commit()
+        return updated
+
+    @staticmethod
+    async def delete_basket(
+        basket_id: UUID,
+        program_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        await _require_editable_status(program_id, db=db)
+        basket = await ElectiveBasketRepository.get_by_id(basket_id, db=db)
+        if basket is None or basket.program_id != program_id:
+            raise ProgramServiceError("NOT_FOUND", "Elective basket not found.", 404)
+        # DB SET NULL unlinks member courses (they remain, just no longer
+        # grouped/offerable as electives until reassigned to another basket).
+        await ElectiveBasketRepository.delete(basket_id, db=db)
+        await db.commit()
+
+    @staticmethod
+    async def list_baskets(program_id: UUID, *, db: AsyncSession) -> list[ElectiveBasket]:
+        return await ElectiveBasketRepository.list_by_program(program_id, db=db)
+
+    @staticmethod
+    async def remove_course_from_basket(
+        course_id: UUID,
+        program_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> Course:
+        """Unlink a course from its basket without touching is_elective --
+        the Dean may still want it flagged elective while deciding which
+        basket (if any) it belongs to next."""
+        await _require_editable_status(program_id, db=db)
+        course = await CourseRepository.get_by_id(course_id, db=db)
+        if course is None or course.program_id != program_id:
+            raise ProgramServiceError("NOT_FOUND", "Course not found.", 404)
+        updated = await CourseRepository.update(
+            course_id, {"elective_basket_id": None, "updated_at": datetime.now(timezone.utc)}, db=db,
+        )
+        await db.commit()
+        return updated
+
+    # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
 
@@ -656,7 +829,16 @@ class ProgramService:
         requested_by_user_id: UUID,
         db: AsyncSession,
     ) -> UUID:
-        await _require_status(program_id, ProgramStatus.APPROVED, db=db)
+        program = await ProgramRepository.get_by_id(program_id, db=db)
+        if program is None:
+            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+        if program.status not in (ProgramStatus.APPROVED, ProgramStatus.PUBLISHED):
+            raise ProgramServiceError(
+                "INVALID_STATUS",
+                f"Program must be Approved or Published to export; "
+                f"current status is {program.status.value}.",
+                409,
+            )
         job_id = await TaskJobPublicRepository.create(
             tenant_id=tenant_id,
             task_type="export_program",

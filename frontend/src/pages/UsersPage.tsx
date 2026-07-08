@@ -176,13 +176,40 @@ function CreateUserDialog({ open, onClose, onCreated, programs, departments }: C
   const [identifier,   setIdentifier]   = useState('')
   const [programId,    setProgramId]    = useState('')
   const [departmentId, setDepartmentId] = useState('')
+  const [batchId,      setBatchId]      = useState('')
+  const [semesterId,   setSemesterId]   = useState('')
+  const [sectionId,    setSectionId]    = useState('')
+  const [batches,      setBatches]      = useState<Awaited<ReturnType<typeof academicsApi.listBatches>>>([])
+  const [semesters,    setSemesters]    = useState<Awaited<ReturnType<typeof academicsApi.listSemesters>>>([])
+  const [sections,     setSections]     = useState<Awaited<ReturnType<typeof academicsApi.listSections>>>([])
   const [error,        setError]        = useState('')
   const [loading,      setLoading]      = useState(false)
 
   function reset() {
     setEmail(''); setFullName(''); setPassword(''); setRole('FACULTY')
-    setIdentifier(''); setProgramId(''); setDepartmentId(''); setError('')
+    setIdentifier(''); setProgramId(''); setDepartmentId('')
+    setBatchId(''); setSemesterId(''); setSectionId('')
+    setBatches([]); setSemesters([]); setSections([])
+    setError('')
   }
+
+  // Section cascade — Program -> Batch -> Semester -> Section — only needed
+  // when creating a STUDENT so they can be auto-enrolled immediately, giving
+  // them mandatory courses with zero manual registration step.
+  useEffect(() => {
+    if (role !== 'STUDENT' || !programId) { setBatches([]); setBatchId(''); return }
+    academicsApi.listBatches(programId).then(setBatches).catch(() => setBatches([]))
+  }, [role, programId])
+
+  useEffect(() => {
+    if (!batchId) { setSemesters([]); setSemesterId(''); return }
+    academicsApi.listSemesters(batchId).then(setSemesters).catch(() => setSemesters([]))
+  }, [batchId])
+
+  useEffect(() => {
+    if (!semesterId) { setSections([]); setSectionId(''); return }
+    academicsApi.listSections(semesterId).then(setSections).catch(() => setSections([]))
+  }, [semesterId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -205,6 +232,7 @@ function CreateUserDialog({ open, onClose, onCreated, programs, departments }: C
         ...(identifier.trim() ? { identifier: identifier.trim() } : {}),
         ...(programId ? { acad_program_id: programId } : {}),
         ...(departmentId ? { department_id: departmentId } : {}),
+        ...(sectionId ? { section_id: sectionId } : {}),
       }
       const user = await usersApi.create(payload)
       addToast(`${payload.full_name} added successfully.`, 'success')
@@ -250,12 +278,53 @@ function CreateUserDialog({ open, onClose, onCreated, programs, departments }: C
             </p>
           </div>
           {role === 'STUDENT' && (
-            <ProgramSelect
-              value={programId}
-              onChange={setProgramId}
-              programs={programs}
-              required
-            />
+            <>
+              <ProgramSelect
+                value={programId}
+                onChange={setProgramId}
+                programs={programs}
+                required
+              />
+              {programId && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">
+                    Batch <span className="text-gray-400 font-normal">(optional — enables immediate section enrollment)</span>
+                  </label>
+                  <Select value={batchId} onValueChange={setBatchId}>
+                    <SelectTrigger><SelectValue placeholder="Select batch" /></SelectTrigger>
+                    <SelectContent>
+                      {batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {batchId && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Semester</label>
+                  <Select value={semesterId} onValueChange={setSemesterId}>
+                    <SelectTrigger><SelectValue placeholder="Select semester" /></SelectTrigger>
+                    <SelectContent>
+                      {semesters.map((s) => <SelectItem key={s.id} value={s.id}>{s.label ?? `Semester ${s.number}`}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {semesterId && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Section</label>
+                  <Select value={sectionId} onValueChange={setSectionId}>
+                    <SelectTrigger><SelectValue placeholder="Select section" /></SelectTrigger>
+                    <SelectContent>
+                      {sections.map((s) => <SelectItem key={s.id} value={s.id}>Section {s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    Picking a section auto-enrolls the student immediately — mandatory courses need no
+                    further registration. Skip this to assign a section later from Roster.
+                  </p>
+                </div>
+              )}
+            </>
           )}
           {(role === 'FACULTY' || role === 'DEAN') && (
             <DepartmentSelect
@@ -584,7 +653,7 @@ export default function UsersPage() {
                   {/* Name + email stacked */}
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900">{u.full_name}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">{u.email}</div>
+                    <div className="text-xs text-gray-600 mt-0.5">{u.email}</div>
                     {u.role === 'GUIDE' && (
                       <div className="mt-0.5">
                         <span className="text-xs text-teal-600 font-medium">UUID: </span>
@@ -622,7 +691,7 @@ export default function UsersPage() {
                   <td className="px-4 py-3">
                     {u.is_active
                       ? <span className="text-green-700 font-medium">Active</span>
-                      : <span className="text-gray-400">Inactive</span>}
+                      : <span className="text-gray-500 font-medium">Inactive</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button size="sm" variant="outline" onClick={() => setEditingUser(u)}>

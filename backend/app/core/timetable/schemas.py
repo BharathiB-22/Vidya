@@ -12,6 +12,7 @@ class TimetableSlotCreate(BaseModel):
     course_id: UUID
     faculty_user_id: UUID | None = None
     room: str | None = None
+    remarks: str | None = None
 
 
 class TimetableSlotOut(BaseModel):
@@ -26,6 +27,7 @@ class TimetableSlotOut(BaseModel):
     faculty_user_id: UUID | None = None
     faculty_name: str | None = None
     room: str | None = None
+    remarks: str | None = None
     # Resolved from the timetable's linked template's matching period, when
     # one exists — null otherwise (pre-Phase-4.1 timetables with no template).
     start_time: time | None = None
@@ -136,6 +138,8 @@ class TimetableOut(BaseModel):
     section_id: UUID
     section_name: str | None = None
     semester_id: UUID
+    semester_label: str | None = None
+    program_name: str | None = None
     status: str
     slots: list[TimetableSlotOut] = []
     template_id: UUID | None = None
@@ -156,6 +160,8 @@ class TimetableListItem(BaseModel):
     section_id: UUID
     section_name: str | None = None
     semester_id: UUID
+    semester_label: str | None = None
+    program_name: str | None = None
     status: str
     slot_count: int = 0
     template_id: UUID | None = None
@@ -168,6 +174,9 @@ class TimetableListItem(BaseModel):
 class StudentTimetableOut(BaseModel):
     section_id: UUID
     section_name: str | None = None
+    semester_label: str | None = None
+    program_name: str | None = None
+    academic_year: str | None = None
     slots: list[TimetableSlotOut] = []
     template: TimetableTemplateOut | None = None
 

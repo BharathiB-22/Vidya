@@ -6,6 +6,7 @@ export interface CurrentUser {
   email: string
   role: string
   fullName: string
+  avatarUrl: string | null
   tenantSlug: string
   schemaName: string | null
   firstLogin: boolean
@@ -48,6 +49,7 @@ function _meToUser(
     email: me.email as string,
     role: me.role as string,
     fullName: (me.full_name as string) ?? (me.email as string),
+    avatarUrl: (me.avatar_url as string) ?? null,
     tenantSlug,
     schemaName: (me.schema_name as string) ?? null,
     firstLogin: (me.first_login as boolean) ?? false,

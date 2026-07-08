@@ -57,6 +57,7 @@ class CreateUserRequest(BaseModel):
     identifier: Optional[str] = None
     acad_program_id: Optional[UUID] = None
     department_id: Optional[UUID] = None
+    section_id: Optional[UUID] = None
 
     @field_validator("password")
     @classmethod
@@ -186,12 +187,17 @@ class PasswordResetTokenResponse(BaseModel):
     reset_token: str
 
 
+class UpdateMyAvatarRequest(BaseModel):
+    avatar_url: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     id: UUID
     email: str
     role: TenantRole
     full_name: str
     identifier: Optional[str]
+    avatar_url: Optional[str] = None
     acad_program_id: Optional[UUID] = None
     acad_program_name: Optional[str] = None
     # Academic ownership fields (populated by list_users; None for non-applicable roles)

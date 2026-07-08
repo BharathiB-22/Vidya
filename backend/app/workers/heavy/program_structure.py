@@ -30,6 +30,110 @@ def _get_async_engine():
 
 
 # ---------------------------------------------------------------------------
+# Credit normalization — the finalized structure MUST total exactly the
+# program's configured credits (Part 4.2 / final-sprint requirement: never 119,
+# never 127). The AI is asked to hit the target but does not always; this
+# deterministic pass rebalances credits ±1 at a time across the most flexible
+# courses first (electives → labs → projects/internships → core theory), each
+# kept inside its valid per-course credit range, until the sum matches.
+# ---------------------------------------------------------------------------
+
+def _course_credit_bounds(course: dict) -> tuple[int, int]:
+    if (course.get("course_type") or "") in ("PROJECT", "INTERNSHIP"):
+        return 6, 20   # UGC project/internship flexibility
+    return 1, 6
+
+
+def _rebalance_priority(course: dict) -> int:
+    ct = (course.get("course_type") or "")
+    if course.get("is_elective"):
+        return 0
+    if ct == "LAB":
+        return 1
+    if ct in ("PROJECT", "INTERNSHIP"):
+        return 2
+    return 3
+
+
+def _basket_key(course: dict):
+    """Grouping key for elective-basket members, or None for a standalone
+    course. A basket (e.g. "AI Electives") groups several interchangeable
+    elective courses of which a student takes exactly ONE — so a basket must
+    contribute its credits only ONCE toward the program total, not once per
+    option."""
+    name = (course.get("elective_basket_name") or "").strip()
+    if not name:
+        return None
+    return (course.get("semester"), name)
+
+
+def _rebalance_reps(reps: list[dict], target_total: int) -> int:
+    """Adjust the credits of the representative courses in place (±1 at a time,
+    most-flexible first, within per-course bounds) so their sum equals
+    target_total. Returns the residual (0 = exact)."""
+    if not reps:
+        return target_total
+    delta = target_total - sum(c["credits"] for c in reps)
+    if delta == 0:
+        return 0
+    order = sorted(range(len(reps)), key=lambda i: _rebalance_priority(reps[i]))
+    guard = 0
+    while delta != 0 and guard < 100_000:
+        progressed = False
+        for i in order:
+            if delta == 0:
+                break
+            lo, hi = _course_credit_bounds(reps[i])
+            if delta > 0 and reps[i]["credits"] < hi:
+                reps[i]["credits"] += 1
+                delta -= 1
+                progressed = True
+            elif delta < 0 and reps[i]["credits"] > lo:
+                reps[i]["credits"] -= 1
+                delta += 1
+                progressed = True
+        if not progressed:
+            break
+        guard += 1
+    return delta
+
+
+def normalize_total_credits(courses: list[dict], target_total: int) -> int:
+    """Adjust course credits in place so the program's EFFECTIVE total equals
+    target_total, where each elective basket counts ONCE (a student takes one
+    course from it) — not once per option.
+
+    Returns the residual (target − achieved); 0 means an exact match. A nonzero
+    residual only happens when per-course bounds make the target unreachable.
+    """
+    if not courses or target_total <= 0:
+        return target_total - sum(c["credits"] for c in courses)
+
+    # Split into standalone courses (core + basket-less electives) and baskets.
+    baskets: dict[tuple, list[dict]] = {}
+    singles: list[dict] = []
+    for c in courses:
+        key = _basket_key(c)
+        if key is None:
+            singles.append(c)
+        else:
+            baskets.setdefault(key, []).append(c)
+
+    # One representative per basket carries that basket's credit weight.
+    reps = singles + [members[0] for members in baskets.values()]
+    residual = _rebalance_reps(reps, target_total)
+
+    # Keep every option inside a basket at the representative's credit value so
+    # the basket is internally consistent (all options are interchangeable).
+    for members in baskets.values():
+        rep_credits = members[0]["credits"]
+        for m in members[1:]:
+            m["credits"] = rep_credits
+
+    return residual
+
+
+# ---------------------------------------------------------------------------
 # Celery task
 # ---------------------------------------------------------------------------
 
@@ -90,6 +194,7 @@ async def _run_generation(
     from app.modules.m01_program_advisor.repository import (
         CoursePrerequisiteRepository,
         CourseRepository,
+        ElectiveBasketRepository,
         ProgramOutcomeRepository,
         ProgramRepository,
     )
@@ -135,6 +240,37 @@ async def _run_generation(
         result = await provider.generate_structure(ctx)
 
         # ------------------------------------------------------------------
+        # Enforce exact total credits — rebalance the AI output so the program's
+        # EFFECTIVE total (each elective basket counted once) equals
+        # program.total_credits before anything is persisted or checked.
+        # ------------------------------------------------------------------
+        def _effective_total(cs: list[dict]) -> int:
+            total, seen = 0, set()
+            for c in cs:
+                key = _basket_key(c)
+                if key is not None:
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                total += c["credits"]
+            return total
+
+        pre_eff = _effective_total(result.courses)
+        residual = normalize_total_credits(result.courses, program.total_credits)
+        post_eff = _effective_total(result.courses)
+        if pre_eff != post_eff:
+            logger.info(
+                "m01.generate: rebalanced effective credits %d -> %d (target=%d, program=%s)",
+                pre_eff, post_eff, program.total_credits, program_id,
+            )
+        if residual != 0:
+            logger.warning(
+                "m01.generate: could not reach exact total credits "
+                "(target=%d, achieved=%d, residual=%d, program=%s)",
+                program.total_credits, post_eff, residual, program_id,
+            )
+
+        # ------------------------------------------------------------------
         # Cycle detection on AI output — fail fast before any DB write
         # ------------------------------------------------------------------
         temp_ids = {c["code"]: UUID(int=i) for i, c in enumerate(result.courses)}
@@ -169,6 +305,40 @@ async def _run_generation(
                 deleted, program_id,
             )
 
+        # Baskets left with zero courses after that deletion are stale AI
+        # output from a previous generation run -- clean them up too so
+        # regeneration doesn't accumulate empty duplicate baskets.
+        empty_basket_ids = (await session.execute(text(
+            """
+            SELECT b.id FROM elective_baskets b
+            LEFT JOIN courses c ON c.elective_basket_id = b.id
+            WHERE b.program_id = :pid
+            GROUP BY b.id
+            HAVING COUNT(c.id) = 0
+            """
+        ), {"pid": str(program_id)})).scalars().all()
+        for basket_id in empty_basket_ids:
+            await ElectiveBasketRepository.delete(basket_id, db=session)
+
+        # ------------------------------------------------------------------
+        # Elective baskets — the AI groups elective courses under a shared
+        # elective_basket_name (e.g. "Artificial Intelligence Electives").
+        # Create one ElectiveBasket per unique (semester, name) and remember
+        # its id so each course below can be linked to it.
+        # ------------------------------------------------------------------
+        basket_name_to_id: dict[tuple[int, str], UUID] = {}
+        for c in result.courses:
+            basket_name = (c.get("elective_basket_name") or "").strip()
+            if not basket_name:
+                continue
+            key = (c["semester"], basket_name)
+            if key in basket_name_to_id:
+                continue
+            basket = await ElectiveBasketRepository.create(
+                program_id, c["semester"], basket_name, None, program.created_by_user_id, db=session,
+            )
+            basket_name_to_id[key] = basket.id
+
         # ------------------------------------------------------------------
         # Bulk create new AI courses, then flag them as AI-generated.
         # Flagging is done via a targeted UPDATE on the new IDs only —
@@ -182,6 +352,9 @@ async def _run_generation(
                 semester=c["semester"],
                 course_type=c.get("course_type"),
                 is_elective=c["is_elective"],
+                elective_basket_id=basket_name_to_id.get(
+                    (c["semester"], (c.get("elective_basket_name") or "").strip())
+                ) if c.get("elective_basket_name") else None,
                 hours_lecture=c["hours_lecture"],
                 hours_tutorial=c["hours_tutorial"],
                 hours_practical=c["hours_practical"],

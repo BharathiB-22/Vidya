@@ -115,3 +115,17 @@ class ValidSemestersOut(BaseModel):
     # for the same edge case).
     scoped:       bool
     items:        list[ValidSemesterOut]
+
+
+# ---------------------------------------------------------------------------
+# Courses for an operational semester, each with its (possibly empty) list of
+# active assignments — powers the Timetable slot picker: a course with zero
+# assignments must still be selectable (faculty saved as null), one with a
+# single assignment auto-fills, one with multiple shows a picker.
+# ---------------------------------------------------------------------------
+
+class CourseWithAssignmentsOut(BaseModel):
+    course_id:   UUID
+    code:        str
+    title:       str
+    assignments: list[AssignmentOut]

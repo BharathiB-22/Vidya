@@ -21,12 +21,13 @@ logger = logging.getLogger("vidya.academics.assignment")
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
-from app.modules.m_academics.dean_scope import get_dean_program_ids
+from app.modules.m_academics.dean_scope import get_dean_program_ids, get_semester_program_id
 from app.modules.m_academics.assignment_schemas import (
     AssignmentCreate,
     AssignmentListResponse,
     AssignmentOut,
     CourseInfo,
+    CourseWithAssignmentsOut,
     FacultyInfo,
     SectionInfo,
     SemesterInfo,
@@ -596,6 +597,66 @@ class AssignmentService:
         )
         items = await _enrich(rows, db)
         return AssignmentListResponse(total=len(items), items=items)
+
+    @staticmethod
+    async def list_courses_with_assignments(
+        semester_id: UUID,
+        *,
+        section_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> list[CourseWithAssignmentsOut]:
+        """Every course belonging to this operational semester's program,
+        each with its (possibly empty) list of active assignments.
+
+        Unlike `list_all`, which only returns rows that already exist in
+        `subject_assignments`, this starts from the course catalog so a
+        course with zero faculty assigned still appears -- needed by the
+        Timetable slot picker, which must let the Dean save a slot with no
+        faculty when none are assigned yet, instead of hiding the course.
+        """
+        acad_program_id = await get_semester_program_id(semester_id, db)
+        if acad_program_id is None:
+            return []
+
+        sem_row = (await db.execute(
+            text("SELECT number FROM acad_semesters WHERE id = :id"),
+            {"id": str(semester_id)},
+        )).mappings().first()
+        if sem_row is None:
+            return []
+
+        course_rows = (await db.execute(
+            text(
+                "SELECT c.id, c.code, c.title "
+                "FROM courses c "
+                "JOIN programs p ON p.id = c.program_id "
+                "WHERE p.acad_program_id = :acad_program_id "
+                "  AND p.status IN ('APPROVED', 'PUBLISHED') "
+                "  AND c.semester = :semester_number "
+                "ORDER BY c.title"
+            ),
+            {"acad_program_id": str(acad_program_id), "semester_number": sem_row["number"]},
+        )).mappings().all()
+        if not course_rows:
+            return []
+
+        course_ids = [row["id"] for row in course_rows]
+        rows = await SubjectAssignmentRepository.list_all(
+            semester_id=semester_id, section_id=section_id,
+            include_inactive=False, course_ids=course_ids, db=db,
+        )
+        enriched = await _enrich(rows, db)
+        by_course: dict[UUID, list[AssignmentOut]] = {}
+        for a in enriched:
+            by_course.setdefault(a.course_id, []).append(a)
+
+        return [
+            CourseWithAssignmentsOut(
+                course_id=row["id"], code=row["code"], title=row["title"],
+                assignments=by_course.get(row["id"], []),
+            )
+            for row in course_rows
+        ]
 
     @staticmethod
     async def list_by_course(

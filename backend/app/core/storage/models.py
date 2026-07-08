@@ -17,6 +17,7 @@ class StorageEntityType(str, enum.Enum):
     SYLLABUS_EXPORT = "syllabus_export"
     SCANNED_SCRIPT = "scanned_script"
     FACULTY_NOTE = "faculty_note"
+    AVATAR = "avatar"
 
 
 class StorageAsset(Base):

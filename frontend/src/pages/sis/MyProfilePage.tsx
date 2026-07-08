@@ -19,6 +19,7 @@ import { PageLoading } from '@/components/shared/PageLoading'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import { AvatarUpload } from '@/components/shared/AvatarUpload'
 import { sisApi } from '@/lib/api/sis'
 import type {
   StudentDetailOut, FacultyDetailOut,
@@ -146,12 +147,10 @@ function StudentProfileView({ profile }: { profile: StudentDetailOut }) {
     <>
       {/* Avatar strip */}
       <div className="rounded-xl p-5 flex items-center gap-4 bg-white border border-gray-200 shadow-sm">
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
+        <AvatarUpload
+          initials={initials}
           style={{ background: 'rgba(99,102,241,0.12)', color: '#4f46e5', border: '1px solid rgba(99,102,241,0.30)' }}
-        >
-          {initials}
-        </div>
+        />
         <div className="flex-1 min-w-0">
           <p className="text-lg font-semibold text-gray-900">{profile.full_name}</p>
           <p className="text-sm text-gray-600">{profile.email}</p>
@@ -286,12 +285,10 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
     <>
       {/* Avatar strip */}
       <div className="rounded-xl p-5 flex items-center gap-4 bg-white border border-gray-200 shadow-sm">
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
+        <AvatarUpload
+          initials={initials}
           style={{ background: 'rgba(16,185,129,0.12)', color: '#059669', border: '1px solid rgba(16,185,129,0.30)' }}
-        >
-          {initials}
-        </div>
+        />
         <div className="flex-1 min-w-0">
           <p className="text-lg font-semibold text-gray-900">{profile.full_name}</p>
           <p className="text-sm text-gray-600">{profile.email}</p>

@@ -173,7 +173,17 @@ class Settings(BaseSettings):
             "text/plain",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ],
+        "avatar": [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+        ],
     }
+
+    # Profile picture uploads are capped much tighter than the general
+    # MAX_UPLOAD_SIZE_MB limit — enforced client-side and can be re-checked
+    # server-side if a dedicated avatar validator is added later.
+    AVATAR_MAX_UPLOAD_SIZE_MB: int = 5
 
     @property
     def SYNC_DATABASE_URL(self) -> str:

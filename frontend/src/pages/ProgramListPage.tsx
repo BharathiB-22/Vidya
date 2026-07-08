@@ -19,6 +19,7 @@ const STATUS_OPTIONS: Array<{ value: ProgramStatus | ''; label: string }> = [
   { value: 'AI_GENERATING',    label: 'Generating' },
   { value: 'PENDING_APPROVAL', label: 'Pending Approval' },
   { value: 'APPROVED',         label: 'Approved' },
+  { value: 'PUBLISHED',        label: 'Published' },
 ]
 
 export default function ProgramListPage() {
@@ -124,7 +125,7 @@ export default function ProgramListPage() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-400">
+                  <td className="px-4 py-3 text-sm text-gray-500">
                     {new Date(p.created_at).toLocaleDateString()}
                   </td>
                 </tr>
@@ -132,7 +133,7 @@ export default function ProgramListPage() {
             </tbody>
           </table>
           </div>
-          <div className="px-4 py-2 text-xs text-gray-400 text-right border-t border-gray-100">
+          <div className="px-4 py-2 text-xs text-gray-500 text-right border-t border-gray-100">
             {data?.total ?? 0} program(s)
           </div>
         </div>

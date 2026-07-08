@@ -153,6 +153,7 @@ class User(Base):
     personal_email = Column(String, nullable=True)
     institution_email = Column(String, nullable=True)
     acad_program_id = Column(UUID(as_uuid=True), ForeignKey("acad_programs.id", ondelete="SET NULL"), nullable=True)
+    avatar_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     must_change_password = Column(Boolean, default=False, nullable=False)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)

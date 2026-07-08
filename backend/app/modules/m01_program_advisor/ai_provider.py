@@ -87,17 +87,34 @@ def _infer_course_type_from_title(title: str) -> str:
 
 
 class _CourseAI(BaseModel):
-    code:               str
-    title:              str
-    credits:            int
-    semester:           int
-    course_type:        str | None = None   # THEORY|LAB|PROJECT|INTERNSHIP|SEMINAR
-    is_elective:        bool
-    hours_lecture:      int
-    hours_tutorial:     int
-    hours_practical:    int
-    description:        str
-    prerequisite_codes: list[str]   # course codes within this program; [] if none
+    code:                 str
+    title:                str
+    credits:              int
+    semester:             int
+    course_type:          str | None = None   # THEORY|LAB|PROJECT|INTERNSHIP|SEMINAR
+    is_elective:          bool
+    # Required when is_elective is true — groups this elective under a named
+    # basket (e.g. "Artificial Intelligence Electives"). An elective is never
+    # a standalone course; it must belong to a basket alongside its siblings.
+    elective_basket_name: str | None = None
+    hours_lecture:        int
+    hours_tutorial:       int
+    hours_practical:      int
+    description:          str
+    prerequisite_codes:   list[str]   # course codes within this program; [] if none
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_code_alias(cls, data: object) -> object:
+        """Some providers (and prompt variations) emit 'course_code' instead
+        of the expected 'code'. Accept either, normalized to 'code', so a
+        provider's field-name choice never fails program generation --
+        applies uniformly to every provider since all of them (Gemini
+        directly, Groq/DeepSeek via the shared normalizer) validate courses
+        through this same model."""
+        if isinstance(data, dict) and not data.get("code") and data.get("course_code"):
+            data = {**data, "code": data["course_code"]}
+        return data
 
     @model_validator(mode="after")
     def coerce_course_type(self) -> _CourseAI:
@@ -178,36 +195,49 @@ def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
         f"Guidelines (adapt to the university framework and instructions above):\n"
         f"- Distribute {ctx.total_credits} credits across "
         f"{ctx.duration_years * 2} semesters with balanced per-semester loads.\n"
-        f"- Include an appropriate mix of core and elective courses; "
-        f"mark elective courses with is_elective: true.\n"
         f"- Each course credit should typically be between 1 and 6 "
         f"unless the curriculum instructions require otherwise (e.g. projects 6-20 credits).\n"
         f"- Every course must set course_type to exactly one of: "
         f"THEORY, LAB, PROJECT, INTERNSHIP, SEMINAR.\n"
         f"- Realistic semester composition — this is the most common source of unrealistic "
-        f"output, follow it precisely:\n"
-        f"    * In every semester EXCEPT the final semester, generate 5-7 THEORY courses.\n"
-        f"    * Identify the 2 (up to 3 for longer semesters) most hands-on / practical "
-        f"THEORY courses in that semester — typically programming, systems, data "
-        f"structures, databases, software engineering, web development, electronics, "
-        f"or other lab-based subjects — and for EACH of those add a matching LAB course "
-        f"with course_type LAB whose title is exactly the theory course's title + ' Lab' "
-        f"(e.g. 'Computer Systems' -> 'Computer Systems Lab', 'Programming Fundamentals' "
-        f"-> 'Programming Fundamentals Lab', 'Data Structures' -> 'Data Structures Lab', "
-        f"'Database Systems' -> 'Database Systems Lab', 'Software Engineering' -> "
-        f"'Software Engineering Lab', 'Web Development' -> 'Web Development Lab').\n"
-        f"    * Purely foundational/non-practical subjects (e.g. Mathematics, Communication "
-        f"Skills, Aptitude, humanities, management) must stay THEORY-only — do not invent "
-        f"a lab for them.\n"
-        f"    * Example realistic Semester 1 for a computing programme (MCA/BCA/B.Tech-style): "
-        f"5 THEORY courses (e.g. Computer Systems, Programming Fundamentals, Mathematics, "
-        f"Communication Skills, Aptitude) plus exactly 2 LAB courses pairing the practical "
-        f"ones (Computer Systems Lab, Programming Fundamentals Lab). Never generate a "
-        f"semester of only THEORY courses with zero labs.\n"
-        f"    * The final semester (semester {ctx.duration_years * 2}) must contain ONLY "
-        f"exactly one PROJECT course (e.g. 'Major Project') and exactly one INTERNSHIP "
-        f"course (e.g. 'Internship') — no THEORY, LAB, or SEMINAR courses in the final "
-        f"semester.\n"
+        f"output, follow it precisely. There are {ctx.duration_years * 2} semesters total; "
+        f"they fall into exactly three fixed zones — do not invent projects, internships, "
+        f"or electives outside these zones:\n"
+        f"    * ZONE A — every semester from 1 to {ctx.duration_years * 2 - 2} (core-only): "
+        f"generate 5-7 THEORY courses, all with is_elective: false. Identify the 2 (up to 3 "
+        f"for longer semesters) most hands-on / practical THEORY courses in that semester — "
+        f"typically programming, systems, data structures, databases, software engineering, "
+        f"web development, electronics, or other lab-based subjects — and for EACH of those "
+        f"add a matching LAB course with course_type LAB whose title is exactly the theory "
+        f"course's title + ' Lab' (e.g. 'Computer Systems' -> 'Computer Systems Lab', "
+        f"'Programming Fundamentals' -> 'Programming Fundamentals Lab', 'Data Structures' -> "
+        f"'Data Structures Lab', 'Database Systems' -> 'Database Systems Lab', 'Software "
+        f"Engineering' -> 'Software Engineering Lab', 'Web Development' -> 'Web Development "
+        f"Lab'). Purely foundational/non-practical subjects (e.g. Mathematics, Communication "
+        f"Skills, Aptitude, humanities, management) must stay THEORY-only — do not invent a "
+        f"lab for them. Example realistic Semester 1 for a computing programme (MCA/BCA/"
+        f"B.Tech-style): 5 THEORY courses (e.g. Computer Systems, Programming Fundamentals, "
+        f"Mathematics, Communication Skills, Aptitude) plus exactly 2 LAB courses pairing the "
+        f"practical ones (Computer Systems Lab, Programming Fundamentals Lab). Never generate "
+        f"a semester of only THEORY courses with zero labs. NO project, internship, or "
+        f"elective course belongs in this zone.\n"
+        f"    * ZONE B — semester {ctx.duration_years * 2 - 1} only (core + mini project + "
+        f"elective basket(s)): generate 3-5 core THEORY/LAB courses (is_elective: false) "
+        f"PLUS exactly one Mini Project course (course_type PROJECT, title containing "
+        f"'Mini Project', credits 2-4, is_elective: false) PLUS one or more elective "
+        f"baskets. An elective basket is a named group of 5-8 alternative courses a student "
+        f"picks ONE from — never a single standalone elective course. For every elective "
+        f"course in this semester set is_elective: true AND elective_basket_name to the "
+        f"SAME basket name shared by its sibling alternatives (e.g. all of Artificial "
+        f"Intelligence, Deep Learning, Machine Learning, Computer Vision, NLP, Cloud "
+        f"Computing, Business Analytics share elective_basket_name: 'Artificial Intelligence "
+        f"Electives'). Every elective course MUST have a non-empty elective_basket_name; "
+        f"every non-elective course MUST leave it null.\n"
+        f"    * ZONE C — semester {ctx.duration_years * 2} (final, internship + major "
+        f"project only): contains ONLY exactly one PROJECT course (title containing 'Major "
+        f"Project', credits 6-20, is_elective: false) and exactly one INTERNSHIP course "
+        f"(title containing 'Internship', is_elective: false) — no THEORY, LAB, SEMINAR, or "
+        f"elective courses in this zone.\n"
         f"- prerequisite_codes must only reference codes of other courses in the same list.\n"
         f"- bloom_level must be exactly one of: "
         f"Remember, Understand, Apply, Analyse, Evaluate, Create.\n"

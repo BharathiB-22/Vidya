@@ -8,11 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
+from app.modules.m_academics.dean_scope import assert_dean_owns_semester_program
 from app.modules.m_academics.elective_schemas import (
+    EligibleElectiveBasketOut,
     ElectiveOfferingCreate,
     ElectiveOfferingOut,
     ElectiveOfferingPropose,
     ElectiveOfferingUpdate,
+    ElectiveRegisterBody,
     ElectiveRegistrationOut,
     ElectiveRejectBody,
 )
@@ -29,6 +32,22 @@ _MANAGERS = (TenantRole.DEAN,)
 
 def _err(e: AcadServiceError) -> HTTPException:
     return HTTPException(status_code=e.status_code, detail={"error": e.code, "message": e.message})
+
+
+@router.get("/eligible-baskets", response_model=list[EligibleElectiveBasketOut])
+async def list_eligible_baskets(
+    semester_id: UUID = Query(...),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN, TenantRole.FACULTY)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[EligibleElectiveBasketOut]:
+    if current_user.role == TenantRole.DEAN.value:
+        await assert_dean_owns_semester_program(
+            current_user.user_id, semester_id, db, "Semester not found in your governed programs.",
+        )
+    try:
+        return await ElectiveService.list_eligible_baskets(semester_id, db)
+    except AcadServiceError as e:
+        raise _err(e)
 
 
 @router.post("/offerings", response_model=ElectiveOfferingOut, status_code=201)
@@ -157,11 +176,12 @@ async def update_offering(
 @router.post("/offerings/{offering_id}/register", response_model=ElectiveRegistrationOut, status_code=201)
 async def register_elective(
     offering_id: UUID,
+    body: ElectiveRegisterBody,
     current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> ElectiveRegistrationOut:
     try:
-        await ElectiveService.register(offering_id, current_user.user_id, db)
+        await ElectiveService.register(offering_id, body.course_id, current_user.user_id, db)
     except AcadServiceError as e:
         raise _err(e)
     rows = await ElectiveService.get_my_registrations(current_user.user_id, db)

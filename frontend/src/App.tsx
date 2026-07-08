@@ -54,7 +54,6 @@ import StudentTimetablePage from '@/pages/student/TimetablePage'
 import FacultyTimetablePage from '@/pages/FacultyTimetablePage'
 import ElectiveOfferingsPage from '@/pages/ElectiveOfferingsPage'
 import TimetableBuilderPage from '@/pages/dean/TimetableBuilderPage'
-import TimetableReviewPage from '@/pages/dean/TimetableReviewPage'
 import CourseKitCompliancePage from '@/pages/dean/CourseKitCompliancePage'
 import StudentAssignmentListPage from '@/pages/coursework/StudentAssignmentListPage'
 import StudentAssignmentSubmitPage from '@/pages/coursework/StudentAssignmentSubmitPage'
@@ -88,7 +87,6 @@ import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
 import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
-import DeanReviewPage from '@/pages/DeanReviewPage'
 import MyCoursesPage from '@/pages/MyCoursesPage'
 import FacultySubjectWorkspacePage from '@/pages/faculty/subjects/FacultySubjectWorkspacePage'
 import DepartmentsPage from '@/pages/academics/DepartmentsPage'
@@ -216,15 +214,18 @@ export default function App() {
           {/* DEAN pages */}
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/dean/academic-ownership" element={<AcademicOwnershipPage />} />
-            <Route path="/dean-review"             element={<DeanReviewPage />} />
+            {/* Syllabus Review merged into the unified Syllabuses page (tabbed by
+                status). Old link redirects so bookmarks keep working. */}
+            <Route path="/dean-review"             element={<Navigate to="/syllabuses" replace />} />
             <Route path="/dean/course-kit-compliance"   element={<CourseKitCompliancePage />} />
           </Route>
 
           {/* Timetable — DEAN owns the class timetable end-to-end (create, assign
-              faculty/subject/room, save draft, review, publish). ADMIN has no access. */}
+              faculty/subject/room, save draft, review, publish). ADMIN has no access.
+              Single merged page: Templates / Draft / Pending Review / Published / Archive. */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
+            <Route path="/timetable"               element={<TimetableBuilderPage />} />
             <Route path="/timetable/builder"       element={<TimetableBuilderPage />} />
-            <Route path="/dean/timetable-review"   element={<TimetableReviewPage />} />
           </Route>
 
           {/* Elective Offerings — one shared page, role-conditional: FACULTY proposes,

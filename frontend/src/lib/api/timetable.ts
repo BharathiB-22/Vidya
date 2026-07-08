@@ -10,6 +10,7 @@ import type {
   TimetableListItem,
   TimetableStatus,
   TimetableTemplate,
+  TimetableTemplateListItem,
   UpdatePeriodPayload,
   UpdateTemplatePayload,
 } from '@/types/timetable'
@@ -100,8 +101,8 @@ export async function createTemplate(payload: CreateTemplatePayload): Promise<Ti
   return data
 }
 
-export async function listTemplates(departmentId?: string): Promise<TimetableTemplate[]> {
-  const { data } = await api.get<TimetableTemplate[]>(`${BASE}/templates`, {
+export async function listTemplates(departmentId?: string): Promise<TimetableTemplateListItem[]> {
+  const { data } = await api.get<TimetableTemplateListItem[]>(`${BASE}/templates`, {
     params: departmentId ? { department_id: departmentId } : undefined,
   })
   return data
@@ -115,6 +116,10 @@ export async function getTemplate(id: string): Promise<TimetableTemplate> {
 export async function updateTemplate(id: string, payload: UpdateTemplatePayload): Promise<TimetableTemplate> {
   const { data } = await api.patch<TimetableTemplate>(`${BASE}/templates/${id}`, payload)
   return data
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  await api.delete(`${BASE}/templates/${id}`)
 }
 
 export async function addPeriod(templateId: string, payload: CreatePeriodPayload): Promise<TimetableTemplate> {

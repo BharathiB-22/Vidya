@@ -22,6 +22,7 @@ from app.core.auth.schemas import (
     TenantInfo,
     TokenResponse,
     CurrentUser,
+    UpdateMyAvatarRequest,
 )
 from app.core.auth.service import AuthError, TenantAuthService
 
@@ -160,6 +161,49 @@ async def get_me(
         role=user.role,
         full_name=user.full_name,
         identifier=user.identifier,
+        avatar_url=user.avatar_url,
+        is_active=user.is_active,
+        must_change_password=user.must_change_password,
+        created_at=user.created_at,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        first_login=user.password_changed_at is None or user.must_change_password,
+    )
+
+
+@router.patch("/me/avatar", response_model=MeResponse)
+async def update_my_avatar(
+    body: UpdateMyAvatarRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> MeResponse:
+    """Set/clear the caller's own profile picture URL, after it has been
+    uploaded via the storage module (entity_type="avatar") and persisted as
+    a StorageAsset. Available to every tenant role — Student/Faculty/Dean/Admin."""
+    if current_user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Use /platform/auth/me for super admin"},
+        )
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(
+                text(f"SET LOCAL search_path = {current_user.schema_name}, public")
+            )
+            user = await TenantRepository.update_user(
+                current_user.user_id, {"avatar_url": body.avatar_url}, session
+            )
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "UNAUTHORIZED", "message": "User not found"},
+        )
+    return MeResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        full_name=user.full_name,
+        identifier=user.identifier,
+        avatar_url=user.avatar_url,
         is_active=user.is_active,
         must_change_password=user.must_change_password,
         created_at=user.created_at,

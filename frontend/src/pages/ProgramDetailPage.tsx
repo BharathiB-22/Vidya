@@ -11,6 +11,7 @@ import { OutcomesSection } from '@/components/programs/OutcomesSection'
 import { ComplianceSection } from '@/components/programs/ComplianceSection'
 import { ArticulationMap } from '@/components/programs/ArticulationMap'
 import { ApprovalPanel } from '@/components/programs/ApprovalPanel'
+import { ElectiveBasketsSection } from '@/components/programs/ElectiveBasketsSection'
 import { programKeys, useProgramCourses } from '@/hooks/programs'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
@@ -113,6 +114,7 @@ export default function ProgramDetailPage() {
       <Tabs defaultValue="structure" className="mt-6">
         <TabsList>
           <TabsTrigger value="structure">Structure</TabsTrigger>
+          <TabsTrigger value="electives">Elective Baskets</TabsTrigger>
           <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="map">Map</TabsTrigger>
@@ -121,6 +123,10 @@ export default function ProgramDetailPage() {
 
         <TabsContent value="structure" className="mt-4">
           <SemesterGrid program={program} courses={courses} />
+        </TabsContent>
+
+        <TabsContent value="electives" className="mt-4">
+          <ElectiveBasketsSection program={program} />
         </TabsContent>
 
         <TabsContent value="outcomes" className="mt-4">

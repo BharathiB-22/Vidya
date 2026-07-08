@@ -208,12 +208,30 @@ class DashboardFacultyWorkload(BaseModel):
     faculty_name:    str
     course_count:    int
     program_count:   int
+    # Phase 4.2 workload detail
+    credits:         int = 0   # sum of credits across the DISTINCT courses taught
+    section_count:   int = 0   # distinct sections taught
+    hours_per_week:  int = 0   # published timetable periods/week for this faculty
+
+
+class DashboardDepartmentSummary(BaseModel):
+    department_id:   Optional[UUID] = None
+    department_name: str
+    program_count:   int
+    course_count:    int
+    faculty_count:   int
+    vacant_courses:  int
 
 
 class OwnershipDashboardSummary(BaseModel):
     total_programs:    int
     total_courses:     int
     total_faculty:     int
+    total_students:    int = 0
     vacant_courses:    int
     program_coverage_pct: float  # % of courses (across governed programs) with an active PRIMARY faculty
+    teaching_coverage_pct: float = 0.0   # alias for program_coverage_pct (dashboard label)
+    pending_faculty_allocation: int = 0  # governed faculty with no active teaching assignment
+    pending_course_allocation:  int = 0  # courses awaiting a PRIMARY faculty (== vacant_courses)
     faculty_workload:  list[DashboardFacultyWorkload]
+    department_summary: list[DashboardDepartmentSummary] = []

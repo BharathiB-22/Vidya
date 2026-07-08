@@ -28,7 +28,7 @@ function OfferingCard({ offering }: { offering: ElectiveOffering }) {
   const [error, setError] = useState<string | null>(null)
 
   const registerMut = useMutation({
-    mutationFn: () => registerElective(offering.id),
+    mutationFn: (courseId: string) => registerElective(offering.id, courseId),
     onSuccess: () => {
       setError(null)
       queryClient.invalidateQueries({ queryKey: ['elective-offerings'] })
@@ -37,47 +37,59 @@ function OfferingCard({ offering }: { offering: ElectiveOffering }) {
     onError: (e) => setError(getErrorMessage(e)),
   })
 
-  const seatsLeft = offering.max_seats - offering.seats_taken
-  const isFull = seatsLeft <= 0
   const isClosed = offering.status === 'CLOSED'
-  const disabled = isFull || isClosed || registerMut.isPending
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-semibold text-gray-800">{offering.course_title}</span>
-            <span className="text-xs text-gray-400">{offering.course_code}</span>
-          </div>
-          {offering.description && (
-            <p className="text-sm text-gray-500 mt-1 line-clamp-3">{offering.description}</p>
+          <span className="text-sm font-semibold text-gray-900">{offering.basket_name}</span>
+          {offering.basket_description && (
+            <p className="text-sm text-gray-600 mt-1 line-clamp-3">{offering.basket_description}</p>
           )}
+          <p className="text-xs text-gray-500 mt-1">Pick ONE course from this basket.</p>
         </div>
-        <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 font-medium shrink-0">
-          {offering.credits} credits
-        </span>
-      </div>
-
-      <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-        {offering.faculty_name && <span>Faculty: {offering.faculty_name}</span>}
-        <span className="flex items-center gap-1">
-          <Users2 className="h-3.5 w-3.5" />
-          {seatsLeft > 0 ? `${seatsLeft} seat${seatsLeft === 1 ? '' : 's'} left` : 'Full'}
-          {' '}({offering.seats_taken}/{offering.max_seats})
-        </span>
-        {isClosed && <span className="text-red-500 font-medium">Registration closed</span>}
+        {isClosed && <span className="text-red-500 font-medium text-xs shrink-0">Registration closed</span>}
       </div>
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-      <Button
-        size="sm"
-        disabled={disabled}
-        onClick={() => registerMut.mutate()}
-      >
-        {registerMut.isPending ? 'Registering…' : isClosed ? 'Closed' : isFull ? 'Full' : 'Register'}
-      </Button>
+      <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+        {offering.courses.map((c) => {
+          const seatsLeft = offering.max_seats - c.seats_taken
+          const isFull = seatsLeft <= 0
+          const disabled = isFull || isClosed || registerMut.isPending
+
+          return (
+            <div key={c.course_id} className="flex items-center justify-between gap-4 px-4 py-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-gray-900">{c.title}</span>
+                  <span className="text-xs text-gray-500">{c.code}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">
+                    {c.credits} credits
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-gray-600 mt-1 flex-wrap">
+                  {c.faculty_name && <span>Faculty: {c.faculty_name}</span>}
+                  <span className="flex items-center gap-1">
+                    <Users2 className="h-3.5 w-3.5" />
+                    {seatsLeft > 0 ? `${seatsLeft} seat${seatsLeft === 1 ? '' : 's'} left` : 'Full'}
+                    {' '}({c.seats_taken}/{offering.max_seats})
+                  </span>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                disabled={disabled}
+                onClick={() => registerMut.mutate(c.course_id)}
+              >
+                {registerMut.isPending ? 'Registering…' : isClosed ? 'Closed' : isFull ? 'Full' : 'Register'}
+              </Button>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -116,7 +128,7 @@ function AvailableElectivesTab() {
     return (
       <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
         <ListChecks className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-        <p className="text-sm text-gray-400">No electives are open for registration right now.</p>
+        <p className="text-sm text-gray-500">No electives are open for registration right now.</p>
       </div>
     )
   }
@@ -170,18 +182,18 @@ function MyElectivesTab() {
   return (
     <div className="space-y-8">
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
           Current
         </h2>
         {current.length === 0 ? (
-          <p className="text-sm text-gray-400">No current elective registrations.</p>
+          <p className="text-sm text-gray-500">No current elective registrations.</p>
         ) : (
           <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
             {current.map((r) => (
               <div key={r.id} className="px-5 py-4 flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-sm font-semibold text-gray-800">{r.course_title}</div>
-                  <div className="text-xs text-gray-400">{r.course_code} · {r.status}</div>
+                  <div className="text-sm font-semibold text-gray-900">{r.course_title}</div>
+                  <div className="text-xs text-gray-600">{r.basket_name} · {r.course_code} · {r.status}</div>
                 </div>
                 {r.status === 'REGISTERED' && (
                   <Button
@@ -200,17 +212,17 @@ function MyElectivesTab() {
       </section>
 
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
           Past
         </h2>
         {past.length === 0 ? (
-          <p className="text-sm text-gray-400">No past elective registrations.</p>
+          <p className="text-sm text-gray-500">No past elective registrations.</p>
         ) : (
           <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
             {past.map((r) => (
               <div key={r.id} className="px-5 py-4">
-                <div className="text-sm font-semibold text-gray-800">{r.course_title}</div>
-                <div className="text-xs text-gray-400">{r.course_code} · {r.status}</div>
+                <div className="text-sm font-semibold text-gray-900">{r.course_title}</div>
+                <div className="text-xs text-gray-600">{r.basket_name} · {r.course_code} · {r.status}</div>
               </div>
             ))}
           </div>
@@ -225,7 +237,7 @@ export default function ElectivesPage() {
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Electives</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
+        <p className="text-sm text-gray-500 mt-0.5">
           Register for available electives and track your current and past selections.
         </p>
       </div>

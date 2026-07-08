@@ -359,6 +359,7 @@ class TenantRepository:
                 u.role,
                 u.full_name,
                 u.identifier,
+                u.avatar_url,
                 u.acad_program_id,
                 u.is_active,
                 u.must_change_password,
@@ -475,6 +476,7 @@ class TenantRepository:
                 "role":               r["role"],
                 "full_name":          r["full_name"],
                 "identifier":         r["identifier"],
+                "avatar_url":         r["avatar_url"],
                 "acad_program_id":    r["acad_program_id"],
                 "acad_program_name":  r["program_name"],
                 "department_name":    r["department_name"],
@@ -494,7 +496,7 @@ class TenantRepository:
         """Return one user enriched with academic ownership fields."""
         main_sql = text("""
             SELECT
-                u.id, u.email, u.role, u.full_name, u.identifier,
+                u.id, u.email, u.role, u.full_name, u.identifier, u.avatar_url,
                 u.acad_program_id, u.is_active, u.must_change_password, u.created_at,
                 p.id   AS enrolled_program_id,
                 p.name AS program_name,
@@ -560,6 +562,7 @@ class TenantRepository:
             "role":                 result["role"],
             "full_name":            result["full_name"],
             "identifier":           result["identifier"],
+            "avatar_url":           result["avatar_url"],
             "acad_program_id":      result["acad_program_id"],
             "acad_program_name":    result["program_name"],
             "department_name":      result["department_name"],

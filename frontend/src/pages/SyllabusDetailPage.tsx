@@ -19,6 +19,7 @@ import {
 } from '@/hooks/syllabuses'
 import { syllabusKeys } from '@/hooks/syllabuses/useSyllabuses'
 import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
+import { useWorkspace } from '@/lib/workspace'
 
 type Tab = 'overview' | 'outcomes' | 'matrix' | 'units' | 'references' | 'compliance' | 'approval'
 
@@ -51,6 +52,8 @@ export default function SyllabusDetailPage() {
   const navigate = useNavigate()
   const qc       = useQueryClient()
   const [tab, setTab] = useState<Tab>('overview')
+  const { activeWorkspace: role } = useWorkspace()
+  const isFaculty = role === 'FACULTY'
 
   const syllabusId = id ?? ''
   const { data: syllabus, isLoading, isError } = useSyllabus(syllabusId)
@@ -139,10 +142,10 @@ export default function SyllabusDetailPage() {
                 {syllabus.course_code}
               </span>
             )}
-            <SyllabusStatusBadge status={syllabus.status} />
-            <span className="text-xs text-gray-400 font-medium">Version {syllabus.version}</span>
-            <span className="text-gray-200 text-xs select-none">·</span>
-            <span className="text-xs text-gray-400">
+            <SyllabusStatusBadge status={syllabus.status} viewerRole={role} />
+            <span className="text-xs text-gray-600 font-medium">Version {syllabus.version}</span>
+            <span className="text-gray-300 text-xs select-none">·</span>
+            <span className="text-xs text-gray-500">
               Created {new Date(syllabus.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
             </span>
           </div>
@@ -158,8 +161,10 @@ export default function SyllabusDetailPage() {
         <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
           <Lock className="h-4 w-4 shrink-0" />
           <span>
-            This syllabus is <strong>locked for the semester</strong> and cannot be edited.
-            Use <strong>Unlock</strong> or <strong>Fork Version</strong> to make changes.
+            This syllabus is <strong>Published</strong> and locked for the semester.
+            {isFaculty
+              ? ' It is final and cannot be edited.'
+              : <> Use <strong>Unlock</strong> or <strong>Fork Version</strong> to make changes.</>}
           </span>
         </div>
       )}
@@ -172,12 +177,21 @@ export default function SyllabusDetailPage() {
           </span>
         </div>
       )}
-      {syllabus.status === 'DEAN_APPROVED' && (
+      {syllabus.status === 'DEAN_APPROVED' && isFaculty && (
+        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            This syllabus has been reviewed and approved by the Dean and is <strong>pending publication</strong>.
+            It becomes <strong>Published</strong> — the only final state — once the Dean publishes it.
+          </span>
+        </div>
+      )}
+      {syllabus.status === 'DEAN_APPROVED' && !isFaculty && (
         <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-green-700 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
             This syllabus has been <strong>Dean-approved</strong> and is immutable.
-            Use <strong>Fork Version</strong> to start a new revision.
+            Use <strong>Lock</strong> to publish it for the semester, or <strong>Fork Version</strong> to start a new revision.
           </span>
         </div>
       )}

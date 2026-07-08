@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.database import AsyncSessionLocal
-from app.modules.m01_program_advisor.models import ProgramStatus
+from app.modules.m01_program_advisor.models import Program, ProgramStatus
 from app.modules.m01_program_advisor.schemas import CourseCreate, ProgramOutcomeCreate
 from app.modules.m01_program_advisor.service import ProgramService
 from tests.conftest import SCHEMA_A, SLUG_A, _insert_tenant_user
@@ -44,11 +44,20 @@ async def tenant_db_a(test_tenant_a):
 # ---------------------------------------------------------------------------
 
 async def force_status(program_id: uuid.UUID, status: ProgramStatus, tenant_db) -> None:
-    """In-session status override for service tests (same open session, no extra commit)."""
-    await tenant_db.execute(
-        text("UPDATE programs SET status = :s WHERE id = :id"),
-        {"s": status.value, "id": str(program_id)},
-    )
+    """In-session status override for service tests (same open session, no extra commit).
+
+    Mutates the ORM-mapped `Program` object directly (rather than raw SQL)
+    so the change is visible to every other reference to that same
+    identity-mapped instance in this session -- with `expire_on_commit=False`
+    a raw `UPDATE ... WHERE` leaves any already-loaded `Program` object (e.g.
+    the one `_create_draft` returned) showing its stale in-memory `.status`,
+    since nothing ever expires it.
+    """
+    program = (
+        await tenant_db.execute(select(Program).where(Program.id == program_id))
+    ).scalar_one()
+    program.status = status
+    await tenant_db.flush()
 
 
 async def force_status_committed(program_id: uuid.UUID, status: ProgramStatus) -> None:

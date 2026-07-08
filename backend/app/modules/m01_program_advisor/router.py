@@ -26,6 +26,9 @@ from app.modules.m01_program_advisor.schemas import (
     CoursePrerequisiteResponse,
     CourseResponse,
     CourseUpdate,
+    ElectiveBasketCreate,
+    ElectiveBasketResponse,
+    ElectiveBasketUpdate,
     GenerateProgramRequest,
     ProgramAIJobResponse,
     ProgramCreate,
@@ -39,6 +42,7 @@ from app.modules.m01_program_advisor.schemas import (
     ProgramStatusResponse,
     ProgramUpdate,
     ProgramVersionResponse,
+    PublishRequest,
     RejectRequest,
 )
 from app.modules.m01_program_advisor.service import ProgramService, ProgramServiceError
@@ -301,6 +305,32 @@ async def approve_program(
         target_entity="Program",
         target_id=str(program_id),
         metadata={"version": program.version, "ai_model": program.ai_model, "comment": payload.comment},
+    )
+    return ProgramResponse.model_validate(program)
+
+
+@router.post("/{program_id}/publish", response_model=ProgramResponse)
+async def publish_program(
+    program_id: UUID,
+    payload: PublishRequest,
+    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ProgramResponse:
+    try:
+        program = await ProgramService.publish(
+            program_id, published_by=current_user.user_id, db=db
+        )
+    except ProgramServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.PROGRAM_PUBLISHED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Program",
+        target_id=str(program_id),
+        metadata={"version": program.version, "comment": payload.comment},
     )
     return ProgramResponse.model_validate(program)
 
@@ -597,6 +627,111 @@ async def list_prerequisites(
 ) -> list[CoursePrerequisiteResponse]:
     prereqs = await CoursePrerequisiteRepository.list_by_course(course_id, db=db)
     return [CoursePrerequisiteResponse.model_validate(p) for p in prereqs]
+
+
+# ---------------------------------------------------------------------------
+# Elective Baskets — a named group of elective courses within one program+
+# semester. Electives are never a single standalone course; Dean/Faculty add
+# any number of elective courses into a basket while the Program is still
+# editable (Draft/Pending Approval), and it becomes visible to student
+# registration once the Program is Published (see m_academics electives).
+# ---------------------------------------------------------------------------
+
+@router.post("/{program_id}/electives/baskets", response_model=ElectiveBasketResponse, status_code=201)
+async def add_basket(
+    program_id: UUID,
+    payload: ElectiveBasketCreate,
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ElectiveBasketResponse:
+    try:
+        basket = await ProgramService.add_basket(program_id, payload, current_user.user_id, db=db)
+    except ProgramServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.ELECTIVE_BASKET_CREATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="ElectiveBasket",
+        target_id=str(basket.id),
+        metadata={"program_id": str(program_id), "name": basket.name, "semester": basket.semester},
+    )
+    return ElectiveBasketResponse.model_validate(basket)
+
+
+@router.get("/{program_id}/electives/baskets", response_model=list[ElectiveBasketResponse])
+async def list_baskets(
+    program_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[ElectiveBasketResponse]:
+    baskets = await ProgramService.list_baskets(program_id, db=db)
+    return [ElectiveBasketResponse.model_validate(b) for b in baskets]
+
+
+@router.patch("/{program_id}/electives/baskets/{basket_id}", response_model=ElectiveBasketResponse)
+async def update_basket(
+    program_id: UUID,
+    basket_id: UUID,
+    payload: ElectiveBasketUpdate,
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> ElectiveBasketResponse:
+    try:
+        basket = await ProgramService.update_basket(basket_id, program_id, payload, db=db)
+    except ProgramServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.ELECTIVE_BASKET_UPDATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="ElectiveBasket",
+        target_id=str(basket_id),
+        metadata={"program_id": str(program_id), "changes": payload.model_dump(exclude_none=True)},
+    )
+    return ElectiveBasketResponse.model_validate(basket)
+
+
+@router.delete("/{program_id}/electives/baskets/{basket_id}", status_code=200)
+async def delete_basket(
+    program_id: UUID,
+    basket_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> dict:
+    try:
+        await ProgramService.delete_basket(basket_id, program_id, db=db)
+    except ProgramServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.ELECTIVE_BASKET_DELETED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="ElectiveBasket",
+        target_id=str(basket_id),
+        metadata={"program_id": str(program_id)},
+    )
+    return {"status": "deleted"}
+
+
+@router.delete("/{program_id}/courses/{course_id}/basket", response_model=CourseResponse)
+async def remove_course_from_basket(
+    program_id: UUID,
+    course_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> CourseResponse:
+    try:
+        course = await ProgramService.remove_course_from_basket(course_id, program_id, db=db)
+    except ProgramServiceError as e:
+        raise _err(e)
+    return CourseResponse.model_validate(course)
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ import {
 import { useAuth } from '@/lib/auth'
 import { getErrorMessage } from '@/lib/api'
 import { academicsApi } from '@/lib/api/academics'
-import { listPrograms, listCourses } from '@/lib/api/programs'
 import {
   listElectiveOfferings,
   createElectiveOffering,
@@ -20,6 +19,7 @@ import {
   rejectElective,
   getApprovedElectives,
   publishElective,
+  listEligibleElectiveBaskets,
   type ElectiveOffering,
 } from '@/lib/api/electives'
 
@@ -36,7 +36,7 @@ function EmptyState({ message }: { message: string }) {
   return (
     <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
       <ListChecks className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-      <p className="text-sm text-gray-400">{message}</p>
+      <p className="text-sm text-gray-500">{message}</p>
     </div>
   )
 }
@@ -62,13 +62,14 @@ function OfferingRow({ offering, children }: { offering: ElectiveOffering; child
     <div className="px-5 py-4 flex items-center justify-between gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-800">{offering.course_title}</span>
-          <span className="text-xs text-gray-400">{offering.course_code}</span>
+          <span className="text-sm font-semibold text-gray-900">{offering.basket_name}</span>
           <StatusPill status={offering.status} />
         </div>
-        <div className="text-xs text-gray-400 mt-1">
-          {offering.credits} credits · {offering.seats_taken}/{offering.max_seats} seats
-          {offering.faculty_name && ` · ${offering.faculty_name}`}
+        <div className="text-xs text-gray-600 mt-1">
+          {offering.max_seats} seats per course · {offering.courses.length} elective{offering.courses.length === 1 ? '' : 's'} in basket
+        </div>
+        <div className="text-xs text-gray-500 mt-1">
+          {offering.courses.map((c) => `${c.title} (${c.seats_taken}/${offering.max_seats})`).join(' · ')}
         </div>
         {offering.rejection_reason && (
           <div className="text-xs text-red-600 mt-1">Rejected: {offering.rejection_reason}</div>
@@ -85,72 +86,48 @@ function OfferingRow({ offering, children }: { offering: ElectiveOffering; child
 
 function ProposeElectiveForm() {
   const qc = useQueryClient()
-  const [programId, setProgramId] = useState('')
-  const [courseId, setCourseId] = useState('')
   const [semesterId, setSemesterId] = useState('')
+  const [basketId, setBasketId] = useState('')
   const [maxSeats, setMaxSeats] = useState('30')
   const [error, setError] = useState<string | null>(null)
 
-  const programsQ = useQuery({
-    queryKey: ['programs-for-elective-picker'],
-    queryFn: () => listPrograms({ page_size: 100 }),
-  })
-  const coursesQ = useQuery({
-    queryKey: ['courses-for-elective-picker', programId],
-    queryFn: () => listCourses(programId),
-    enabled: !!programId,
-  })
   const semestersQ = useQuery({
     queryKey: ['semesters-for-elective-picker'],
     queryFn: () => academicsApi.listSemesters(undefined, true),
   })
-
-  const electiveCourses = (coursesQ.data ?? []).filter((c) => c.is_elective)
+  const eligibleBasketsQ = useQuery({
+    queryKey: ['eligible-elective-baskets', semesterId],
+    queryFn: () => listEligibleElectiveBaskets(semesterId),
+    enabled: !!semesterId,
+  })
 
   const proposeMut = useMutation({
     mutationFn: () =>
       proposeElective({
-        course_id: courseId,
+        basket_id: basketId,
         semester_id: semesterId,
         max_seats: Number(maxSeats),
       }),
     onSuccess: () => {
       setError(null)
-      setProgramId(''); setCourseId(''); setSemesterId(''); setMaxSeats('30')
+      setSemesterId(''); setBasketId(''); setMaxSeats('30')
       qc.invalidateQueries({ queryKey: ['my-proposed-electives'] })
     },
     onError: (e) => setError(getErrorMessage(e)),
   })
 
-  const canSubmit = !!courseId && !!semesterId && Number(maxSeats) > 0
+  const canSubmit = !!basketId && !!semesterId && Number(maxSeats) > 0
+  const selectedBasket = (eligibleBasketsQ.data ?? []).find((b) => b.basket_id === basketId)
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-700">Propose New Elective</h3>
+      <h3 className="text-sm font-semibold text-gray-900">Propose New Elective Basket</h3>
+      <p className="text-xs text-gray-500">
+        Only elective baskets already created in a published Program show up here — create the basket and add its
+        courses under Program Structure first.
+      </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Select value={programId} onValueChange={(v) => { setProgramId(v); setCourseId('') }}>
-          <SelectTrigger><SelectValue placeholder="Select program" /></SelectTrigger>
-          <SelectContent>
-            {(programsQ.data?.items ?? []).map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={courseId} onValueChange={setCourseId} disabled={!programId}>
-          <SelectTrigger><SelectValue placeholder={programId ? 'Select elective course' : 'Pick a program first'} /></SelectTrigger>
-          <SelectContent>
-            {electiveCourses.length === 0 ? (
-              <div className="px-2 py-3 text-xs text-gray-400">No elective-tagged courses in this program.</div>
-            ) : (
-              electiveCourses.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.title} ({c.code})</SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-
-        <Select value={semesterId} onValueChange={setSemesterId}>
+        <Select value={semesterId} onValueChange={(v) => { setSemesterId(v); setBasketId('') }}>
           <SelectTrigger><SelectValue placeholder="Select semester" /></SelectTrigger>
           <SelectContent>
             {(semestersQ.data ?? []).map((s) => (
@@ -159,14 +136,35 @@ function ProposeElectiveForm() {
           </SelectContent>
         </Select>
 
+        <Select value={basketId} onValueChange={setBasketId} disabled={!semesterId}>
+          <SelectTrigger><SelectValue placeholder={semesterId ? 'Select elective basket' : 'Pick a semester first'} /></SelectTrigger>
+          <SelectContent>
+            {(eligibleBasketsQ.data ?? []).length === 0 ? (
+              <div className="px-2 py-3 text-xs text-gray-500">No elective baskets published for this semester.</div>
+            ) : (
+              (eligibleBasketsQ.data ?? []).map((b) => (
+                <SelectItem key={b.basket_id} value={b.basket_id} disabled={b.already_offered}>
+                  {b.name} ({b.courses.length} courses){b.already_offered ? ' — already offered' : ''}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+
         <Input
           type="number"
           min={1}
           value={maxSeats}
           onChange={(e) => setMaxSeats(e.target.value)}
-          placeholder="Max seats"
+          placeholder="Max seats per course"
         />
       </div>
+
+      {selectedBasket && (
+        <p className="text-xs text-gray-600">
+          Contains: {selectedBasket.courses.map((c) => c.title).join(', ')}
+        </p>
+      )}
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
@@ -186,7 +184,7 @@ function MyProposalsList() {
   const items = data ?? []
 
   if (isLoading) return <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">{[1, 2].map((n) => <SkeletonRow key={n} />)}</div>
-  if (items.length === 0) return <EmptyState message="You haven't proposed any electives yet." />
+  if (items.length === 0) return <EmptyState message="You haven't proposed any elective baskets yet." />
 
   return (
     <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -297,7 +295,7 @@ function ApprovedReadyToPublishList() {
   const items = data ?? []
 
   if (isLoading) return <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">{[1, 2].map((n) => <SkeletonRow key={n} />)}</div>
-  if (items.length === 0) return <EmptyState message="No dean-approved electives waiting to publish." />
+  if (items.length === 0) return <EmptyState message="No dean-approved elective baskets waiting to publish." />
 
   return (
     <div className="space-y-2">
@@ -317,57 +315,57 @@ function ApprovedReadyToPublishList() {
 
 function DirectCreateForm() {
   const qc = useQueryClient()
-  const [programId, setProgramId] = useState('')
-  const [courseId, setCourseId] = useState('')
   const [semesterId, setSemesterId] = useState('')
+  const [basketId, setBasketId] = useState('')
   const [maxSeats, setMaxSeats] = useState('30')
   const [error, setError] = useState<string | null>(null)
 
-  const programsQ = useQuery({ queryKey: ['programs-for-elective-picker'], queryFn: () => listPrograms({ page_size: 100 }) })
-  const coursesQ = useQuery({
-    queryKey: ['courses-for-elective-picker', programId],
-    queryFn: () => listCourses(programId),
-    enabled: !!programId,
-  })
   const semestersQ = useQuery({ queryKey: ['semesters-for-elective-picker'], queryFn: () => academicsApi.listSemesters(undefined, true) })
-  const electiveCourses = (coursesQ.data ?? []).filter((c) => c.is_elective)
+  const eligibleBasketsQ = useQuery({
+    queryKey: ['eligible-elective-baskets', semesterId],
+    queryFn: () => listEligibleElectiveBaskets(semesterId),
+    enabled: !!semesterId,
+  })
 
   const createMut = useMutation({
-    mutationFn: () => createElectiveOffering({ course_id: courseId, semester_id: semesterId, max_seats: Number(maxSeats) }),
+    mutationFn: () => createElectiveOffering({ basket_id: basketId, semester_id: semesterId, max_seats: Number(maxSeats) }),
     onSuccess: () => {
       setError(null)
-      setProgramId(''); setCourseId(''); setSemesterId(''); setMaxSeats('30')
+      setSemesterId(''); setBasketId(''); setMaxSeats('30')
       qc.invalidateQueries({ queryKey: ['all-elective-offerings'] })
     },
     onError: (e) => setError(getErrorMessage(e)),
   })
 
-  const canSubmit = !!courseId && !!semesterId && Number(maxSeats) > 0
+  const canSubmit = !!basketId && !!semesterId && Number(maxSeats) > 0
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-700">Create &amp; Publish Directly</h3>
-      <p className="text-xs text-gray-400">Skips the propose/approve workflow — goes straight to OPEN.</p>
+      <h3 className="text-sm font-semibold text-gray-900">Create &amp; Publish Directly</h3>
+      <p className="text-xs text-gray-500">Skips the propose/approve workflow — goes straight to OPEN. Basket list is
+        auto-populated from elective baskets already created in a published Program.</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Select value={programId} onValueChange={(v) => { setProgramId(v); setCourseId('') }}>
-          <SelectTrigger><SelectValue placeholder="Select program" /></SelectTrigger>
-          <SelectContent>
-            {(programsQ.data?.items ?? []).map((p) => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={courseId} onValueChange={setCourseId} disabled={!programId}>
-          <SelectTrigger><SelectValue placeholder={programId ? 'Select elective course' : 'Pick a program first'} /></SelectTrigger>
-          <SelectContent>
-            {electiveCourses.map((c) => <SelectItem key={c.id} value={c.id}>{c.title} ({c.code})</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={semesterId} onValueChange={setSemesterId}>
+        <Select value={semesterId} onValueChange={(v) => { setSemesterId(v); setBasketId('') }}>
           <SelectTrigger><SelectValue placeholder="Select semester" /></SelectTrigger>
           <SelectContent>
             {(semestersQ.data ?? []).map((s) => <SelectItem key={s.id} value={s.id}>{s.label ?? `Semester ${s.number}`}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Input type="number" min={1} value={maxSeats} onChange={(e) => setMaxSeats(e.target.value)} placeholder="Max seats" />
+        <Select value={basketId} onValueChange={setBasketId} disabled={!semesterId}>
+          <SelectTrigger><SelectValue placeholder={semesterId ? 'Select elective basket' : 'Pick a semester first'} /></SelectTrigger>
+          <SelectContent>
+            {(eligibleBasketsQ.data ?? []).length === 0 ? (
+              <div className="px-2 py-3 text-xs text-gray-500">No elective baskets published for this semester.</div>
+            ) : (
+              (eligibleBasketsQ.data ?? []).map((b) => (
+                <SelectItem key={b.basket_id} value={b.basket_id} disabled={b.already_offered}>
+                  {b.name} ({b.courses.length} courses){b.already_offered ? ' — already offered' : ''}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+        <Input type="number" min={1} value={maxSeats} onChange={(e) => setMaxSeats(e.target.value)} placeholder="Max seats per course" />
       </div>
       {error && <div className="text-xs text-red-600">{error}</div>}
       <Button size="sm" variant="outline" disabled={!canSubmit || createMut.isPending} onClick={() => createMut.mutate()}>
@@ -414,14 +412,14 @@ export default function ElectiveOfferingsPage() {
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Elective Offerings</h1>
-        <p className="text-sm text-gray-400 mt-0.5">
-          Faculty propose → Dean approves and publishes. Dean owns the elective lifecycle end-to-end.
+        <p className="text-sm text-gray-500 mt-0.5">
+          Faculty propose → Dean approves and publishes. Students register for ONE course from within each open basket.
         </p>
       </div>
 
       {role === 'FACULTY' && (
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">My Proposals</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">My Proposals</h2>
           <ProposeElectiveForm />
           <MyProposalsList />
         </section>
@@ -430,12 +428,12 @@ export default function ElectiveOfferingsPage() {
       {role === 'DEAN' && (
         <>
           <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Pending Approvals</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pending Approvals</h2>
             <PendingApprovalsList />
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Approved — Ready to Publish</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Approved — Ready to Publish</h2>
             <ApprovedReadyToPublishList />
             <DirectCreateForm />
           </section>
@@ -443,7 +441,7 @@ export default function ElectiveOfferingsPage() {
       )}
 
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-400">All Offerings (current semester)</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">All Offerings (current semester)</h2>
         <AllOfferingsList />
       </section>
     </div>

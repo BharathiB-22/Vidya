@@ -6,6 +6,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from app.modules.m01_program_advisor.ai_provider import (
     GroqStructureProvider,
@@ -732,6 +733,30 @@ class TestCourseAICourseTypeValidator:
     def test_missing_type_non_lab_title_defaults_theory(self):
         c = _CourseAI(**_course_kwargs(title="Discrete Mathematics"))
         assert c.course_type == "THEORY"
+
+
+class TestCourseAICodeAlias:
+    """Regression coverage: the AI sometimes emits 'course_code' instead of
+    the expected 'code' -- generation must not fail because of this alias,
+    for either provider path (Gemini validates directly through _CourseAI;
+    Groq/DeepSeek validate the same model after the text normalizer)."""
+
+    def test_course_code_alias_accepted(self):
+        kwargs = _course_kwargs(title="Operating Systems")
+        kwargs.pop("code")
+        c = _CourseAI(course_code="CS201", **kwargs)
+        assert c.code == "CS201"
+
+    def test_code_takes_precedence_when_both_present(self):
+        kwargs = _course_kwargs(title="Operating Systems", code="CS201")
+        c = _CourseAI(course_code="IGNORED", **kwargs)
+        assert c.code == "CS201"
+
+    def test_missing_both_code_and_course_code_still_raises(self):
+        kwargs = _course_kwargs(title="Operating Systems")
+        kwargs.pop("code")
+        with pytest.raises(ValidationError):
+            _CourseAI(**kwargs)
 
 
 class TestNormalizeCourseTypeAndCreditRange:

@@ -34,6 +34,7 @@ class CourseCreate(BaseModel):
     semester:                int = Field(..., ge=1)
     course_type:             Optional[CourseType] = None
     is_elective:             bool = False
+    elective_basket_id:      Optional[UUID] = None
     hours_lecture:           Optional[int] = None
     hours_tutorial:          Optional[int] = None
     hours_practical:         Optional[int] = None
@@ -42,36 +43,78 @@ class CourseCreate(BaseModel):
 
 
 class CourseUpdate(BaseModel):
-    code:            Optional[str] = None
-    title:           Optional[str] = None
-    credits:         Optional[int] = Field(default=None, ge=1)
-    semester:        Optional[int] = Field(default=None, ge=1)
-    course_type:     Optional[CourseType] = None
-    is_elective:     Optional[bool] = None
-    hours_lecture:   Optional[int] = None
-    hours_tutorial:  Optional[int] = None
-    hours_practical: Optional[int] = None
-    description:     Optional[str] = None
+    code:               Optional[str] = None
+    title:              Optional[str] = None
+    credits:            Optional[int] = Field(default=None, ge=1)
+    semester:           Optional[int] = Field(default=None, ge=1)
+    course_type:        Optional[CourseType] = None
+    is_elective:        Optional[bool] = None
+    elective_basket_id: Optional[UUID] = None
+    hours_lecture:      Optional[int] = None
+    hours_tutorial:     Optional[int] = None
+    hours_practical:    Optional[int] = None
+    description:        Optional[str] = None
 
 
 class CourseResponse(BaseModel):
     model_config = {"from_attributes": True}
 
-    id:              UUID
-    program_id:      UUID
-    code:            str
-    title:           str
-    credits:         int
-    semester:        int
-    course_type:     Optional[CourseType]
-    is_elective:     bool
-    is_ai_generated: bool
-    hours_lecture:   Optional[int]
-    hours_tutorial:  Optional[int]
-    hours_practical: Optional[int]
-    description:     Optional[str]
-    created_at:      datetime
-    updated_at:      Optional[datetime]
+    id:                 UUID
+    program_id:         UUID
+    code:               str
+    title:              str
+    credits:            int
+    semester:           int
+    course_type:        Optional[CourseType]
+    is_elective:        bool
+    elective_basket_id: Optional[UUID]
+    is_ai_generated:    bool
+    hours_lecture:      Optional[int]
+    hours_tutorial:     Optional[int]
+    hours_practical:    Optional[int]
+    description:        Optional[str]
+    created_at:         datetime
+    updated_at:         Optional[datetime]
+
+
+# ---------------------------------------------------------------------------
+# Elective Basket schemas — a named group of elective courses within one
+# program+semester (e.g. "Artificial Intelligence Electives" containing
+# AI/DL/ML/CV/NLP/...). An elective is never modeled as a single course.
+# ---------------------------------------------------------------------------
+
+class ElectiveBasketCreate(BaseModel):
+    semester:    int = Field(..., ge=1)
+    name:        str
+    description: Optional[str] = None
+
+
+class ElectiveBasketUpdate(BaseModel):
+    name:        Optional[str] = None
+    description: Optional[str] = None
+
+
+class ElectiveBasketCourseOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id:       UUID
+    code:     str
+    title:    str
+    credits:  int
+    semester: int
+
+
+class ElectiveBasketResponse(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id:          UUID
+    program_id:  UUID
+    semester:    int
+    name:        str
+    description: Optional[str]
+    created_at:  datetime
+    updated_at:  Optional[datetime]
+    courses:     list[ElectiveBasketCourseOut] = []
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +191,8 @@ class ProgramResponse(BaseModel):
     ai_instructions:     Optional[str]
     approved_by_user_id: Optional[UUID]
     approved_at:         Optional[datetime]
+    published_by_user_id: Optional[UUID] = None
+    published_at:        Optional[datetime] = None
     created_by_user_id:  UUID
     created_at:          datetime
     updated_at:          Optional[datetime]
@@ -182,6 +227,10 @@ class ProgramVersionResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ApproveRequest(BaseModel):
+    comment: Optional[str] = None
+
+
+class PublishRequest(BaseModel):
     comment: Optional[str] = None
 
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { LayoutGrid } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
@@ -8,6 +9,10 @@ import CourseOwnershipTab from '@/pages/dean/academicOwnership/CourseOwnershipTa
 import OwnershipReportTab from '@/pages/dean/academicOwnership/OwnershipReportTab'
 
 export default function AcademicOwnershipPage() {
+  // Controlled so the Dashboard's stat cards can act as navigation into the
+  // other tabs (Part 7 — "make dashboard behave like navigation").
+  const [tab, setTab] = useState('dashboard')
+
   return (
     <PageShell>
       <PageHeader
@@ -16,16 +21,16 @@ export default function AcademicOwnershipPage() {
         icon={LayoutGrid}
       />
 
-      <Tabs defaultValue="dashboard">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="program-ownership">Program Ownership</TabsTrigger>
-          <TabsTrigger value="course-ownership">Course Ownership</TabsTrigger>
+          <TabsTrigger value="course-ownership">Course Assignment</TabsTrigger>
           <TabsTrigger value="ownership-report">Ownership Report</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard">
-          <DashboardTab />
+          <DashboardTab onNavigateTab={setTab} />
         </TabsContent>
         <TabsContent value="program-ownership">
           <ProgramOwnershipTab />

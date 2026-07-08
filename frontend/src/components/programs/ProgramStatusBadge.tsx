@@ -10,6 +10,7 @@ const STATUS_CONFIG: Record<
   GENERATION_FAILED: { label: 'Generation Failed', variant: 'destructive' },
   PENDING_APPROVAL:  { label: 'Pending Approval',  variant: 'info' },
   APPROVED:          { label: 'Approved',           variant: 'success' },
+  PUBLISHED:         { label: 'Published',          variant: 'success' },
 }
 
 export function ProgramStatusBadge({ status }: { status: ProgramStatus }) {

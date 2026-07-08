@@ -120,7 +120,7 @@ export default function FacultySubjectWorkspacePage() {
             action={
               <div className="flex flex-col items-end gap-1.5">
                 {ctx.facultyName && <span className="text-sm font-medium text-gray-700">{ctx.facultyName}</span>}
-                {ctx.syllabusStatus && <SyllabusStatusBadge status={ctx.syllabusStatus} />}
+                {ctx.syllabusStatus && <SyllabusStatusBadge status={ctx.syllabusStatus} viewerRole="FACULTY" />}
               </div>
             }
           />

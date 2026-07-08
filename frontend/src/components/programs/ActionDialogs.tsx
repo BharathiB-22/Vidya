@@ -168,7 +168,8 @@ export function DeleteProgramDialog({
             all its courses, and outcomes. This cannot be undone.
           </p>
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-            Only DRAFT programs can be deleted. Approved programs must be forked if changes are needed.
+            Draft and Approved programs can be deleted. Once Published, a program is permanently
+            locked and cannot be deleted — fork it to start a new version instead.
           </p>
         </div>
         <DialogFooter>
@@ -318,7 +319,8 @@ export function ApproveDialog({
             </p>
           )}
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-            Once approved, the program becomes immutable. Future changes require a version fork.
+            Approved programs stay editable. Use Publish when ready to lock the program and make
+            its elective courses available in Elective Offerings.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -330,6 +332,72 @@ export function ApproveDialog({
               className="bg-green-600 hover:bg-green-700"
             >
               {isPending ? 'Approving…' : 'Approve'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Publish Dialog
+// ---------------------------------------------------------------------------
+
+interface PublishDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSubmit: (comment?: string) => void
+  isPending?: boolean
+}
+
+export function PublishDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  isPending,
+}: PublishDialogProps) {
+  const [comment, setComment] = useState('')
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    onSubmit(comment || undefined)
+    setComment('')
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Publish Program</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Publish Notes (optional)
+            </label>
+            <Textarea
+              rows={3}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Any notes for the record…"
+            />
+          </div>
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+            Publishing permanently locks this program — no further edits or deletion. Its
+            elective-tagged courses become available in Elective Offerings.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isPending}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isPending ? 'Publishing…' : 'Publish'}
             </Button>
           </DialogFooter>
         </form>

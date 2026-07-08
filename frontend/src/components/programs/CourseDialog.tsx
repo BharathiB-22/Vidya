@@ -9,6 +9,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select'
+import { useElectiveBaskets, useCreateBasket } from '@/hooks/programs'
 import type { Course, CourseCreate, CourseType, CourseUpdate } from '@/types/program'
 
 interface Props {
@@ -17,10 +21,13 @@ interface Props {
   mode: 'add' | 'edit'
   initial?: Course | null
   semester: number
+  programId: string
   onAdd?: (payload: CourseCreate) => void
   onEdit?: (courseId: string, payload: CourseUpdate) => void
   isPending?: boolean
 }
+
+const NEW_BASKET_VALUE = '__new_basket__'
 
 const COURSE_TYPES: { value: CourseType; label: string }[] = [
   { value: 'THEORY',     label: 'Theory' },
@@ -36,6 +43,8 @@ const EMPTY = {
   credits: 3,
   course_type: '' as CourseType | '',
   is_elective: false,
+  elective_basket_id: '',
+  new_basket_name: '',
   hours_lecture: '',
   hours_tutorial: '',
   hours_practical: '',
@@ -55,14 +64,23 @@ export function CourseDialog({
   mode,
   initial,
   semester,
+  programId,
   onAdd,
   onEdit,
   isPending,
 }: Props) {
   const [f, setF] = useState(EMPTY)
+  const [creatingNewBasket, setCreatingNewBasket] = useState(false)
+  const [basketError, setBasketError] = useState<string | null>(null)
+
+  const basketsQ = useElectiveBaskets(programId)
+  const createBasket = useCreateBasket(programId)
+  const basketsForSemester = (basketsQ.data ?? []).filter((b) => b.semester === semester)
 
   useEffect(() => {
     if (!open) return
+    setCreatingNewBasket(false)
+    setBasketError(null)
     if (mode === 'edit' && initial) {
       setF({
         code: initial.code,
@@ -70,6 +88,8 @@ export function CourseDialog({
         credits: initial.credits,
         course_type: (initial.course_type ?? '') as CourseType | '',
         is_elective: initial.is_elective,
+        elective_basket_id: initial.elective_basket_id ?? '',
+        new_basket_name: '',
         hours_lecture: initial.hours_lecture?.toString() ?? '',
         hours_tutorial: initial.hours_tutorial?.toString() ?? '',
         hours_practical: initial.hours_practical?.toString() ?? '',
@@ -82,8 +102,26 @@ export function CourseDialog({
 
   const bounds = creditBounds(f.course_type)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function resolveBasketId(): Promise<string | undefined> {
+    if (!f.is_elective) return undefined
+    if (creatingNewBasket) {
+      if (!f.new_basket_name.trim()) return undefined
+      const basket = await createBasket.mutateAsync({ semester, name: f.new_basket_name.trim() })
+      return basket.id
+    }
+    return f.elective_basket_id || undefined
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setBasketError(null)
+    let elective_basket_id: string | undefined
+    try {
+      elective_basket_id = await resolveBasketId()
+    } catch (err) {
+      setBasketError(err instanceof Error ? err.message : 'Could not create the basket.')
+      return
+    }
     const hours_lecture = f.hours_lecture ? Number(f.hours_lecture) : undefined
     const hours_tutorial = f.hours_tutorial ? Number(f.hours_tutorial) : undefined
     const hours_practical = f.hours_practical ? Number(f.hours_practical) : undefined
@@ -98,6 +136,7 @@ export function CourseDialog({
         semester,
         course_type,
         is_elective: f.is_elective,
+        elective_basket_id,
         hours_lecture,
         hours_tutorial,
         hours_practical,
@@ -111,6 +150,7 @@ export function CourseDialog({
         semester: initial.semester,
         course_type,
         is_elective: f.is_elective,
+        elective_basket_id,
         hours_lecture,
         hours_tutorial,
         hours_practical,
@@ -201,6 +241,48 @@ export function CourseDialog({
               </label>
             </div>
           </div>
+
+          {f.is_elective && (
+            <div className="rounded-md border border-gray-200 p-3 space-y-2 bg-gray-50">
+              <label className="block text-sm font-medium text-gray-700">
+                Elective Basket
+                <span className="text-gray-500 font-normal ml-1">
+                  (a group students pick ONE course from — never a standalone elective)
+                </span>
+              </label>
+              {creatingNewBasket ? (
+                <div className="flex gap-2">
+                  <Input
+                    autoFocus
+                    value={f.new_basket_name}
+                    onChange={(e) => setF((p) => ({ ...p, new_basket_name: e.target.value }))}
+                    placeholder="e.g. Artificial Intelligence Electives"
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={() => setCreatingNewBasket(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Select
+                  value={f.elective_basket_id}
+                  onValueChange={(v) => {
+                    if (v === NEW_BASKET_VALUE) { setCreatingNewBasket(true); return }
+                    setF((p) => ({ ...p, elective_basket_id: v }))
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select a basket" /></SelectTrigger>
+                  <SelectContent>
+                    {basketsForSemester.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    ))}
+                    <SelectItem value={NEW_BASKET_VALUE}>+ Create new basket…</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {basketError && <p className="text-xs text-red-600">{basketError}</p>}
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-2">
             {(
               ['hours_lecture', 'hours_tutorial', 'hours_practical'] as Array<

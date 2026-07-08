@@ -28,6 +28,24 @@ export interface TimetableTemplate {
   updated_at: string
 }
 
+/** Lightweight row returned by the templates LIST endpoint — it carries a
+ *  `period_count` scalar instead of the full `periods` array (which only the
+ *  detail endpoint embeds). */
+export interface TimetableTemplateListItem {
+  id: string
+  department_id: string
+  department_name: string
+  name: string
+  working_days: number[]
+  saturday_mode: SaturdayMode | null
+  college_start_time: string
+  college_end_time: string
+  period_count: number
+  created_by_user_id: string
+  created_at: string
+  updated_at: string | null
+}
+
 export interface TimetableSlot {
   id: string
   day_of_week: number
@@ -38,6 +56,7 @@ export interface TimetableSlot {
   faculty_user_id: string | null
   faculty_name: string | null
   room: string | null
+  remarks: string | null
   start_time: string | null
   end_time: string | null
   period_label: string | null
@@ -53,6 +72,8 @@ export interface Timetable {
   section_id: string
   section_name: string
   semester_id: string
+  semester_label: string | null
+  program_name: string | null
   status: TimetableStatus
   slots: TimetableSlot[]
   template_id: string | null
@@ -76,6 +97,9 @@ export interface TimetableListItem extends Omit<Timetable, 'slots' | 'template'>
 export interface StudentTimetable {
   section_id: string
   section_name: string
+  semester_label: string | null
+  program_name: string | null
+  academic_year: string | null
   slots: TimetableSlot[]
   template: TimetableTemplate | null
 }
@@ -96,6 +120,7 @@ export interface AddSlotPayload {
   course_id: string
   faculty_user_id?: string
   room?: string
+  remarks?: string
 }
 
 export interface CreateTemplatePayload {

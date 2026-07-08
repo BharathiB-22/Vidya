@@ -40,12 +40,12 @@ function AssignmentRow({
             </span>
           )}
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="text-xs text-gray-600 mt-0.5">
           {row.program_name ?? '—'}
           {row.department_name ? ` · ${row.department_name}` : ''}
         </p>
         {row.faculty_email && (
-          <p className="text-xs text-gray-400">{row.faculty_email}</p>
+          <p className="text-xs text-gray-700">{row.faculty_email}</p>
         )}
       </div>
       <Button
@@ -164,7 +164,7 @@ export default function ProgramOwnershipTab() {
                 {facultyList?.map((f) => (
                   <SelectItem key={f.id} value={f.id}>
                     {f.full_name}
-                    <span className="text-xs text-gray-400 ml-2">{f.email}</span>
+                    <span className="text-xs text-gray-600 ml-2">{f.email}</span>
                   </SelectItem>
                 ))}
               </SelectContent>

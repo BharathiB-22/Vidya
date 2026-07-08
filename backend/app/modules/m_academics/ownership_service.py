@@ -25,6 +25,7 @@ from app.core.audit_log.service import AuditService
 from app.core.notifications.dispatch import notify_user
 from app.core.notifications.models import NotificationType
 from app.modules.m_academics.ownership_schemas import (
+    DashboardDepartmentSummary,
     DashboardFacultyWorkload,
     DeanProgramOut,
     DeptInfo,
@@ -1130,12 +1131,25 @@ class OwnershipService:
             if total_courses else 0.0
         )
 
+        # Faculty workload — course/program/section counts, summed credits over
+        # the DISTINCT courses taught, and published timetable periods/week.
         workload_rows = (
             await db.execute(
                 text(
                     "SELECT sa.faculty_user_id, u.full_name AS faculty_name, "
                     "       COUNT(DISTINCT sa.course_id) AS course_count, "
-                    "       COUNT(DISTINCT ap.id) AS program_count "
+                    "       COUNT(DISTINCT ap.id) AS program_count, "
+                    "       COUNT(DISTINCT sa.section_id) AS section_count, "
+                    "       ( SELECT COALESCE(SUM(c2.credits), 0) "
+                    "         FROM ( SELECT DISTINCT sa2.course_id "
+                    "                FROM subject_assignments sa2 "
+                    "                WHERE sa2.faculty_user_id = sa.faculty_user_id "
+                    "                  AND sa2.is_active = true ) dc "
+                    "         JOIN courses c2 ON c2.id = dc.course_id ) AS credits, "
+                    "       ( SELECT COUNT(*) FROM timetable_slots ts "
+                    "         JOIN timetables tt ON tt.id = ts.timetable_id "
+                    "                            AND tt.status = 'PUBLISHED' "
+                    "         WHERE ts.faculty_user_id = sa.faculty_user_id ) AS hours_per_week "
                     "FROM   subject_assignments sa "
                     "JOIN   courses c   ON c.id = sa.course_id "
                     "JOIN   programs p  ON p.id = c.program_id "
@@ -1149,24 +1163,138 @@ class OwnershipService:
             )
         ).mappings().all()
 
-        from app.modules.m_academics.assignment_service import AssignmentService
-        faculty_pool = await AssignmentService.list_faculty_users(
-            caller_role=actor_role, caller_user_id=actor_user_id, db=db
-        )
+        # Faculty count — MUST match the "My Faculty" page so the two never
+        # disagree. My Faculty (GET /sis/dean/faculty) lists faculty tied to the
+        # dean's governed programs via FacultyDirectoryService; count from the
+        # exact same source here rather than the broader assignable pool.
+        if actor_role == "ADMIN":
+            from app.modules.m_academics.assignment_service import AssignmentService
+            faculty_pool = await AssignmentService.list_faculty_users(
+                caller_role=actor_role, caller_user_id=actor_user_id, db=db
+            )
+            total_faculty = len(faculty_pool)
+        else:
+            from app.modules.m11_sis.directory_service import FacultyDirectoryService
+            fac_page = await FacultyDirectoryService.list_directory(
+                db, program_ids=pids, page_size=1
+            )
+            total_faculty = fac_page.total
+
+        # Students actively enrolled in sections belonging to the governed programs.
+        student_row = (
+            await db.execute(
+                text(
+                    "SELECT COUNT(DISTINCT ae.student_id) AS n "
+                    "FROM   acad_enrollments ae "
+                    "JOIN   acad_sections  sec ON sec.id = ae.section_id "
+                    "JOIN   acad_semesters sem ON sem.id = sec.semester_id "
+                    "JOIN   acad_batches   ab  ON ab.id  = sem.batch_id "
+                    "WHERE  ae.is_active = true AND ab.program_id = ANY(:pids)"
+                ),
+                {"pids": ids_str},
+            )
+        ).mappings().one()
+        total_students = student_row["n"] or 0
+
+        # Department summary — per department: program / course / vacant counts
+        # (mirrors the roster's DISTINCT course×semester definition) and the
+        # count of distinct faculty actively teaching in that department.
+        dept_rows = (
+            await db.execute(
+                text(
+                    "SELECT ap.department_id AS dept_id, "
+                    "       COALESCE(d.name, 'Unassigned Department') AS dept_name, "
+                    "       COUNT(DISTINCT roster.program_id) AS program_count, "
+                    "       COUNT(*) AS course_count, "
+                    "       COUNT(*) FILTER (WHERE roster.vacant) AS vacant_courses "
+                    "FROM ( "
+                    "  SELECT DISTINCT combined.program_id, combined.course_id, combined.semester_id, "
+                    "         NOT EXISTS ( "
+                    "           SELECT 1 FROM subject_assignments sa "
+                    "           WHERE sa.course_id = combined.course_id "
+                    "             AND sa.semester_id = combined.semester_id "
+                    "             AND sa.is_active = true AND sa.role_in_course = 'PRIMARY' "
+                    "         ) AS vacant "
+                    "  FROM ( "
+                    "    SELECT ab.program_id, c.id AS course_id, sem.id AS semester_id "
+                    "    FROM   acad_semesters sem "
+                    "    JOIN   acad_batches ab ON ab.id = sem.batch_id AND ab.is_active = true "
+                    "    JOIN   programs p      ON p.acad_program_id = ab.program_id "
+                    "    JOIN   courses c       ON c.program_id = p.id AND c.semester = sem.number "
+                    "    WHERE  ab.program_id = ANY(:pids) AND sem.is_active = true "
+                    "    UNION "
+                    "    SELECT ab2.program_id, sa2.course_id, sa2.semester_id "
+                    "    FROM   subject_assignments sa2 "
+                    "    JOIN   acad_semesters sem2 ON sem2.id = sa2.semester_id "
+                    "    JOIN   acad_batches ab2    ON ab2.id = sem2.batch_id "
+                    "    WHERE  sa2.is_active = true AND ab2.program_id = ANY(:pids) "
+                    "  ) combined "
+                    ") roster "
+                    "JOIN   acad_programs ap ON ap.id = roster.program_id "
+                    "LEFT   JOIN acad_departments d ON d.id = ap.department_id "
+                    "GROUP  BY ap.department_id, d.name "
+                    "ORDER  BY dept_name"
+                ),
+                {"pids": ids_str},
+            )
+        ).mappings().all()
+
+        dept_faculty_rows = (
+            await db.execute(
+                text(
+                    "SELECT ap.department_id AS dept_id, "
+                    "       COUNT(DISTINCT sa.faculty_user_id) AS faculty_count "
+                    "FROM   subject_assignments sa "
+                    "JOIN   courses c  ON c.id = sa.course_id "
+                    "JOIN   programs p ON p.id = c.program_id "
+                    "JOIN   acad_programs ap ON ap.id = p.acad_program_id "
+                    "WHERE  sa.is_active = true AND ap.id = ANY(:pids) "
+                    "GROUP  BY ap.department_id"
+                ),
+                {"pids": ids_str},
+            )
+        ).mappings().all()
+        dept_faculty = {str(r["dept_id"]): r["faculty_count"] for r in dept_faculty_rows}
+
+        department_summary = [
+            DashboardDepartmentSummary(
+                department_id=r["dept_id"],
+                department_name=r["dept_name"],
+                program_count=r["program_count"] or 0,
+                course_count=r["course_count"] or 0,
+                faculty_count=dept_faculty.get(str(r["dept_id"]), 0),
+                vacant_courses=r["vacant_courses"] or 0,
+            )
+            for r in dept_rows
+        ]
+
+        # Pending faculty allocation = governed faculty with no active teaching
+        # assignment in scope (counted from the same faculty universe as
+        # total_faculty, minus those who already appear in the workload rows).
+        assigned_faculty_ids = {str(r["faculty_user_id"]) for r in workload_rows}
+        pending_faculty_allocation = max(0, total_faculty - len(assigned_faculty_ids))
 
         return OwnershipDashboardSummary(
             total_programs=len(pids),
             total_courses=total_courses,
-            total_faculty=len(faculty_pool),
+            total_faculty=total_faculty,
+            total_students=total_students,
             vacant_courses=vacant_courses,
             program_coverage_pct=coverage_pct,
+            teaching_coverage_pct=coverage_pct,
+            pending_faculty_allocation=pending_faculty_allocation,
+            pending_course_allocation=vacant_courses,
             faculty_workload=[
                 DashboardFacultyWorkload(
                     faculty_user_id=r["faculty_user_id"],
                     faculty_name=r["faculty_name"],
                     course_count=r["course_count"],
                     program_count=r["program_count"],
+                    credits=r["credits"] or 0,
+                    section_count=r["section_count"] or 0,
+                    hours_per_week=r["hours_per_week"] or 0,
                 )
                 for r in workload_rows
             ],
+            department_summary=department_summary,
         )

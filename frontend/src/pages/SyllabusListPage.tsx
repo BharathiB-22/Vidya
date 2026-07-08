@@ -10,14 +10,16 @@ import { useWorkspace } from '@/lib/workspace'
 
 const WRITE_ROLES = ['ADMIN', 'FACULTY']
 
+// Unified Syllabuses module (Syllabus Review merged in): one tab per lifecycle
+// stage. "Pending Review" is where a Dean opens a syllabus to approve/reject on
+// its detail page — the old standalone /dean-review queue.
 const STATUS_OPTIONS: Array<{ value: SyllabusStatus | ''; label: string }> = [
   { value: '',               label: 'All' },
   { value: 'DRAFT',          label: 'Draft' },
-  { value: 'AI_GENERATING',  label: 'Generating' },
   { value: 'PENDING_REVIEW', label: 'Pending Review' },
+  { value: 'DEAN_APPROVED',  label: 'Approved' },
+  { value: 'DEAN_LOCKED',    label: 'Published' },
   { value: 'REJECTED',       label: 'Rejected' },
-  { value: 'DEAN_APPROVED',  label: 'Dean Approved' },
-  { value: 'DEAN_LOCKED',    label: 'Locked' },
 ]
 
 function semesterLabel(n: number | undefined): string {
@@ -86,7 +88,7 @@ export default function SyllabusListPage() {
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Syllabus Registry</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Syllabuses</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {courseId ? 'Showing all versions for this course' : 'All syllabuses in this institution'}
           </p>
@@ -195,7 +197,7 @@ export default function SyllabusListPage() {
 
                     {/* Footer row: status · version · date */}
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
-                      <SyllabusStatusBadge status={s.status} />
+                      <SyllabusStatusBadge status={s.status} viewerRole={role} />
 
                       {isRejected && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
@@ -204,13 +206,13 @@ export default function SyllabusListPage() {
                         </span>
                       )}
 
-                      <span className="text-[11px] text-gray-400 font-medium">
+                      <span className="text-[11px] text-gray-600 font-medium">
                         Version {s.version}
                       </span>
 
-                      <span className="text-gray-200 text-xs select-none">·</span>
+                      <span className="text-gray-300 text-xs select-none">·</span>
 
-                      <span className="text-[11px] text-gray-400">
+                      <span className="text-[11px] text-gray-500">
                         Created {formatDate(s.created_at)}
                       </span>
                     </div>

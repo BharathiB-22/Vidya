@@ -6,6 +6,9 @@ import type {
   CoursePrerequisite,
   CourseUpdate,
   ComplianceResult,
+  ElectiveBasket,
+  ElectiveBasketCreate,
+  ElectiveBasketUpdate,
   ExportProgramRequest,
   GenerateProgramRequest,
   JobStatusResponse,
@@ -22,6 +25,7 @@ import type {
   ProgramStatusResponse,
   ProgramUpdate,
   ProgramVersionResponse,
+  PublishRequest,
   RejectRequest,
 } from '@/types/program'
 
@@ -95,6 +99,11 @@ export async function rejectProgram(
   payload: RejectRequest,
 ): Promise<ProgramStatusResponse> {
   const { data } = await api.post<ProgramStatusResponse>(`${BASE}/${id}/reject`, payload)
+  return data
+}
+
+export async function publishProgram(id: string, payload: PublishRequest): Promise<Program> {
+  const { data } = await api.post<Program>(`${BASE}/${id}/publish`, payload)
   return data
 }
 
@@ -191,4 +200,35 @@ export async function getCoursePrerequisites(
     `${BASE}/${programId}/courses/${courseId}/prerequisites`,
   )
   return data
+}
+
+export async function removeCourseFromBasket(programId: string, courseId: string): Promise<Course> {
+  const { data } = await api.delete<Course>(`${BASE}/${programId}/courses/${courseId}/basket`)
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Elective Baskets — a named group of elective courses within one program+
+// semester. Electives are never a single standalone course.
+// ---------------------------------------------------------------------------
+
+export async function listBaskets(programId: string): Promise<ElectiveBasket[]> {
+  const { data } = await api.get<ElectiveBasket[]>(`${BASE}/${programId}/electives/baskets`)
+  return data
+}
+
+export async function createBasket(programId: string, payload: ElectiveBasketCreate): Promise<ElectiveBasket> {
+  const { data } = await api.post<ElectiveBasket>(`${BASE}/${programId}/electives/baskets`, payload)
+  return data
+}
+
+export async function updateBasket(
+  programId: string, basketId: string, payload: ElectiveBasketUpdate,
+): Promise<ElectiveBasket> {
+  const { data } = await api.patch<ElectiveBasket>(`${BASE}/${programId}/electives/baskets/${basketId}`, payload)
+  return data
+}
+
+export async function deleteBasket(programId: string, basketId: string): Promise<void> {
+  await api.delete(`${BASE}/${programId}/electives/baskets/${basketId}`)
 }

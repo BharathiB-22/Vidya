@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { UserCircle2, Pencil, Check, X, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
+import { AvatarUpload } from '@/components/shared/AvatarUpload'
 import { getErrorMessage } from '@/lib/api'
 import { usersApi } from '@/lib/api/users'
 import { Button } from '@/components/ui/button'
@@ -84,9 +85,11 @@ export default function InstitutionAdminProfilePage() {
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
           {/* Avatar strip */}
           <div className="px-6 py-5 flex items-center gap-4 border-b border-gray-100">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center flex-shrink-0">
-              <span className="text-lg font-extrabold text-indigo-600">{initials}</span>
-            </div>
+            <AvatarUpload
+              initials={initials}
+              shape="square"
+              style={{ background: 'rgba(99,102,241,0.08)', color: '#4f46e5', border: '1px solid rgba(99,102,241,0.30)' }}
+            />
             <div>
               <p className="text-base font-bold text-gray-900">{user?.fullName}</p>
               <p className="text-xs text-gray-500">{user?.email}</p>

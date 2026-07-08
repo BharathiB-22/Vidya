@@ -14,6 +14,7 @@ const STEPS: Step[] = [
   { label: 'AI Generating',    order: 1 },
   { label: 'Pending Approval', order: 2 },
   { label: 'Approved',         order: 3 },
+  { label: 'Published',        order: 4 },
 ]
 
 const STATUS_ORDER: Record<ProgramStatus, number> = {
@@ -22,6 +23,7 @@ const STATUS_ORDER: Record<ProgramStatus, number> = {
   GENERATION_FAILED: 1,
   PENDING_APPROVAL:  2,
   APPROVED:          3,
+  PUBLISHED:         4,
 }
 
 interface Props {
@@ -94,7 +96,7 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
       )}
 
       {/* Academic Structure context */}
-      {(program.status === 'PENDING_APPROVAL' || program.status === 'APPROVED') && (
+      {(program.status === 'PENDING_APPROVAL' || program.status === 'APPROVED' || program.status === 'PUBLISHED') && (
         linkedAcadProgram ? (
           <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4">
             <h3 className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-2">
@@ -138,6 +140,29 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
         </div>
       )}
 
+      {/* Publish details */}
+      {program.status === 'PUBLISHED' && program.published_at && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-5">
+          <h3 className="text-sm font-semibold text-green-800 mb-3">Publish Details</h3>
+          <dl className="space-y-2 text-sm">
+            <div className="flex gap-3">
+              <dt className="text-gray-500 w-28 shrink-0">Published at</dt>
+              <dd className="text-gray-800">
+                {new Date(program.published_at).toLocaleString()}
+              </dd>
+            </div>
+            {program.published_by_user_id && (
+              <div className="flex gap-3">
+                <dt className="text-gray-500 w-28 shrink-0">Publisher ID</dt>
+                <dd className="font-mono text-xs text-gray-700 break-all">
+                  {program.published_by_user_id}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
+
       {/* Version history */}
       <div className="rounded-lg border border-gray-200 bg-white p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Version History</h3>
@@ -165,9 +190,9 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
                 </span>
                 <ProgramStatusBadge status={v.status} />
                 {v.parent_version_id && (
-                  <span className="text-xs text-gray-400">↳ fork</span>
+                  <span className="text-xs text-gray-500">↳ fork</span>
                 )}
-                <span className="text-gray-400 ml-auto text-xs">
+                <span className="text-gray-500 ml-auto text-xs">
                   {new Date(v.created_at).toLocaleDateString()}
                 </span>
               </div>

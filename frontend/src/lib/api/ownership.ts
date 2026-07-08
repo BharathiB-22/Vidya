@@ -173,15 +173,32 @@ export interface DashboardFacultyWorkload {
   faculty_name:    string
   course_count:    number
   program_count:   number
+  credits:         number
+  section_count:   number
+  hours_per_week:  number
+}
+
+export interface DashboardDepartmentSummary {
+  department_id:   string | null
+  department_name: string
+  program_count:   number
+  course_count:    number
+  faculty_count:   number
+  vacant_courses:  number
 }
 
 export interface OwnershipDashboardSummary {
-  total_programs:       number
-  total_courses:        number
-  total_faculty:        number
-  vacant_courses:       number
-  program_coverage_pct: number
-  faculty_workload:     DashboardFacultyWorkload[]
+  total_programs:        number
+  total_courses:         number
+  total_faculty:         number
+  total_students:        number
+  vacant_courses:        number
+  program_coverage_pct:  number
+  teaching_coverage_pct: number
+  pending_faculty_allocation: number
+  pending_course_allocation:  number
+  faculty_workload:      DashboardFacultyWorkload[]
+  department_summary:    DashboardDepartmentSummary[]
 }
 
 // ---------------------------------------------------------------------------

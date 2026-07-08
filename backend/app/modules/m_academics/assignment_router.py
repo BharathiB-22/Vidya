@@ -24,6 +24,7 @@ from app.modules.m_academics.assignment_schemas import (
     AssignmentListResponse,
     AssignmentOut,
     AssignmentRevokeRequest,
+    CourseWithAssignmentsOut,
     ValidSemestersOut,
 )
 from app.modules.m_academics.assignment_service import AssignmentService, AssignmentServiceError
@@ -140,6 +141,21 @@ async def list_assignments(
         )
     except AssignmentServiceError as e:
         raise _err(e)
+
+
+@router.get("/courses-for-slot", response_model=list[CourseWithAssignmentsOut])
+async def list_courses_for_slot(
+    semester_id: UUID = Query(..., description="Operational semester to scope courses to"),
+    section_id:  UUID | None = Query(None),
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[CourseWithAssignmentsOut]:
+    """Every course in this semester's program, each with its (possibly
+    empty) assignments — powers the Timetable slot picker so a course with
+    no faculty assigned yet is still selectable. DEAN/ADMIN only."""
+    return await AssignmentService.list_courses_with_assignments(
+        semester_id, section_id=section_id, db=db,
+    )
 
 
 @router.get("/mine", response_model=AssignmentListResponse)

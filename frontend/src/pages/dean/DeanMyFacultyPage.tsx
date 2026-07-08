@@ -84,14 +84,12 @@ export default function DeanMyFacultyPage() {
   const [page, setPage] = useState(1)
   const pageSize = 20
 
-  const { data: profile, isLoading: profileLoading } = useQuery({
-    queryKey: ['dean-my-profile'],
-    queryFn: () => sisApi.getMyFacultyProfile(),
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const noDepartment = !profileLoading && !profile?.primary_department
-
+  // A Dean's faculty scope is defined by the PROGRAMS they govern
+  // (dean_program_assignments) — NOT by the department on their personal
+  // faculty profile. Gating on the profile department used to blank this page
+  // for deans with no faculty profile even while the dashboard counted their
+  // governed-program faculty; the backend (GET /sis/dean/faculty) already
+  // scopes by governed programs, so we simply render whatever it returns.
   const { data, isLoading, error } = useQuery({
     queryKey: ['dean-faculty', page, search],
     queryFn: () => sisApi.listDeanFaculty({
@@ -99,7 +97,6 @@ export default function DeanMyFacultyPage() {
       page_size: pageSize,
       search: search || undefined,
     }),
-    enabled: !noDepartment,
     placeholderData: prev => prev,
   })
 
@@ -119,34 +116,19 @@ export default function DeanMyFacultyPage() {
         icon={UserCheck}
       />
 
-      {noDepartment && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-          <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-amber-800">Department not assigned</p>
-            <p className="text-sm text-amber-700 mt-0.5">
-              Your account has no department set. Ask an administrator to assign your department
-              via <strong>Settings → Users</strong>, then edit your account.
-            </p>
-          </div>
+      <div className="flex gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1) }}
+            placeholder="Search by name or email…"
+            className="pl-9"
+          />
         </div>
-      )}
+      </div>
 
-      {!noDepartment && (
-        <div className="flex gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
-              placeholder="Search by name or email…"
-              className="pl-9"
-            />
-          </div>
-        </div>
-      )}
-
-      {(isLoading || profileLoading) && <PageLoading />}
+      {isLoading && <PageLoading />}
 
       {error && (
         <div className="text-center py-16 text-red-400 text-sm">
@@ -154,9 +136,17 @@ export default function DeanMyFacultyPage() {
         </div>
       )}
 
-      {!isLoading && !profileLoading && !error && !noDepartment && items.length === 0 && (
-        <div className="text-center py-16 text-gray-400 text-sm">
-          No faculty found in your department.
+      {!isLoading && !error && items.length === 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">No faculty in scope</p>
+            <p className="text-sm text-amber-700 mt-0.5">
+              No faculty are tied to the programs you govern yet. Assign faculty to your programs’
+              courses in <strong>Academic Ownership → Course Assignment</strong>, or ask an
+              administrator to confirm your governed programs.
+            </p>
+          </div>
         </div>
       )}
 

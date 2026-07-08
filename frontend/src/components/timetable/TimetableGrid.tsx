@@ -40,14 +40,14 @@ export function TimetableGrid({
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table className="w-full text-sm border-collapse min-w-[720px]">
         <thead>
-          <tr>
-            <th className="w-24 px-3 py-2 text-left text-xs font-semibold text-gray-400 border-b border-gray-100">
+          <tr className="bg-gray-50">
+            <th className="w-24 px-3 py-3 text-left text-sm font-bold text-gray-900 border-b-2 border-gray-200">
               Time
             </th>
             {days.map((dayIdx) => (
               <th
                 key={dayIdx}
-                className="px-3 py-2 text-left text-xs font-semibold text-gray-500 border-b border-l border-gray-100"
+                className="px-3 py-3 text-center text-sm font-bold text-gray-900 uppercase tracking-wide border-b-2 border-l border-gray-200"
               >
                 {DAYS_OF_WEEK[dayIdx]}
               </th>
@@ -62,7 +62,7 @@ export function TimetableGrid({
                     <tr key={p.id}>
                       <td
                         colSpan={days.length + 1}
-                        className="px-3 py-2 text-xs font-medium text-amber-700 bg-amber-50 border-b border-gray-100 text-center"
+                        className="px-3 py-2.5 text-sm font-bold uppercase tracking-wide text-amber-800 bg-amber-100/80 border-y border-amber-200 text-center"
                       >
                         {p.label ?? 'Break'} · {formatClockTime(p.start_time)}–{formatClockTime(p.end_time)}
                       </td>
@@ -72,9 +72,9 @@ export function TimetableGrid({
                 const periodNumber = p.period_number as number
                 return (
                   <tr key={p.id}>
-                    <td className="px-3 py-2 text-xs font-medium text-gray-400 border-b border-gray-100 align-top">
+                    <td className="px-3 py-2 text-sm font-bold text-gray-900 border-b border-gray-100 align-top">
                       {p.label ?? `Period ${periodNumber}`}
-                      <div className="text-[10px] text-gray-300">
+                      <div className="text-[11px] font-medium text-gray-500">
                         {formatClockTime(p.start_time)}–{formatClockTime(p.end_time)}
                       </div>
                     </td>
@@ -109,7 +109,7 @@ export function TimetableGrid({
               })
             : DEFAULT_PERIOD_NUMBERS.map((period) => (
                 <tr key={period}>
-                  <td className="px-3 py-2 text-xs font-medium text-gray-400 border-b border-gray-100 align-top">
+                  <td className="px-3 py-2 text-sm font-bold text-gray-900 border-b border-gray-100 align-top">
                     Period {period}
                   </td>
                   {days.map((dayIdx) => (
@@ -162,6 +162,7 @@ function SlotCell({
           <p className="text-[11px] text-gray-500 truncate">{slot.faculty_name}</p>
         )}
         {slot.room && <p className="text-[11px] text-gray-400 truncate">Room {slot.room}</p>}
+        {slot.remarks && <p className="text-[11px] text-gray-400 italic truncate">{slot.remarks}</p>}
         {renderSubLabel && (
           <p className="text-[11px] text-gray-400 truncate">{renderSubLabel(slot)}</p>
         )}

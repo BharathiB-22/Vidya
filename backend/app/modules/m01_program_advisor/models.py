@@ -17,6 +17,7 @@ class ProgramStatus(str, enum.Enum):
     GENERATION_FAILED  = "GENERATION_FAILED"
     PENDING_APPROVAL   = "PENDING_APPROVAL"
     APPROVED           = "APPROVED"
+    PUBLISHED          = "PUBLISHED"
 
 
 class CourseType(str, enum.Enum):
@@ -56,6 +57,8 @@ class Program(Base):
     ai_instructions     = Column(Text, nullable=True)
     approved_by_user_id = Column(UUID(as_uuid=True), nullable=True)
     approved_at         = Column(DateTime(timezone=True), nullable=True)
+    published_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    published_at        = Column(DateTime(timezone=True), nullable=True)
     created_by_user_id  = Column(UUID(as_uuid=True), nullable=False)
     created_at          = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at          = Column(DateTime(timezone=True), nullable=True)
@@ -65,8 +68,9 @@ class Program(Base):
         remote_side=[id],
         foreign_keys=[parent_version_id],
     )
-    outcomes = relationship("ProgramOutcome", back_populates="program", cascade="all, delete-orphan")
-    courses  = relationship("Course",         back_populates="program", cascade="all, delete-orphan")
+    outcomes         = relationship("ProgramOutcome",  back_populates="program", cascade="all, delete-orphan")
+    courses          = relationship("Course",          back_populates="program", cascade="all, delete-orphan")
+    elective_baskets = relationship("ElectiveBasket",  back_populates="program", cascade="all, delete-orphan")
 
 
 class ProgramOutcome(Base):
@@ -87,6 +91,32 @@ class ProgramOutcome(Base):
     program = relationship("Program", back_populates="outcomes")
 
 
+class ElectiveBasket(Base):
+    """A named group of elective courses within one program+semester (e.g.
+    'Artificial Intelligence Electives' containing AI, DL, ML, CV, NLP...).
+
+    Electives are never modeled as a single standalone course — a course is
+    only offerable as an elective once it belongs to a basket. Students
+    register for ONE course from within an open basket (see
+    m_academics.ElectiveOffering/ElectiveRegistration)."""
+    __tablename__ = "elective_baskets"
+    __table_args__ = (
+        Index("ix_elective_baskets_program_semester", "program_id", "semester"),
+    )
+
+    id                 = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    program_id         = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False)
+    semester           = Column(Integer, nullable=False)
+    name               = Column(String, nullable=False)
+    description        = Column(Text, nullable=True)
+    created_by_user_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at         = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at         = Column(DateTime(timezone=True), nullable=True)
+
+    program = relationship("Program", back_populates="elective_baskets")
+    courses = relationship("Course", back_populates="elective_basket")
+
+
 class Course(Base):
     __tablename__ = "courses"
     __table_args__ = (
@@ -95,24 +125,26 @@ class Course(Base):
         Index("ix_courses_program_semester", "program_id", "semester"),
     )
 
-    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    program_id      = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False)
-    code            = Column(String, nullable=False)
-    title           = Column(String, nullable=False)
-    credits         = Column(Integer, nullable=False)
-    semester        = Column(Integer, nullable=False)
-    course_type     = Column(String(20), nullable=True)
-    is_elective     = Column(Boolean, nullable=False, default=False)
-    is_ai_generated = Column(Boolean, nullable=False, default=False)
-    hours_lecture   = Column(Integer, nullable=True)
-    hours_tutorial  = Column(Integer, nullable=True)
-    hours_practical = Column(Integer, nullable=True)
-    description     = Column(Text, nullable=True)
-    created_at      = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
-    updated_at      = Column(DateTime(timezone=True), nullable=True)
+    id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    program_id          = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False)
+    code                = Column(String, nullable=False)
+    title               = Column(String, nullable=False)
+    credits             = Column(Integer, nullable=False)
+    semester            = Column(Integer, nullable=False)
+    course_type         = Column(String(20), nullable=True)
+    is_elective         = Column(Boolean, nullable=False, default=False)
+    elective_basket_id  = Column(UUID(as_uuid=True), ForeignKey("elective_baskets.id", ondelete="SET NULL"), nullable=True)
+    is_ai_generated     = Column(Boolean, nullable=False, default=False)
+    hours_lecture       = Column(Integer, nullable=True)
+    hours_tutorial      = Column(Integer, nullable=True)
+    hours_practical     = Column(Integer, nullable=True)
+    description         = Column(Text, nullable=True)
+    created_at          = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at          = Column(DateTime(timezone=True), nullable=True)
 
-    program       = relationship("Program", back_populates="courses")
-    prerequisites = relationship(
+    program         = relationship("Program", back_populates="courses")
+    elective_basket = relationship("ElectiveBasket", back_populates="courses")
+    prerequisites   = relationship(
         "CoursePrerequisite",
         foreign_keys="CoursePrerequisite.course_id",
         back_populates="course",

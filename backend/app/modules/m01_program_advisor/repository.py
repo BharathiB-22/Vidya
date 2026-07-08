@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.modules.m01_program_advisor.models import (
     Course,
     CoursePrerequisite,
+    ElectiveBasket,
     Program,
     ProgramOutcome,
     ProgramStatus,
@@ -104,6 +105,27 @@ class ProgramRepository:
                 status=ProgramStatus.APPROVED,
                 approved_by_user_id=approved_by_user_id,
                 approved_at=func.now(),
+                updated_at=func.now(),
+            )
+            .returning(Program)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def set_published(
+        program_id: UUID,
+        published_by_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> Program | None:
+        stmt = (
+            update(Program)
+            .where(Program.id == program_id)
+            .values(
+                status=ProgramStatus.PUBLISHED,
+                published_by_user_id=published_by_user_id,
+                published_at=func.now(),
                 updated_at=func.now(),
             )
             .returning(Program)
@@ -333,6 +355,7 @@ class CourseRepository:
         semester: int,
         is_elective: bool = False,
         course_type: str | None = None,
+        elective_basket_id: UUID | None = None,
         hours_lecture: int | None = None,
         hours_tutorial: int | None = None,
         hours_practical: int | None = None,
@@ -348,6 +371,7 @@ class CourseRepository:
             semester=semester,
             course_type=course_type,
             is_elective=is_elective,
+            elective_basket_id=elective_basket_id,
             hours_lecture=hours_lecture,
             hours_tutorial=hours_tutorial,
             hours_practical=hours_practical,
@@ -374,6 +398,7 @@ class CourseRepository:
                 semester=item.semester,
                 course_type=item.course_type.value if item.course_type else None,
                 is_elective=item.is_elective,
+                elective_basket_id=item.elective_basket_id,
                 hours_lecture=item.hours_lecture,
                 hours_tutorial=item.hours_tutorial,
                 hours_practical=item.hours_practical,
@@ -506,6 +531,77 @@ class CourseRepository:
         stmt = select(func.count(Course.id)).where(Course.program_id == program_id)
         result = await db.execute(stmt)
         return result.scalar_one()
+
+
+# ---------------------------------------------------------------------------
+# ElectiveBasketRepository
+# ---------------------------------------------------------------------------
+
+class ElectiveBasketRepository:
+
+    @staticmethod
+    async def create(
+        program_id: UUID,
+        semester: int,
+        name: str,
+        description: str | None,
+        created_by_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> ElectiveBasket:
+        basket = ElectiveBasket(
+            program_id=program_id, semester=semester, name=name,
+            description=description, created_by_user_id=created_by_user_id,
+        )
+        db.add(basket)
+        await db.flush()
+        await db.refresh(basket)
+        return basket
+
+    @staticmethod
+    async def update(
+        basket_id: UUID,
+        updates: dict,
+        *,
+        db: AsyncSession,
+    ) -> ElectiveBasket | None:
+        stmt = select(ElectiveBasket).where(ElectiveBasket.id == basket_id)
+        result = await db.execute(stmt)
+        basket = result.scalar_one_or_none()
+        if basket is None:
+            return None
+        for key, value in updates.items():
+            setattr(basket, key, value)
+        await db.flush()
+        await db.refresh(basket)
+        return basket
+
+    @staticmethod
+    async def delete(basket_id: UUID, *, db: AsyncSession) -> bool:
+        stmt = delete(ElectiveBasket).where(ElectiveBasket.id == basket_id)
+        result = await db.execute(stmt)
+        return result.rowcount > 0
+
+    @staticmethod
+    async def get_by_id(basket_id: UUID, *, db: AsyncSession) -> ElectiveBasket | None:
+        stmt = (
+            select(ElectiveBasket)
+            .where(ElectiveBasket.id == basket_id)
+            .options(selectinload(ElectiveBasket.courses))
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_by_program(program_id: UUID, *, db: AsyncSession) -> list[ElectiveBasket]:
+        stmt = (
+            select(ElectiveBasket)
+            .where(ElectiveBasket.program_id == program_id)
+            .options(selectinload(ElectiveBasket.courses))
+            .order_by(ElectiveBasket.semester.asc(), ElectiveBasket.name.asc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------

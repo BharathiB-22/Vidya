@@ -192,21 +192,37 @@ def _check_semester_credits_max(
     courses: list[CourseNode],
     t: _Thresholds,
 ) -> list[ComplianceViolation]:
+    """Phase 4.2 policy: a program is validated against its TOTAL configured
+    credits, not a hard per-semester cap. A semester carrying more than the
+    typical per-semester load is therefore NOT a blocking error — it is a
+    non-blocking, advisory recommendation to rebalance. Total-credit ceilings
+    are still enforced by _check_total_credits_max."""
     sem_credits: dict[int, int] = {}
     for course in courses:
         sem_credits[course.semester] = sem_credits.get(course.semester, 0) + course.credits
 
+    if not sem_credits:
+        return []
+
+    lightest_sem = min(sem_credits, key=lambda s: sem_credits[s])
+
     violations = []
     for sem, total in sorted(sem_credits.items()):
         if total > t.max_sem_credits:
+            suggestion = (
+                f" Consider moving one elective to Semester {lightest_sem} "
+                f"({sem_credits[lightest_sem]} credits) to balance the workload."
+                if lightest_sem != sem else ""
+            )
             violations.append(ComplianceViolation(
                 rule_id="UGC-SEM-002",
-                rule_ref="UGC LOCF 2020 §4.1",
+                rule_ref="UGC LOCF 2020 §4.1 (advisory)",
                 message=(
-                    f"Semester {sem} has {total} credits, exceeding the maximum "
-                    f"{t.max_sem_credits} credits per semester."
+                    f"Semester {sem} has a heavier workload ({total} credits, "
+                    f"above the typical {t.max_sem_credits} per semester)."
+                    f"{suggestion}"
                 ),
-                severity="ERROR",
+                severity="WARNING",
             ))
     return violations
 
@@ -350,6 +366,61 @@ def _check_final_semester_composition(
     return []
 
 
+def _check_layout_zones(
+    program: ProgramNode,
+    courses: list[CourseNode],
+) -> list[ComplianceViolation]:
+    """Finalized curriculum layout: every semester before the last two is
+    core-only (no project/internship/elective); the second-to-last semester
+    holds the mini project + elective basket(s); the final semester is
+    checked separately by _check_final_semester_composition. A soft realism
+    warning, same severity tier as the rest of this module's shape checks."""
+    total_semesters = program.duration_years * 2
+    if total_semesters < 3:
+        return []  # too short to have a distinct core-only zone
+
+    mini_project_semester = total_semesters - 1
+    violations: list[ComplianceViolation] = []
+
+    core_zone_courses = [c for c in courses if c.semester < mini_project_semester]
+    misplaced = [
+        c for c in core_zone_courses
+        if c.is_elective or c.is_project_or_internship()
+    ]
+    if misplaced:
+        codes = ", ".join(c.code for c in misplaced)
+        violations.append(ComplianceViolation(
+            rule_id="UGC-LAYOUT-001",
+            rule_ref="Internal — Curriculum Realism",
+            message=(
+                f"Semesters 1-{mini_project_semester - 1} are expected to contain only core "
+                f"(non-elective, non-project, non-internship) courses; found: {codes}."
+            ),
+            severity="WARNING",
+        ))
+
+    mini_semester_courses = [c for c in courses if c.semester == mini_project_semester]
+    if mini_semester_courses:
+        has_mini_project = any(c.course_type == "PROJECT" for c in mini_semester_courses)
+        has_elective = any(c.is_elective for c in mini_semester_courses)
+        if not has_mini_project:
+            violations.append(ComplianceViolation(
+                rule_id="UGC-LAYOUT-002",
+                rule_ref="Internal — Curriculum Realism",
+                message=f"Semester {mini_project_semester} is missing its Mini Project course.",
+                severity="WARNING",
+            ))
+        if not has_elective:
+            violations.append(ComplianceViolation(
+                rule_id="UGC-LAYOUT-003",
+                rule_ref="Internal — Curriculum Realism",
+                message=f"Semester {mini_project_semester} is missing its elective basket course(s).",
+                severity="WARNING",
+            ))
+
+    return violations
+
+
 def _check_program_outcomes(
     program: ProgramNode,
     t: _Thresholds,
@@ -456,6 +527,7 @@ def run_compliance_check(
     violations.extend(_check_course_credit_range(courses, t))
     violations.extend(_check_lab_presence(program, courses))
     violations.extend(_check_final_semester_composition(program, courses))
+    violations.extend(_check_layout_zones(program, courses))
     violations.extend(_check_program_outcomes(program, t))
     violations.extend(_check_duplicate_codes(courses))
     violations.extend(detect_prerequisite_cycles(courses))

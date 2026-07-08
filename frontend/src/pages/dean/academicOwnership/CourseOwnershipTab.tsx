@@ -257,7 +257,7 @@ function ProgramSection({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-gray-900">{program.title}</p>
           {program.code && (
-            <p className="text-[11px] font-mono text-gray-400">{program.code}</p>
+            <p className="text-[11px] font-mono text-gray-600">{program.code}</p>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -292,11 +292,11 @@ function ProgramSection({
                      className={`flex items-center gap-3 px-4 py-3 group ${isUnassigned ? 'bg-orange-50/30' : ''}`}>
                   {/* Course info */}
                   <div className="w-20 shrink-0">
-                    <span className="text-[11px] font-mono text-gray-400">{course.code}</span>
+                    <span className="text-[11px] font-mono text-gray-600">{course.code}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900 font-medium truncate">{course.title}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">Semester {course.semester}</p>
+                    <p className="text-[11px] text-gray-600 mt-0.5">Semester {course.semester}</p>
                   </div>
 
                   {/* Faculty assignment */}

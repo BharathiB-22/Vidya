@@ -41,11 +41,12 @@ def _err(e: TimetableServiceError) -> HTTPException:
 
 
 async def _to_out(tt, db: AsyncSession, with_slots: bool = True) -> TimetableOut:
-    section_name = await TimetableService.get_section_name(tt.section_id, db)
+    ctx = await TimetableService.get_section_context(tt.section_id, db)
     slots = await TimetableService.slots_out(tt.id, db) if with_slots else []
     template = await TimetableService.get_template_full(tt.template_id, db)
     return TimetableOut(
-        id=tt.id, section_id=tt.section_id, section_name=section_name, semester_id=tt.semester_id,
+        id=tt.id, section_id=tt.section_id, section_name=ctx["section_name"], semester_id=tt.semester_id,
+        semester_label=ctx["semester_label"], program_name=ctx["program_name"],
         status=tt.status, slots=slots, template_id=tt.template_id, template=template,
         created_by_user_id=tt.created_by_user_id,
         submitted_at=tt.submitted_at, reviewed_by_user_id=tt.reviewed_by_user_id, reviewed_at=tt.reviewed_at,
@@ -55,10 +56,11 @@ async def _to_out(tt, db: AsyncSession, with_slots: bool = True) -> TimetableOut
 
 
 async def _to_list_item(tt, db: AsyncSession) -> TimetableListItem:
-    section_name = await TimetableService.get_section_name(tt.section_id, db)
+    ctx = await TimetableService.get_section_context(tt.section_id, db)
     slots = await TimetableService.list_slots(tt.id, db)
     return TimetableListItem(
-        id=tt.id, section_id=tt.section_id, section_name=section_name, semester_id=tt.semester_id,
+        id=tt.id, section_id=tt.section_id, section_name=ctx["section_name"], semester_id=tt.semester_id,
+        semester_label=ctx["semester_label"], program_name=ctx["program_name"],
         status=tt.status, slot_count=len(slots), template_id=tt.template_id,
         created_by_user_id=tt.created_by_user_id,
         submitted_at=tt.submitted_at, published_at=tt.published_at, created_at=tt.created_at,
@@ -151,6 +153,22 @@ async def update_template(
         await assert_dean_owns_department(current_user.user_id, tpl.department_id, db)
         await TimetableService.update_template(template_id, body.model_dump(exclude_unset=True), db)
         return await TimetableService.get_template_full(template_id, db)
+    except TimetableServiceError as e:
+        raise _err(e)
+
+
+@router.delete("/templates/{template_id}", status_code=204)
+async def delete_template(
+    template_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> None:
+    tpl = await TimetableService.get_template(template_id, db)
+    if tpl is None:
+        raise HTTPException(404, detail={"error": "NOT_FOUND", "message": "Template not found."})
+    try:
+        await assert_dean_owns_department(current_user.user_id, tpl.department_id, db)
+        await TimetableService.delete_template(template_id, db)
     except TimetableServiceError as e:
         raise _err(e)
 

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import * as programsApi from '@/lib/api/programs'
-import type { ApproveRequest, ExportProgramRequest, GenerateProgramRequest, RejectRequest } from '@/types/program'
+import type { ApproveRequest, ExportProgramRequest, GenerateProgramRequest, PublishRequest, RejectRequest } from '@/types/program'
 import { programKeys } from './usePrograms'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
@@ -27,6 +27,23 @@ export function useApproveProgram() {
       qc.invalidateQueries({ queryKey: programKeys.detail(data.id) })
       qc.invalidateQueries({ queryKey: programKeys.all })
       addToast('Program approved successfully.', 'success')
+    },
+    onError: (err) => {
+      addToast(getErrorMessage(err), 'error', 8000)
+    },
+  })
+}
+
+export function usePublishProgram() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: PublishRequest }) =>
+      programsApi.publishProgram(id, payload),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: programKeys.status(data.id) })
+      qc.invalidateQueries({ queryKey: programKeys.detail(data.id) })
+      qc.invalidateQueries({ queryKey: programKeys.all })
+      addToast('Program published. It is now read-only and its elective courses are available for offerings.', 'success')
     },
     onError: (err) => {
       addToast(getErrorMessage(err), 'error', 8000)

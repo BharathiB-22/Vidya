@@ -15,6 +15,7 @@ export const programKeys = {
   versions:    (id: string) => [...programKeys.all, id, 'versions'] as const,
   outcomes:    (id: string) => [...programKeys.all, id, 'outcomes'] as const,
   courses:     (id: string) => [...programKeys.all, id, 'courses'] as const,
+  baskets:     (id: string) => [...programKeys.all, id, 'electives', 'baskets'] as const,
   prereqs:     (id: string, courseId: string) => [...programKeys.all, id, 'courses', courseId, 'prerequisites'] as const,
   allPrereqs:  (id: string, courseIds: string[]) => [...programKeys.all, id, 'all-prereqs', courseIds] as const,
   compliance:  (id: string) => [...programKeys.all, id, 'compliance'] as const,
@@ -68,6 +69,14 @@ export function useProgramCourses(programId: string) {
   return useQuery({
     queryKey: programKeys.courses(programId),
     queryFn:  () => programsApi.listCourses(programId),
+    enabled:  Boolean(programId),
+  })
+}
+
+export function useElectiveBaskets(programId: string) {
+  return useQuery({
+    queryKey: programKeys.baskets(programId),
+    queryFn:  () => programsApi.listBaskets(programId),
     enabled:  Boolean(programId),
   })
 }

@@ -4,7 +4,7 @@ import { Plus, Pencil, Trash2, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CourseDialog } from './CourseDialog'
-import { useAddCourse, useUpdateCourse, useDeleteCourse } from '@/hooks/programs'
+import { useAddCourse, useUpdateCourse, useDeleteCourse, useElectiveBaskets } from '@/hooks/programs'
 import type { Course, CourseType, Program } from '@/types/program'
 
 const COURSE_TYPE_COLORS: Record<CourseType, string> = {
@@ -28,6 +28,23 @@ function resolveCourseType(course: Course): CourseType {
   return 'THEORY'
 }
 
+/** Credits a student actually earns in a set of courses: every elective basket
+ *  counts ONCE (the student takes one course from it), not once per option, so
+ *  the displayed total matches the program's configured credits. Non-basket
+ *  courses (core + standalone electives) each count fully. */
+function effectiveCredits(list: Course[]): number {
+  const seenBaskets = new Set<string>()
+  let total = 0
+  for (const c of list) {
+    if (c.elective_basket_id) {
+      if (seenBaskets.has(c.elective_basket_id)) continue
+      seenBaskets.add(c.elective_basket_id)
+    }
+    total += c.credits
+  }
+  return total
+}
+
 interface Props {
   program: Program
   courses: Course[]
@@ -42,22 +59,47 @@ export function SemesterGrid({ program, courses }: Props) {
   const add = useAddCourse(program.id)
   const update = useUpdateCourse(program.id)
   const del = useDeleteCourse(program.id)
+  const basketsQ = useElectiveBaskets(program.id)
+  const basketNameById = new Map((basketsQ.data ?? []).map((b) => [b.id, b.name]))
 
   const [addSem, setAddSem] = useState<number | null>(null)
   const [editCourse, setEditCourse] = useState<Course | null>(null)
 
+  const computedTotal = effectiveCredits(courses)
+  const matches = computedTotal === program.total_credits
+
   return (
-    <div className="overflow-x-auto">
+    <div className="space-y-3">
+      <div
+        className={`flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm ${
+          matches
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-amber-200 bg-amber-50 text-amber-800'
+        }`}
+      >
+        <span className="font-semibold">Total Credits</span>
+        <span>
+          <span className="font-bold">{computedTotal}</span>
+          <span className="text-current/60"> / {program.total_credits} configured</span>
+          {!matches && (
+            <span className="ml-2 text-xs font-medium">
+              — regenerate the structure to rebalance to exactly {program.total_credits}
+            </span>
+          )}
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
       <div className="flex gap-4 min-w-max pb-4">
         {semesters.map((sem) => {
           const semCourses = courses.filter((c) => c.semester === sem)
-          const semCredits = semCourses.reduce((sum, c) => sum + c.credits, 0)
+          const semCredits = effectiveCredits(semCourses)
 
           return (
             <div key={sem} className="w-56 flex-shrink-0">
               <div className="flex items-center justify-between mb-2 px-1">
                 <span className="text-sm font-semibold text-gray-700">Semester {sem}</span>
-                <span className="text-xs text-gray-400">{semCredits} cr</span>
+                <span className="text-xs text-gray-500">{semCredits} cr</span>
               </div>
               <div className="space-y-2 min-h-[4rem]">
                 {semCourses.map((course) => {
@@ -69,7 +111,7 @@ export function SemesterGrid({ program, courses }: Props) {
                   >
                     <div className="flex items-start justify-between gap-1">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-mono text-gray-400 truncate">{course.code}</p>
+                        <p className="text-xs font-mono text-gray-600 truncate">{course.code}</p>
                         <p className="text-sm font-medium text-gray-800 leading-tight">
                           {course.title}
                         </p>
@@ -80,7 +122,9 @@ export function SemesterGrid({ program, courses }: Props) {
                           </span>
                           {course.is_elective && (
                             <Badge variant="info" className="text-[10px] py-0 px-1.5">
-                              Elective
+                              {course.elective_basket_id
+                                ? (basketNameById.get(course.elective_basket_id) ?? 'Elective')
+                                : 'Elective (no basket)'}
                             </Badge>
                           )}
                           {course.is_ai_generated && (
@@ -155,6 +199,7 @@ export function SemesterGrid({ program, courses }: Props) {
         }}
         mode="add"
         semester={addSem ?? 1}
+        programId={program.id}
         onAdd={(payload) => add.mutate(payload)}
         isPending={add.isPending}
       />
@@ -167,9 +212,11 @@ export function SemesterGrid({ program, courses }: Props) {
         mode="edit"
         initial={editCourse}
         semester={editCourse?.semester ?? 1}
+        programId={program.id}
         onEdit={(courseId, payload) => update.mutate({ courseId, payload })}
         isPending={update.isPending}
       />
+      </div>
     </div>
   )
 }

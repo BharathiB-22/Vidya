@@ -814,6 +814,29 @@ class TenantAuthService:
                 department_id=payload.department_id,
             )
 
+        # STUDENT: if a section was picked at creation time, enroll immediately
+        # so mandatory (non-elective) courses auto-populate via subject_assignments
+        # with zero extra manual registration step (electives remain opt-in via
+        # ElectiveOffering/ElectiveRegistration, untouched here).
+        if payload.role == _Role.STUDENT and payload.section_id:
+            from app.modules.m11_sis.capacity_service import CapacityError, CapacityService
+            from app.modules.m11_sis.enrollment_repository import EnrollmentRepository
+            from app.modules.m_academics.models import AcadSection
+            from sqlalchemy import select as _select
+
+            section = (
+                await db.execute(_select(AcadSection).where(AcadSection.id == payload.section_id))
+            ).scalar_one_or_none()
+            if section is None:
+                raise AuthError("SECTION_NOT_FOUND", "Section not found.", 422)
+            if not section.is_active:
+                raise AuthError("SECTION_INACTIVE", "Section is not active.", 422)
+            try:
+                await CapacityService.check_capacity(payload.section_id, db=db)
+            except CapacityError as cap_err:
+                raise AuthError(cap_err.code, cap_err.message, cap_err.status_code)
+            await EnrollmentRepository.create(user.id, payload.section_id, db)
+
         await AuditService.log(
             AuditEventType.USER_CREATED,
             actor_user_id=actor_user_id, actor_role=actor_role,
@@ -831,6 +854,7 @@ class TenantAuthService:
                 role=enriched["role"],
                 full_name=enriched["full_name"],
                 identifier=enriched["identifier"],
+                avatar_url=enriched["avatar_url"],
                 acad_program_id=enriched["acad_program_id"],
                 acad_program_name=enriched["acad_program_name"],
                 department_name=enriched["department_name"],
@@ -929,6 +953,7 @@ class TenantAuthService:
                 role=enriched["role"],
                 full_name=enriched["full_name"],
                 identifier=enriched["identifier"],
+                avatar_url=enriched["avatar_url"],
                 acad_program_id=enriched["acad_program_id"],
                 acad_program_name=enriched["acad_program_name"],
                 department_name=enriched["department_name"],

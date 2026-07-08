@@ -220,8 +220,11 @@ class StorageService:
                 404,
             )
 
-        # Simple authorization: owner only (extend for shared downloads)
-        if asset.uploaded_by_user_id != current_user_id:
+        # Authorization: owner only — EXCEPT avatars, which are profile pictures
+        # meant to be visible to every authenticated tenant user (navbar,
+        # directory, faculty/student lists). Without this, only the uploader
+        # could ever resolve their own avatar URL and nobody else could load it.
+        if asset.entity_type != "avatar" and asset.uploaded_by_user_id != current_user_id:
             raise StorageError(
                 "FORBIDDEN",
                 "You do not have permission to download this asset",

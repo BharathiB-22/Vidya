@@ -4,21 +4,28 @@ const BASE = '/electives'
 
 export type ElectiveOfferingStatus = 'PROPOSED' | 'DEAN_APPROVED' | 'REJECTED' | 'OPEN' | 'CLOSED'
 
+export interface OfferingCourse {
+  course_id: string
+  code: string
+  title: string
+  credits: number
+  description: string | null
+  faculty_name: string | null
+  seats_taken: number
+}
+
 export interface ElectiveOffering {
   id: string
-  course_id: string
-  course_code: string
-  course_title: string
-  description: string | null
-  credits: number
-  faculty_user_id: string | null
-  faculty_name: string | null
+  basket_id: string
+  basket_name: string
+  basket_description: string | null
   semester_id: string
   max_seats: number
-  seats_taken: number
+  courses: OfferingCourse[]
   registration_opens_at: string | null
   registration_closes_at: string | null
   status: ElectiveOfferingStatus
+  created_at: string
   proposed_by_user_id?: string | null
   approved_by_user_id?: string | null
   approved_at?: string | null
@@ -32,20 +39,45 @@ export interface ElectiveOffering {
 export interface ElectiveRegistration {
   id: string
   offering_id: string
+  basket_id: string
+  basket_name: string
   course_id: string
   course_code: string
   course_title: string
   credits: number
   semester_id: string
   semester_label: string | null
-  faculty_name: string | null
   status: 'REGISTERED' | 'DROPPED' | 'WAITLISTED'
   registered_at: string
   is_current: boolean
 }
 
-export interface ElectiveOfferingProposePayload {
+export interface EligibleBasketCourse {
   course_id: string
+  code: string
+  title: string
+  credits: number
+  description: string | null
+  faculty_name: string | null
+}
+
+export interface EligibleElectiveBasket {
+  basket_id: string
+  name: string
+  description: string | null
+  courses: EligibleBasketCourse[]
+  already_offered: boolean
+}
+
+export async function listEligibleElectiveBaskets(semesterId: string): Promise<EligibleElectiveBasket[]> {
+  const { data } = await api.get<EligibleElectiveBasket[]>(`${BASE}/eligible-baskets`, {
+    params: { semester_id: semesterId },
+  })
+  return data
+}
+
+export interface ElectiveOfferingProposePayload {
+  basket_id: string
   semester_id: string
   max_seats: number
   registration_opens_at?: string
@@ -59,8 +91,10 @@ export async function listElectiveOfferings(semesterId: string): Promise<Electiv
   return data
 }
 
-export async function registerElective(offeringId: string): Promise<ElectiveRegistration> {
-  const { data } = await api.post<ElectiveRegistration>(`${BASE}/offerings/${offeringId}/register`)
+export async function registerElective(offeringId: string, courseId: string): Promise<ElectiveRegistration> {
+  const { data } = await api.post<ElectiveRegistration>(`${BASE}/offerings/${offeringId}/register`, {
+    course_id: courseId,
+  })
   return data
 }
 
@@ -76,7 +110,7 @@ export async function getMyElectives(): Promise<ElectiveRegistration[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Elective offering workflow — Faculty proposes → Dean approves → Admin publishes
+// Elective offering workflow — Faculty proposes → Dean approves → Dean publishes
 // ---------------------------------------------------------------------------
 
 export async function proposeElective(payload: ElectiveOfferingProposePayload): Promise<ElectiveOffering> {
@@ -114,11 +148,10 @@ export async function publishElective(offeringId: string): Promise<ElectiveOffer
   return data
 }
 
-// Direct create — existing ADMIN/DEAN shortcut, unchanged behavior (status defaults to OPEN).
+// Direct create — existing DEAN shortcut, unchanged behavior (status defaults to OPEN).
 export interface ElectiveOfferingCreatePayload {
-  course_id: string
+  basket_id: string
   semester_id: string
-  faculty_user_id?: string
   max_seats: number
   registration_opens_at?: string
   registration_closes_at?: string

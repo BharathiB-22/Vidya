@@ -62,7 +62,8 @@ async def _slot_out(slot: TimetableSlot, db: AsyncSession) -> TimetableSlotOut:
         course_id=slot.course_id, course_code=row["course_code"] if row else None,
         course_title=row["course_title"] if row else None,
         faculty_user_id=slot.faculty_user_id, faculty_name=row["faculty_name"] if row else None,
-        room=slot.room, start_time=start_time, end_time=end_time, period_label=period_label,
+        room=slot.room, remarks=slot.remarks,
+        start_time=start_time, end_time=end_time, period_label=period_label,
     )
 
 
@@ -213,7 +214,7 @@ class TimetableService:
         slot = TimetableSlot(
             id=uuid.uuid4(), timetable_id=timetable_id, day_of_week=body.day_of_week,
             period_number=body.period_number, course_id=body.course_id,
-            faculty_user_id=body.faculty_user_id, room=body.room,
+            faculty_user_id=body.faculty_user_id, room=body.room, remarks=body.remarks,
         )
         db.add(slot)
         await db.commit()
@@ -303,6 +304,28 @@ class TimetableService:
         return row["name"] if row else None
 
     @staticmethod
+    async def get_section_context(section_id: UUID, db: AsyncSession) -> dict:
+        """Program name + semester label + section name for a section, so the
+        timetable can be identified unambiguously as 'MCA · Semester 1 · Section
+        A' instead of a bare 'Section A'. Any piece may be None if the section's
+        scheduling chain (section -> semester -> batch -> program) is incomplete."""
+        row = (await db.execute(text("""
+            SELECT sec.name AS section_name,
+                   COALESCE(sem.label, 'Semester ' || sem.number) AS semester_label,
+                   ap.name AS program_name,
+                   CASE WHEN ab.start_year IS NOT NULL
+                        THEN ab.start_year || '–' || ab.end_year END AS academic_year
+            FROM acad_sections sec
+            LEFT JOIN acad_semesters sem ON sem.id = sec.semester_id
+            LEFT JOIN acad_batches   ab  ON ab.id = sem.batch_id
+            LEFT JOIN acad_programs  ap  ON ap.id = ab.program_id
+            WHERE sec.id = :id
+        """), {"id": str(section_id)})).mappings().first()
+        if row is None:
+            return {"section_name": None, "semester_label": None, "program_name": None, "academic_year": None}
+        return dict(row)
+
+    @staticmethod
     async def get_student_timetable(student_id: UUID, db: AsyncSession) -> dict | None:
         """PUBLISHED timetable for the student's current section, or None if not yet published."""
         scope = (await db.execute(text("""
@@ -322,8 +345,11 @@ class TimetableService:
             return None
         slots = await TimetableService.slots_out(tt.id, db)
         template = await TimetableService.get_template_full(tt.template_id, db)
+        ctx = await TimetableService.get_section_context(scope["section_id"], db)
         return {
             "section_id": scope["section_id"], "section_name": scope["section_name"],
+            "semester_label": ctx["semester_label"], "program_name": ctx["program_name"],
+            "academic_year": ctx.get("academic_year"),
             "slots": slots, "template": template,
         }
 
@@ -332,6 +358,7 @@ class TimetableService:
         """All PUBLISHED slots across any section/semester where this faculty teaches."""
         rows = (await db.execute(text("""
             SELECT ts.id, ts.day_of_week, ts.period_number, ts.course_id, ts.faculty_user_id, ts.room,
+                   ts.remarks,
                    c.code AS course_code, c.title AS course_title,
                    sec.name AS section_name,
                    COALESCE(sem.label, 'Semester ' || sem.number) AS semester_name,
@@ -350,6 +377,7 @@ class TimetableService:
                 id=r["id"], day_of_week=r["day_of_week"], period_number=r["period_number"],
                 course_id=r["course_id"], course_code=r["course_code"], course_title=r["course_title"],
                 faculty_user_id=r["faculty_user_id"], faculty_name=None, room=r["room"],
+                remarks=r["remarks"],
                 start_time=r["start_time"], end_time=r["end_time"], period_label=r["period_label"],
                 section_name=r["section_name"], semester_name=r["semester_name"],
             )
@@ -402,6 +430,17 @@ class TimetableService:
         await db.commit()
         await db.refresh(tpl)
         return tpl
+
+    @staticmethod
+    async def delete_template(template_id: UUID, db: AsyncSession) -> None:
+        """Delete a template and its periods (CASCADE). Any timetable linked to
+        it keeps working — the FK is ON DELETE SET NULL, so those timetables
+        simply revert to the default period grid."""
+        tpl = await TimetableService.get_template(template_id, db)
+        if tpl is None:
+            raise TimetableServiceError("NOT_FOUND", "Template not found.", 404)
+        await db.delete(tpl)
+        await db.commit()
 
     @staticmethod
     async def list_periods(template_id: UUID, db: AsyncSession) -> list[TimetablePeriod]:

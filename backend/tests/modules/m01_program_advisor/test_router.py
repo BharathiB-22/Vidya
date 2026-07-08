@@ -291,16 +291,46 @@ async def test_dean_can_reject_pending_program(async_client, test_tenant_a, admi
 # Immutability via API
 # ---------------------------------------------------------------------------
 
-async def test_update_approved_program_blocked(async_client, test_tenant_a, admin_user_a):
+async def test_update_approved_program_allowed(async_client, test_tenant_a, admin_user_a):
+    # Phase 4.2: Approved programs remain editable/deletable until Published.
     admin_h = make_tenant_headers(admin_user_a)
     program = await _create_program(async_client, admin_h)
     await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.APPROVED)
+
+    resp = await async_client.patch(
+        f"{BASE}/{program['id']}", json={"title": "Still Editable"}, headers=admin_h
+    )
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "Still Editable"
+
+
+async def test_update_published_program_blocked(async_client, test_tenant_a, admin_user_a):
+    admin_h = make_tenant_headers(admin_user_a)
+    program = await _create_program(async_client, admin_h)
+    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.PUBLISHED)
 
     resp = await async_client.patch(
         f"{BASE}/{program['id']}", json={"title": "Blocked"}, headers=admin_h
     )
     assert resp.status_code == 409
     assert resp.json()["error"] == "INVALID_STATUS"
+
+
+async def test_publish_program_locks_it(async_client, test_tenant_a, admin_user_a, dean_user_a):
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h = make_tenant_headers(dean_user_a)
+    program = await _create_program(async_client, admin_h)
+    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.APPROVED)
+
+    resp = await async_client.post(f"{BASE}/{program['id']}/publish", json={}, headers=dean_h)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "PUBLISHED"
+
+    blocked = await async_client.patch(
+        f"{BASE}/{program['id']}", json={"title": "Blocked"}, headers=admin_h
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["error"] == "INVALID_STATUS"
 
 
 async def test_add_course_to_approved_blocked(async_client, test_tenant_a, admin_user_a):

@@ -24,6 +24,18 @@ export interface CreateAssetPayload {
   size_bytes:        number
 }
 
+export interface StorageAsset {
+  id: string
+  uploaded_by_user_id: string
+  entity_type: string
+  entity_id: string
+  object_key: string
+  original_filename: string
+  size_bytes: number
+  content_type: string
+  created_at: string
+}
+
 const BASE = '/storage'
 
 export async function generateUploadUrl(
@@ -33,6 +45,12 @@ export async function generateUploadUrl(
   return data
 }
 
-export async function createAsset(payload: CreateAssetPayload): Promise<void> {
-  await api.post(`${BASE}/assets`, payload)
+export async function createAsset(payload: CreateAssetPayload): Promise<StorageAsset> {
+  const { data } = await api.post(`${BASE}/assets`, payload)
+  return data
+}
+
+export async function getDownloadUrl(assetId: string): Promise<string> {
+  const { data } = await api.get<{ presigned_url: string }>(`${BASE}/${assetId}/download-url`)
+  return data.presigned_url
 }

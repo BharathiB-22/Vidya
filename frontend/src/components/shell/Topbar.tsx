@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { listNotifications } from '@/lib/api/notifications'
+import { isDisplayableImageUrl } from '@/lib/api/avatar'
 import { Breadcrumbs } from './Breadcrumbs'
 import { NotificationsDrawer } from './NotificationsDrawer'
 import { SearchPalette } from './SearchPalette'
@@ -151,9 +152,17 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             className="flex items-center gap-2 pl-1 pr-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
           >
             {/* Avatar */}
-            <div className="h-8 w-8 rounded-full bg-sv-primary text-white text-xs font-bold flex items-center justify-center flex-shrink-0 shadow-sm shadow-sv-primary/25">
-              {initials}
-            </div>
+            {isDisplayableImageUrl(user?.avatarUrl) ? (
+              <img
+                src={user!.avatarUrl!}
+                alt={displayName}
+                className="h-8 w-8 rounded-full object-cover flex-shrink-0 shadow-sm shadow-sv-primary/25"
+              />
+            ) : (
+              <div className="h-8 w-8 rounded-full bg-sv-primary text-white text-xs font-bold flex items-center justify-center flex-shrink-0 shadow-sm shadow-sv-primary/25">
+                {initials}
+              </div>
+            )}
 
             {/* Name + role chip */}
             <div className="hidden sm:flex flex-col items-start leading-none gap-[3px] max-w-[144px]">
@@ -180,16 +189,24 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
               {/* User info header */}
               <div className="flex items-center gap-3 px-4 py-3.5 bg-gray-50/70 border-b border-gray-100">
-                <div className="h-9 w-9 rounded-full bg-sv-primary text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
-                  {initials}
-                </div>
+                {isDisplayableImageUrl(user?.avatarUrl) ? (
+                  <img
+                    src={user!.avatarUrl!}
+                    alt={displayName}
+                    className="h-9 w-9 rounded-full object-cover flex-shrink-0"
+                  />
+                ) : (
+                  <div className="h-9 w-9 rounded-full bg-sv-primary text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
+                    {initials}
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold text-gray-900 truncate leading-tight">
                     {user?.fullName
                       ? `${getGreeting()}, ${getDisplayFirstName(user.fullName)}`
                       : getGreeting()}
                   </p>
-                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                  <p className="text-[11px] text-gray-500 truncate mt-0.5">
                     {user?.email}
                   </p>
                   {user?.role && (

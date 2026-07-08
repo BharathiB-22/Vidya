@@ -27,6 +27,7 @@ export interface CreateUserPayload {
   identifier?: string
   acad_program_id?: string
   department_id?: string
+  section_id?: string
 }
 
 export interface UpdateUserPayload {

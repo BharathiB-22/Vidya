@@ -1,18 +1,20 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, GitFork, Download, CheckCircle, XCircle, Zap, AlertTriangle, Pencil, Trash2, Rocket, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   EditProgramDialog,
   DeleteProgramDialog,
   GenerateDialog,
   ApproveDialog,
+  PublishDialog,
   RejectDialog,
   ExportDialog,
 } from './ActionDialogs'
 import {
   useGenerateProgram,
   useApproveProgram,
+  usePublishProgram,
   useRejectProgram,
   useExportProgram,
   useForkProgram,
@@ -38,6 +40,7 @@ export function ActionBar({ program }: Props) {
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [approveOpen,  setApproveOpen]  = useState(false)
+  const [publishOpen,  setPublishOpen]  = useState(false)
   const [rejectOpen,   setRejectOpen]   = useState(false)
   const [exportOpen,   setExportOpen]   = useState(false)
   const [editOpen,     setEditOpen]     = useState(false)
@@ -45,6 +48,7 @@ export function ActionBar({ program }: Props) {
 
   const generate = useGenerateProgram(program.id)
   const approve  = useApproveProgram()
+  const publish  = usePublishProgram()
   const reject   = useRejectProgram()
   const exportJob = useExportProgram()
   const fork     = useForkProgram()
@@ -88,7 +92,7 @@ export function ActionBar({ program }: Props) {
         </>
       )}
       {program.status === 'DRAFT' && !canWrite && (
-        <span className="text-sm text-gray-400">Awaiting generation by Admin/Dean.</span>
+        <span className="text-sm text-gray-600">Awaiting generation by Admin/Dean.</span>
       )}
 
       {/* GENERATION_FAILED */}
@@ -142,31 +146,87 @@ export function ActionBar({ program }: Props) {
         </>
       )}
       {program.status === 'PENDING_APPROVAL' && !canApprove && (
-        <span className="text-sm text-gray-400">Awaiting Dean approval.</span>
+        <span className="text-sm text-gray-600">Awaiting Dean approval.</span>
       )}
 
-      {/* APPROVED */}
+      {/* APPROVED — still editable/deletable, plus Fork/Export/Publish */}
       {program.status === 'APPROVED' && canWrite && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleFork}
-          disabled={fork.isPending}
-        >
-          <GitFork className="h-4 w-4 mr-1" />
-          {fork.isPending ? 'Forking…' : 'Fork Version'}
-        </Button>
+        <>
+          <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-red-600 border-red-200 hover:bg-red-50"
+            onClick={() => setDeleteOpen(true)}
+            disabled={del.isPending}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleFork}
+            disabled={fork.isPending}
+          >
+            <GitFork className="h-4 w-4 mr-1" />
+            {fork.isPending ? 'Forking…' : 'Fork Version'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setExportOpen(true)}
+            disabled={exportJob.isPending}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Export
+          </Button>
+          <Button
+            size="sm"
+            className="bg-green-600 hover:bg-green-700"
+            onClick={() => setPublishOpen(true)}
+            disabled={publish.isPending}
+          >
+            <Rocket className="h-4 w-4 mr-1" />
+            Publish
+          </Button>
+        </>
       )}
-      {program.status === 'APPROVED' && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setExportOpen(true)}
-          disabled={exportJob.isPending}
-        >
-          <Download className="h-4 w-4 mr-1" />
-          Export
-        </Button>
+      {program.status === 'APPROVED' && !canWrite && (
+        <span className="text-sm text-gray-600">Approved — awaiting Dean publish.</span>
+      )}
+
+      {/* PUBLISHED — permanently read-only, Fork/Export remain available */}
+      {program.status === 'PUBLISHED' && (
+        <>
+          <div className="flex items-center gap-1.5 text-sm text-gray-700">
+            <Lock className="h-4 w-4 text-gray-500" />
+            Published — locked. No further edits or deletion.
+          </div>
+          {canWrite && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleFork}
+              disabled={fork.isPending}
+            >
+              <GitFork className="h-4 w-4 mr-1" />
+              {fork.isPending ? 'Forking…' : 'Fork Version'}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setExportOpen(true)}
+            disabled={exportJob.isPending}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Export
+          </Button>
+        </>
       )}
 
       {/* Dialogs */}
@@ -197,6 +257,12 @@ export function ActionBar({ program }: Props) {
         onSubmit={(comment) => approve.mutate({ id: program.id, payload: { comment } })}
         isPending={approve.isPending}
         hasAcadLink={Boolean(program.acad_program_id)}
+      />
+      <PublishDialog
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        onSubmit={(comment) => publish.mutate({ id: program.id, payload: { comment } })}
+        isPending={publish.isPending}
       />
       <RejectDialog
         open={rejectOpen}
