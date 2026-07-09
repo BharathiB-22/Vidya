@@ -82,6 +82,31 @@ async def _require_prepublish_status(
     return program
 
 
+async def _require_deletable_status(
+    program_id: UUID,
+    *,
+    db: AsyncSession,
+) -> Program:
+    """Accept DRAFT or PENDING_APPROVAL — deletion is allowed while a program
+    is still being drafted or is under review, and is progressively locked once
+    it is Approved (one step from Published) and permanently once Published.
+    Mirrors the Basket/Course deletion window so all three entities share one
+    rule: deletable in {DRAFT, PENDING_APPROVAL}, never afterward."""
+    _DELETABLE = {ProgramStatus.DRAFT, ProgramStatus.PENDING_APPROVAL}
+    program = await ProgramRepository.get_by_id(program_id, db=db)
+    if program is None:
+        raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+    if program.status not in _DELETABLE:
+        raise ProgramServiceError(
+            "INVALID_STATUS",
+            f"Program must be in Draft or Pending Approval to delete; "
+            f"current status is {program.status.value}. "
+            f"Create a new version to make changes instead.",
+            409,
+        )
+    return program
+
+
 async def _require_editable_status(
     program_id: UUID,
     *,
@@ -309,7 +334,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> None:
-        await _require_prepublish_status(program_id, db=db)
+        await _require_deletable_status(program_id, db=db)
         # DB-level CASCADE removes outcomes, courses, and course_prerequisites.
         await db.execute(sql_delete(Program).where(Program.id == program_id))
         await db.commit()

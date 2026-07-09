@@ -1,448 +1,344 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ListChecks, CheckCircle2, XCircle, Send, Rocket } from 'lucide-react'
+import {
+  ListChecks, Users2, PlusCircle, Layers, GraduationCap, BarChart3, Lock, Unlock,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select'
-import { useAuth } from '@/lib/auth'
 import { getErrorMessage } from '@/lib/api'
 import { academicsApi } from '@/lib/api/academics'
+import { assignmentsApi } from '@/lib/api/assignments'
 import {
-  listElectiveOfferings,
-  createElectiveOffering,
-  proposeElective,
-  getMyProposedElectives,
-  getPendingElectiveApprovals,
-  approveElective,
-  rejectElective,
-  getApprovedElectives,
-  publishElective,
   listEligibleElectiveBaskets,
+  createElectiveOffering,
+  assignElectiveFaculty,
+  updateElectiveOffering,
+  getDeanElectiveDashboard,
   type ElectiveOffering,
+  type EligibleElectiveBasket,
 } from '@/lib/api/electives'
 
-function SkeletonRow() {
-  return (
-    <div className="px-5 py-4 animate-pulse">
-      <div className="h-4 w-48 rounded bg-gray-200" />
-      <div className="mt-1.5 h-3 w-28 rounded bg-gray-100" />
-    </div>
-  )
-}
+type FacultyUser = { id: string; full_name: string; email: string; role: string }
 
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
-      <ListChecks className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-      <p className="text-sm text-gray-500">{message}</p>
-    </div>
-  )
-}
+const UNASSIGNED = '__unassigned__'
 
-const STATUS_COLORS: Record<string, string> = {
-  PROPOSED: 'bg-amber-50 text-amber-700',
-  DEAN_APPROVED: 'bg-blue-50 text-blue-700',
-  REJECTED: 'bg-red-50 text-red-700',
-  OPEN: 'bg-green-50 text-green-700',
-  CLOSED: 'bg-gray-100 text-gray-500',
-}
-
-function StatusPill({ status }: { status: string }) {
+function StatCard({ label, value, icon: Icon }: { label: string; value: number | string; icon: typeof Users2 }) {
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-500'}`}>
-      {status.replace('_', ' ')}
-    </span>
-  )
-}
-
-function OfferingRow({ offering, children }: { offering: ElectiveOffering; children?: React.ReactNode }) {
-  return (
-    <div className="px-5 py-4 flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-900">{offering.basket_name}</span>
-          <StatusPill status={offering.status} />
-        </div>
-        <div className="text-xs text-gray-600 mt-1">
-          {offering.max_seats} seats per course · {offering.courses.length} elective{offering.courses.length === 1 ? '' : 's'} in basket
-        </div>
-        <div className="text-xs text-gray-500 mt-1">
-          {offering.courses.map((c) => `${c.title} (${c.seats_taken}/${offering.max_seats})`).join(' · ')}
-        </div>
-        {offering.rejection_reason && (
-          <div className="text-xs text-red-600 mt-1">Rejected: {offering.rejection_reason}</div>
-        )}
+    <div className="rounded-xl border border-gray-200 bg-white p-4 flex items-center gap-3">
+      <div className="h-9 w-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+        <Icon className="h-5 w-5" />
       </div>
-      {children && <div className="flex items-center gap-2 shrink-0">{children}</div>}
+      <div>
+        <div className="text-xl font-bold text-gray-900 leading-none">{value}</div>
+        <div className="text-xs text-gray-500 mt-1">{label}</div>
+      </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// FACULTY — propose new electives + track own proposals
+// Faculty picker — one dropdown, reused in create form + per-offering rows
 // ---------------------------------------------------------------------------
 
-function ProposeElectiveForm() {
+function FacultyPicker({
+  faculty, value, onChange, disabled,
+}: {
+  faculty: FacultyUser[]
+  value: string
+  onChange: (facultyUserId: string) => void
+  disabled?: boolean
+}) {
+  return (
+    <Select value={value || UNASSIGNED} onValueChange={(v) => onChange(v === UNASSIGNED ? '' : v)} disabled={disabled}>
+      <SelectTrigger className="h-8 w-52 text-xs">
+        <SelectValue placeholder="Assign faculty" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={UNASSIGNED}>— Unassigned —</SelectItem>
+        {faculty.map((f) => (
+          <SelectItem key={f.id} value={f.id}>{f.full_name}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Create offering
+// ---------------------------------------------------------------------------
+
+function CreateOfferingForm({ semesterId, faculty }: { semesterId: string; faculty: FacultyUser[] }) {
   const qc = useQueryClient()
-  const [semesterId, setSemesterId] = useState('')
   const [basketId, setBasketId] = useState('')
   const [maxSeats, setMaxSeats] = useState('30')
+  const [facultyByCourse, setFacultyByCourse] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
 
-  const semestersQ = useQuery({
-    queryKey: ['semesters-for-elective-picker'],
-    queryFn: () => academicsApi.listSemesters(undefined, true),
-  })
-  const eligibleBasketsQ = useQuery({
+  const basketsQ = useQuery({
     queryKey: ['eligible-elective-baskets', semesterId],
     queryFn: () => listEligibleElectiveBaskets(semesterId),
     enabled: !!semesterId,
   })
 
-  const proposeMut = useMutation({
+  const baskets = basketsQ.data ?? []
+  const selectedBasket: EligibleElectiveBasket | undefined = baskets.find((b) => b.basket_id === basketId)
+
+  const createMut = useMutation({
     mutationFn: () =>
-      proposeElective({
+      createElectiveOffering({
         basket_id: basketId,
         semester_id: semesterId,
         max_seats: Number(maxSeats),
+        faculty_assignments: Object.entries(facultyByCourse)
+          .filter(([, f]) => !!f)
+          .map(([course_id, faculty_user_id]) => ({ course_id, faculty_user_id })),
       }),
     onSuccess: () => {
-      setError(null)
-      setSemesterId(''); setBasketId(''); setMaxSeats('30')
-      qc.invalidateQueries({ queryKey: ['my-proposed-electives'] })
+      setError(null); setBasketId(''); setMaxSeats('30'); setFacultyByCourse({})
+      qc.invalidateQueries({ queryKey: ['dean-elective-dashboard'] })
+      qc.invalidateQueries({ queryKey: ['eligible-elective-baskets'] })
     },
     onError: (e) => setError(getErrorMessage(e)),
   })
 
-  const canSubmit = !!basketId && !!semesterId && Number(maxSeats) > 0
-  const selectedBasket = (eligibleBasketsQ.data ?? []).find((b) => b.basket_id === basketId)
+  const canSubmit = !!basketId && Number(maxSeats) > 0 && !selectedBasket?.already_offered
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-900">Propose New Elective Basket</h3>
+    <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <PlusCircle className="h-4 w-4 text-indigo-600" />
+        <h3 className="text-sm font-semibold text-gray-900">Create Elective Offering</h3>
+      </div>
       <p className="text-xs text-gray-500">
-        Only elective baskets already created in a published Program show up here — create the basket and add its
-        courses under Program Structure first.
+        Pick an elective basket (a placeholder like “Elective 1” with its available courses), set the
+        per-course seat limit, and assign the faculty who will teach each course.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Select value={semesterId} onValueChange={(v) => { setSemesterId(v); setBasketId('') }}>
-          <SelectTrigger><SelectValue placeholder="Select semester" /></SelectTrigger>
+
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-3">
+        <Select value={basketId} onValueChange={setBasketId}>
+          <SelectTrigger><SelectValue placeholder={baskets.length ? 'Select elective basket' : 'No baskets published for this semester'} /></SelectTrigger>
           <SelectContent>
-            {(semestersQ.data ?? []).map((s) => (
-              <SelectItem key={s.id} value={s.id}>{s.label ?? `Semester ${s.number}`}</SelectItem>
+            {baskets.map((b) => (
+              <SelectItem key={b.basket_id} value={b.basket_id} disabled={b.already_offered}>
+                {b.name} ({b.courses.length} courses){b.already_offered ? ' — already offered' : ''}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
-
-        <Select value={basketId} onValueChange={setBasketId} disabled={!semesterId}>
-          <SelectTrigger><SelectValue placeholder={semesterId ? 'Select elective basket' : 'Pick a semester first'} /></SelectTrigger>
-          <SelectContent>
-            {(eligibleBasketsQ.data ?? []).length === 0 ? (
-              <div className="px-2 py-3 text-xs text-gray-500">No elective baskets published for this semester.</div>
-            ) : (
-              (eligibleBasketsQ.data ?? []).map((b) => (
-                <SelectItem key={b.basket_id} value={b.basket_id} disabled={b.already_offered}>
-                  {b.name} ({b.courses.length} courses){b.already_offered ? ' — already offered' : ''}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-
         <Input
           type="number"
           min={1}
           value={maxSeats}
           onChange={(e) => setMaxSeats(e.target.value)}
-          placeholder="Max seats per course"
+          placeholder="Seats / course"
         />
       </div>
 
       {selectedBasket && (
-        <p className="text-xs text-gray-600">
-          Contains: {selectedBasket.courses.map((c) => c.title).join(', ')}
-        </p>
+        <div className="rounded-lg border border-gray-100 bg-gray-50/60 divide-y divide-gray-100">
+          {selectedBasket.courses.map((c) => (
+            <div key={c.course_id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-gray-900">{c.title}</span>
+                <span className="text-xs text-gray-500 ml-2">{c.code} · {c.credits} cr</span>
+              </div>
+              <FacultyPicker
+                faculty={faculty}
+                value={facultyByCourse[c.course_id] ?? c.faculty_user_id ?? ''}
+                onChange={(f) => setFacultyByCourse((p) => ({ ...p, [c.course_id]: f }))}
+              />
+            </div>
+          ))}
+        </div>
       )}
 
       {error && <div className="text-xs text-red-600">{error}</div>}
 
-      <Button size="sm" disabled={!canSubmit || proposeMut.isPending} onClick={() => proposeMut.mutate()}>
-        <Send className="h-3.5 w-3.5 mr-1.5" />
-        {proposeMut.isPending ? 'Submitting…' : 'Submit Proposal'}
+      <Button size="sm" disabled={!canSubmit || createMut.isPending} onClick={() => createMut.mutate()}>
+        {createMut.isPending ? 'Creating…' : 'Create Offering'}
       </Button>
     </div>
   )
 }
 
-function MyProposalsList() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['my-proposed-electives'],
-    queryFn: getMyProposedElectives,
-  })
-  const items = data ?? []
-
-  if (isLoading) return <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">{[1, 2].map((n) => <SkeletonRow key={n} />)}</div>
-  if (items.length === 0) return <EmptyState message="You haven't proposed any elective baskets yet." />
-
-  return (
-    <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-      {items.map((o) => <OfferingRow key={o.id} offering={o} />)}
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
-// DEAN — approve / reject pending proposals
+// Existing offering card — per-course demand + faculty reassignment + open/close
 // ---------------------------------------------------------------------------
 
-function PendingApprovalsList() {
+function OfferingCard({ offering, faculty }: { offering: ElectiveOffering; faculty: FacultyUser[] }) {
   const qc = useQueryClient()
-  const [rejectingId, setRejectingId] = useState<string | null>(null)
-  const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['pending-elective-approvals'],
-    queryFn: getPendingElectiveApprovals,
-  })
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['dean-elective-dashboard'] })
 
-  const approveMut = useMutation({
-    mutationFn: (id: string) => approveElective(id),
-    onSuccess: () => {
-      setError(null)
-      qc.invalidateQueries({ queryKey: ['pending-elective-approvals'] })
-    },
-    onError: (e) => setError(getErrorMessage(e)),
-  })
-  const rejectMut = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => rejectElective(id, reason),
-    onSuccess: () => {
-      setError(null)
-      setRejectingId(null); setReason('')
-      qc.invalidateQueries({ queryKey: ['pending-elective-approvals'] })
-    },
+  const assignMut = useMutation({
+    mutationFn: ({ courseId, facultyUserId }: { courseId: string; facultyUserId: string }) =>
+      assignElectiveFaculty(offering.id, courseId, facultyUserId),
+    onSuccess: () => { setError(null); invalidate() },
     onError: (e) => setError(getErrorMessage(e)),
   })
 
-  const items = data ?? []
+  const statusMut = useMutation({
+    mutationFn: (status: 'OPEN' | 'CLOSED') => updateElectiveOffering(offering.id, { status }),
+    onSuccess: () => { setError(null); invalidate() },
+    onError: (e) => setError(getErrorMessage(e)),
+  })
 
-  if (isLoading) return <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">{[1, 2].map((n) => <SkeletonRow key={n} />)}</div>
-  if (items.length === 0) return <EmptyState message="No elective proposals pending your review." />
+  const totalRegistered = offering.courses.reduce((s, c) => s + c.seats_taken, 0)
+  const isClosed = offering.status === 'CLOSED'
 
   return (
-    <div className="space-y-2">
-      {error && <div className="text-xs text-red-600">{error}</div>}
-      <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-      {items.map((o) => (
-        <div key={o.id}>
-          <OfferingRow offering={o}>
-            <Button size="sm" variant="outline" disabled={approveMut.isPending} onClick={() => approveMut.mutate(o.id)}>
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Approve
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setRejectingId(rejectingId === o.id ? null : o.id)}>
-              <XCircle className="h-3.5 w-3.5 mr-1.5" /> Reject
-            </Button>
-          </OfferingRow>
-          {rejectingId === o.id && (
-            <div className="px-5 pb-4 flex items-center gap-2">
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason for rejection"
-                className="flex-1"
-              />
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={!reason.trim() || rejectMut.isPending}
-                onClick={() => rejectMut.mutate({ id: o.id, reason })}
-              >
-                Confirm Reject
-              </Button>
-            </div>
-          )}
+    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      <div className="flex items-center justify-between gap-4 px-4 py-3 bg-gray-50 border-b border-gray-100">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Layers className="h-4 w-4 text-indigo-500" />
+            <span className="text-sm font-semibold text-gray-900">{offering.basket_name}</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isClosed ? 'bg-gray-200 text-gray-600' : 'bg-green-50 text-green-700'}`}>
+              {offering.status}
+            </span>
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            {offering.max_seats} seats/course · {totalRegistered} registered
+          </div>
         </div>
-      ))}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={statusMut.isPending}
+          onClick={() => statusMut.mutate(isClosed ? 'OPEN' : 'CLOSED')}
+        >
+          {isClosed ? <Unlock className="h-3.5 w-3.5 mr-1" /> : <Lock className="h-3.5 w-3.5 mr-1" />}
+          {isClosed ? 'Reopen' : 'Close'}
+        </Button>
+      </div>
+
+      {error && <div className="text-xs text-red-600 px-4 pt-2">{error}</div>}
+
+      <div className="divide-y divide-gray-100">
+        {offering.courses.map((c) => {
+          const seatsLeft = offering.max_seats - c.seats_taken
+          return (
+            <div key={c.course_id} className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-gray-900">{c.title}</span>
+                  <span className="text-xs text-gray-500">{c.code}</span>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-gray-600 mt-0.5">
+                  <Users2 className="h-3.5 w-3.5" />
+                  <span className="font-medium text-gray-900">{c.seats_taken}</span> registered · {seatsLeft} left
+                </div>
+              </div>
+              <FacultyPicker
+                faculty={faculty}
+                value={c.faculty_user_id ?? ''}
+                disabled={assignMut.isPending}
+                onChange={(facultyUserId) => {
+                  if (facultyUserId && facultyUserId !== c.faculty_user_id) {
+                    assignMut.mutate({ courseId: c.course_id, facultyUserId })
+                  }
+                }}
+              />
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// DEAN — publish dean-approved offerings + direct-create shortcut
-// (Ownership correction: Dean owns the full elective lifecycle end-to-end —
-// Admin no longer creates, approves, or publishes electives.)
-// ---------------------------------------------------------------------------
-
-function ApprovedReadyToPublishList() {
-  const qc = useQueryClient()
-  const [error, setError] = useState<string | null>(null)
-  const { data, isLoading } = useQuery({
-    queryKey: ['approved-electives'],
-    queryFn: getApprovedElectives,
-  })
-  const publishMut = useMutation({
-    mutationFn: (id: string) => publishElective(id),
-    onSuccess: () => {
-      setError(null)
-      qc.invalidateQueries({ queryKey: ['approved-electives'] })
-    },
-    onError: (e) => setError(getErrorMessage(e)),
-  })
-
-  const items = data ?? []
-
-  if (isLoading) return <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">{[1, 2].map((n) => <SkeletonRow key={n} />)}</div>
-  if (items.length === 0) return <EmptyState message="No dean-approved elective baskets waiting to publish." />
-
-  return (
-    <div className="space-y-2">
-      {error && <div className="text-xs text-red-600">{error}</div>}
-      <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-        {items.map((o) => (
-          <OfferingRow key={o.id} offering={o}>
-            <Button size="sm" disabled={publishMut.isPending} onClick={() => publishMut.mutate(o.id)}>
-              <Rocket className="h-3.5 w-3.5 mr-1.5" /> Publish
-            </Button>
-          </OfferingRow>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function DirectCreateForm() {
-  const qc = useQueryClient()
-  const [semesterId, setSemesterId] = useState('')
-  const [basketId, setBasketId] = useState('')
-  const [maxSeats, setMaxSeats] = useState('30')
-  const [error, setError] = useState<string | null>(null)
-
-  const semestersQ = useQuery({ queryKey: ['semesters-for-elective-picker'], queryFn: () => academicsApi.listSemesters(undefined, true) })
-  const eligibleBasketsQ = useQuery({
-    queryKey: ['eligible-elective-baskets', semesterId],
-    queryFn: () => listEligibleElectiveBaskets(semesterId),
-    enabled: !!semesterId,
-  })
-
-  const createMut = useMutation({
-    mutationFn: () => createElectiveOffering({ basket_id: basketId, semester_id: semesterId, max_seats: Number(maxSeats) }),
-    onSuccess: () => {
-      setError(null)
-      setSemesterId(''); setBasketId(''); setMaxSeats('30')
-      qc.invalidateQueries({ queryKey: ['all-elective-offerings'] })
-    },
-    onError: (e) => setError(getErrorMessage(e)),
-  })
-
-  const canSubmit = !!basketId && !!semesterId && Number(maxSeats) > 0
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-900">Create &amp; Publish Directly</h3>
-      <p className="text-xs text-gray-500">Skips the propose/approve workflow — goes straight to OPEN. Basket list is
-        auto-populated from elective baskets already created in a published Program.</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Select value={semesterId} onValueChange={(v) => { setSemesterId(v); setBasketId('') }}>
-          <SelectTrigger><SelectValue placeholder="Select semester" /></SelectTrigger>
-          <SelectContent>
-            {(semestersQ.data ?? []).map((s) => <SelectItem key={s.id} value={s.id}>{s.label ?? `Semester ${s.number}`}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={basketId} onValueChange={setBasketId} disabled={!semesterId}>
-          <SelectTrigger><SelectValue placeholder={semesterId ? 'Select elective basket' : 'Pick a semester first'} /></SelectTrigger>
-          <SelectContent>
-            {(eligibleBasketsQ.data ?? []).length === 0 ? (
-              <div className="px-2 py-3 text-xs text-gray-500">No elective baskets published for this semester.</div>
-            ) : (
-              (eligibleBasketsQ.data ?? []).map((b) => (
-                <SelectItem key={b.basket_id} value={b.basket_id} disabled={b.already_offered}>
-                  {b.name} ({b.courses.length} courses){b.already_offered ? ' — already offered' : ''}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-        <Input type="number" min={1} value={maxSeats} onChange={(e) => setMaxSeats(e.target.value)} placeholder="Max seats per course" />
-      </div>
-      {error && <div className="text-xs text-red-600">{error}</div>}
-      <Button size="sm" variant="outline" disabled={!canSubmit || createMut.isPending} onClick={() => createMut.mutate()}>
-        {createMut.isPending ? 'Creating…' : 'Create & Publish'}
-      </Button>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// All roles — read-only context list
-// ---------------------------------------------------------------------------
-
-function AllOfferingsList() {
-  const semestersQ = useQuery({ queryKey: ['semesters-for-elective-picker'], queryFn: () => academicsApi.listSemesters(undefined, true) })
-  const activeSemesterId = semestersQ.data?.find((s) => s.is_active)?.id ?? semestersQ.data?.[0]?.id
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['all-elective-offerings', activeSemesterId],
-    queryFn: () => listElectiveOfferings(activeSemesterId as string),
-    enabled: !!activeSemesterId,
-  })
-  const items = data ?? []
-
-  if (isLoading) return <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">{[1, 2].map((n) => <SkeletonRow key={n} />)}</div>
-  if (items.length === 0) return <EmptyState message="No elective offerings for the current semester yet." />
-
-  return (
-    <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
-      {items.map((o) => <OfferingRow key={o.id} offering={o} />)}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Root page — role-gated sections, one shared destination
+// Page
 // ---------------------------------------------------------------------------
 
 export default function ElectiveOfferingsPage() {
-  const { user } = useAuth()
-  const role = user?.role
+  const [semesterId, setSemesterId] = useState('')
+
+  const semestersQ = useQuery({
+    queryKey: ['semesters-for-elective-picker'],
+    queryFn: () => academicsApi.listSemesters(undefined, true),
+  })
+  const semesters = semestersQ.data ?? []
+  const activeSemesterId = useMemo(
+    () => semesterId || semesters.find((s) => s.is_active)?.id || semesters[0]?.id || '',
+    [semesterId, semesters],
+  )
+
+  const facultyQ = useQuery({
+    queryKey: ['assignable-faculty'],
+    queryFn: () => assignmentsApi.listFacultyUsers(),
+  })
+  const faculty = facultyQ.data ?? []
+
+  const dashboardQ = useQuery({
+    queryKey: ['dean-elective-dashboard', activeSemesterId],
+    queryFn: () => getDeanElectiveDashboard(activeSemesterId),
+    enabled: !!activeSemesterId,
+  })
+  const dashboard = dashboardQ.data
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Elective Offerings</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Faculty propose → Dean approves and publishes. Students register for ONE course from within each open basket.
-        </p>
+    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Elective Offerings</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Create elective offerings, assign teaching faculty, and track live registration demand.
+          </p>
+        </div>
+        <Select value={activeSemesterId} onValueChange={setSemesterId}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="Select semester" /></SelectTrigger>
+          <SelectContent>
+            {semesters.map((s) => (
+              <SelectItem key={s.id} value={s.id}>{s.label ?? `Semester ${s.number}`}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {role === 'FACULTY' && (
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">My Proposals</h2>
-          <ProposeElectiveForm />
-          <MyProposalsList />
-        </section>
-      )}
+      {/* Dashboard */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <StatCard label="Offerings" value={dashboard?.total_offerings ?? 0} icon={ListChecks} />
+        <StatCard label="Total registrations" value={dashboard?.total_registrations ?? 0} icon={Users2} />
+        <StatCard
+          label="Faculty assigned"
+          value={
+            (dashboard?.offerings ?? []).reduce(
+              (s, o) => s + o.courses.filter((c) => c.faculty_user_id).length, 0,
+            )
+          }
+          icon={GraduationCap}
+        />
+      </div>
 
-      {role === 'DEAN' && (
-        <>
-          <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Pending Approvals</h2>
-            <PendingApprovalsList />
-          </section>
+      {activeSemesterId && <CreateOfferingForm semesterId={activeSemesterId} faculty={faculty} />}
 
-          <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Approved — Ready to Publish</h2>
-            <ApprovedReadyToPublishList />
-            <DirectCreateForm />
-          </section>
-        </>
-      )}
-
+      {/* Offerings list */}
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">All Offerings (current semester)</h2>
-        <AllOfferingsList />
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-gray-400" />
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Offerings & demand
+          </h2>
+        </div>
+        {dashboardQ.isLoading ? (
+          <div className="h-24 rounded-xl bg-gray-50 animate-pulse" />
+        ) : (dashboard?.offerings ?? []).length === 0 ? (
+          <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
+            <ListChecks className="h-8 w-8 mx-auto mb-2 text-gray-200" />
+            <p className="text-sm text-gray-500">No elective offerings for this semester yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {dashboard!.offerings.map((o) => (
+              <OfferingCard key={o.id} offering={o} faculty={faculty} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   )

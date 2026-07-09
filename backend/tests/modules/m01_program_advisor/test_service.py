@@ -62,13 +62,32 @@ async def test_update_requires_draft(tenant_db_a, admin_user_a):
     assert exc.value.code == "INVALID_STATUS"
 
 
-async def test_delete_allowed_when_approved(tenant_db_a, admin_user_a):
-    # Phase 4.2: Approved programs remain editable/deletable until Published.
+async def test_delete_allowed_when_draft(tenant_db_a, admin_user_a):
     program = await _create_draft(tenant_db_a, admin_user_a["id"])
-    await force_status(program.id, ProgramStatus.APPROVED, tenant_db_a)
 
     await ProgramService.delete_program(program.id, db=tenant_db_a)
     assert await ProgramRepository.get_by_id(program.id, db=tenant_db_a) is None
+
+
+async def test_delete_allowed_when_pending_approval(tenant_db_a, admin_user_a):
+    # Deletion stays available while the program is under review.
+    program = await _create_draft(tenant_db_a, admin_user_a["id"])
+    await force_status(program.id, ProgramStatus.PENDING_APPROVAL, tenant_db_a)
+
+    await ProgramService.delete_program(program.id, db=tenant_db_a)
+    assert await ProgramRepository.get_by_id(program.id, db=tenant_db_a) is None
+
+
+async def test_delete_blocked_when_approved(tenant_db_a, admin_user_a):
+    # Deletion is locked once Approved (one step from Published); the Dean must
+    # create a new version instead.
+    program = await _create_draft(tenant_db_a, admin_user_a["id"])
+    await force_status(program.id, ProgramStatus.APPROVED, tenant_db_a)
+
+    with pytest.raises(ProgramServiceError) as exc:
+        await ProgramService.delete_program(program.id, db=tenant_db_a)
+    assert exc.value.code == "INVALID_STATUS"
+    assert await ProgramRepository.get_by_id(program.id, db=tenant_db_a) is not None
 
 
 async def test_delete_blocked_when_published(tenant_db_a, admin_user_a):

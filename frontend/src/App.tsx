@@ -107,6 +107,7 @@ import DeanMyFacultyPage from '@/pages/dean/DeanMyFacultyPage'
 import DeanMyStudentsPage from '@/pages/dean/DeanMyStudentsPage'
 import AcademicOwnershipPage from '@/pages/dean/AcademicOwnershipPage'
 import FacultyResponsibilitiesPage from '@/pages/faculty/FacultyResponsibilitiesPage'
+import FacultyElectiveStudentsPage from '@/pages/faculty/ElectiveStudentsPage'
 import NotificationCenterPage from '@/pages/NotificationCenterPage'
 import MyProfilePage from '@/pages/sis/MyProfilePage'
 import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
@@ -228,9 +229,9 @@ export default function App() {
             <Route path="/timetable/builder"       element={<TimetableBuilderPage />} />
           </Route>
 
-          {/* Elective Offerings — one shared page, role-conditional: FACULTY proposes,
-              DEAN approves and publishes end-to-end. ADMIN has no access. */}
-          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN']} />}>
+          {/* Elective Offerings — Dean owns electives end-to-end: create,
+              assign faculty, open/close registration, track demand. */}
+          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/elective-offerings" element={<ElectiveOfferingsPage />} />
           </Route>
 
@@ -243,6 +244,7 @@ export default function App() {
           {/* Faculty governance pages */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
             <Route path="/faculty/my-responsibilities" element={<FacultyResponsibilitiesPage />} />
+            <Route path="/faculty/elective-students"   element={<FacultyElectiveStudentsPage />} />
           </Route>
 
           {/* Notifications — STUDENT, FACULTY (student UI already links here) */}

@@ -128,7 +128,7 @@ export function ActionBar({ program }: Props) {
         </div>
       )}
 
-      {/* PENDING_APPROVAL */}
+      {/* PENDING_APPROVAL — Approve/Reject, and delete is still permitted */}
       {program.status === 'PENDING_APPROVAL' && canApprove && (
         <>
           <Button
@@ -143,19 +143,6 @@ export function ActionBar({ program }: Props) {
             <XCircle className="h-4 w-4 mr-1" />
             Reject
           </Button>
-        </>
-      )}
-      {program.status === 'PENDING_APPROVAL' && !canApprove && (
-        <span className="text-sm text-gray-600">Awaiting Dean approval.</span>
-      )}
-
-      {/* APPROVED — still editable/deletable, plus Fork/Export/Publish */}
-      {program.status === 'APPROVED' && canWrite && (
-        <>
-          <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-            <Pencil className="h-4 w-4 mr-1" />
-            Edit
-          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -166,6 +153,20 @@ export function ActionBar({ program }: Props) {
             <Trash2 className="h-4 w-4 mr-1" />
             Delete
           </Button>
+        </>
+      )}
+      {program.status === 'PENDING_APPROVAL' && !canApprove && (
+        <span className="text-sm text-gray-600">Awaiting Dean approval.</span>
+      )}
+
+      {/* APPROVED — editable, but deletion is locked (create a new version
+          instead); plus Export/Publish */}
+      {program.status === 'APPROVED' && canWrite && (
+        <>
+          <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -173,7 +174,7 @@ export function ActionBar({ program }: Props) {
             disabled={fork.isPending}
           >
             <GitFork className="h-4 w-4 mr-1" />
-            {fork.isPending ? 'Forking…' : 'Fork Version'}
+            {fork.isPending ? 'Creating…' : 'Create New Version'}
           </Button>
           <Button
             size="sm"
@@ -214,7 +215,7 @@ export function ActionBar({ program }: Props) {
               disabled={fork.isPending}
             >
               <GitFork className="h-4 w-4 mr-1" />
-              {fork.isPending ? 'Forking…' : 'Fork Version'}
+              {fork.isPending ? 'Creating…' : 'Create New Version'}
             </Button>
           )}
           <Button

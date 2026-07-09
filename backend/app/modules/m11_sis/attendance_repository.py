@@ -91,6 +91,53 @@ class AttendanceRepository:
         return [UUID(str(r[0])) for r in rows.all()]
 
     # ------------------------------------------------------------------
+    # Elective roster sourcing — an elective course is not taken by a whole
+    # section; only the students who registered for it attend. For an
+    # elective session we therefore build the roster from the elective
+    # registrations (intersected with the session's section so a per-section
+    # sheet still only lists that section's registrants), NOT section
+    # enrollment.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def is_elective_course(course_id: UUID, db: AsyncSession) -> bool:
+        row = await db.execute(
+            text("""
+                SELECT (is_elective OR elective_basket_id IS NOT NULL) AS is_elective
+                FROM courses WHERE id = :course_id
+            """),
+            {"course_id": str(course_id)},
+        )
+        result = row.scalar_one_or_none()
+        return bool(result)
+
+    @staticmethod
+    async def get_elective_registered_student_ids(
+        course_id: UUID, semester_id: UUID, section_id: UUID, db: AsyncSession,
+    ) -> list[UUID]:
+        rows = await db.execute(
+            text("""
+                SELECT DISTINCT er.student_user_id
+                FROM elective_registrations er
+                JOIN elective_offerings eo ON eo.id = er.offering_id
+                JOIN acad_enrollments ae
+                     ON ae.student_id = er.student_user_id
+                    AND ae.section_id = :section_id
+                    AND ae.is_active = TRUE
+                WHERE er.course_id = :course_id
+                  AND eo.semester_id = :semester_id
+                  AND er.status = 'REGISTERED'
+                ORDER BY er.student_user_id
+            """),
+            {
+                "course_id": str(course_id),
+                "semester_id": str(semester_id),
+                "section_id": str(section_id),
+            },
+        )
+        return [UUID(str(r[0])) for r in rows.all()]
+
+    # ------------------------------------------------------------------
     # Bulk create ABSENT records (called after session creation)
     # ------------------------------------------------------------------
 

@@ -76,7 +76,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Attendance',          to: '/sis/attendance/mark',          icon: CalendarCheck, roles: ['FACULTY'] },
       { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
       { label: 'My Timetable',        to: '/faculty/timetable',            icon: CalendarClock, roles: ['FACULTY'] },
-      { label: 'Propose Elective',    to: '/elective-offerings',           icon: ListChecks,    roles: ['FACULTY'] },
+      { label: 'Elective Students',   to: '/faculty/elective-students',    icon: ListChecks,    roles: ['FACULTY'] },
     ],
   },
 

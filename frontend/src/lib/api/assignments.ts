@@ -93,6 +93,13 @@ export const assignmentsApi = {
       .get<ValidSemestersResponse>(`${B}/valid-semesters`, { params: { course_id: courseId } })
       .then(r => r.data),
 
+  /** Active FACULTY users (plus DEANs holding a FACULTY grant) assignable by
+   * the caller — scoped to the Dean's department server-side. */
+  listFacultyUsers: () =>
+    api
+      .get<{ id: string; full_name: string; email: string; role: string }[]>(`${B}/faculty-list`)
+      .then(r => r.data),
+
   revoke: (assignmentId: string) =>
     api.post<Assignment>(`${B}/${assignmentId}/revoke`, {}).then(r => r.data),
 

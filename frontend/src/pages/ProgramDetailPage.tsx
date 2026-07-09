@@ -114,7 +114,7 @@ export default function ProgramDetailPage() {
       <Tabs defaultValue="structure" className="mt-6">
         <TabsList>
           <TabsTrigger value="structure">Structure</TabsTrigger>
-          <TabsTrigger value="electives">Elective Baskets</TabsTrigger>
+          <TabsTrigger value="electives">Elective Basket</TabsTrigger>
           <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="map">Map</TabsTrigger>

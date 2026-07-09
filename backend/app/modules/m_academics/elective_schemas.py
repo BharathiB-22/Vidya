@@ -12,8 +12,8 @@ class EligibleBasketCourseOut(BaseModel):
     title: str
     credits: int
     description: str | None
-    # Best-effort — resolved from an active PRIMARY Course Assignment for this
-    # course+semester, if one exists yet (assignment is optional, see M01).
+    # The currently-assigned PRIMARY faculty for this course+semester, if any.
+    faculty_user_id: UUID | None = None
     faculty_name: str | None = None
 
 
@@ -25,10 +25,18 @@ class EligibleElectiveBasketOut(BaseModel):
     already_offered: bool  # an offering already exists for this basket+semester
 
 
+class OfferingFacultyAssignment(BaseModel):
+    """The Dean's choice of which faculty teaches one course inside the basket.
+    Applied as a PRIMARY Course Assignment so attendance/marks pick it up."""
+    course_id: UUID
+    faculty_user_id: UUID
+
+
 class ElectiveOfferingCreate(BaseModel):
     basket_id: UUID
     semester_id: UUID
     max_seats: int
+    faculty_assignments: list[OfferingFacultyAssignment] | None = None
     registration_opens_at: datetime | None = None
     registration_closes_at: datetime | None = None
 
@@ -40,16 +48,9 @@ class ElectiveOfferingUpdate(BaseModel):
     status: str | None = None  # OPEN | CLOSED
 
 
-class ElectiveOfferingPropose(BaseModel):
-    basket_id: UUID
-    semester_id: UUID
-    max_seats: int
-    registration_opens_at: datetime | None = None
-    registration_closes_at: datetime | None = None
-
-
-class ElectiveRejectBody(BaseModel):
-    reason: str
+class AssignFacultyBody(BaseModel):
+    course_id: UUID
+    faculty_user_id: UUID
 
 
 class OfferingCourseOut(BaseModel):
@@ -58,6 +59,7 @@ class OfferingCourseOut(BaseModel):
     title: str
     credits: int
     description: str | None
+    faculty_user_id: UUID | None = None
     faculty_name: str | None = None
     seats_taken: int
 
@@ -74,12 +76,12 @@ class ElectiveOfferingOut(BaseModel):
     registration_closes_at: datetime | None
     status: str
     created_at: datetime
-    proposed_by_user_id: UUID | None = None
-    approved_by_user_id: UUID | None = None
-    approved_at: datetime | None = None
-    published_by_user_id: UUID | None = None
-    published_at: datetime | None = None
-    rejection_reason: str | None = None
+
+
+class DeanElectiveStatsOut(BaseModel):
+    total_offerings: int
+    total_registrations: int
+    offerings: list[ElectiveOfferingOut]
 
 
 class ElectiveRegisterBody(BaseModel):
@@ -100,3 +102,27 @@ class ElectiveRegistrationOut(BaseModel):
     status: str
     registered_at: datetime
     is_current: bool  # True if the offering's semester is the student's current semester
+
+
+# ---------------------------------------------------------------------------
+# Faculty roster — the students who chose THIS faculty's elective course.
+# ---------------------------------------------------------------------------
+
+class ElectiveRosterStudentOut(BaseModel):
+    student_id: UUID
+    student_name: str
+    usn: str | None = None
+    student_email: str | None = None
+    registered_at: datetime
+
+
+class FacultyElectiveRosterOut(BaseModel):
+    course_id: UUID
+    course_code: str
+    course_title: str
+    offering_id: UUID
+    semester_id: UUID
+    semester_label: str | None
+    basket_name: str
+    total_students: int
+    students: list[ElectiveRosterStudentOut]

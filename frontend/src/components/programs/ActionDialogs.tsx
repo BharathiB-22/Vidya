@@ -160,7 +160,7 @@ export function DeleteProgramDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Delete Draft Program</DialogTitle>
+          <DialogTitle>Delete Program</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-gray-700">
@@ -168,8 +168,8 @@ export function DeleteProgramDialog({
             all its courses, and outcomes. This cannot be undone.
           </p>
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-            Draft and Approved programs can be deleted. Once Published, a program is permanently
-            locked and cannot be deleted — fork it to start a new version instead.
+            Draft and Pending Approval programs can be deleted. Once Approved or Published, a
+            program can no longer be deleted — create a new version to make changes instead.
           </p>
         </div>
         <DialogFooter>

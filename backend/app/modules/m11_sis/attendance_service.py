@@ -359,7 +359,7 @@ class AttendanceService:
         schema_name: Optional[str],
         db: AsyncSession,
     ) -> SessionOut:
-        await _verify_faculty_assignment(body.course_id, body.section_id, actor_id, db)
+        section = await _verify_faculty_assignment(body.course_id, body.section_id, actor_id, db)
 
         session = SisAttendanceSession(
             id=uuid.uuid4(),
@@ -374,8 +374,15 @@ class AttendanceService:
         )
         session = await AttendanceRepository.create_session(session, db)
 
-        # Pre-populate all enrolled students as ABSENT
-        student_ids = await AttendanceRepository.get_enrolled_student_ids(body.section_id, db)
+        # Pre-populate the roster as ABSENT. For an elective course the roster
+        # is the students who registered for it (Step 7 — no manual filtering);
+        # for a regular course it is everyone enrolled in the section.
+        if await AttendanceRepository.is_elective_course(body.course_id, db):
+            student_ids = await AttendanceRepository.get_elective_registered_student_ids(
+                body.course_id, section.semester_id, body.section_id, db,
+            )
+        else:
+            student_ids = await AttendanceRepository.get_enrolled_student_ids(body.section_id, db)
         await AttendanceRepository.bulk_create_absent_records(session.id, student_ids, db)
         await db.commit()
 
