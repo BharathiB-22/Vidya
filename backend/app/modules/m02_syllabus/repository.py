@@ -37,6 +37,7 @@ class SyllabusRepository:
         course_id: UUID,
         created_by_user_id: UUID,
         custom_instructions: str | None = None,
+        doc_type: str = "THEORY",
         *,
         db: AsyncSession,
     ) -> Syllabus:
@@ -44,6 +45,11 @@ class SyllabusRepository:
             course_id=course_id,
             created_by_user_id=created_by_user_id,
             custom_instructions=custom_instructions,
+            # Stamped from the course's type at creation. Everything downstream —
+            # which AI prompt runs, which sections can be regenerated, whether the
+            # Dean may edit it after approval — keys off this.
+            doc_type=doc_type,
+            document={},
         )
         db.add(syllabus)
         await db.flush()
@@ -85,36 +91,23 @@ class SyllabusRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def set_pending_review(
-        syllabus_id: UUID,
-        submitted_by_user_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> Syllabus | None:
-        stmt = (
-            update(Syllabus)
-            .where(Syllabus.id == syllabus_id)
-            .values(
-                status=SyllabusStatus.PENDING_REVIEW,
-                updated_at=func.now(),
-            )
-            .returning(Syllabus)
-        )
-        result = await db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    @staticmethod
-    async def set_dean_approved(
+    async def set_board_approved(
         syllabus_id: UUID,
         approved_by_user_id: UUID,
         *,
         db: AsyncSession,
     ) -> Syllabus | None:
+        """DRAFT -> APPROVED. The Board signs off one official syllabus.
+
+        Locking is NOT done here — a syllabus is locked only when the whole
+        curriculum is approved (governance.service.approve_and_lock), because
+        the syllabus and the structure must freeze as one thing.
+        """
         stmt = (
             update(Syllabus)
             .where(Syllabus.id == syllabus_id)
             .values(
-                status=SyllabusStatus.DEAN_APPROVED,
+                status=SyllabusStatus.APPROVED,
                 approved_by_user_id=approved_by_user_id,
                 approved_at=func.now(),
                 updated_at=func.now(),
@@ -125,19 +118,29 @@ class SyllabusRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def set_dean_locked(
+    async def revert_to_draft(
         syllabus_id: UUID,
-        locked_by_user_id: UUID,
         *,
         db: AsyncSession,
     ) -> Syllabus | None:
+        """APPROVED -> DRAFT, clearing the approval.
+
+        Called when the Board edits the underlying course after approving its
+        syllabus: the syllabus was written against a structure that has since
+        moved, so the sign-off no longer means anything and the Board must look
+        at it again. This is what stops a stale syllabus reaching a locked
+        curriculum. LOCKED syllabi are never touched — locked is forever.
+        """
         stmt = (
             update(Syllabus)
-            .where(Syllabus.id == syllabus_id)
+            .where(
+                Syllabus.id == syllabus_id,
+                Syllabus.status == SyllabusStatus.APPROVED,
+            )
             .values(
-                status=SyllabusStatus.DEAN_LOCKED,
-                locked_by_user_id=locked_by_user_id,
-                locked_at=func.now(),
+                status=SyllabusStatus.DRAFT,
+                approved_by_user_id=None,
+                approved_at=None,
                 updated_at=func.now(),
             )
             .returning(Syllabus)
@@ -314,15 +317,20 @@ class SyllabusRepository:
         *,
         db: AsyncSession,
     ) -> Syllabus | None:
-        """Return the highest-versioned DEAN_APPROVED or DEAN_LOCKED syllabus."""
+        """Return the highest-versioned APPROVED or LOCKED syllabus.
+
+        This is what every downstream module (course kits, learning materials,
+        exam papers) teaches from — the official, Board-signed-off syllabus and
+        nothing else.
+        """
         stmt = (
             select(Syllabus)
             .where(
                 and_(
                     Syllabus.course_id == course_id,
                     or_(
-                        Syllabus.status == SyllabusStatus.DEAN_APPROVED,
-                        Syllabus.status == SyllabusStatus.DEAN_LOCKED,
+                        Syllabus.status == SyllabusStatus.APPROVED,
+                        Syllabus.status == SyllabusStatus.LOCKED,
                     ),
                 )
             )
@@ -700,6 +708,8 @@ class SyllabusUnitRepository:
                 syllabus_id=syllabus_id,
                 unit_number=item["unit_number"],
                 title=item["title"],
+                # The official prose block that prints in the regulation.
+                content=item.get("content"),
                 total_hours=item["total_hours"],
                 topics=item.get("topics", []),
                 pedagogy=item.get("pedagogy"),
@@ -933,13 +943,30 @@ class SyllabusReferenceRepository:
         syllabus_id: UUID,
         *,
         db: AsyncSession,
+        ref_types: list[RefType] | None = None,
     ) -> int:
-        stmt = delete(SyllabusReference).where(
-            and_(
-                SyllabusReference.syllabus_id == syllabus_id,
-                SyllabusReference.is_confirmed.is_(False),
-            )
-        )
+        """Clear AI-fetched references so enrichment can re-run idempotently.
+
+        Confirmed references are never touched — those are the Board's own, curated
+        by hand, and an AI re-run must not throw them away.
+
+        `ref_types` SCOPES the delete to one part of the bibliography. It exists
+        because Text Books and Reference Books are regenerated independently (see
+        RegenerateSection.BOOKS vs REFERENCES): a Board unhappy with the Text Books
+        asks for those to be rewritten, and clearing the Web Resources along with
+        them would silently destroy work nobody asked to lose.
+
+        None clears the whole unconfirmed bibliography, which is what a full
+        generation wants.
+        """
+        conditions = [
+            SyllabusReference.syllabus_id == syllabus_id,
+            SyllabusReference.is_confirmed.is_(False),
+        ]
+        if ref_types:
+            conditions.append(SyllabusReference.ref_type.in_(ref_types))
+
+        stmt = delete(SyllabusReference).where(and_(*conditions))
         result = await db.execute(stmt)
         return result.rowcount
 

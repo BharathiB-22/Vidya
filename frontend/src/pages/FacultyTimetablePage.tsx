@@ -92,7 +92,9 @@ export default function FacultyTimetablePage() {
   const freePeriodsToday = allPeriods.filter((p) => !occupiedToday.has(p))
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    // Wide enough that six day columns clear the grid's minimum and never
+    // scroll horizontally (see MIN_DAY_COL_PX in TimetableGrid).
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">My Timetable</h1>
         <p className="text-sm text-gray-400 mt-0.5">Your weekly teaching schedule across all sections.</p>

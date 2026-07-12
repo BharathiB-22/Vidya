@@ -1,32 +1,68 @@
 """
-M02 SyllabusService — state machine, versioning, rollback/fork, compliance.
+M02 SyllabusService — the OFFICIAL university syllabus.
+
+Who owns a syllabus
+-------------------
+The Board (governance authority). Nobody else, at any point.
+
+The Board generates it, edits it, and approves it; it is then locked with the
+curriculum and becomes read-only forever. Faculty NEVER author or edit a
+syllabus — they teach to the approved one and build their lesson plans, PPTs,
+course kits, assignments and question papers underneath it. The Dean reads it.
+
+This replaces the workflow where Faculty wrote syllabi and a Dean reviewed them,
+which is why there is no submit, resubmit, reject or request-revision here: those
+transitions only make sense when the author and the approver are two different
+people.
+
+Lifecycle
+---------
+    DRAFT -> AI_GENERATING -> DRAFT -> APPROVED -> LOCKED
+
+  APPROVED  the Board has signed this syllabus off. Still editable — but an edit
+            sends it back to DRAFT, because a sign-off must mean "I read exactly
+            this". Same for a structural edit to the underlying course
+            (`invalidate_for_course`): a syllabus paced to the old contact hours
+            is no longer the thing that was approved.
+  LOCKED    the curriculum was approved. Permanent. The only way past it is a new
+            curriculum version.
 
 Architecture contract
 ---------------------
   - All business logic lives here; routers are pure HTTP glue.
   - SyllabusServiceError carries a machine-readable `code`, human `message`,
     and HTTP `status_code` so routers can raise HTTPException without logic.
-  - Immutability is enforced at the service layer for FACULTY_APPROVED and
-    ADMIN_LOCKED; the DB-level ENUM does not enforce ordering.
-  - Downstream modules (M03/M05/M08) call get_latest_approved_for_downstream()
-    which returns only FACULTY_APPROVED or ADMIN_LOCKED syllabi.
-  - Fork creates a full deep copy: COs, CO-PO mappings, units, confirmed
-    references.  Unconfirmed (AI-sourced) references are not copied — they are
-    re-fetched by reference_enrichment if the faculty triggers AI again.
+  - Downstream modules (M03/M05/M08) call get_latest_approved_for_downstream(),
+    which returns only APPROVED or LOCKED syllabi — Faculty teach from the
+    official document and from nothing else.
+  - Fork creates a full deep copy: objectives, practical components, COs, CO-PO
+    mappings, units, confirmed references. Unconfirmed (AI-sourced) references
+    are not copied — they are re-fetched by reference_enrichment.
 """
 from __future__ import annotations
 
 import dataclasses
 import logging
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.m01_program_advisor.models import (
+    DEAN_EDITABLE_TYPES,
+    CourseType,
+    ProgramStatus,
+)
+from app.modules.m01_program_advisor.repository import CourseRepository
+from app.modules.m02_syllabus.ai_provider import normalize_course_type
+from app.modules.m02_syllabus.formatting import format_ltp, has_practical
 from app.modules.m02_syllabus.models import (
     COPOMapping,
     CourseOutcome,
     MappingStrength,
+    Syllabus,
     SyllabusReference,
     SyllabusStatus,
     SyllabusUnit,
@@ -51,6 +87,7 @@ from app.modules.m02_syllabus.schemas import (
     ComplianceViolation,
     CourseOutcomeCreate,
     CourseOutcomeUpdate,
+    DeanDocumentEditRequest,
     ReferenceCandidate,
     SyllabusCreate,
     SyllabusReferenceCreate,
@@ -58,9 +95,43 @@ from app.modules.m02_syllabus.schemas import (
     SyllabusUnitCreate,
     SyllabusUnitUpdate,
     SyllabusUpdate,
+    parse_document,
 )
 
 logger = logging.getLogger("vidya.service.m02")
+
+# ---------------------------------------------------------------------------
+# Course type -> what its document HAS
+# ---------------------------------------------------------------------------
+
+_DOC_TYPE_LABELS: dict[str, str] = {
+    CourseType.THEORY.value:        "theory syllabus",
+    CourseType.LAB.value:           "lab manual",
+    CourseType.INTERNSHIP.value:    "set of internship guidelines",
+    CourseType.MINI_PROJECT.value:  "set of mini project guidelines",
+    CourseType.MAJOR_PROJECT.value: "major project handbook",
+    CourseType.SEMINAR.value:       "set of seminar guidelines",
+}
+
+# Which sections each type can be asked to regenerate.
+#
+# Only a theory syllabus has units and practical components. Every other type's
+# body is regenerated as a whole, through DOCUMENT — asking a lab manual for its
+# Unit III would require the AI to invent the section before it could rewrite it,
+# which is the precise failure course types exist to prevent.
+#
+# Objectives, outcomes and the bibliography are common to all six, because all six
+# have them.
+_COMMON_SECTIONS = frozenset({"OBJECTIVES", "OUTCOMES", "REFERENCES", "BOOKS", "DOCUMENT"})
+
+_REGENERABLE_SECTIONS: dict[str, frozenset[str]] = {
+    CourseType.THEORY.value:        _COMMON_SECTIONS | {"UNIT", "PRACTICALS"},
+    CourseType.LAB.value:           _COMMON_SECTIONS,
+    CourseType.INTERNSHIP.value:    _COMMON_SECTIONS,
+    CourseType.MINI_PROJECT.value:  _COMMON_SECTIONS,
+    CourseType.MAJOR_PROJECT.value: _COMMON_SECTIONS,
+    CourseType.SEMINAR.value:       _COMMON_SECTIONS,
+}
 
 # ---------------------------------------------------------------------------
 # Exported error class
@@ -142,21 +213,16 @@ def _run_compliance_check(
 # Internal transition helpers
 # ---------------------------------------------------------------------------
 
-# REJECTED is editable — faculty can revise and resubmit.
-_MUTABLE_STATUSES   = {SyllabusStatus.DRAFT, SyllabusStatus.AI_GENERATING, SyllabusStatus.REJECTED}
-_IMMUTABLE_STATUSES = {
-    SyllabusStatus.PENDING_REVIEW,
-    SyllabusStatus.DEAN_APPROVED,
-    SyllabusStatus.DEAN_LOCKED,
-}
-
-# Faculty may delete a syllabus in any of these statuses.
-_FACULTY_DELETABLE = {
-    SyllabusStatus.DRAFT,
-    SyllabusStatus.AI_GENERATING,
-    SyllabusStatus.PENDING_REVIEW,
-    SyllabusStatus.REJECTED,
-}
+# The Board edits a DRAFT syllabus freely. An APPROVED one it may still revise —
+# approval is a sign-off, not a freeze, and the Board can change its mind right
+# up to the moment the curriculum is locked. Editing an APPROVED syllabus sends
+# it back to DRAFT (see update_syllabus), so it must be re-approved before the
+# curriculum can be.
+#
+# LOCKED is the one true immutable state: it means the curriculum was approved,
+# and nothing inside a locked curriculum ever changes again. Not for the Dean,
+# not for the Board, not for Admin. The only way past it is a new version.
+_IMMUTABLE_STATUSES = {SyllabusStatus.LOCKED}
 
 
 async def _require_status(
@@ -183,15 +249,34 @@ async def _require_mutable(
     *,
     db: AsyncSession,
 ):
-    """Raise IMMUTABLE if status is PENDING_REVIEW, DEAN_APPROVED, or DEAN_LOCKED."""
+    """The single gate every syllabus write passes through. It does two things.
+
+    1. REFUSES the write if the syllabus is frozen (CURRICULUM_LOCKED) or has a
+       generation job in flight (GENERATING).
+
+    2. UN-APPROVES the syllabus if it was APPROVED.
+
+    The second is the important one, and it is here rather than in each caller on
+    purpose. An approval has to mean "a member of the board has read exactly this
+    document" — otherwise the curriculum's approve gate is worthless, because it
+    would pass on a syllabus whose units, outcomes or references had been rewritten
+    since anyone last looked at it.
+
+    Every mutation — the syllabus row, its units, its course outcomes, its CO-PO
+    mappings, its references — comes through this function. Putting the
+    invalidation here means no write path can forget it: you cannot edit any part
+    of a syllabus without its approval falling away. The board simply approves it
+    again once it has re-read it.
+    """
     syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
     if syllabus is None:
         raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
     if syllabus.status in _IMMUTABLE_STATUSES:
         raise SyllabusServiceError(
-            "IMMUTABLE",
-            f"Syllabus is {syllabus.status.value} and cannot be edited. "
-            "Fork to a new DRAFT version to make changes.",
+            "CURRICULUM_LOCKED",
+            "This syllabus belongs to an approved curriculum and is locked "
+            "permanently. Nobody may edit it — not the Dean, not the Board. "
+            "Create a new curriculum version to make academic changes.",
             409,
         )
     if syllabus.status == SyllabusStatus.AI_GENERATING:
@@ -200,7 +285,49 @@ async def _require_mutable(
             "Syllabus AI generation is in progress. Wait for completion before editing.",
             409,
         )
+    if syllabus.status == SyllabusStatus.APPROVED:
+        await SyllabusRepository.revert_to_draft(syllabus_id, db=db)
+        logger.info(
+            "m02: syllabus=%s edited after approval — returned to DRAFT for re-review",
+            syllabus_id,
+        )
     return syllabus
+
+
+def _validated_document(syllabus, raw: dict | None) -> dict:
+    """Validate an incoming document body against the syllabus's OWN doc_type.
+
+    Never against a type the caller names. The row's type is the Board's decision,
+    and if a client could choose the shape it validates against, it could post an
+    internship's fields at a lab manual and quietly turn one document into the
+    other.
+
+    A THEORY syllabus has no document body (its document is its units), so posting
+    one at a theory syllabus is refused rather than silently dropped — a Board
+    member who thinks they have written internship guidelines onto a theory course
+    needs to be told they have not.
+    """
+    doc_type = normalize_course_type(syllabus.doc_type)
+
+    if doc_type == CourseType.THEORY.value:
+        if raw:
+            raise SyllabusServiceError(
+                "NO_DOCUMENT_BODY",
+                "A theory syllabus has no document body — its content is its units, "
+                "objectives, outcomes and references. Edit those instead.",
+                422,
+            )
+        return {}
+
+    try:
+        return parse_document(doc_type, raw)
+    except ValidationError as exc:
+        raise SyllabusServiceError(
+            "INVALID_DOCUMENT",
+            f"That is not a valid {_DOC_TYPE_LABELS[doc_type]}: {exc.error_count()} "
+            f"field(s) did not validate. {exc.errors()[0].get('msg', '')}",
+            422,
+        ) from exc
 
 
 async def _require_not_generating(
@@ -231,29 +358,49 @@ async def _deep_fork(
     created_by: UUID,
     change_note: str | None,
     *,
+    target_course_id: UUID | None = None,
     db: AsyncSession,
 ):
     """
     Create a new DRAFT syllabus that is a full structural copy of `original_id`.
 
-    Copied:   COs, CO-PO mappings (per CO), units, is_confirmed=True references.
+    Copied:   objectives, practical components, COs, CO-PO mappings (per CO),
+              units, is_confirmed=True references.
     Skipped:  Unconfirmed (AI-sourced) references — re-run enrichment if needed.
+
+    `target_course_id` re-points the copy at a DIFFERENT course, which is what
+    program versioning needs: forking a curriculum to v2 creates brand-new
+    `courses` rows, and each one inherits an editable copy of v1's syllabus so
+    the Board revises rather than regenerating forty subjects from scratch.
+    Because the copy hangs off v2's own course row, v1's syllabus is untouched —
+    immutability holds by construction rather than by a guard.
+
+    Defaults to the original's own course (a plain version bump of one syllabus).
     """
     original = await SyllabusRepository.get_detail(original_id, db=db)
     if original is None:
         raise SyllabusServiceError("NOT_FOUND", "Source syllabus not found.", 404)
 
-    from app.modules.m02_syllabus.models import Syllabus  # avoid top-level circular
-
     new_syllabus = Syllabus(
-        course_id=original.course_id,
+        course_id=target_course_id or original.course_id,
         version=new_version,
-        parent_version_id=original.id,
+        # A copy onto a different course starts a fresh lineage: v2's syllabus is
+        # not a later version OF v1's, it is v2's own first syllabus.
+        parent_version_id=None if target_course_id else original.id,
         status=SyllabusStatus.DRAFT,
         custom_instructions=original.custom_instructions,
         change_note=change_note,
         ai_model=original.ai_model,
         prompt_hash=original.prompt_hash,
+        # The type-specific document travels with the fork. For a lab manual or a
+        # project handbook this IS the document — forking without it would produce
+        # an empty copy of a document that looked complete, which is the worst
+        # possible failure of a version history.
+        doc_type=original.doc_type,
+        document=dict(original.document or {}),
+        objectives=list(original.objectives or []),
+        practical_components=list(original.practical_components or []),
+        internal_assessment=list(original.internal_assessment or []),
         created_by_user_id=created_by,
     )
     db.add(new_syllabus)
@@ -287,6 +434,10 @@ async def _deep_fork(
             syllabus_id=new_syllabus.id,
             unit_number=orig_unit.unit_number,
             title=orig_unit.title,
+            # `content` is the unit's PRINTED prose block. Forking without it left
+            # the copy rendering from its topic list alone, silently discarding any
+            # prose the Board had written by hand into the version they forked from.
+            content=orig_unit.content,
             topics=orig_unit.topics,
             total_hours=orig_unit.total_hours,
             pedagogy=orig_unit.pedagogy,
@@ -325,6 +476,35 @@ class SyllabusService:
     # =========================================================================
 
     @staticmethod
+    async def _require_curriculum_unlocked(course_id: UUID, *, db: AsyncSession) -> None:
+        """Refuse if this course's curriculum is approved (and therefore locked).
+
+        `_require_mutable` guards edits to an EXISTING syllabus. This guards the
+        other way in: creating a new one, or forking one, against a course whose
+        curriculum has already been frozen.
+        """
+        from sqlalchemy import text as _text
+
+        status = (
+            await db.execute(
+                _text(
+                    "SELECT p.status FROM courses c "
+                    "JOIN programs p ON p.id = c.program_id WHERE c.id = :cid"
+                ),
+                {"cid": str(course_id)},
+            )
+        ).scalar_one_or_none()
+
+        if status in (ProgramStatus.APPROVED.value, ProgramStatus.PUBLISHED.value):
+            raise SyllabusServiceError(
+                "CURRICULUM_LOCKED",
+                "This subject belongs to an approved curriculum, which is locked "
+                "permanently. No syllabus may be added to it. Create a new "
+                "curriculum version to make academic changes.",
+                409,
+            )
+
+    @staticmethod
     async def create_syllabus(
         payload: SyllabusCreate,
         created_by: UUID,
@@ -332,25 +512,33 @@ class SyllabusService:
         *,
         db: AsyncSession,
     ):
-        # Faculty must have an active assignment for this course before creating a syllabus.
-        if creator_role == "FACULTY":
-            from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
-            assignment = await SubjectAssignmentRepository.get_active_for_faculty_course(
-                payload.course_id, created_by, db=db
-            )
-            if assignment is None:
-                raise SyllabusServiceError(
-                    "NOT_ASSIGNED",
-                    "You must be assigned to this course before creating a syllabus. "
-                    "Contact your Dean to request an assignment.",
-                    403,
-                )
+        """Board (and Admin) only — the role gate is on the router.
+
+        Refuses if the course belongs to a curriculum that is already approved.
+        Without this the lock is worthless: a board member could add a BRAND NEW
+        syllabus to a course inside a locked curriculum, approve it, and it would
+        become the latest official syllabus that Faculty teach from and Students
+        read — an unreviewed document slipped into a frozen curriculum through the
+        one door that was not bolted.
+
+        Editing is blocked by `_require_mutable`; this is the same rule for
+        creation.
+        """
+        await SyllabusService._require_curriculum_unlocked(payload.course_id, db=db)
+
+        # The course's TYPE decides which document this row will hold — a theory
+        # syllabus, a lab manual, internship guidelines. Stamped at creation and not
+        # read back through afterwards (see m02.models.Syllabus.doc_type).
+        course = await CourseRepository.get_by_id(payload.course_id, db=db)
+        if course is None:
+            raise SyllabusServiceError("NOT_FOUND", "Course not found.", 404)
 
         version = await SyllabusRepository.get_next_version(payload.course_id, db=db)
         syllabus = await SyllabusRepository.create(
             course_id=payload.course_id,
             created_by_user_id=created_by,
             custom_instructions=payload.custom_instructions,
+            doc_type=normalize_course_type(course.course_type),
             db=db,
         )
         if version > 1:
@@ -463,12 +651,29 @@ class SyllabusService:
         syllabus_id: UUID,
         payload: SyllabusUpdate,
         *,
+        caller_role: str = "",
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ):
-        await _require_mutable(syllabus_id, db=db)
+        """Edit an official syllabus. Board (and Admin) only — the role gate is on
+        the router; Faculty never reach here.
+
+        `_require_mutable` refuses the edit if the syllabus is locked, and returns
+        it to DRAFT if it was approved — an approval cannot survive an edit to the
+        thing it signed off on.
+        """
+        existing = await _require_mutable(syllabus_id, db=db)
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise SyllabusServiceError("NO_FIELDS", "No fields to update.", 422)
+
+        # A document is validated against the row's OWN doc_type, never against a
+        # type the caller supplies. Otherwise a client could post an internship
+        # shape at a lab manual and turn one document into the other — the row's
+        # type is the Board's, not the caller's.
+        if "document" in updates:
+            updates["document"] = _validated_document(existing, updates["document"])
+
         updates["updated_at"] = datetime.now(timezone.utc)
         syllabus = await SyllabusRepository.update(syllabus_id, updates, db=db)
         if syllabus is None:
@@ -477,30 +682,112 @@ class SyllabusService:
         return syllabus
 
     @staticmethod
-    async def delete_syllabus(
+    async def dean_edit_document(
         syllabus_id: UUID,
+        payload: DeanDocumentEditRequest,
+        editor_id: UUID,
         *,
-        caller_role: str = "",
         db: AsyncSession,
-    ) -> None:
+    ):
+        """The Dean adapting an APPROVED guideline document.
+
+        This is the ONE write in M02 that lands on an approved, otherwise-immutable
+        syllabus row, and the only one that does not withdraw the approval. It
+        exists because four of the six course types produce documents whose content
+        genuinely depends on things the Board cannot know when it approves them:
+
+            INTERNSHIP     which company hosts the student, and what that company
+                           requires
+            MINI_PROJECT   which supervisors are available, and their load
+            MAJOR_PROJECT  the same, plus the review calendar for this cohort
+            SEMINAR        the presentation schedule
+
+        A THEORY syllabus is different in kind. It is the taught curriculum, the
+        Board owns it, and a Dean quietly rewriting an approved one is precisely the
+        failure the approve gate exists to prevent. So it is refused here — not
+        merely hidden in the UI, which is a suggestion rather than a rule.
+
+        The approval SURVIVES this edit (unlike every other write, which goes
+        through `_require_mutable` and reverts to DRAFT). The Board approved the
+        academic substance — the outcomes, the rubric's criteria, the structure —
+        and the Dean is filling in the institutional detail underneath it, which is
+        the arrangement the Board signed off on. But the row is STAMPED, so the
+        governance trail can always say which parts of the approved document the
+        Board wrote and which the Dean did.
+        """
         syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
         if syllabus is None:
             raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
 
-        if caller_role == "FACULTY":
-            if syllabus.status not in _FACULTY_DELETABLE:
-                raise SyllabusServiceError(
-                    "DELETE_FORBIDDEN",
-                    f"Faculty cannot delete a {syllabus.status.value} syllabus. "
-                    "Only Draft, Generating, Pending Review, and Rejected syllabi can be deleted.",
-                    409,
-                )
-        elif caller_role != "ADMIN":
-            # DEAN and other roles cannot delete
+        doc_type = normalize_course_type(syllabus.doc_type)
+
+        if doc_type not in DEAN_EDITABLE_TYPES:
             raise SyllabusServiceError(
-                "DELETE_FORBIDDEN",
-                "Only Faculty (owner) or Admin may delete a syllabus.",
+                "DEAN_MAY_NOT_EDIT",
+                "The Dean cannot modify a theory syllabus. The Board owns the taught "
+                "curriculum: it writes the syllabus and it approves it. You may "
+                "publish this curriculum, but not rewrite it. Only Internship, Mini "
+                "Project, Major Project and Seminar guidelines may be adapted after "
+                "approval, because those depend on the company, the supervisor and "
+                "institutional policy.",
                 403,
+            )
+
+        # Before approval the document is the Board's working draft and the Board
+        # edits it through the normal path. The Dean's adaptation is specifically a
+        # POST-approval act — it is what happens once the academic substance is
+        # settled and the institutional detail has to be filled in.
+        if syllabus.status not in (SyllabusStatus.APPROVED, SyllabusStatus.LOCKED):
+            raise SyllabusServiceError(
+                "NOT_APPROVED",
+                "These guidelines have not been approved by the Board yet. Until "
+                "they are, they are the Board's working draft and the Board edits "
+                "them.",
+                409,
+            )
+
+        document = _validated_document(syllabus, payload.document)
+
+        now = datetime.now(timezone.utc)
+        updated = await SyllabusRepository.update(
+            syllabus_id,
+            {
+                "document":               document,
+                "dean_edited_at":         now,
+                "dean_edited_by_user_id": editor_id,
+                "updated_at":             now,
+                # status is deliberately NOT touched. See the docstring: the Board's
+                # approval covers the academic substance and survives this.
+            },
+            db=db,
+        )
+        await db.commit()
+
+        logger.info(
+            "m02.dean_edit: syllabus=%s type=%s edited by dean=%s (approval retained)",
+            syllabus_id, doc_type, editor_id,
+        )
+        return updated
+
+    @staticmethod
+    async def delete_syllabus(
+        syllabus_id: UUID,
+        *,
+        caller_role: str = "",
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> None:
+        """Delete a syllabus. Board and Admin only, and never a locked one."""
+        syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
+        if syllabus is None:
+            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
+
+        if syllabus.status == SyllabusStatus.LOCKED:
+            raise SyllabusServiceError(
+                "CURRICULUM_LOCKED",
+                "This syllabus belongs to an approved curriculum and cannot be "
+                "deleted. Create a new curriculum version instead.",
+                409,
             )
 
         deleted = await SyllabusRepository.delete(syllabus_id, db=db)
@@ -518,6 +805,8 @@ class SyllabusService:
         tenant_id: UUID,
         schema_name: str,
         *,
+        caller_role: str = "",
+        faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> str:
         """
@@ -555,47 +844,271 @@ class SyllabusService:
         )
         return str(job_id)
 
+    @staticmethod
+    async def dispatch_section_regeneration(
+        syllabus_id: UUID,
+        section: str,
+        tenant_id: UUID,
+        schema_name: str,
+        *,
+        unit_id: UUID | None = None,
+        guidance: str | None = None,
+        db: AsyncSession,
+    ) -> str:
+        """Rewrite ONE section of an existing syllabus. Returns the job id.
+
+        The Board should never have to regenerate a whole syllabus because one unit
+        came out weak — five units, five COs and a bibliography is a lot of work to
+        throw away, and much of it will have been hand-edited by the time anyone
+        notices the flaw.
+
+        Unlike a full generation this does NOT move the syllabus to AI_GENERATING:
+        the rest of the document stays readable and editable while one part of it is
+        being rewritten in the background. The syllabus is only reverted to DRAFT
+        (by the worker) if it had already been approved — a sign-off cannot survive
+        a rewrite of the thing it signed off on.
+        """
+        syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
+        if syllabus is None:
+            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
+
+        if syllabus.status == SyllabusStatus.LOCKED:
+            raise SyllabusServiceError(
+                "CURRICULUM_LOCKED",
+                "This syllabus belongs to an approved curriculum and is locked "
+                "permanently. Nothing inside it can be regenerated. Create a new "
+                "curriculum version to make academic changes.",
+                409,
+            )
+        if syllabus.status == SyllabusStatus.AI_GENERATING:
+            raise SyllabusServiceError(
+                "GENERATING",
+                "This syllabus is already being generated. Wait for it to finish.",
+                409,
+            )
+
+        # A section the document does not HAVE cannot be regenerated. Asking a lab
+        # manual for its Unit III, or an internship for its practical components, is
+        # not a request the AI could honour — it would have to invent the section
+        # first, which is exactly the failure course types exist to prevent.
+        doc_type = normalize_course_type(syllabus.doc_type)
+        allowed  = _REGENERABLE_SECTIONS[doc_type]
+        if section not in allowed:
+            raise SyllabusServiceError(
+                "SECTION_NOT_APPLICABLE",
+                f"A {_DOC_TYPE_LABELS[doc_type]} has no {section.title()} section. "
+                f"You can regenerate: {', '.join(sorted(allowed))}.",
+                422,
+            )
+
+        if section == "UNIT":
+            if unit_id is None:
+                raise SyllabusServiceError(
+                    "UNIT_REQUIRED", "Say which unit to regenerate.", 422,
+                )
+            units = await SyllabusUnitRepository.list_by_syllabus(syllabus_id, db=db)
+            if not any(u.id == unit_id for u in units):
+                raise SyllabusServiceError(
+                    "NOT_FOUND", "That unit does not belong to this syllabus.", 404,
+                )
+
+        if section == "PRACTICALS":
+            course = await CourseRepository.get_by_id(syllabus.course_id, db=db)
+            if course is not None and not has_practical(course):
+                raise SyllabusServiceError(
+                    "NO_PRACTICAL_HOURS",
+                    f"{course.code} carries no practical hours (L-T-P "
+                    f"{format_ltp(course)}), so it has no Practical Components. "
+                    "Generating laboratory work for a course with no laboratory "
+                    "would commit the department to teaching it.",
+                    422,
+                )
+
+        job_id = await TaskJobPublicRepository.create(
+            tenant_id=tenant_id,
+            task_type="regenerate_syllabus_section",
+            queue_name="heavy",
+            payload={
+                "syllabus_id": str(syllabus_id),
+                "schema_name": schema_name,
+                "section":     section,
+                "unit_id":     str(unit_id) if unit_id else None,
+            },
+            db=db,
+        )
+        await db.commit()
+
+        from app.workers.heavy.syllabus_generation import regenerate_syllabus_section
+
+        regenerate_syllabus_section.delay(
+            job_id=str(job_id),
+            syllabus_id=str(syllabus_id),
+            tenant_id=str(tenant_id),
+            schema_name=schema_name,
+            section=section,
+            unit_id=str(unit_id) if unit_id else None,
+            guidance=guidance,
+        )
+        logger.info(
+            "m02.regenerate: queued section=%s syllabus=%s job=%s",
+            section, syllabus_id, job_id,
+        )
+        return str(job_id)
+
+    @staticmethod
+    async def generate_for_program(
+        program_id: UUID,
+        tenant_id: UUID,
+        schema_name: str,
+        *,
+        requested_by: UUID,
+        regenerate_all: bool = False,
+        custom_instructions: str | None = None,
+        db: AsyncSession,
+    ) -> tuple[UUID, list[UUID], int]:
+        """Generate the official syllabus for EVERY subject in a program.
+
+        Returns (batch_id, job_ids, skipped_count).
+
+        A curriculum's syllabus is not one document — it is one per subject, so
+        forty-odd AI calls for an MCA. That has to be a batch of independent
+        background jobs, never a request: any single call can fail, and one
+        failure must not cost the other thirty-nine.
+
+        Partial failure is therefore expected and safe. Each subject generates on
+        its own; a re-run picks up only what is still missing (unless
+        `regenerate_all`), so the Board retries the five that failed rather than
+        redoing all forty-two and losing its edits to the ones that worked. And
+        because the curriculum cannot be approved until EVERY subject has an
+        APPROVED syllabus, a half-generated program simply cannot be locked —
+        the gate catches what the batch missed.
+
+        "Every subject" includes every option inside every elective basket: an
+        elective option is a real course a student sits and is examined in, so it
+        needs its own official syllabus exactly as a core course does.
+
+        Stamps `structure_finalized_at` on the first run — the record of which
+        structure the syllabus was written against. It does NOT freeze the
+        structure; the Board may keep editing, and any edit to a course sends its
+        syllabus back to DRAFT (see `invalidate_for_course`).
+        """
+        from app.modules.m01_program_advisor.models import Course, Program
+        from app.workers.heavy.syllabus_generation import generate_syllabus
+
+        program = await db.get(Program, program_id)
+        if program is None:
+            raise SyllabusServiceError("NOT_FOUND", "Program not found.", 404)
+        if program.status != ProgramStatus.PENDING_APPROVAL:
+            raise SyllabusServiceError(
+                "INVALID_STATUS",
+                "The official syllabus is generated while the curriculum is with "
+                f"the governance authority; this one is {program.status.value}.",
+                409,
+            )
+
+        courses = (
+            await db.execute(
+                select(Course).where(Course.program_id == program_id).order_by(Course.semester, Course.code)
+            )
+        ).scalars().all()
+        if not courses:
+            raise SyllabusServiceError(
+                "NO_SUBJECTS",
+                "This curriculum has no subjects to generate a syllabus for.",
+                422,
+            )
+
+        batch_id = uuid4()
+        queued: list[tuple[UUID, UUID]] = []   # (syllabus_id, job_id)
+        skipped = 0
+
+        for course in courses:
+            existing = await SyllabusRepository.list_by_course(course.id, db=db)
+            live = [s for s in existing if s.status != SyllabusStatus.LOCKED]
+
+            if live and not regenerate_all:
+                skipped += 1
+                continue
+
+            # Regenerating: discard the unapproved drafts we are replacing, so a
+            # course never ends up with two competing "latest" syllabi.
+            if live and regenerate_all:
+                for s in live:
+                    await SyllabusRepository.delete(s.id, db=db)
+
+            syllabus = Syllabus(
+                course_id=course.id,
+                version=await SyllabusRepository.get_next_version(course.id, db=db),
+                status=SyllabusStatus.AI_GENERATING,
+                custom_instructions=custom_instructions,
+                created_by_user_id=requested_by,
+            )
+            db.add(syllabus)
+            await db.flush()
+
+            job_id = await TaskJobPublicRepository.create(
+                tenant_id=tenant_id,
+                task_type="generate_syllabus",
+                queue_name="heavy",
+                payload={
+                    "syllabus_id": str(syllabus.id),
+                    "schema_name": schema_name,
+                    "batch_id":    str(batch_id),
+                },
+                db=db,
+            )
+            queued.append((syllabus.id, UUID(str(job_id))))
+
+        if program.structure_finalized_at is None and queued:
+            program.structure_finalized_at = datetime.now(timezone.utc)
+            program.structure_finalized_by_user_id = requested_by
+
+        await db.commit()
+
+        # Dispatch only AFTER the commit. A Celery worker can pick a task up
+        # within milliseconds, and if it did so before this transaction landed it
+        # would go looking for a syllabus row that does not exist yet.
+        for syllabus_id, job_id in queued:
+            generate_syllabus.delay(
+                job_id=str(job_id),
+                syllabus_id=str(syllabus_id),
+                tenant_id=str(tenant_id),
+                schema_name=schema_name,
+            )
+
+        logger.info(
+            "m02.generate_for_program: program=%s batch=%s dispatched=%d skipped=%d",
+            program_id, batch_id, len(queued), skipped,
+        )
+        return batch_id, [job_id for _, job_id in queued], skipped
+
     # =========================================================================
-    # State machine — submit / dean-approve / reject / lock / unlock
+    # State machine — the Board approves its own syllabus
+    #
+    # There is no submit, no resubmit, no reject and no request-revision. Those
+    # existed when Faculty AUTHORED a syllabus and a Dean REVIEWED it — two
+    # parties, so a handoff was needed. Now one body writes it and signs it off,
+    # so there is nobody to hand it to.
+    #
+    # There is no lock/unlock either. A syllabus is locked when the CURRICULUM is
+    # approved (governance.approve_and_lock) — the structure and the syllabus
+    # freeze together or the pair is incoherent — and it is never unlocked.
     # =========================================================================
 
     @staticmethod
-    async def submit_for_review(
+    async def approve(
         syllabus_id: UUID,
-        submitted_by: UUID,
+        approved_by: UUID,
         *,
         db: AsyncSession,
     ):
-        """
-        DRAFT → PENDING_REVIEW.
-        Faculty submits syllabus for Dean review. Runs compliance checks;
-        raises COMPLIANCE_FAILED on ERROR violations.
-        """
-        await _require_status(syllabus_id, SyllabusStatus.DRAFT, db=db)
-        return await SyllabusService._do_submit_for_review(syllabus_id, submitted_by, db=db)
+        """DRAFT -> APPROVED. The Board signs off one official syllabus.
 
-    @staticmethod
-    async def resubmit(
-        syllabus_id: UUID,
-        submitted_by: UUID,
-        *,
-        db: AsyncSession,
-    ):
+        Compliance-gated: the Board should not be able to sign off a syllabus
+        with no course outcomes or no units, however it came to be that way.
         """
-        REJECTED → PENDING_REVIEW.
-        Faculty resubmits a previously rejected syllabus after addressing Dean's feedback.
-        Runs the same compliance checks as initial submission.
-        """
-        await _require_status(syllabus_id, SyllabusStatus.REJECTED, db=db)
-        return await SyllabusService._do_submit_for_review(syllabus_id, submitted_by, db=db)
+        syllabus = await _require_status(syllabus_id, SyllabusStatus.DRAFT, db=db)
 
-    @staticmethod
-    async def _do_submit_for_review(
-        syllabus_id: UUID,
-        submitted_by: UUID,
-        *,
-        db: AsyncSession,
-    ):
         cos      = await CourseOutcomeRepository.list_by_syllabus(syllabus_id, db=db)
         units    = await SyllabusUnitRepository.list_by_syllabus(syllabus_id, db=db)
         mappings = await COPOMappingRepository.list_by_syllabus(syllabus_id, db=db)
@@ -607,28 +1120,7 @@ class SyllabusService:
             )
             raise SyllabusServiceError("COMPLIANCE_FAILED", error_msgs, 422)
 
-        syllabus = await SyllabusRepository.set_pending_review(
-            syllabus_id, submitted_by, db=db
-        )
-        if syllabus is None:
-            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        await db.commit()
-        return syllabus
-
-    @staticmethod
-    async def approve(
-        syllabus_id: UUID,
-        approved_by: UUID,
-        *,
-        db: AsyncSession,
-    ):
-        """
-        PENDING_REVIEW → DEAN_APPROVED.
-        Dean approves the submitted syllabus. Only DEAN role may call this.
-        """
-        await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
-
-        syllabus = await SyllabusRepository.set_dean_approved(
+        syllabus = await SyllabusRepository.set_board_approved(
             syllabus_id, approved_by, db=db
         )
         if syllabus is None:
@@ -637,88 +1129,45 @@ class SyllabusService:
         return syllabus
 
     @staticmethod
-    async def reject(
-        syllabus_id: UUID,
-        reason: str,
+    async def invalidate_for_course(
+        course_id: UUID,
         *,
         db: AsyncSession,
-    ):
-        """
-        PENDING_REVIEW → REJECTED.
-        Dean rejects the syllabus with a reason. Faculty can edit it and resubmit.
-        """
-        await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
-        syllabus = await SyllabusRepository.update(
-            syllabus_id,
-            {
-                "status":       SyllabusStatus.REJECTED,
-                "dean_comment": reason,
-                "updated_at":   datetime.now(timezone.utc),
-            },
-            db=db,
-        )
-        if syllabus is None:
-            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        await db.commit()
-        return syllabus
+    ) -> int:
+        """Send this course's APPROVED syllabus back to DRAFT. Returns how many.
 
-    @staticmethod
-    async def request_revision(
-        syllabus_id: UUID,
-        comments: str,
-        *,
-        db: AsyncSession,
-    ):
-        """
-        PENDING_REVIEW → REJECTED (revision-type).
-        Dean requests specific changes with comments. Faculty edits and resubmits.
-        The dean_comment is prefixed to distinguish revision requests from hard rejections.
-        """
-        await _require_status(syllabus_id, SyllabusStatus.PENDING_REVIEW, db=db)
-        syllabus = await SyllabusRepository.update(
-            syllabus_id,
-            {
-                "status":       SyllabusStatus.REJECTED,
-                "dean_comment": f"[REVISION REQUESTED] {comments}",
-                "updated_at":   datetime.now(timezone.utc),
-            },
-            db=db,
-        )
-        if syllabus is None:
-            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        await db.commit()
-        return syllabus
+        Called whenever the Board makes a STRUCTURAL change to a course while the
+        curriculum is still under review — credits, L-T-P, code, title, semester.
+        The syllabus was written against the old structure (its units are paced
+        to the old contact hours, its header prints the old credits), so the
+        Board's earlier sign-off no longer describes what it signed off on.
 
-    @staticmethod
-    async def lock(
-        syllabus_id: UUID,
-        locked_by: UUID,
-        *,
-        db: AsyncSession,
-    ):
-        """DEAN_APPROVED → DEAN_LOCKED."""
-        await _require_status(syllabus_id, SyllabusStatus.DEAN_APPROVED, db=db)
-        syllabus = await SyllabusRepository.set_dean_locked(syllabus_id, locked_by, db=db)
-        if syllabus is None:
-            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        await db.commit()
-        return syllabus
+        This is what lets the Board keep editing the structure right up to
+        approval without any freeze: a stale syllabus is automatically pushed
+        back into the Board's queue, and the approve gate — which demands that
+        EVERY subject be APPROVED — cannot pass until someone has looked at it
+        again. The invariant is maintained by the gate, not by a lock.
 
-    @staticmethod
-    async def unlock(
-        syllabus_id: UUID,
-        *,
-        db: AsyncSession,
-    ):
-        """DEAN_LOCKED → DEAN_APPROVED."""
-        await _require_status(syllabus_id, SyllabusStatus.DEAN_LOCKED, db=db)
-        syllabus = await SyllabusRepository.update_status(
-            syllabus_id, SyllabusStatus.DEAN_APPROVED, db=db
-        )
-        if syllabus is None:
-            raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        await db.commit()
-        return syllabus
+        LOCKED syllabi are never touched: their curriculum is approved, and its
+        structure cannot change in the first place.
+
+        Does not commit — the caller's structural edit and this invalidation must
+        land in the same transaction, or a crash between them would leave an
+        approved syllabus describing a course that had already moved.
+        """
+        syllabi = await SyllabusRepository.list_by_course(course_id, db=db)
+        reverted = 0
+        for syllabus in syllabi:
+            if syllabus.status == SyllabusStatus.APPROVED:
+                await SyllabusRepository.revert_to_draft(syllabus.id, db=db)
+                reverted += 1
+        if reverted:
+            logger.info(
+                "m02.invalidate: course=%s structural edit reverted %d approved "
+                "syllabus/es to DRAFT for re-review",
+                course_id, reverted,
+            )
+        return reverted
 
     @staticmethod
     async def fork(
@@ -729,11 +1178,19 @@ class SyllabusService:
         db: AsyncSession,
     ):
         """
-        Fork any non-generating syllabus version into a new DRAFT.
-        The source version is not modified.  Use this to create an edit branch
-        from an approved or locked syllabus.
+        Fork a syllabus version into a new DRAFT on the SAME course. The source
+        version is not modified. Use this to branch a revision while the Board
+        still holds the curriculum.
+
+        Refused once the curriculum is locked. A fork creates a new syllabus
+        version for the course, which would become the latest one downstream reads
+        — so allowing it on a locked curriculum would let an unreviewed document
+        displace the official one. Changing a locked curriculum means forking the
+        CURRICULUM (which copies its syllabi onto the new version's own courses),
+        not forking a syllabus underneath it.
         """
         source = await _require_not_generating(syllabus_id, db=db)
+        await SyllabusService._require_curriculum_unlocked(source.course_id, db=db)
         new_version = await SyllabusRepository.get_next_version(source.course_id, db=db)
         new_syllabus = await _deep_fork(
             syllabus_id,
@@ -774,8 +1231,10 @@ class SyllabusService:
         db: AsyncSession,
     ):
         """
-        Return the highest-versioned DEAN_APPROVED or DEAN_LOCKED syllabus.
-        Downstream modules must call this and reject None (no approved version).
+        Return the highest-versioned APPROVED or LOCKED syllabus — the official
+        one. Downstream modules (course kits, learning materials, exam papers)
+        must call this and reject None: Faculty teach from the Board-approved
+        syllabus and from nothing else.
         """
         return await SyllabusRepository.get_latest_approved(course_id, db=db)
 
@@ -794,18 +1253,18 @@ class SyllabusService:
         db: AsyncSession,
     ) -> UUID:
         """
-        Queue the export Celery task.  Export is only permitted for
-        DEAN_APPROVED or DEAN_LOCKED syllabi.
+        Queue the export Celery task. Only an official syllabus — APPROVED or
+        LOCKED — may be exported: a draft is not a university document.
         """
         syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
         if syllabus is None:
             raise SyllabusServiceError("NOT_FOUND", "Syllabus not found.", 404)
-        export_eligible = {SyllabusStatus.DEAN_APPROVED, SyllabusStatus.DEAN_LOCKED}
+        export_eligible = {SyllabusStatus.APPROVED, SyllabusStatus.LOCKED}
         if syllabus.status not in export_eligible:
             raise SyllabusServiceError(
                 "EXPORT_NOT_ELIGIBLE",
-                f"Syllabus must be DEAN_APPROVED or DEAN_LOCKED for export; "
-                f"current status is {syllabus.status.value}.",
+                f"Only an approved official syllabus can be exported; "
+                f"this one is {syllabus.status.value}.",
                 422,
             )
 

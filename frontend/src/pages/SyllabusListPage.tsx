@@ -1,25 +1,26 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, BookOpen, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react'
+import { BookOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
-import { CreateSyllabusDialog } from '@/components/syllabus/CreateSyllabusDialog'
 import { useSyllabuses } from '@/hooks/syllabuses'
 import type { SyllabusStatus } from '@/types/syllabus'
 import { useWorkspace } from '@/lib/workspace'
 
-const WRITE_ROLES = ['ADMIN', 'FACULTY']
-
-// Unified Syllabuses module (Syllabus Review merged in): one tab per lifecycle
-// stage. "Pending Review" is where a Dean opens a syllabus to approve/reject on
-// its detail page — the old standalone /dean-review queue.
+/**
+ * Every official syllabus in the tenant.
+ *
+ * Nothing is created from this page. The Board generates syllabi in bulk from the
+ * Curriculum Workbench — one per subject, for a whole curriculum at a time — and
+ * a syllabus with no curriculum behind it would be an orphan nobody teaches.
+ * Faculty reach their own subjects' syllabi from their subject workspace.
+ */
 const STATUS_OPTIONS: Array<{ value: SyllabusStatus | ''; label: string }> = [
-  { value: '',               label: 'All' },
-  { value: 'DRAFT',          label: 'Draft' },
-  { value: 'PENDING_REVIEW', label: 'Pending Review' },
-  { value: 'DEAN_APPROVED',  label: 'Approved' },
-  { value: 'DEAN_LOCKED',    label: 'Published' },
-  { value: 'REJECTED',       label: 'Rejected' },
+  { value: '',              label: 'All' },
+  { value: 'DRAFT',         label: 'Draft' },
+  { value: 'AI_GENERATING', label: 'Generating' },
+  { value: 'APPROVED',      label: 'Approved' },
+  { value: 'LOCKED',        label: 'Official' },
 ]
 
 function semesterLabel(n: number | undefined): string {
@@ -58,10 +59,8 @@ export default function SyllabusListPage() {
   const courseId   = params.get('course_id') ?? ''
   const programId  = params.get('program_id') ?? ''
   const { activeWorkspace: role } = useWorkspace()
-  const canCreate  = WRITE_ROLES.includes(role)
 
   const [statusFilter, setStatusFilter] = useState<SyllabusStatus | ''>('')
-  const [createOpen, setCreateOpen]     = useState(false)
 
   const { data, isLoading } = useSyllabuses({
     course_id: courseId || undefined,
@@ -97,12 +96,7 @@ export default function SyllabusListPage() {
           <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full border border-gray-200">
             {role}
           </span>
-          {canCreate && courseId && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              New Syllabus
-            </Button>
-          )}
+
         </div>
       </div>
 
@@ -135,11 +129,7 @@ export default function SyllabusListPage() {
           <p className="text-sm text-gray-400">
             {statusFilter ? `No syllabuses with status "${statusFilter}".` : 'No syllabuses found.'}
           </p>
-          {canCreate && courseId && !statusFilter && (
-            <Button variant="outline" className="mt-4" onClick={() => setCreateOpen(true)}>
-              Create the first syllabus
-            </Button>
-          )}
+
           {statusFilter && (
             <button
               type="button"
@@ -153,12 +143,6 @@ export default function SyllabusListPage() {
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
           {syllabuses.map((s) => {
-            const isRejected  = s.status === 'REJECTED'
-            const deanComment = isRejected && s.dean_comment
-              ? s.dean_comment.replace(/^\[REVISION REQUESTED\]\s*/, '')
-              : null
-            const isRevision  = isRejected && s.dean_comment?.startsWith('[REVISION REQUESTED]')
-
             return (
               <button
                 key={s.id}
@@ -188,23 +172,9 @@ export default function SyllabusListPage() {
                       </p>
                     )}
 
-                    {/* Dean feedback for rejected syllabi */}
-                    {deanComment && (
-                      <p className="mt-1.5 text-xs text-red-600 truncate">
-                        {isRevision ? 'Revision: ' : 'Rejected: '}{deanComment}
-                      </p>
-                    )}
-
                     {/* Footer row: status · version · date */}
                     <div className="mt-3 flex items-center gap-2 flex-wrap">
                       <SyllabusStatusBadge status={s.status} viewerRole={role} />
-
-                      {isRejected && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200">
-                          <RotateCcw className="h-2.5 w-2.5" />
-                          {isRevision ? 'Revision Requested' : 'Needs Revision'}
-                        </span>
-                      )}
 
                       <span className="text-[11px] text-gray-600 font-medium">
                         Version {s.version}
@@ -233,13 +203,6 @@ export default function SyllabusListPage() {
         </p>
       )}
 
-      {courseId && (
-        <CreateSyllabusDialog
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          courseId={courseId}
-        />
-      )}
     </div>
   )
 }

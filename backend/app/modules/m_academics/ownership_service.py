@@ -24,6 +24,7 @@ from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.core.notifications.dispatch import notify_user
 from app.core.notifications.models import NotificationType
+from app.modules.m_academics.curriculum_scope import published_course_sql
 from app.modules.m_academics.ownership_schemas import (
     DashboardDepartmentSummary,
     DashboardFacultyWorkload,
@@ -504,8 +505,12 @@ class OwnershipService:
                     "SELECT fpa.faculty_user_id, "
                     "       COUNT(DISTINCT fpa.program_id) AS program_count, "
                     "       (SELECT COUNT(*) FROM subject_assignments sa "
+                    "        JOIN   courses c ON c.id = sa.course_id "
                     "        WHERE  sa.faculty_user_id = fpa.faculty_user_id "
-                    "          AND  sa.is_active = true) AS course_count "
+                    "          AND  sa.is_active = true "
+                    # Workload counts published curriculum only — a draft course
+                    # is not something anyone is teaching yet.
+                    f"         AND {published_course_sql()}) AS course_count "
                     "FROM   faculty_program_assignments fpa "
                     "WHERE  fpa.program_id = ANY(:pids) AND fpa.is_active = true "
                     "GROUP  BY fpa.faculty_user_id"
@@ -915,11 +920,13 @@ class OwnershipService:
                     "  JOIN   programs p        ON p.acad_program_id = ab.program_id "
                     "  JOIN   courses c         ON c.program_id = p.id AND c.semester = sem.number "
                     "  WHERE  sem.id = ANY(:sids) "
+                    f" AND {published_course_sql()} "
                     "  UNION "
                     "  SELECT sa.semester_id, c2.id, c2.code, c2.title, c2.course_type "
                     "  FROM   subject_assignments sa "
                     "  JOIN   courses c2 ON c2.id = sa.course_id "
                     "  WHERE  sa.is_active = true AND sa.semester_id = ANY(:sids) "
+                    f" AND {published_course_sql('c2')} "
                     ") roster "
                     "ORDER  BY code"
                 ),
@@ -1111,12 +1118,18 @@ class OwnershipService:
                     "    JOIN   programs p      ON p.acad_program_id = ab.program_id "
                     "    JOIN   courses c       ON c.program_id = p.id AND c.semester = sem.number "
                     "    WHERE  ab.program_id = ANY(:pids) AND sem.is_active = true "
+                    f"   AND {published_course_sql()} "
                     "    UNION "
+                    # The assignment branch must be filtered too, or an assignment
+                    # made before the curriculum was published would drag its
+                    # course back into the roster the catalog branch just excluded.
                     "    SELECT sa2.course_id, sa2.semester_id "
                     "    FROM   subject_assignments sa2 "
+                    "    JOIN   courses c_sa        ON c_sa.id = sa2.course_id "
                     "    JOIN   acad_semesters sem2 ON sem2.id = sa2.semester_id "
                     "    JOIN   acad_batches ab2    ON ab2.id = sem2.batch_id "
                     "    WHERE  sa2.is_active = true AND ab2.program_id = ANY(:pids) "
+                    f"   AND {published_course_sql('c_sa')} "
                     "  ) combined "
                     ") roster"
                 ),
@@ -1145,7 +1158,10 @@ class OwnershipService:
                     "                FROM subject_assignments sa2 "
                     "                WHERE sa2.faculty_user_id = sa.faculty_user_id "
                     "                  AND sa2.is_active = true ) dc "
-                    "         JOIN courses c2 ON c2.id = dc.course_id ) AS credits, "
+                    "         JOIN courses c2 ON c2.id = dc.course_id "
+                    # Credits summed only over published curriculum, so a draft
+                    # course cannot inflate a faculty member's load.
+                    f"        WHERE {published_course_sql('c2')} ) AS credits, "
                     "       ( SELECT COUNT(*) FROM timetable_slots ts "
                     "         JOIN timetables tt ON tt.id = ts.timetable_id "
                     "                            AND tt.status = 'PUBLISHED' "
@@ -1156,6 +1172,7 @@ class OwnershipService:
                     "JOIN   acad_programs ap ON ap.id = p.acad_program_id "
                     "JOIN   users u     ON u.id = sa.faculty_user_id "
                     "WHERE  sa.is_active = true AND ap.id = ANY(:pids) "
+                    f"  AND {published_course_sql()} "
                     "GROUP  BY sa.faculty_user_id, u.full_name "
                     "ORDER  BY course_count DESC, faculty_name"
                 ),
@@ -1222,12 +1239,15 @@ class OwnershipService:
                     "    JOIN   programs p      ON p.acad_program_id = ab.program_id "
                     "    JOIN   courses c       ON c.program_id = p.id AND c.semester = sem.number "
                     "    WHERE  ab.program_id = ANY(:pids) AND sem.is_active = true "
+                    f"   AND {published_course_sql()} "
                     "    UNION "
                     "    SELECT ab2.program_id, sa2.course_id, sa2.semester_id "
                     "    FROM   subject_assignments sa2 "
+                    "    JOIN   courses c_sa        ON c_sa.id = sa2.course_id "
                     "    JOIN   acad_semesters sem2 ON sem2.id = sa2.semester_id "
                     "    JOIN   acad_batches ab2    ON ab2.id = sem2.batch_id "
                     "    WHERE  sa2.is_active = true AND ab2.program_id = ANY(:pids) "
+                    f"   AND {published_course_sql('c_sa')} "
                     "  ) combined "
                     ") roster "
                     "JOIN   acad_programs ap ON ap.id = roster.program_id "
@@ -1249,6 +1269,9 @@ class OwnershipService:
                     "JOIN   programs p ON p.id = c.program_id "
                     "JOIN   acad_programs ap ON ap.id = p.acad_program_id "
                     "WHERE  sa.is_active = true AND ap.id = ANY(:pids) "
+                    # A faculty member teaching only unpublished curriculum is not
+                    # yet teaching anything this department can report on.
+                    f"  AND {published_course_sql()} "
                     "GROUP  BY ap.department_id"
                 ),
                 {"pids": ids_str},

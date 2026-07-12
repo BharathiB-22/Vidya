@@ -1,3 +1,17 @@
+"""Elective registration and per-term faculty assignment.
+
+The curriculum slot is the single source of truth. A slot is visible to students
+once PUBLISHED, registerable while OPEN, and frozen once CLOSED — see
+`m01_program_advisor.models.ElectiveSlotStatus`. There is no offering to create.
+
+Curriculum and teaching are separate axes. The slot and its choices are fixed
+curriculum: MCA Semester 3, Elective 1, offering AI/ML/DL. *Who teaches* each
+choice is a per-term fact, so Odd-2026 may have Dr Ravi on AI and Odd-2027
+Dr Priya, with the curriculum untouched. That is why faculty assignment is keyed
+on `(course_id, semester_id)` in `subject_assignments` — the same source
+attendance and internal marks read, which is what makes an elective's combined
+class work with no elective-specific plumbing.
+"""
 from __future__ import annotations
 
 import uuid
@@ -7,29 +21,29 @@ from uuid import UUID
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.m01_program_advisor.models import ElectiveSlotStatus
 from app.modules.m_academics.assignment_schemas import AssignmentCreate
 from app.modules.m_academics.assignment_service import (
     AssignmentService,
     AssignmentServiceError,
 )
-from app.modules.m_academics.dean_scope import (
-    assert_dean_owns_semester_program,
-    get_dean_program_ids,
-    get_semester_program_id,
-)
+from app.modules.m_academics.dean_scope import assert_dean_owns_semester_program
 from app.modules.m_academics.elective_models import (
-    ElectiveOffering,
-    ElectiveOfferingStatus,
     ElectiveRegistration,
     ElectiveRegistrationStatus,
 )
 from app.modules.m_academics.models import CourseRoleInCourse
 from app.modules.m_academics.service import AcadServiceError
 
-# Faculty for each elective course is resolved from an active PRIMARY Course
-# Assignment (subject_assignments) — the same source attendance and internal
-# marks already key off, so assigning faculty here makes Steps 7/8 integrate
-# with no extra plumbing.
+# Slots students can see at all. A DRAFT slot is still being assembled.
+_STUDENT_VISIBLE = (
+    ElectiveSlotStatus.PUBLISHED.value,
+    ElectiveSlotStatus.OPEN.value,
+    ElectiveSlotStatus.CLOSED.value,
+)
+
+# The faculty teaching each option in a given term, via the active PRIMARY
+# Course Assignment — the same source attendance and marks key off.
 _FACULTY_JOIN_SQL = """
     LEFT JOIN LATERAL (
         SELECT u.id AS faculty_user_id, u.full_name
@@ -42,92 +56,146 @@ _FACULTY_JOIN_SQL = """
 """
 
 
-async def _get_student_current_semester_id(student_id: UUID, db: AsyncSession) -> UUID | None:
+class _StudentTerm:
+    """Where a student currently sits: the running term, its curriculum
+    semester number, and the institutional program their batch belongs to."""
+
+    __slots__ = ("semester_id", "semester_number", "acad_program_id")
+
+    def __init__(self, semester_id: UUID, semester_number: int, acad_program_id: UUID) -> None:
+        self.semester_id = semester_id
+        self.semester_number = semester_number
+        self.acad_program_id = acad_program_id
+
+
+async def _get_student_term(student_id: UUID, db: AsyncSession) -> _StudentTerm | None:
     row = (await db.execute(text("""
-        SELECT sem.id
+        SELECT sem.id AS semester_id, sem.number AS semester_number,
+               b.program_id AS acad_program_id
         FROM acad_enrollments ae
-        JOIN acad_sections s ON s.id = ae.section_id
+        JOIN acad_sections  s   ON s.id   = ae.section_id
         JOIN acad_semesters sem ON sem.id = s.semester_id
+        JOIN acad_batches   b   ON b.id   = sem.batch_id
         WHERE ae.student_id = :student_id AND ae.is_active = true
-    """), {"student_id": str(student_id)})).first()
-    return row[0] if row else None
+        LIMIT 1
+    """), {"student_id": str(student_id)})).mappings().first()
+    if row is None:
+        return None
+    return _StudentTerm(row["semester_id"], row["semester_number"], row["acad_program_id"])
 
 
 class ElectiveService:
     # -----------------------------------------------------------------
-    # Dean — offering lifecycle (create / edit / open-close) + faculty
-    # assignment. There is NO propose/approve/publish path: electives are
-    # a Dean academic-authority responsibility end to end. Faculty never
-    # create, propose, or approve offerings — they only teach what the
-    # Dean assigns them.
+    # Shared slot/option reads
     # -----------------------------------------------------------------
 
     @staticmethod
-    async def _assert_basket_eligible_for_semester(
-        basket_id: UUID, semester_id: UUID, db: AsyncSession,
-    ) -> None:
-        """A basket may only be offered against a semester belonging to the
-        same Published curriculum program the basket was defined in, and
-        must contain at least one course -- closes the gap where a Dean
-        could open an empty basket, a basket from a different program's
-        batch, or one from a still-DRAFT/Approved-but-unpublished program."""
-        basket = (await db.execute(text(
-            "SELECT id, program_id FROM elective_baskets WHERE id = :id"
-        ), {"id": str(basket_id)})).mappings().first()
-        if basket is None:
-            raise AcadServiceError("BASKET_NOT_FOUND", "Elective basket not found.", 404)
+    async def _options_for_baskets(
+        basket_ids: list[UUID], semester_id: UUID, db: AsyncSession,
+    ) -> dict[str, list[dict]]:
+        """Every option course hanging off each slot, with the faculty assigned
+        for `semester_id` and how many students have chosen it."""
+        if not basket_ids:
+            return {}
 
-        program_row = (await db.execute(text(
-            "SELECT acad_program_id, status FROM programs WHERE id = :id"
-        ), {"id": str(basket["program_id"])})).mappings().first()
-        if program_row is None or program_row["status"] != "PUBLISHED":
-            raise AcadServiceError(
-                "PROGRAM_NOT_PUBLISHED",
-                "This basket's program has not been published by the Dean yet.", 400,
-            )
+        rows = (await db.execute(text(f"""
+            SELECT c.elective_basket_id::text AS basket_id,
+                   c.id AS course_id, c.code, c.title, c.credits,
+                   c.course_type, c.description,
+                   fac.faculty_user_id, fac.full_name AS faculty_name,
+                   (SELECT COUNT(*) FROM elective_registrations er
+                     WHERE er.course_id = c.id AND er.semester_id = :semester_id
+                       AND er.status = 'REGISTERED') AS registered_count
+            FROM courses c
+            {_FACULTY_JOIN_SQL}
+            WHERE c.elective_basket_id = ANY(:basket_ids)
+            ORDER BY c.code
+        """), {
+            "basket_ids": [str(b) for b in basket_ids],
+            "semester_id": str(semester_id),
+        })).mappings().all()
 
-        semester_program_id = await get_semester_program_id(semester_id, db)
-        if semester_program_id is None or program_row["acad_program_id"] != semester_program_id:
-            raise AcadServiceError(
-                "SEMESTER_PROGRAM_MISMATCH",
-                "This basket does not belong to the selected semester's program.", 400,
-            )
+        out: dict[str, list[dict]] = {str(b): [] for b in basket_ids}
+        for r in rows:
+            out[r["basket_id"]].append({k: v for k, v in r.items() if k != "basket_id"})
+        return out
 
-        course_count = (await db.execute(text(
-            "SELECT COUNT(*) FROM courses WHERE elective_basket_id = :id"
-        ), {"id": str(basket_id)})).scalar_one()
-        if course_count == 0:
-            raise AcadServiceError(
-                "BASKET_EMPTY", "This basket has no elective courses in it yet.", 400,
-            )
+    # -----------------------------------------------------------------
+    # Dean — assign faculty to each choice, for one running term.
+    # -----------------------------------------------------------------
 
     @staticmethod
-    async def _assert_course_in_basket(course_id: UUID, basket_id: UUID, db: AsyncSession) -> None:
-        row = (await db.execute(text(
-            "SELECT 1 FROM courses WHERE id = :course_id AND elective_basket_id = :basket_id"
-        ), {"course_id": str(course_id), "basket_id": str(basket_id)})).first()
-        if row is None:
-            raise AcadServiceError(
-                "COURSE_NOT_IN_BASKET", "That course is not part of this elective basket.", 400,
-            )
+    async def list_slots_for_term(semester_id: UUID, dean_id: UUID, db: AsyncSession) -> list[dict]:
+        """Every elective slot that applies to this running term, with each
+        choice's faculty for that term. The term's semester number selects the
+        slots; the term itself selects the assignments."""
+        await assert_dean_owns_semester_program(
+            dean_id, semester_id, db, "Semester not found in your governed programs.",
+        )
+        sem = (await db.execute(text("""
+            SELECT sem.number, b.program_id AS acad_program_id
+            FROM acad_semesters sem
+            JOIN acad_batches b ON b.id = sem.batch_id
+            WHERE sem.id = :sid
+        """), {"sid": str(semester_id)})).mappings().first()
+        if sem is None:
+            raise AcadServiceError("SEMESTER_NOT_FOUND", "Semester not found.", 404)
+
+        baskets = (await db.execute(text("""
+            SELECT b.id, b.name, b.description, b.credits, b.semester, b.status
+            FROM elective_baskets b
+            JOIN programs p ON p.id = b.program_id
+            WHERE p.acad_program_id = :apid
+              AND p.status = 'PUBLISHED'
+              AND b.semester = :num
+            ORDER BY b.name
+        """), {"apid": str(sem["acad_program_id"]), "num": sem["number"]})).mappings().all()
+        if not baskets:
+            return []
+
+        options = await ElectiveService._options_for_baskets(
+            [b["id"] for b in baskets], semester_id, db,
+        )
+        return [
+            {
+                "basket_id": b["id"], "name": b["name"], "description": b["description"],
+                "credits": b["credits"], "semester": b["semester"], "status": b["status"],
+                "semester_id": semester_id,
+                "options": options.get(str(b["id"]), []),
+            }
+            for b in baskets
+        ]
 
     @staticmethod
-    async def _assign_course_faculty(
+    async def assign_choice_faculty(
         course_id: UUID,
         semester_id: UUID,
         faculty_user_id: UUID,
-        *,
-        assigned_by: UUID,
-        actor_role: str,
-        tenant_id: UUID | None,
-        schema_name: str | None,
+        dean_id: UUID,
         db: AsyncSession,
+        *,
+        actor_role: str = "DEAN",
+        tenant_id: UUID | None = None,
+        schema_name: str | None = None,
     ) -> None:
-        """Make `faculty_user_id` the PRIMARY faculty for this elective course
-        in this semester, reusing the Subject Assignment workflow (which audits,
-        notifies, and enforces dean scope + faculty-role validity). Idempotent:
-        if the same faculty is already PRIMARY it is a no-op; if a different
-        faculty is PRIMARY it is revoked and replaced (the Dean reassigning)."""
+        """Make `faculty_user_id` the PRIMARY faculty for this elective choice in
+        this term. Idempotent; reassigning revokes the previous PRIMARY.
+
+        Delegates to AssignmentService so dean scope, audit logging, notifications
+        and faculty-role validation are the same ones ordinary subject assignment
+        already enforces — an elective is not a special kind of subject.
+        """
+        await assert_dean_owns_semester_program(
+            dean_id, semester_id, db, "Semester not found in your governed programs.",
+        )
+        in_slot = (await db.execute(text(
+            "SELECT 1 FROM courses WHERE id = :cid AND elective_basket_id IS NOT NULL"
+        ), {"cid": str(course_id)})).first()
+        if in_slot is None:
+            raise AcadServiceError(
+                "NOT_AN_ELECTIVE_CHOICE", "That subject is not an elective choice.", 400,
+            )
+
         from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
 
         existing = await SubjectAssignmentRepository.list_by_course(
@@ -139,294 +207,273 @@ class ElectiveService:
         )
         if primary is not None:
             if primary.faculty_user_id == faculty_user_id:
-                return  # already the assigned faculty — nothing to do
+                return  # already assigned — nothing to do
             await AssignmentService.revoke(
-                primary.id,
-                revoked_by=assigned_by,
-                actor_role=actor_role,
-                tenant_id=tenant_id,
-                schema_name=schema_name,
-                db=db,
+                primary.id, revoked_by=dean_id, actor_role=actor_role,
+                tenant_id=tenant_id, schema_name=schema_name, db=db,
             )
 
-        await AssignmentService.create(
-            AssignmentCreate(
-                course_id=course_id,
-                faculty_user_id=faculty_user_id,
-                semester_id=semester_id,
-                role_in_course=CourseRoleInCourse.PRIMARY,
-            ),
-            assigned_by=assigned_by,
-            actor_role=actor_role,
-            tenant_id=tenant_id,
-            schema_name=schema_name,
-            db=db,
-        )
-
-    @staticmethod
-    async def list_eligible_baskets(semester_id: UUID, db: AsyncSession) -> list[dict]:
-        """Elective baskets auto-eligible for an offering in `semester_id`:
-        defined in the semester's own Published curriculum program, at that
-        semester's curriculum semester number. This is what the Dean picks
-        from -- never a free-text course name, and never a single course."""
-        sem_row = (await db.execute(text(
-            "SELECT number FROM acad_semesters WHERE id = :id"
-        ), {"id": str(semester_id)})).mappings().first()
-        if sem_row is None:
-            raise AcadServiceError("SEMESTER_NOT_FOUND", "Semester not found.", 404)
-
-        acad_program_id = await get_semester_program_id(semester_id, db)
-        if acad_program_id is None:
-            return []
-
-        basket_rows = (await db.execute(text(
-            f"""
-            SELECT b.id AS basket_id, b.name, b.description,
-                   EXISTS (
-                       SELECT 1 FROM elective_offerings eo
-                       WHERE eo.basket_id = b.id AND eo.semester_id = :semester_id
-                   ) AS already_offered
-            FROM elective_baskets b
-            JOIN programs p ON p.id = b.program_id
-            WHERE p.acad_program_id = :acad_program_id
-              AND p.status = 'PUBLISHED'
-              AND b.semester = :semester_number
-            ORDER BY b.name
-            """
-        ), {
-            "semester_id": str(semester_id),
-            "acad_program_id": str(acad_program_id),
-            "semester_number": sem_row["number"],
-        })).mappings().all()
-
-        baskets = []
-        for b in basket_rows:
-            course_rows = (await db.execute(text(
-                f"""
-                SELECT c.id AS course_id, c.code, c.title, c.credits, c.description,
-                       fac.faculty_user_id, fac.full_name AS faculty_name
-                FROM courses c
-                {_FACULTY_JOIN_SQL}
-                WHERE c.elective_basket_id = :basket_id
-                ORDER BY c.title
-                """
-            ), {"basket_id": str(b["basket_id"]), "semester_id": str(semester_id)})).mappings().all()
-            baskets.append({**dict(b), "courses": [dict(c) for c in course_rows]})
-        return baskets
-
-    @staticmethod
-    async def _attach_courses(rows: list[dict], db: AsyncSession) -> list[dict]:
-        """Populate each offering row's `courses` list -- the basket's member
-        courses, each with a per-course seats_taken count and the Dean-assigned
-        faculty (via the active PRIMARY Course Assignment)."""
-        out = []
-        for r in rows:
-            course_rows = (await db.execute(text(
-                f"""
-                SELECT c.id AS course_id, c.code, c.title, c.credits, c.description,
-                       fac.faculty_user_id, fac.full_name AS faculty_name,
-                       (SELECT COUNT(*) FROM elective_registrations er
-                         WHERE er.offering_id = :offering_id AND er.course_id = c.id
-                           AND er.status = 'REGISTERED') AS seats_taken
-                FROM courses c
-                {_FACULTY_JOIN_SQL}
-                WHERE c.elective_basket_id = :basket_id
-                ORDER BY c.title
-                """
-            ), {
-                "basket_id": str(r["basket_id"]), "semester_id": str(r["semester_id"]),
-                "offering_id": str(r["id"]),
-            })).mappings().all()
-            out.append({**r, "courses": [dict(c) for c in course_rows]})
-        return out
-
-    @staticmethod
-    async def create_offering(body, created_by: UUID, db: AsyncSession, *,
-                              actor_role: str = "DEAN",
-                              tenant_id: UUID | None = None,
-                              schema_name: str | None = None) -> ElectiveOffering:
-        # Ownership: a Dean may only create offerings for a semester whose
-        # program they govern.
-        await assert_dean_owns_semester_program(
-            created_by, body.semester_id, db, "Semester not found in your governed programs.",
-        )
-        await ElectiveService._assert_basket_eligible_for_semester(body.basket_id, body.semester_id, db)
-
-        offering = ElectiveOffering(
-            id=uuid.uuid4(),
-            basket_id=body.basket_id, semester_id=body.semester_id,
-            max_seats=body.max_seats,
-            registration_opens_at=body.registration_opens_at,
-            registration_closes_at=body.registration_closes_at,
-            status=ElectiveOfferingStatus.OPEN.value,
-            created_by_user_id=created_by,
-        )
-        db.add(offering)
-        await db.commit()
-        await db.refresh(offering)
-
-        # Assign the faculty the Dean chose for each course in the basket.
-        for fa in (body.faculty_assignments or []):
-            await ElectiveService._assert_course_in_basket(fa.course_id, body.basket_id, db)
-            try:
-                await ElectiveService._assign_course_faculty(
-                    fa.course_id, body.semester_id, fa.faculty_user_id,
-                    assigned_by=created_by, actor_role=actor_role,
-                    tenant_id=tenant_id, schema_name=schema_name, db=db,
-                )
-            except AssignmentServiceError as e:
-                raise AcadServiceError(e.code, e.message, e.status_code)
-
-        return offering
-
-    @staticmethod
-    async def assign_faculty(
-        offering_id: UUID, course_id: UUID, faculty_user_id: UUID, dean_id: UUID,
-        db: AsyncSession, *, actor_role: str = "DEAN",
-        tenant_id: UUID | None = None, schema_name: str | None = None,
-    ) -> ElectiveOffering:
-        offering = await ElectiveService._load(offering_id, db)
-        await assert_dean_owns_semester_program(
-            dean_id, offering.semester_id, db, "Elective offering not found.",
-        )
-        await ElectiveService._assert_course_in_basket(course_id, offering.basket_id, db)
         try:
-            await ElectiveService._assign_course_faculty(
-                course_id, offering.semester_id, faculty_user_id,
+            await AssignmentService.create(
+                AssignmentCreate(
+                    course_id=course_id,
+                    faculty_user_id=faculty_user_id,
+                    semester_id=semester_id,
+                    role_in_course=CourseRoleInCourse.PRIMARY,
+                ),
                 assigned_by=dean_id, actor_role=actor_role,
                 tenant_id=tenant_id, schema_name=schema_name, db=db,
             )
         except AssignmentServiceError as e:
             raise AcadServiceError(e.code, e.message, e.status_code)
-        return offering
-
-    @staticmethod
-    async def _dean_program_filter(dean_id: UUID | None, actor_role: str | None, db: AsyncSession):
-        """Return (sql_fragment, params) restricting offerings to a Dean's
-        governed programs, or ('', {}) for unrestricted (ADMIN) callers."""
-        if actor_role != "DEAN" or dean_id is None:
-            return "", {}
-        governed = await get_dean_program_ids(dean_id, "DEAN", db)
-        if governed is None:
-            return "", {}
-        if not governed:
-            return "AND false", {}
-        return (
-            "AND p.acad_program_id = ANY(:governed_programs)",
-            {"governed_programs": [str(g) for g in governed]},
-        )
-
-    @staticmethod
-    async def list_offerings_admin(
-        db: AsyncSession, semester_id: UUID | None = None,
-        *, dean_id: UUID | None = None, actor_role: str | None = None,
-    ) -> list[dict]:
-        scope_sql, scope_params = await ElectiveService._dean_program_filter(dean_id, actor_role, db)
-        sql = f"""
-            SELECT eo.*, b.name AS basket_name, b.description AS basket_description
-            FROM elective_offerings eo
-            JOIN elective_baskets b ON b.id = eo.basket_id
-            JOIN programs p ON p.id = b.program_id
-            WHERE (:semester_id IS NULL OR eo.semester_id = :semester_id)
-            {scope_sql}
-            ORDER BY eo.created_at DESC
-        """
-        rows = (await db.execute(text(sql), {
-            "semester_id": str(semester_id) if semester_id else None,
-            **scope_params,
-        })).mappings().all()
-        return await ElectiveService._attach_courses([dict(r) for r in rows], db)
-
-    @staticmethod
-    async def get_dashboard_stats(
-        db: AsyncSession, semester_id: UUID | None = None,
-        *, dean_id: UUID | None = None, actor_role: str | None = None,
-    ) -> dict:
-        """Live demand statistics for the Dean: every OPEN/CLOSED offering with
-        per-course registration counts, plus rolled-up totals."""
-        offerings = await ElectiveService.list_offerings_admin(
-            db, semester_id=semester_id, dean_id=dean_id, actor_role=actor_role,
-        )
-        total_registrations = sum(
-            c["seats_taken"] for o in offerings for c in o["courses"]
-        )
-        return {
-            "total_offerings": len(offerings),
-            "total_registrations": total_registrations,
-            "offerings": offerings,
-        }
-
-    @staticmethod
-    async def _load(offering_id: UUID, db: AsyncSession) -> ElectiveOffering:
-        offering = (await db.execute(
-            select(ElectiveOffering).where(ElectiveOffering.id == offering_id)
-        )).scalar_one_or_none()
-        if offering is None:
-            raise AcadServiceError("OFFERING_NOT_FOUND", "Elective offering not found.", 404)
-        return offering
-
-    @staticmethod
-    async def update_offering(offering_id: UUID, dean_id: UUID, body, db: AsyncSession) -> ElectiveOffering:
-        offering = await ElectiveService._load(offering_id, db)
-        await assert_dean_owns_semester_program(
-            dean_id, offering.semester_id, db, "Elective offering not found.",
-        )
-        data = body.model_dump(exclude_unset=True)
-        for field, value in data.items():
-            setattr(offering, field, value)
-        offering.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(offering)
-        return offering
 
     # -----------------------------------------------------------------
-    # Faculty — read-only. A faculty member sees ONLY the students who
-    # registered for the elective(s) the Dean assigned them to teach.
+    # Student — one choice per slot, while the slot is OPEN.
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    async def list_slots_for_student(student_id: UUID, db: AsyncSession) -> list[dict]:
+        """The elective slots this student must satisfy: those defined at their
+        current semester number on the PUBLISHED program their batch belongs to,
+        and themselves at least PUBLISHED. Each carries its options and the
+        student's own choice, so the UI needs no second round-trip."""
+        term = await _get_student_term(student_id, db)
+        if term is None:
+            return []
+
+        basket_rows = (await db.execute(text("""
+            SELECT b.id, b.name, b.description, b.credits, b.semester, b.status
+            FROM elective_baskets b
+            JOIN programs p ON p.id = b.program_id
+            WHERE p.acad_program_id = :acad_program_id
+              AND p.status = 'PUBLISHED'
+              AND b.semester = :semester_number
+              AND b.status = ANY(:visible)
+            ORDER BY b.name
+        """), {
+            "acad_program_id": str(term.acad_program_id),
+            "semester_number": term.semester_number,
+            "visible": list(_STUDENT_VISIBLE),
+        })).mappings().all()
+        if not basket_rows:
+            return []
+
+        options = await ElectiveService._options_for_baskets(
+            [r["id"] for r in basket_rows], term.semester_id, db,
+        )
+        chosen = {
+            str(r["basket_id"]): r["course_id"]
+            for r in (await db.execute(text("""
+                SELECT basket_id, course_id FROM elective_registrations
+                WHERE student_user_id = :sid AND status = 'REGISTERED'
+            """), {"sid": str(student_id)})).mappings().all()
+        }
+
+        return [
+            {
+                "basket_id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "credits": r["credits"],
+                "semester": r["semester"],
+                "semester_id": term.semester_id,
+                "status": r["status"],
+                # Only an OPEN slot accepts a choice, or a change of choice.
+                "can_register": r["status"] == ElectiveSlotStatus.OPEN.value,
+                "options": options.get(str(r["id"]), []),
+                "chosen_course_id": chosen.get(str(r["id"])),
+            }
+            for r in basket_rows
+        ]
+
+    @staticmethod
+    async def _assert_slot_registerable(
+        basket_id: UUID, course_id: UUID, term: _StudentTerm, db: AsyncSession,
+    ) -> None:
+        slot = (await db.execute(text("""
+            SELECT b.id, b.name, b.semester, b.status, p.status AS program_status,
+                   p.acad_program_id
+            FROM elective_baskets b
+            JOIN programs p ON p.id = b.program_id
+            WHERE b.id = :basket_id
+        """), {"basket_id": str(basket_id)})).mappings().first()
+        if slot is None:
+            raise AcadServiceError("SLOT_NOT_FOUND", "Elective slot not found.", 404)
+        if slot["program_status"] != "PUBLISHED":
+            raise AcadServiceError(
+                "PROGRAM_NOT_PUBLISHED",
+                "This elective's program has not been published yet.", 400,
+            )
+        if slot["acad_program_id"] != term.acad_program_id:
+            raise AcadServiceError(
+                "SLOT_NOT_IN_PROGRAM", "This elective is not part of your program.", 403,
+            )
+        if slot["semester"] != term.semester_number:
+            raise AcadServiceError(
+                "SLOT_NOT_IN_CURRENT_SEMESTER",
+                "This elective belongs to a different semester.", 400,
+            )
+        if slot["status"] != ElectiveSlotStatus.OPEN.value:
+            not_yet = slot["status"] == ElectiveSlotStatus.PUBLISHED.value
+            raise AcadServiceError(
+                "SLOT_NOT_OPEN",
+                f"Registration for {slot['name']} has not opened yet." if not_yet
+                else f"Registration for {slot['name']} has closed.",
+                409,
+            )
+
+        in_slot = (await db.execute(text(
+            "SELECT 1 FROM courses WHERE id = :course_id AND elective_basket_id = :basket_id"
+        ), {"course_id": str(course_id), "basket_id": str(basket_id)})).first()
+        if in_slot is None:
+            raise AcadServiceError(
+                "COURSE_NOT_IN_SLOT", "That subject is not a choice in this elective slot.", 400,
+            )
+
+    @staticmethod
+    async def register(
+        basket_id: UUID, course_id: UUID, student_id: UUID, db: AsyncSession,
+    ) -> ElectiveRegistration:
+        """Choose `course_id` for slot `basket_id`. Re-registering while the slot
+        is still OPEN replaces the previous choice; the unique (basket, student)
+        constraint is what guarantees exactly one option per slot. Phase 5 has no
+        seat cap, so there is no capacity check."""
+        term = await _get_student_term(student_id, db)
+        if term is None:
+            raise AcadServiceError(
+                "NO_ACTIVE_ENROLLMENT", "You are not enrolled in an active section.", 400,
+            )
+        await ElectiveService._assert_slot_registerable(basket_id, course_id, term, db)
+
+        existing = (await db.execute(
+            select(ElectiveRegistration).where(
+                ElectiveRegistration.basket_id == basket_id,
+                ElectiveRegistration.student_user_id == student_id,
+            )
+        )).scalar_one_or_none()
+
+        if existing is not None:
+            existing.course_id = course_id
+            existing.semester_id = term.semester_id
+            existing.status = ElectiveRegistrationStatus.REGISTERED.value
+            existing.registered_at = datetime.utcnow()
+            existing.updated_at = datetime.utcnow()
+            reg = existing
+        else:
+            reg = ElectiveRegistration(
+                id=uuid.uuid4(), basket_id=basket_id, course_id=course_id,
+                semester_id=term.semester_id, student_user_id=student_id,
+                status=ElectiveRegistrationStatus.REGISTERED.value,
+            )
+            db.add(reg)
+        await db.commit()
+        await db.refresh(reg)
+        return reg
+
+    @staticmethod
+    async def drop(basket_id: UUID, student_id: UUID, db: AsyncSession) -> ElectiveRegistration:
+        """Only while the slot is OPEN. Once CLOSED the roster is final — the
+        faculty is already teaching and marking that class."""
+        slot_status = (await db.execute(text(
+            "SELECT status FROM elective_baskets WHERE id = :bid"
+        ), {"bid": str(basket_id)})).scalar_one_or_none()
+        if slot_status is None:
+            raise AcadServiceError("SLOT_NOT_FOUND", "Elective slot not found.", 404)
+        if slot_status != ElectiveSlotStatus.OPEN.value:
+            raise AcadServiceError(
+                "SLOT_NOT_OPEN", "Registration has closed; this choice can no longer be changed.", 409,
+            )
+
+        reg = (await db.execute(
+            select(ElectiveRegistration).where(
+                ElectiveRegistration.basket_id == basket_id,
+                ElectiveRegistration.student_user_id == student_id,
+            )
+        )).scalar_one_or_none()
+        if reg is None:
+            raise AcadServiceError("REGISTRATION_NOT_FOUND", "No choice recorded for this elective.", 404)
+        reg.status = ElectiveRegistrationStatus.DROPPED.value
+        reg.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(reg)
+        return reg
+
+    @staticmethod
+    async def get_my_registrations(student_id: UUID, db: AsyncSession) -> list[dict]:
+        term = await _get_student_term(student_id, db)
+        current_semester = term.semester_id if term else None
+        rows = (await db.execute(text("""
+            SELECT er.id, er.basket_id, er.semester_id, er.status, er.registered_at,
+                   b.name AS basket_name,
+                   c.id AS course_id, c.code AS course_code, c.title AS course_title, c.credits,
+                   COALESCE(sem.label, CONCAT('Semester ', sem.number)) AS semester_label
+            FROM elective_registrations er
+            JOIN elective_baskets b   ON b.id   = er.basket_id
+            JOIN courses c            ON c.id   = er.course_id
+            JOIN acad_semesters sem   ON sem.id = er.semester_id
+            WHERE er.student_user_id = :student_id
+            ORDER BY er.registered_at DESC
+        """), {"student_id": str(student_id)})).mappings().all()
+        return [
+            {**dict(r), "is_current": current_semester is not None and r["semester_id"] == current_semester}
+            for r in rows
+        ]
+
+    # -----------------------------------------------------------------
+    # Faculty — the combined elective class.
+    #
+    # Grouping is by course, never by section: MCA-A's 20 students and MCA-B's
+    # 15 who both chose Artificial Intelligence surface as ONE class of 35.
+    # A faculty member sees only the students who chose the course they teach,
+    # never those of a sibling elective in the same slot.
     # -----------------------------------------------------------------
 
     @staticmethod
     async def get_faculty_elective_roster(faculty_id: UUID, db: AsyncSession) -> list[dict]:
-        """Every elective course this faculty is the active PRIMARY/CO_FACULTY
-        for that has an open offering, each with the list of students who
-        registered for THAT course (never students of a sibling elective)."""
         rows = (await db.execute(text("""
             SELECT
-                c.id::text          AS course_id,
-                c.code              AS course_code,
-                c.title             AS course_title,
-                eo.id::text         AS offering_id,
-                eo.semester_id::text AS semester_id,
+                c.id::text               AS course_id,
+                c.code                   AS course_code,
+                c.title                  AS course_title,
+                er.basket_id::text       AS basket_id,
+                er.semester_id::text     AS semester_id,
                 COALESCE(sem.label, CONCAT('Semester ', sem.number)) AS semester_label,
-                b.name              AS basket_name,
+                b.name                   AS basket_name,
                 er.student_user_id::text AS student_id,
-                u.full_name         AS student_name,
-                sp.usn              AS usn,
-                u.email             AS student_email,
-                er.registered_at    AS registered_at
+                u.full_name              AS student_name,
+                sp.usn                   AS usn,
+                u.email                  AS student_email,
+                sec.name                 AS section_name,
+                er.registered_at         AS registered_at
             FROM elective_registrations er
-            JOIN elective_offerings eo ON eo.id = er.offering_id
-            JOIN elective_baskets   b  ON b.id = eo.basket_id
-            JOIN courses c             ON c.id = er.course_id
-            JOIN acad_semesters sem    ON sem.id = eo.semester_id
-            JOIN subject_assignments sa ON sa.course_id = er.course_id
-                                       AND sa.semester_id = eo.semester_id
+            JOIN elective_baskets b   ON b.id   = er.basket_id
+            JOIN courses c            ON c.id   = er.course_id
+            JOIN acad_semesters sem   ON sem.id = er.semester_id
+            JOIN subject_assignments sa ON sa.course_id       = er.course_id
+                                       AND sa.semester_id     = er.semester_id
                                        AND sa.faculty_user_id = :faculty_id
-                                       AND sa.is_active = true
+                                       AND sa.is_active       = true
                                        AND sa.role_in_course IN ('PRIMARY', 'CO_FACULTY')
-            JOIN users u               ON u.id = er.student_user_id
+            JOIN users u              ON u.id = er.student_user_id
             LEFT JOIN sis_student_profiles sp ON sp.user_id = er.student_user_id
+            LEFT JOIN LATERAL (
+                SELECT s.name
+                FROM acad_enrollments ae
+                JOIN acad_sections s ON s.id = ae.section_id
+                WHERE ae.student_id = er.student_user_id AND ae.is_active = true
+                LIMIT 1
+            ) sec ON true
             WHERE er.status = 'REGISTERED'
             ORDER BY c.title, u.full_name
         """), {"faculty_id": str(faculty_id)})).mappings().all()
 
         by_course: dict[str, dict] = {}
         for r in rows:
-            key = r["course_id"]
-            group = by_course.setdefault(key, {
+            group = by_course.setdefault(r["course_id"], {
                 "course_id": r["course_id"],
                 "course_code": r["course_code"],
                 "course_title": r["course_title"],
-                "offering_id": r["offering_id"],
+                "basket_id": r["basket_id"],
                 "semester_id": r["semester_id"],
                 "semester_label": r["semester_label"],
                 "basket_name": r["basket_name"],
@@ -437,121 +484,13 @@ class ElectiveService:
                 "student_name": r["student_name"],
                 "usn": r["usn"],
                 "student_email": r["student_email"],
+                "section_name": r["section_name"],
                 "registered_at": r["registered_at"],
             })
+
         result = list(by_course.values())
         for g in result:
             g["total_students"] = len(g["students"])
+            # The combined class spans however many sections chose this option.
+            g["section_count"] = len({s["section_name"] for s in g["students"] if s["section_name"]})
         return result
-
-    # -----------------------------------------------------------------
-    # Student — sees only electives available for their own program +
-    # semester; registers for ONE course from a basket.
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    async def list_available_for_student(
-        student_id: UUID, db: AsyncSession, semester_id: UUID | None = None
-    ) -> list[dict]:
-        target_semester = semester_id or await _get_student_current_semester_id(student_id, db)
-        sql = """
-            SELECT eo.*, b.name AS basket_name, b.description AS basket_description
-            FROM elective_offerings eo
-            JOIN elective_baskets b ON b.id = eo.basket_id
-            WHERE eo.status = 'OPEN'
-              AND (:semester_id IS NULL OR eo.semester_id = :semester_id)
-            ORDER BY b.name
-        """
-        rows = (await db.execute(text(sql), {
-            "semester_id": str(target_semester) if target_semester else None,
-        })).mappings().all()
-        return await ElectiveService._attach_courses([dict(r) for r in rows], db)
-
-    @staticmethod
-    async def register(offering_id: UUID, course_id: UUID, student_id: UUID, db: AsyncSession) -> ElectiveRegistration:
-        offering = (await db.execute(
-            select(ElectiveOffering).where(ElectiveOffering.id == offering_id)
-        )).scalar_one_or_none()
-        if offering is None:
-            raise AcadServiceError("OFFERING_NOT_FOUND", "Elective offering not found.", 404)
-        if offering.status != ElectiveOfferingStatus.OPEN.value:
-            raise AcadServiceError("OFFERING_CLOSED", "Registration for this elective is closed.", 400)
-
-        course_in_basket = (await db.execute(text(
-            "SELECT 1 FROM courses WHERE id = :course_id AND elective_basket_id = :basket_id"
-        ), {"course_id": str(course_id), "basket_id": str(offering.basket_id)})).first()
-        if course_in_basket is None:
-            raise AcadServiceError(
-                "COURSE_NOT_IN_BASKET", "That course is not part of this elective basket.", 400,
-            )
-
-        seats_taken = (await db.execute(text(
-            "SELECT COUNT(*) FROM elective_registrations "
-            "WHERE offering_id = :id AND course_id = :course_id AND status = 'REGISTERED'"
-        ), {"id": str(offering_id), "course_id": str(course_id)})).scalar_one()
-        new_status = (
-            ElectiveRegistrationStatus.REGISTERED.value
-            if seats_taken < offering.max_seats
-            else ElectiveRegistrationStatus.WAITLISTED.value
-        )
-
-        existing = (await db.execute(
-            select(ElectiveRegistration).where(
-                ElectiveRegistration.offering_id == offering_id,
-                ElectiveRegistration.student_user_id == student_id,
-            )
-        )).scalar_one_or_none()
-        if existing is not None:
-            if existing.status == ElectiveRegistrationStatus.REGISTERED.value:
-                raise AcadServiceError("ALREADY_REGISTERED", "Already registered for an elective in this basket.", 409)
-            existing.course_id = course_id
-            existing.status = new_status
-            existing.registered_at = datetime.utcnow()
-            reg = existing
-        else:
-            reg = ElectiveRegistration(
-                id=uuid.uuid4(), offering_id=offering_id, course_id=course_id,
-                student_user_id=student_id, status=new_status,
-            )
-            db.add(reg)
-        await db.commit()
-        await db.refresh(reg)
-        return reg
-
-    @staticmethod
-    async def drop(offering_id: UUID, student_id: UUID, db: AsyncSession) -> ElectiveRegistration:
-        reg = (await db.execute(
-            select(ElectiveRegistration).where(
-                ElectiveRegistration.offering_id == offering_id,
-                ElectiveRegistration.student_user_id == student_id,
-            )
-        )).scalar_one_or_none()
-        if reg is None:
-            raise AcadServiceError("REGISTRATION_NOT_FOUND", "No registration found for this elective.", 404)
-        reg.status = ElectiveRegistrationStatus.DROPPED.value
-        reg.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(reg)
-        return reg
-
-    @staticmethod
-    async def get_my_registrations(student_id: UUID, db: AsyncSession) -> list[dict]:
-        current_semester = await _get_student_current_semester_id(student_id, db)
-        sql = """
-            SELECT er.id, er.offering_id, er.status, er.registered_at,
-                   eo.basket_id, eo.semester_id, b.name AS basket_name,
-                   c.id AS course_id, c.code AS course_code, c.title AS course_title, c.credits,
-                   COALESCE(sem.label, CONCAT('Semester ', sem.number)) AS semester_label
-            FROM elective_registrations er
-            JOIN elective_offerings eo ON eo.id = er.offering_id
-            JOIN elective_baskets b ON b.id = eo.basket_id
-            JOIN courses c ON c.id = er.course_id
-            JOIN acad_semesters sem ON sem.id = eo.semester_id
-            WHERE er.student_user_id = :student_id
-            ORDER BY er.registered_at DESC
-        """
-        rows = (await db.execute(text(sql), {"student_id": str(student_id)})).mappings().all()
-        return [
-            {**dict(r), "is_current": current_semester is not None and r["semester_id"] == current_semester}
-            for r in rows
-        ]

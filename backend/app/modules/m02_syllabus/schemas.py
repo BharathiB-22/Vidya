@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.modules.m01_program_advisor.models import CourseType
 from app.modules.m02_syllabus.models import (
     BloomLevel,
     MappingStrength,
@@ -13,6 +15,138 @@ from app.modules.m02_syllabus.models import (
     RefType,
     SyllabusStatus,
 )
+
+
+# ---------------------------------------------------------------------------
+# The type-specific official document (Syllabus.document JSONB)
+#
+# A Board of Studies does not write a syllabus for an internship. It writes
+# guidelines — duration, evaluation rubric, weekly activities, what the company
+# must provide, how the viva runs. A laboratory gets a lab manual and an experiment
+# list, not five units of lectures it never delivers. A major project gets a
+# handbook with a proposal format and a demonstration.
+#
+# So THEORY is the only type whose document is units + outcomes + references. Every
+# other type stores its body here, in `Syllabus.document`, shaped by the schema
+# below that matches its `doc_type`.
+#
+# Every field is a plain list of lines, and that is deliberate: the Board must be
+# able to edit, add, remove and reorder ANY of it (Phase A rule — nothing the AI
+# produced is final). A richer nested shape would buy structure the Board could not
+# then rewrite freely, which is the wrong trade for a document a university has to
+# be able to amend in a meeting.
+# ---------------------------------------------------------------------------
+
+class Experiment(BaseModel):
+    """One entry of a lab manual's experiment list — the thing that actually gets
+    performed in the laboratory, in the week it is performed."""
+    number:     int  = Field(..., ge=1)
+    title:      str  = Field(..., min_length=5)
+    aim:        Optional[str] = None
+    procedure:  Optional[str] = None
+    apparatus:  list[str] = Field(default_factory=list)
+    hours:      Optional[int] = Field(default=None, ge=1)
+
+
+class LabDocument(BaseModel):
+    """LAB — a Lab Manual. Explicitly NO theory units.
+
+    Course Outcomes are still Course Outcomes (they are the Lab Outcomes, and they
+    map to POs like any other), so they live in the normal `outcomes` relationship
+    rather than being duplicated here.
+    """
+    manual_intro:          Optional[str] = None
+    experiments:           list[Experiment] = Field(default_factory=list)
+    equipment:             list[str] = Field(default_factory=list)
+    software:              list[str] = Field(default_factory=list)
+    assessment_guidelines: list[str] = Field(default_factory=list)
+
+
+class RubricRow(BaseModel):
+    """One row of an evaluation rubric: what is judged and what it is worth."""
+    criterion: str = Field(..., min_length=3)
+    weightage: Optional[int] = Field(default=None, ge=0, le=100)   # percent
+    descriptor: Optional[str] = None
+
+
+class InternshipDocument(BaseModel):
+    """INTERNSHIP — no syllabus exists, and the Board does not write one.
+
+    Duration and credits are stated in the document because an internship's
+    duration is a policy decision the Board makes (8 weeks, 6 months), not a
+    property derivable from an L-T-P that internships do not have.
+    """
+    guidelines:           list[str] = Field(default_factory=list)
+    duration:             Optional[str] = None    # "8 weeks (post Semester VI)"
+    credits:              Optional[int] = Field(default=None, ge=0)
+    evaluation_rubric:    list[RubricRow] = Field(default_factory=list)
+    weekly_activities:    list[str] = Field(default_factory=list)
+    company_requirements: list[str] = Field(default_factory=list)
+    report_format:        list[str] = Field(default_factory=list)
+    viva_guidelines:      list[str] = Field(default_factory=list)
+
+
+class MiniProjectDocument(BaseModel):
+    """MINI_PROJECT — milestones and reviews inside a single semester."""
+    guidelines:   list[str] = Field(default_factory=list)
+    milestones:   list[str] = Field(default_factory=list)
+    deliverables: list[str] = Field(default_factory=list)
+    reviews:      list[str] = Field(default_factory=list)
+    rubrics:      list[RubricRow] = Field(default_factory=list)
+
+
+class MajorProjectDocument(BaseModel):
+    """MAJOR_PROJECT — a project handbook. The superset of the mini project: it
+    carries a proposal, a demonstration and a viva, which a mini project does not."""
+    handbook:           list[str] = Field(default_factory=list)
+    proposal_format:    list[str] = Field(default_factory=list)
+    timeline:           list[str] = Field(default_factory=list)
+    reviews:            list[str] = Field(default_factory=list)
+    rubrics:            list[RubricRow] = Field(default_factory=list)
+    final_report_format: list[str] = Field(default_factory=list)
+    demonstration:      list[str] = Field(default_factory=list)
+    viva:               list[str] = Field(default_factory=list)
+
+
+class SeminarDocument(BaseModel):
+    """SEMINAR — guidelines in place of a syllabus."""
+    guidelines:          list[str] = Field(default_factory=list)
+    topic_selection:     list[str] = Field(default_factory=list)
+    presentation_format: list[str] = Field(default_factory=list)
+    evaluation_rubric:   list[RubricRow] = Field(default_factory=list)
+    deliverables:        list[str] = Field(default_factory=list)
+
+
+# doc_type -> the schema its `document` JSONB must satisfy. THEORY is absent on
+# purpose: a theory syllabus IS its units, outcomes and references, and its
+# `document` stays empty. A lookup miss therefore means "this type has no document
+# body", which is exactly true of THEORY.
+DOCUMENT_SCHEMAS: dict[str, type[BaseModel]] = {
+    CourseType.LAB.value:           LabDocument,
+    CourseType.INTERNSHIP.value:    InternshipDocument,
+    CourseType.MINI_PROJECT.value:  MiniProjectDocument,
+    CourseType.MAJOR_PROJECT.value: MajorProjectDocument,
+    CourseType.SEMINAR.value:       SeminarDocument,
+}
+
+
+def document_schema_for(doc_type: str | None) -> type[BaseModel] | None:
+    """The document schema for a course type, or None for THEORY / unknown."""
+    return DOCUMENT_SCHEMAS.get((doc_type or "").upper())
+
+
+def parse_document(doc_type: str | None, raw: dict | None) -> dict:
+    """Validate a stored/incoming document body against its type's schema.
+
+    Returns the normalised dict. THEORY (and anything unrecognised) normalises to
+    {} — a theory syllabus has no document body, and silently keeping stray keys on
+    one would be a second, unvalidated source of truth for content that belongs in
+    its units.
+    """
+    schema = document_schema_for(doc_type)
+    if schema is None:
+        return {}
+    return schema.model_validate(raw or {}).model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +259,18 @@ class COPOMatrixResponse(BaseModel):
 class SyllabusUnitCreate(BaseModel):
     unit_number: int          = Field(..., ge=1)
     title:       str          = Field(..., min_length=3)
+    # The unit's official prose block — what prints in the regulation.
+    content:     Optional[str] = None
     topics:      list[UnitTopicItem] = Field(default_factory=list)
     total_hours: int          = Field(..., ge=1)
     pedagogy:    Optional[str] = None
 
 
 class SyllabusUnitUpdate(BaseModel):
+    """The Board rewrites units freely: the title, the hours, and above all the
+    prose content. Splitting a unit is add + edit; merging is edit + delete."""
     title:       Optional[str]              = Field(default=None, min_length=3)
+    content:     Optional[str]              = None
     topics:      Optional[list[UnitTopicItem]] = None
     total_hours: Optional[int]              = Field(default=None, ge=1)
     pedagogy:    Optional[str]              = None
@@ -149,6 +288,7 @@ class SyllabusUnitResponse(BaseModel):
     syllabus_id:  UUID
     unit_number:  int
     title:        str
+    content:      Optional[str] = None
     topics:       list[UnitTopicItem]
     total_hours:  int
     pedagogy:     Optional[str]
@@ -238,7 +378,22 @@ class SyllabusCreate(BaseModel):
 
 
 class SyllabusUpdate(BaseModel):
-    custom_instructions: Optional[str] = None
+    """Every prose section of the official syllabus is editable by the Board.
+
+    Nothing the AI produced is final. It writes the first draft; the Board rewrites
+    whatever it likes and then approves — and only the approved version is ever
+    published.
+    """
+    custom_instructions:  Optional[str] = None
+    objectives:           Optional[list[str]] = None
+    practical_components: Optional[list[str]] = None
+    internal_assessment:  Optional[list[str]] = None
+    board_comment:        Optional[str] = None
+    # The type-specific document body — the lab manual, the internship guidelines,
+    # the project handbook. Validated against the row's own doc_type in the service,
+    # never against a type the caller supplies: a client must not be able to turn a
+    # lab manual into an internship by posting a different shape.
+    document:             Optional[dict] = None
 
 
 class SyllabusResponse(BaseModel):
@@ -249,9 +404,14 @@ class SyllabusResponse(BaseModel):
     version:             int
     parent_version_id:   Optional[UUID]
     status:              SyllabusStatus
+    doc_type:            str = CourseType.THEORY.value
+    document:            dict = {}
     custom_instructions: Optional[str]
     change_note:         Optional[str]
-    dean_comment:        Optional[str]
+    board_comment:       Optional[str]
+    objectives:          list[str] = []
+    practical_components: list[str] = []
+    internal_assessment: list[str] = []
     ai_model:            Optional[str]
     prompt_hash:         Optional[str]
     created_by_user_id:  UUID
@@ -259,8 +419,27 @@ class SyllabusResponse(BaseModel):
     approved_at:         Optional[datetime]
     locked_by_user_id:   Optional[UUID]
     locked_at:           Optional[datetime]
+    dean_edited_at:      Optional[datetime] = None
+    dean_edited_by_user_id: Optional[UUID] = None
     created_at:          datetime
     updated_at:          Optional[datetime]
+
+
+class CourseInformation(BaseModel):
+    """The header block of an official university syllabus.
+
+    Every field is DERIVED from the `courses` row at read time — none is stored
+    on the syllabus and none is typed in by anyone. See m02/formatting.py: a
+    stored copy of the credits or category would be a second source of truth, and
+    would silently disagree with the curriculum the moment the Board adjusted the
+    course during review.
+    """
+    course_code:   str
+    course_name:   str
+    credits:       int
+    ltp:           str    # "3-1-2"
+    contact_hours: int    # (L + T + P) x 15 weeks
+    category:      str    # Core | Elective | Lab | Project
 
 
 class SyllabusDetail(SyllabusResponse):
@@ -269,6 +448,7 @@ class SyllabusDetail(SyllabusResponse):
     units:       list[SyllabusUnitResponse]
     references:  list[SyllabusReferenceResponse]
     # Enriched course + program context (populated by router)
+    course_information: Optional[CourseInformation] = None
     course_title: Optional[str] = None
     course_code:  Optional[str] = None
     program_name: Optional[str] = None
@@ -288,28 +468,6 @@ class SyllabusListResponse(BaseModel):
     page:      int
     page_size: int
     items:     list[SyllabusListItem]
-
-
-class SyllabusDeanItem(BaseModel):
-    """Enriched row for the Dean review dashboard — joins course + faculty info."""
-    id:               UUID
-    status:           SyllabusStatus
-    version:          int
-    course_id:        UUID
-    course_code:      str
-    course_title:     str
-    faculty_name:     Optional[str]
-    faculty_email:    Optional[str]
-    unit_count:       int
-    co_count:         int
-    dean_comment:     Optional[str]
-    created_at:       datetime
-    updated_at:       Optional[datetime]
-
-
-class SyllabusDeanOverviewResponse(BaseModel):
-    total: int
-    items: list[SyllabusDeanItem]
 
 
 class SyllabusVersionResponse(BaseModel):
@@ -352,6 +510,78 @@ class SyllabusAIJobResponse(BaseModel):
     status:      str = "queued"
 
 
+class RegenerateSection(str, Enum):
+    """Which slice of an existing document to rewrite.
+
+    The Board should never have to regenerate a whole syllabus because ONE unit came
+    out weak — by the time they notice, the other four and the outcomes will often
+    have been hand-edited, and a full regeneration throws all of that away.
+
+    BOOKS and REFERENCES are separate even though both end up in
+    `syllabus_references`, because they are separate sections of the printed
+    document and a Board unhappy with the Text Books has no reason to lose its Web
+    Resources:
+
+        BOOKS       Text Books                    (RefType.TEXTBOOK)
+        REFERENCES  Reference Books, Suggested Reading, Web Resources
+
+    DOCUMENT rewrites the type-specific body — the lab manual, the internship
+    guidelines, the project handbook. It is the non-theory equivalent of
+    regenerating the units, and it is the only section that applies to a course
+    which has no units at all.
+    """
+    UNIT       = "UNIT"
+    OBJECTIVES = "OBJECTIVES"
+    OUTCOMES   = "OUTCOMES"
+    REFERENCES = "REFERENCES"
+    BOOKS      = "BOOKS"
+    PRACTICALS = "PRACTICALS"
+    DOCUMENT   = "DOCUMENT"
+
+
+class RegenerateSectionRequest(BaseModel):
+    section: RegenerateSection
+    unit_id: Optional[UUID] = None       # required when section is UNIT
+    guidance: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "What the Board wants different this time — 'go deeper on cache "
+            "coherence', 'this overlaps Unit III'. Passed straight to the model."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dean's post-approval edit of a guideline document
+# ---------------------------------------------------------------------------
+
+class DeanDocumentEditRequest(BaseModel):
+    """The Dean adapting an APPROVED Internship / Project / Seminar document.
+
+    Permitted because those documents depend on the company, the supervisor and
+    institutional policy — things the Board cannot know at approval time and the
+    Dean must settle before students start. A THEORY syllabus is NOT editable this
+    way and the service refuses it: the taught curriculum is the Board's, and a Dean
+    quietly rewriting an approved syllabus is precisely the failure the approve gate
+    exists to prevent.
+    """
+    document: dict = Field(
+        ...,
+        description=(
+            "The full replacement document body, validated against the row's own "
+            "doc_type. Partial edits are made by sending back the whole document "
+            "with the changed section — the Board and Dean edit whole sections, not "
+            "individual lines."
+        ),
+    )
+    note: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Why the Dean changed it. Lands in the governance trail.",
+    )
+
+
 class SaveVersionRequest(BaseModel):
     change_note: Optional[str] = None
 
@@ -362,20 +592,12 @@ class ForkRequest(BaseModel):
 
 
 class ApproveRequest(BaseModel):
-    comment: Optional[str] = None
+    """DRAFT -> APPROVED. The Board signs off one official syllabus.
 
-
-class RejectRequest(BaseModel):
-    """PENDING_REVIEW → REJECTED. Dean provides a rejection reason."""
-    reason: str = Field(..., min_length=5)
-
-
-class RequestRevisionRequest(BaseModel):
-    """PENDING_REVIEW → REJECTED (revision-type). Dean requests specific changes."""
-    comments: str = Field(..., min_length=5)
-
-
-class LockRequest(BaseModel):
+    There is no reject and no request-revision. The Board writes the syllabus and
+    the Board approves it — there is no second party to send it back to. When the
+    Board is unhappy with a syllabus it edits it.
+    """
     comment: Optional[str] = None
 
 

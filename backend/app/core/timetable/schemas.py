@@ -15,6 +15,25 @@ class TimetableSlotCreate(BaseModel):
     remarks: str | None = None
 
 
+class TimetableSlotUpdate(BaseModel):
+    """Move a slot (day_of_week / period_number) or edit it in place.
+
+    Every field is optional; only what is sent changes. The service validates the
+    slot's *resulting* position, so a rejected move leaves it where it was.
+    """
+    day_of_week: int | None = None
+    period_number: int | None = None
+    faculty_user_id: UUID | None = None
+    room: str | None = None
+    remarks: str | None = None
+
+
+class TimetableSlotSwap(BaseModel):
+    """Exchange the day/period of two slots in the same timetable."""
+    slot_a_id: UUID
+    slot_b_id: UUID
+
+
 class TimetableSlotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,6 +47,11 @@ class TimetableSlotOut(BaseModel):
     faculty_name: str | None = None
     room: str | None = None
     remarks: str | None = None
+    # True when the course is an elective choice. Read-only, and purely so the
+    # grid can badge the cell as a combined class: an elective is taught to every
+    # student who chose it, across sections, not to the one section this
+    # timetable belongs to. Scheduling that combined class is a later phase.
+    is_elective: bool = False
     # Resolved from the timetable's linked template's matching period, when
     # one exists — null otherwise (pre-Phase-4.1 timetables with no template).
     start_time: time | None = None
@@ -38,6 +62,16 @@ class TimetableSlotOut(BaseModel):
 class TimetableCreate(BaseModel):
     section_id: UUID
     semester_id: UUID
+    template_id: UUID | None = None
+
+
+class TimetableUpdate(BaseModel):
+    """Re-point a draft timetable at a different schedule template.
+
+    Sending `template_id: null` detaches the template and falls back to bare
+    Period 1..8. Refused if any existing slot sits on a period the new template
+    does not teach — those entries would silently disappear from the grid.
+    """
     template_id: UUID | None = None
 
 
@@ -140,6 +174,10 @@ class TimetableOut(BaseModel):
     semester_id: UUID
     semester_label: str | None = None
     program_name: str | None = None
+    # Code + batch years are what tell two live admissions of the same programme
+    # apart — "MCA (2026–2028)" vs "MCA (2025–2027)".
+    program_code: str | None = None
+    academic_year: str | None = None
     status: str
     slots: list[TimetableSlotOut] = []
     template_id: UUID | None = None
@@ -162,6 +200,8 @@ class TimetableListItem(BaseModel):
     semester_id: UUID
     semester_label: str | None = None
     program_name: str | None = None
+    program_code: str | None = None
+    academic_year: str | None = None
     status: str
     slot_count: int = 0
     template_id: UUID | None = None

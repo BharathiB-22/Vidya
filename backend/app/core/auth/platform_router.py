@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.core.rate_limiting import limiter
 from app.core.auth.dependencies import require_super_admin
@@ -25,6 +26,8 @@ from app.core.auth.schemas import (
 from app.core.auth.service import AuthError, PlatformAuthService
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
+from app.core.storage.avatar import PLATFORM_SCOPE_SLUG
+from app.core.storage.service import StorageError, StorageService
 
 router = APIRouter(tags=["platform-auth"])
 
@@ -166,6 +169,73 @@ async def update_platform_profile(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
+    return PlatformMeResponse.model_validate(user)
+
+
+@router.post("/me/avatar", response_model=PlatformMeResponse)
+async def upload_platform_avatar(
+    request: Request,
+    file: UploadFile = File(..., description="JPG, JPEG, PNG or WEBP profile picture"),
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PlatformMeResponse:
+    """Upload the super admin's own profile picture.
+
+    Super admins belong to no tenant, so their image lands under the reserved
+    `platform` storage prefix rather than a tenant slug. Only the object key is
+    persisted; there is no StorageAsset row because that table is tenant-scoped.
+    """
+    max_bytes = settings.AVATAR_MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    data = await file.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "FILE_TOO_LARGE",
+                "message": f"Profile picture must be {settings.AVATAR_MAX_UPLOAD_SIZE_MB}MB or smaller.",
+            },
+        )
+    try:
+        object_key, _ = await StorageService.upload_avatar(
+            owner_id=current_user.user_id,
+            scope_slug=PLATFORM_SCOPE_SLUG,
+            filename=file.filename,
+            content_type=file.content_type,
+            data=data,
+        )
+    except StorageError as e:
+        raise HTTPException(status_code=e.status_code, detail={"error": e.code, "message": e.message})
+
+    user = await PublicRepository.update_platform_user(
+        current_user.user_id, {"avatar_url": object_key}, db
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "message": "User not found"})
+    await db.commit()
+    await AuditService.log(
+        AuditEventType.PLATFORM_PROFILE_UPDATED,
+        actor_user_id=current_user.user_id,
+        actor_role="SUPER_ADMIN",
+        target_entity="PlatformUser",
+        target_id=str(current_user.user_id),
+        metadata={"changes": ["avatar_url"]},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return PlatformMeResponse.model_validate(user)
+
+
+@router.delete("/me/avatar", response_model=PlatformMeResponse)
+async def delete_platform_avatar(
+    current_user: CurrentUser = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PlatformMeResponse:
+    user = await PublicRepository.update_platform_user(
+        current_user.user_id, {"avatar_url": None}, db
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "message": "User not found"})
+    await db.commit()
     return PlatformMeResponse.model_validate(user)
 
 

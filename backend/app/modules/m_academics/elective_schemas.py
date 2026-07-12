@@ -6,91 +6,66 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
-class EligibleBasketCourseOut(BaseModel):
+# ---------------------------------------------------------------------------
+# Student — the elective slots to choose from, and the choice itself.
+# ---------------------------------------------------------------------------
+
+class ElectiveOptionOut(BaseModel):
+    """One interchangeable choice inside a slot — a real course with its own
+    code, credits and faculty."""
     course_id: UUID
     code: str
     title: str
     credits: int
-    description: str | None
-    # The currently-assigned PRIMARY faculty for this course+semester, if any.
+    course_type: str | None = None
+    description: str | None = None
     faculty_user_id: UUID | None = None
     faculty_name: str | None = None
+    # Demand, not capacity: Phase 5 has no seat cap.
+    registered_count: int
 
 
-class EligibleElectiveBasketOut(BaseModel):
+class ElectiveSlotOut(BaseModel):
     basket_id: UUID
     name: str
     description: str | None
-    courses: list[EligibleBasketCourseOut]
-    already_offered: bool  # an offering already exists for this basket+semester
-
-
-class OfferingFacultyAssignment(BaseModel):
-    """The Dean's choice of which faculty teaches one course inside the basket.
-    Applied as a PRIMARY Course Assignment so attendance/marks pick it up."""
-    course_id: UUID
-    faculty_user_id: UUID
-
-
-class ElectiveOfferingCreate(BaseModel):
-    basket_id: UUID
-    semester_id: UUID
-    max_seats: int
-    faculty_assignments: list[OfferingFacultyAssignment] | None = None
-    registration_opens_at: datetime | None = None
-    registration_closes_at: datetime | None = None
-
-
-class ElectiveOfferingUpdate(BaseModel):
-    max_seats: int | None = None
-    registration_opens_at: datetime | None = None
-    registration_closes_at: datetime | None = None
-    status: str | None = None  # OPEN | CLOSED
-
-
-class AssignFacultyBody(BaseModel):
-    course_id: UUID
-    faculty_user_id: UUID
-
-
-class OfferingCourseOut(BaseModel):
-    course_id: UUID
-    code: str
-    title: str
     credits: int
-    description: str | None
-    faculty_user_id: UUID | None = None
-    faculty_name: str | None = None
-    seats_taken: int
-
-
-class ElectiveOfferingOut(BaseModel):
-    id: UUID
-    basket_id: UUID
-    basket_name: str
-    basket_description: str | None
+    semester: int
     semester_id: UUID
-    max_seats: int
-    courses: list[OfferingCourseOut]
-    registration_opens_at: datetime | None
-    registration_closes_at: datetime | None
+    # DRAFT | PUBLISHED | OPEN | CLOSED — see ElectiveSlotStatus.
     status: str
-    created_at: datetime
+    # True only while the slot is OPEN. A PUBLISHED slot is visible but not yet
+    # registerable; a CLOSED one is frozen.
+    can_register: bool = False
+    options: list[ElectiveOptionOut]
+    # The option this student already picked for this slot, if any.
+    chosen_course_id: UUID | None = None
 
 
-class DeanElectiveStatsOut(BaseModel):
-    total_offerings: int
-    total_registrations: int
-    offerings: list[ElectiveOfferingOut]
+class DeanElectiveSlotOut(BaseModel):
+    """A slot as the Dean sees it for one running term, each choice carrying the
+    faculty assigned for that term."""
+    basket_id: UUID
+    name: str
+    description: str | None
+    credits: int
+    semester: int
+    semester_id: UUID
+    status: str
+    options: list[ElectiveOptionOut]
+
+
+class AssignChoiceFacultyBody(BaseModel):
+    course_id: UUID
+    faculty_user_id: UUID
 
 
 class ElectiveRegisterBody(BaseModel):
-    course_id: UUID  # the ONE course, from within the basket, the student picks
+    course_id: UUID  # the ONE option, from within the slot, the student picks
 
 
 class ElectiveRegistrationOut(BaseModel):
     id: UUID
-    offering_id: UUID
     basket_id: UUID
     basket_name: str
     course_id: UUID
@@ -101,11 +76,11 @@ class ElectiveRegistrationOut(BaseModel):
     semester_label: str | None
     status: str
     registered_at: datetime
-    is_current: bool  # True if the offering's semester is the student's current semester
+    is_current: bool  # True if this registration is for the student's current term
 
 
 # ---------------------------------------------------------------------------
-# Faculty roster — the students who chose THIS faculty's elective course.
+# Faculty — the combined elective class (one course, all sections).
 # ---------------------------------------------------------------------------
 
 class ElectiveRosterStudentOut(BaseModel):
@@ -113,6 +88,7 @@ class ElectiveRosterStudentOut(BaseModel):
     student_name: str
     usn: str | None = None
     student_email: str | None = None
+    section_name: str | None = None
     registered_at: datetime
 
 
@@ -120,9 +96,11 @@ class FacultyElectiveRosterOut(BaseModel):
     course_id: UUID
     course_code: str
     course_title: str
-    offering_id: UUID
+    basket_id: UUID
     semester_id: UUID
     semester_label: str | None
     basket_name: str
     total_students: int
+    # How many sections this combined class draws from (MCA-A + MCA-B -> 2).
+    section_count: int
     students: list[ElectiveRosterStudentOut]

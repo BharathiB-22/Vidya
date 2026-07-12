@@ -21,6 +21,9 @@ import DeletedTenantsPage from '@/pages/admin/DeletedTenantsPage'
 import TenantMigrationsPage from '@/pages/admin/TenantMigrationsPage'
 import ProgramListPage from '@/pages/ProgramListPage'
 import ProgramDetailPage from '@/pages/ProgramDetailPage'
+import GovernanceQueuePage from '@/pages/governance/GovernanceQueuePage'
+import CurriculumWorkbenchPage from '@/pages/governance/CurriculumWorkbenchPage'
+import ApprovedCurriculaPage from '@/pages/governance/ApprovedCurriculaPage'
 import SyllabusListPage from '@/pages/SyllabusListPage'
 import SyllabusDetailPage from '@/pages/SyllabusDetailPage'
 import CourseKitListPage from '@/pages/CourseKitListPage'
@@ -52,7 +55,6 @@ import EventsPage from '@/pages/student/EventsPage'
 import AcademicProgressPage from '@/pages/student/AcademicProgressPage'
 import StudentTimetablePage from '@/pages/student/TimetablePage'
 import FacultyTimetablePage from '@/pages/FacultyTimetablePage'
-import ElectiveOfferingsPage from '@/pages/ElectiveOfferingsPage'
 import TimetableBuilderPage from '@/pages/dean/TimetableBuilderPage'
 import CourseKitCompliancePage from '@/pages/dean/CourseKitCompliancePage'
 import StudentAssignmentListPage from '@/pages/coursework/StudentAssignmentListPage'
@@ -114,8 +116,9 @@ import SemesterRolloverPage from '@/pages/sis/SemesterRolloverPage'
 import ImportHistoryPage from '@/pages/sis/ImportHistoryPage'
 import CapacityPage from '@/pages/sis/CapacityPage'
 import ValidationReportPage from '@/pages/sis/ValidationReportPage'
-import AttendanceMarkPage from '@/pages/sis/AttendanceMarkPage'
-import AttendanceSummaryPage from '@/pages/sis/AttendanceSummaryPage'
+import FacultyAttendanceDashboard from '@/pages/sis/attendance/FacultyAttendanceDashboard'
+import TakeAttendancePage from '@/pages/sis/attendance/TakeAttendancePage'
+import StudentAttendancePage from '@/pages/student/StudentAttendancePage'
 import AttendanceAnalyticsPage from '@/pages/sis/AttendanceAnalyticsPage'
 import FacultyShortageReportPage from '@/pages/sis/FacultyShortageReportPage'
 import InternalMarksSetupPage from '@/pages/sis/InternalMarksSetupPage'
@@ -229,12 +232,6 @@ export default function App() {
             <Route path="/timetable/builder"       element={<TimetableBuilderPage />} />
           </Route>
 
-          {/* Elective Offerings — Dean owns electives end-to-end: create,
-              assign faculty, open/close registration, track demand. */}
-          <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
-            <Route path="/elective-offerings" element={<ElectiveOfferingsPage />} />
-          </Route>
-
           {/* Dean department-scoped pages */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
             <Route path="/dean/my-faculty"             element={<DeanMyFacultyPage />} />
@@ -314,9 +311,10 @@ export default function App() {
             <Route path="/sis/validation" element={<ValidationReportPage />} />
           </Route>
 
-          {/* Attendance — Faculty mark + shortage report */}
+          {/* Attendance — Faculty: today's classes dashboard + take-attendance + shortage */}
           <Route element={<AuthGuard allowedRoles={['FACULTY']} />}>
-            <Route path="/sis/attendance/mark" element={<AttendanceMarkPage />} />
+            <Route path="/sis/attendance" element={<FacultyAttendanceDashboard />} />
+            <Route path="/sis/attendance/take" element={<TakeAttendancePage />} />
             <Route path="/sis/attendance/shortage" element={<FacultyShortageReportPage />} />
           </Route>
 
@@ -325,9 +323,9 @@ export default function App() {
             <Route path="/sis/attendance/analytics" element={<AttendanceAnalyticsPage />} />
           </Route>
 
-          {/* Attendance — Student self-view */}
+          {/* Attendance — Student self-view (read-only) */}
           <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
-            <Route path="/sis/attendance/me" element={<AttendanceSummaryPage />} />
+            <Route path="/sis/attendance/me" element={<StudentAttendancePage />} />
           </Route>
 
           {/* Internal Marks — Faculty */}
@@ -424,14 +422,32 @@ export default function App() {
             <Route path="/my-profile" element={<InstitutionAdminProfilePage />} />
           </Route>
 
-          {/* Academic Programs / Program Builder — governance scope: DEAN, ADMIN only */}
-          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
+          {/* Curriculum — the Dean PREPARES it here; the governance authority
+              (BOARD) reviews and approves the same pages. What each role may DO
+              is decided per-status by the API and by ActionBar, not by the route:
+              a Dean cannot edit a submitted curriculum, and a Board member cannot
+              edit one that is still a draft. */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
             <Route path="/programs" element={<ProgramListPage />} />
             <Route path="/programs/:id" element={<ProgramDetailPage />} />
           </Route>
 
-          {/* Teach & Prepare — FACULTY, DEAN, ADMIN */}
-          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN']} />}>
+          {/* Academic Governance — BOARD only (Phase A). A Dean is deliberately
+              excluded: they must never approve curriculum they prepared.
+
+              The Workbench is where the Board actually works: it writes the
+              official syllabus for every subject there and approves from there. */}
+          <Route element={<AuthGuard allowedRoles={['BOARD']} />}>
+            <Route path="/governance/curriculum" element={<GovernanceQueuePage />} />
+            <Route path="/governance/curriculum/:programId" element={<CurriculumWorkbenchPage />} />
+            <Route path="/governance/approved"   element={<ApprovedCurriculaPage />} />
+          </Route>
+
+          {/* Teach & Prepare — FACULTY, DEAN, ADMIN, and BOARD.
+              Phase A: the syllabus is curriculum, so the governance authority
+              WRITES it and Faculty read it. Write access is enforced by the API
+              (m02 _WRITE = ADMIN + BOARD); the route just lets them all look. */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'DEAN', 'ADMIN', 'BOARD']} />}>
             <Route path="/syllabuses" element={<SyllabusListPage />} />
             <Route path="/syllabuses/:id" element={<SyllabusDetailPage />} />
             <Route path="/course-kits" element={<CourseKitListPage />} />

@@ -22,3 +22,51 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Printing the official syllabus.
+ *
+ * The document view is styled to print AS IT APPEARS — the Board sees the page
+ * they are publishing, then prints exactly that. So printing has to strip the
+ * application around it: the shell, the sidebar, the tabs, the action bars. What
+ * is left on the paper is the regulation.
+ *
+ * The component marks its own chrome with `print:hidden`; this handles everything
+ * outside it.
+ * ------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+
+  /* The app shell has no business on a regulation page. */
+  aside,
+  nav,
+  header[data-app-header],
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  /* Serif reads as an official document; the UI font does not. */
+  article {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #000;
+  }
+
+  /* Never break a unit across two pages — a heading stranded at the foot of one
+     page with its content on the next is exactly what a regulation must not do. */
+  article section,
+  article .group {
+    break-inside: avoid;
+  }
+
+  a {
+    text-decoration: none;
+    color: #000;
+  }
+}

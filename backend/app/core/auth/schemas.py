@@ -187,11 +187,20 @@ class PasswordResetTokenResponse(BaseModel):
     reset_token: str
 
 
-class UpdateMyAvatarRequest(BaseModel):
-    avatar_url: Optional[str] = None
+class AvatarUrlMixin(BaseModel):
+    """`avatar_url` is persisted as a storage object key (see core/storage/avatar.py).
+    Sign it on the way out so clients always receive a loadable image URL, and
+    so pre-existing full URLs and empty values keep behaving as before."""
+
+    @field_validator("avatar_url", mode="after", check_fields=False)
+    @classmethod
+    def sign_avatar_url(cls, v: Optional[str]) -> Optional[str]:
+        from app.core.storage.avatar import resolve_avatar_url
+
+        return resolve_avatar_url(v)
 
 
-class UserResponse(BaseModel):
+class UserResponse(AvatarUrlMixin):
     id: UUID
     email: str
     role: TenantRole
@@ -220,7 +229,7 @@ class MeResponse(UserResponse):
     first_login: bool = False
 
 
-class PlatformMeResponse(BaseModel):
+class PlatformMeResponse(AvatarUrlMixin):
     id: UUID
     email: str
     full_name: str

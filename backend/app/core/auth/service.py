@@ -817,7 +817,7 @@ class TenantAuthService:
         # STUDENT: if a section was picked at creation time, enroll immediately
         # so mandatory (non-elective) courses auto-populate via subject_assignments
         # with zero extra manual registration step (electives remain opt-in via
-        # ElectiveOffering/ElectiveRegistration, untouched here).
+        # ElectiveRegistration, untouched here).
         if payload.role == _Role.STUDENT and payload.section_id:
             from app.modules.m11_sis.capacity_service import CapacityError, CapacityService
             from app.modules.m11_sis.enrollment_repository import EnrollmentRepository

@@ -93,9 +93,11 @@ class _CourseAI(BaseModel):
     semester:             int
     course_type:          str | None = None   # THEORY|LAB|PROJECT|INTERNSHIP|SEMINAR
     is_elective:          bool
-    # Required when is_elective is true — groups this elective under a named
-    # basket (e.g. "Artificial Intelligence Electives"). An elective is never
-    # a standalone course; it must belong to a basket alongside its siblings.
+    # Required when is_elective is true — names the elective PAPER this course is
+    # one alternative of ("Elective 1", "Elective 2", ...). A semester holds
+    # several independent papers; the student takes them all, choosing exactly one
+    # alternative inside each. Two courses share this name iff they are
+    # alternatives of the same paper.
     elective_basket_name: str | None = None
     hours_lecture:        int
     hours_tutorial:       int
@@ -196,7 +198,7 @@ def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
         f"- Distribute {ctx.total_credits} credits across "
         f"{ctx.duration_years * 2} semesters with balanced per-semester loads.\n"
         f"- Each course credit should typically be between 1 and 6 "
-        f"unless the curriculum instructions require otherwise (e.g. projects 6-20 credits).\n"
+        f"unless the curriculum instructions require otherwise (e.g. projects 2-20 credits).\n"
         f"- Every course must set course_type to exactly one of: "
         f"THEORY, LAB, PROJECT, INTERNSHIP, SEMINAR.\n"
         f"- Realistic semester composition — this is the most common source of unrealistic "
@@ -222,17 +224,24 @@ def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
         f"a semester of only THEORY courses with zero labs. NO project, internship, or "
         f"elective course belongs in this zone.\n"
         f"    * ZONE B — semester {ctx.duration_years * 2 - 1} only (core + mini project + "
-        f"elective basket(s)): generate 3-5 core THEORY/LAB courses (is_elective: false) "
+        f"elective papers): generate 3-5 core THEORY/LAB courses (is_elective: false) "
         f"PLUS exactly one Mini Project course (course_type PROJECT, title containing "
-        f"'Mini Project', credits 2-4, is_elective: false) PLUS one or more elective "
-        f"baskets. An elective basket is a named group of 5-8 alternative courses a student "
-        f"picks ONE from — never a single standalone elective course. For every elective "
-        f"course in this semester set is_elective: true AND elective_basket_name to the "
-        f"SAME basket name shared by its sibling alternatives (e.g. all of Artificial "
-        f"Intelligence, Deep Learning, Machine Learning, Computer Vision, NLP, Cloud "
-        f"Computing, Business Analytics share elective_basket_name: 'Artificial Intelligence "
-        f"Electives'). Every elective course MUST have a non-empty elective_basket_name; "
-        f"every non-elective course MUST leave it null.\n"
+        f"'Mini Project', credits 2-4, is_elective: false) PLUS 2-4 ELECTIVE PAPERS.\n"
+        f"      An elective paper is ONE curriculum course. The student takes every paper "
+        f"in the semester, choosing exactly one alternative inside each. Three papers of 3 "
+        f"credits therefore contribute 9 credits to the semester, not 3.\n"
+        f"      Name the papers exactly 'Elective 1', 'Elective 2', 'Elective 3' (and so on) "
+        f"and put that name in elective_basket_name. Each paper needs its OWN 2-5 alternative "
+        f"courses, and the alternatives of one paper must be a coherent, distinct area from "
+        f"the alternatives of the others. Every alternative inside one paper must carry the "
+        f"same credits. Example for one semester:\n"
+        f"        Elective 1 -> Artificial Intelligence, Machine Learning\n"
+        f"        Elective 2 -> Data Mining, Data Science, Business Intelligence\n"
+        f"        Elective 3 -> Business Management, Social Media Marketing\n"
+        f"      Do NOT put every alternative under a single shared name — that would collapse "
+        f"three papers into one and lose two thirds of the elective credits. Every elective "
+        f"course MUST set is_elective: true and a non-empty elective_basket_name; every "
+        f"non-elective course MUST leave elective_basket_name null.\n"
         f"    * ZONE C — semester {ctx.duration_years * 2} (final, internship + major "
         f"project only): contains ONLY exactly one PROJECT course (title containing 'Major "
         f"Project', credits 6-20, is_elective: false) and exactly one INTERNSHIP course "
@@ -420,11 +429,13 @@ def _normalize_openai_compatible_structure(
             else _infer_course_type_from_title(str(c.get("title", "")))
         )
 
-        # clamp credits — [6, 20] for project/internship, [1, 6] otherwise
+        # clamp credits — [2, 20] for project/internship, [1, 6] otherwise.
+        # The floor is 2, not 6: a mini-project is legitimately worth 2 credits,
+        # and clamping it up to 6 would inflate the semester's total.
         raw_credits = c.get("credits")
         if isinstance(raw_credits, (int, float)):
             is_project_or_internship = c["course_type"] in ("PROJECT", "INTERNSHIP")
-            lo, hi = (6, 20) if is_project_or_internship else (1, 6)
+            lo, hi = (2, 20) if is_project_or_internship else (1, 6)
             clamped = max(lo, min(hi, int(raw_credits)))
             if clamped != int(raw_credits):
                 logger.warning(

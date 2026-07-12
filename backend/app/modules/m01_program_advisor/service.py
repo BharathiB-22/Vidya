@@ -1,20 +1,32 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger("vidya.service.m01")
+
 from app.modules.m_academics.dean_scope import get_dean_program_ids
 from app.modules.m_academics.repository import ProgramRepo as AcadProgramRepo
 from app.modules.m01_program_advisor.compliance import (
     ComplianceResult,
     CourseNode,
+    ElectiveSlotNode,
     ProgramNode,
     run_compliance_check,
 )
-from app.modules.m01_program_advisor.models import Course, ElectiveBasket, Program, ProgramOutcome, ProgramStatus
+from app.modules.m01_program_advisor.course_codes import generate_course_code
+from app.modules.m01_program_advisor.models import (
+    Course,
+    ElectiveBasket,
+    ElectiveSlotStatus,
+    Program,
+    ProgramOutcome,
+    ProgramStatus,
+)
 from app.modules.m01_program_advisor.repository import (
     CoursePrerequisiteRepository,
     CourseRepository,
@@ -28,6 +40,7 @@ from app.modules.m01_program_advisor.schemas import (
     CourseUpdate,
     ElectiveBasketCreate,
     ElectiveBasketUpdate,
+    ElectiveChoiceCreate,
     ProgramCreate,
     ProgramOutcomeCreate,
     ProgramOutcomeUpdate,
@@ -61,50 +74,48 @@ async def _require_status(
     return program
 
 
-async def _require_prepublish_status(
-    program_id: UUID,
-    *,
-    db: AsyncSession,
-) -> Program:
-    """Accept DRAFT or APPROVED — both remain editable/deletable by the Dean.
-    Once PUBLISHED, a program is permanently read-only (no edit, no delete)."""
-    _PREPUBLISH = {ProgramStatus.DRAFT, ProgramStatus.APPROVED}
-    program = await ProgramRepository.get_by_id(program_id, db=db)
-    if program is None:
-        raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
-    if program.status not in _PREPUBLISH:
-        raise ProgramServiceError(
-            "INVALID_STATUS",
-            f"Program must be Draft or Approved to edit or delete; "
-            f"current status is {program.status.value}.",
-            409,
-        )
-    return program
+# ---------------------------------------------------------------------------
+# Edit windows (Phase A — Academic Governance)
+#
+# A curriculum is editable in exactly two windows, and WHO may edit depends on
+# which window it is in:
+#
+#   DRAFT / GENERATION_FAILED   the DEAN owns it and edits freely
+#   PENDING_APPROVAL            the BOARD owns it and edits freely, for the WHOLE
+#                               of the window — right up to approval. The Dean is
+#                               read-only, permanently: submitting is a one-way
+#                               handover with no path back.
+#   APPROVED / PUBLISHED        LOCKED — nobody edits, ever. A change means a new
+#                               curriculum version.
+#
+# The status half of that rule lives here. The role half lives in the router's
+# `assert_can_edit_structure` dependency, which is the only thing that knows who
+# the caller is.
+# ---------------------------------------------------------------------------
 
+DEAN_EDIT_STATUSES = {
+    ProgramStatus.DRAFT,
+    ProgramStatus.GENERATION_FAILED,
+}
+GOVERNANCE_EDIT_STATUSES = {ProgramStatus.PENDING_APPROVAL}
+EDITABLE_STATUSES = DEAN_EDIT_STATUSES | GOVERNANCE_EDIT_STATUSES
 
-async def _require_deletable_status(
-    program_id: UUID,
-    *,
-    db: AsyncSession,
-) -> Program:
-    """Accept DRAFT or PENDING_APPROVAL — deletion is allowed while a program
-    is still being drafted or is under review, and is progressively locked once
-    it is Approved (one step from Published) and permanently once Published.
-    Mirrors the Basket/Course deletion window so all three entities share one
-    rule: deletable in {DRAFT, PENDING_APPROVAL}, never afterward."""
-    _DELETABLE = {ProgramStatus.DRAFT, ProgramStatus.PENDING_APPROVAL}
-    program = await ProgramRepository.get_by_id(program_id, db=db)
-    if program is None:
-        raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
-    if program.status not in _DELETABLE:
-        raise ProgramServiceError(
-            "INVALID_STATUS",
-            f"Program must be in Draft or Pending Approval to delete; "
-            f"current status is {program.status.value}. "
-            f"Create a new version to make changes instead.",
-            409,
-        )
-    return program
+# Course fields the official syllabus is built on. Editing any of them
+# un-approves that course's syllabus (see update_course).
+#
+#   code, title      print in the syllabus header
+#   credits          prints in the header
+#   hours_*          are the L-T-P, from which contact hours are derived, against
+#                    which the unit hours are paced
+#   semester         places the subject in the curriculum
+#   course_type      decides whether a Practical Components section belongs
+#
+# `description` is deliberately absent: it is prose about the course, and does
+# not change what the syllabus teaches.
+_SYLLABUS_BEARING_FIELDS = {
+    "code", "title", "credits", "semester", "course_type",
+    "hours_lecture", "hours_tutorial", "hours_practical",
+}
 
 
 async def _require_editable_status(
@@ -112,16 +123,44 @@ async def _require_editable_status(
     *,
     db: AsyncSession,
 ) -> Program:
-    """Accept DRAFT or PENDING_APPROVAL — both allow structural course edits."""
-    _EDITABLE = {ProgramStatus.DRAFT, ProgramStatus.PENDING_APPROVAL}
+    """The curriculum is in an editable window at all (role check is separate)."""
     program = await ProgramRepository.get_by_id(program_id, db=db)
     if program is None:
         raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
-    if program.status not in _EDITABLE:
+    if program.status not in EDITABLE_STATUSES:
+        raise ProgramServiceError(
+            "CURRICULUM_LOCKED",
+            f"This curriculum is {program.status.value} and can no longer be edited. "
+            f"Create a new version to make changes.",
+            409,
+        )
+    return program
+
+
+# Program metadata edits follow the same window as structural edits.
+_require_prepublish_status = _require_editable_status
+
+
+async def _require_deletable_status(
+    program_id: UUID,
+    *,
+    db: AsyncSession,
+) -> Program:
+    """Deletable only while the Dean still holds it: DRAFT.
+
+    Once submitted, the curriculum is in front of the Board and cannot be pulled
+    out from under them; once approved it is locked for good.
+    """
+    _DELETABLE = {ProgramStatus.DRAFT, ProgramStatus.GENERATION_FAILED}
+    program = await ProgramRepository.get_by_id(program_id, db=db)
+    if program is None:
+        raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+    if program.status not in _DELETABLE:
         raise ProgramServiceError(
             "INVALID_STATUS",
-            f"Program must be in Draft or Pending Approval to edit courses; "
-            f"current status is {program.status.value}.",
+            f"Only a Draft curriculum can be deleted; "
+            f"current status is {program.status.value}. "
+            f"Create a new version to make changes instead.",
             409,
         )
     return program
@@ -143,9 +182,27 @@ async def _build_course_nodes(
             semester=course.semester,
             is_elective=course.is_elective,
             course_type=course.course_type,
+            elective_basket_id=course.elective_basket_id,
             prerequisite_course_ids=[p.prerequisite_course_id for p in prereqs],
         ))
     return nodes
+
+
+async def _build_elective_slot_nodes(
+    program_id: UUID,
+    *,
+    db: AsyncSession,
+) -> list[ElectiveSlotNode]:
+    baskets = await ElectiveBasketRepository.list_by_program(program_id, db=db)
+    return [
+        ElectiveSlotNode(
+            id=basket.id,
+            name=basket.name,
+            credits=basket.credits,
+            semester=basket.semester,
+        )
+        for basket in baskets
+    ]
 
 
 class ProgramService:
@@ -178,6 +235,8 @@ class ProgramService:
             created_by_user_id=created_by,
             acad_program_id=payload.acad_program_id,
             ai_instructions=payload.ai_instructions,
+            regulation_year=payload.regulation_year,
+            effective_from_batch_id=payload.effective_from_batch_id,
             db=db,
         )
         if payload.outcomes:
@@ -412,51 +471,11 @@ class ProgramService:
         )
         return str(job_id)
 
-    @staticmethod
-    async def approve(
-        program_id: UUID,
-        approved_by: UUID,
-        *,
-        db: AsyncSession,
-    ) -> Program:
-        program = await _require_status(program_id, ProgramStatus.PENDING_APPROVAL, db=db)
-
-        outcomes = await ProgramOutcomeRepository.list_by_program(program_id, db=db)
-        course_nodes = await _build_course_nodes(program_id, db=db)
-
-        program_node = ProgramNode(
-            degree_type=program.degree_type,
-            duration_years=program.duration_years,
-            total_credits=program.total_credits,
-            outcome_count=len(outcomes),
-        )
-        result = run_compliance_check(program_node, course_nodes)
-        if not result.passed:
-            error_msgs = "; ".join(
-                v.message for v in result.violations if v.severity == "ERROR"
-            )
-            raise ProgramServiceError("COMPLIANCE_FAILED", error_msgs, 422)
-
-        approved = await ProgramRepository.set_approved(program_id, approved_by, db=db)
-        if approved is None:
-            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
-        await db.commit()
-        return approved
-
-    @staticmethod
-    async def reject(
-        program_id: UUID,
-        *,
-        db: AsyncSession,
-    ) -> Program:
-        await _require_status(program_id, ProgramStatus.PENDING_APPROVAL, db=db)
-        updated = await ProgramRepository.update_status(
-            program_id, ProgramStatus.DRAFT, db=db
-        )
-        if updated is None:
-            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
-        await db.commit()
-        return updated
+    # NOTE (Phase A): approve / return-to-Dean are NOT here. Approving and
+    # locking a curriculum is the governance authority's act, not the Dean's,
+    # and it lives in app.core.governance.service alongside the approval-request
+    # ledger and the separation-of-duties checks. The Dean's two acts on the
+    # approval path are `submit` (also in core.governance) and `publish` below.
 
     @staticmethod
     async def publish(
@@ -465,9 +484,12 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> Program:
-        """APPROVED -> PUBLISHED. Terminal state: the program becomes
-        permanently read-only (see `_require_prepublish_status`), and its
-        elective-tagged courses become eligible for Elective Offerings."""
+        """APPROVED -> PUBLISHED. The Dean releases a curriculum the governance
+        authority has already approved and locked.
+
+        Publishing changes no content — the curriculum was frozen at approval.
+        It makes the courses assignable and starts them counting toward Academic
+        Ownership (see m_academics.curriculum_scope)."""
         await _require_status(program_id, ProgramStatus.APPROVED, db=db)
         published = await ProgramRepository.set_published(program_id, published_by, db=db)
         if published is None:
@@ -541,7 +563,8 @@ class ProgramService:
         basket_old_to_new: dict[UUID, UUID] = {}
         for b in original_baskets:
             new_basket = await ElectiveBasketRepository.create(
-                new_program.id, b.semester, b.name, b.description, created_by, db=db,
+                new_program.id, b.semester, b.name, b.description, created_by,
+                credits=b.credits, db=db,
             )
             basket_old_to_new[b.id] = new_basket.id
 
@@ -581,8 +604,59 @@ class ProgramService:
                         new_course.id, remapped, db=db
                     )
 
+            # Carry the official syllabi forward as editable DRAFT copies.
+            #
+            # Without this, a new version starts with no syllabi at all, and
+            # correcting a single typo in one subject would force the Board to
+            # AI-regenerate all forty-odd from scratch — throwing away every
+            # edit it made to the other thirty-nine. The Board should revise a
+            # version, not rebuild it.
+            #
+            # v1's syllabi are not touched, and cannot be: each copy hangs off
+            # v2's own brand-new course row, so the two versions share nothing.
+            # Immutability holds by construction rather than by a guard.
+            await ProgramService._carry_syllabi_forward(
+                old_to_new, created_by=created_by, db=db,
+            )
+
         await db.commit()
         return new_program
+
+    @staticmethod
+    async def _carry_syllabi_forward(
+        old_to_new_course: dict[UUID, UUID],
+        *,
+        created_by: UUID,
+        db: AsyncSession,
+    ) -> int:
+        """Copy each old course's official syllabus onto its new-version course.
+
+        Takes the latest syllabus per course — approved or locked for a published
+        curriculum, but a draft is copied too, so forking a curriculum the Board
+        was midway through does not lose its work. Returns how many were copied.
+        """
+        from app.modules.m02_syllabus.repository import SyllabusRepository
+        from app.modules.m02_syllabus.service import _deep_fork
+
+        copied = 0
+        for old_course_id, new_course_id in old_to_new_course.items():
+            existing = await SyllabusRepository.list_by_course(old_course_id, db=db)
+            if not existing:
+                continue
+            latest = max(existing, key=lambda s: s.version)
+            await _deep_fork(
+                latest.id,
+                new_version=1,          # v2's course has no syllabus history yet
+                created_by=created_by,
+                change_note="Carried forward from the previous curriculum version.",
+                target_course_id=new_course_id,
+                db=db,
+            )
+            copied += 1
+
+        if copied:
+            logger.info("m01.fork: carried %d syllabus/es forward to the new version", copied)
+        return copied
 
     # ------------------------------------------------------------------
     # Outcome operations  (DRAFT guard on every mutating call)
@@ -595,7 +669,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> ProgramOutcome:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_editable_status(program_id, db=db)
         existing = await ProgramOutcomeRepository.get_by_code(program_id, payload.code, db=db)
         if existing:
             raise ProgramServiceError(
@@ -620,7 +694,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> ProgramOutcome:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_editable_status(program_id, db=db)
         outcome = await ProgramOutcomeRepository.get_by_id(outcome_id, db=db)
         if outcome is None or outcome.program_id != program_id:
             raise ProgramServiceError("NOT_FOUND", "Outcome not found.", 404)
@@ -638,7 +712,7 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> None:
-        await _require_status(program_id, ProgramStatus.DRAFT, db=db)
+        await _require_editable_status(program_id, db=db)
         outcome = await ProgramOutcomeRepository.get_by_id(outcome_id, db=db)
         if outcome is None or outcome.program_id != program_id:
             raise ProgramServiceError("NOT_FOUND", "Outcome not found.", 404)
@@ -740,6 +814,17 @@ class ProgramService:
             updates["is_elective"] = True
         updates["updated_at"] = datetime.now(timezone.utc)
         updated = await CourseRepository.update(course_id, updates, db=db)
+
+        # If this edit moved anything the official syllabus is built on, the
+        # Board's sign-off on that syllabus no longer means anything — it was
+        # approved against a course that has since changed. Send it back to DRAFT
+        # so the Board re-reads it; the approve gate then blocks the curriculum
+        # until they do. In the SAME transaction as the edit: a crash between the
+        # two would leave an approved syllabus describing a course that had moved.
+        if _SYLLABUS_BEARING_FIELDS & updates.keys():
+            from app.modules.m02_syllabus.service import SyllabusService
+            await SyllabusService.invalidate_for_course(course_id, db=db)
+
         await db.commit()
         return updated
 
@@ -775,7 +860,8 @@ class ProgramService:
         await _require_editable_status(program_id, db=db)
         basket = await ElectiveBasketRepository.create(
             program_id=program_id, semester=payload.semester, name=payload.name,
-            description=payload.description, created_by_user_id=created_by, db=db,
+            description=payload.description, created_by_user_id=created_by,
+            credits=payload.credits, db=db,
         )
         await db.commit()
         return basket
@@ -839,6 +925,186 @@ class ProgramService:
         )
         await db.commit()
         return updated
+
+    # ------------------------------------------------------------------
+    # Elective slot lifecycle + choices.
+    #
+    # These deliberately do NOT go through _require_editable_status. A slot's
+    # choices are a catalogue concern with their own lifecycle: the Dean must be
+    # able to fill in what Elective 1 offers this year on a program that was
+    # published long ago. What stays frozen with the program is the slot's
+    # *definition* (name, credits, semester), because those feed compliance and
+    # the program credit total -- see add_basket/update_basket above.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _load_slot(basket_id: UUID, program_id: UUID, *, db: AsyncSession) -> ElectiveBasket:
+        basket = await ElectiveBasketRepository.get_by_id(basket_id, db=db)
+        if basket is None or basket.program_id != program_id:
+            raise ProgramServiceError("NOT_FOUND", "Elective slot not found in this program.", 404)
+        return basket
+
+    @staticmethod
+    async def _require_slot_draft(basket_id: UUID, program_id: UUID, *, db: AsyncSession) -> ElectiveBasket:
+        slot = await ProgramService._load_slot(basket_id, program_id, db=db)
+
+        # The curriculum lock beats the slot's own lifecycle. Once the Board has
+        # approved the curriculum, an elective slot's COMPOSITION is frozen
+        # forever: an option is a real subject a student sits and is examined in,
+        # so adding one to a locked curriculum would smuggle in a course that
+        # never had a Board-approved syllabus — and could never be given one,
+        # because the curriculum is locked. That is the one hole through which a
+        # subject could reach students without ever passing the Board.
+        #
+        # The slot's REGISTRATION lifecycle (status: DRAFT/PUBLISHED/OPEN/CLOSED)
+        # keeps moving on a published curriculum — the Dean still opens and closes
+        # student choice each year. What can never change again is WHICH subjects
+        # the slot offers.
+        if slot.locked_at is not None:
+            raise ProgramServiceError(
+                "CURRICULUM_LOCKED",
+                f"{slot.name} belongs to an approved curriculum and its subjects are "
+                "locked permanently. No elective may be added or removed after the "
+                "curriculum is approved — every subject a student can take must have "
+                "passed through the Board. Create a new curriculum version instead.",
+                409,
+            )
+
+        if slot.status != ElectiveSlotStatus.DRAFT.value:
+            raise ProgramServiceError(
+                "SLOT_LOCKED",
+                f"{slot.name} is {slot.status.lower()}; its choices can no longer be changed. "
+                f"Choices are only editable while the slot is a draft.",
+                409,
+            )
+        return slot
+
+    @staticmethod
+    async def add_choice(
+        program_id: UUID,
+        basket_id: UUID,
+        payload: ElectiveChoiceCreate,
+        *,
+        db: AsyncSession,
+    ) -> Course:
+        """Create a real Course as one interchangeable option inside a slot.
+
+        The code is generated, never supplied: a Dean should not have to know
+        that MCA305 is taken. Credits default to the slot's own weight, since a
+        student earns the slot's credits whichever option they take.
+        """
+        slot = await ProgramService._require_slot_draft(basket_id, program_id, db=db)
+        program = await ProgramRepository.get_by_id(program_id, db=db)
+        if program is None:
+            raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+
+        code = await generate_course_code(program_id, program.degree_type, slot.semester, db)
+        course = await CourseRepository.create(
+            program_id=program_id,
+            code=code,
+            title=payload.title,
+            credits=payload.credits or slot.credits,
+            semester=slot.semester,
+            course_type=payload.course_type.value if payload.course_type else None,
+            is_elective=True,
+            elective_basket_id=basket_id,
+            description=payload.description,
+            db=db,
+        )
+        await db.commit()
+        return course
+
+    @staticmethod
+    async def remove_choice(
+        program_id: UUID,
+        basket_id: UUID,
+        course_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Delete an option outright. Unlike remove_course_from_basket (which
+        merely unlinks and leaves an orphan elective course behind), a choice
+        has no meaning outside its slot -- it was created for it."""
+        await ProgramService._require_slot_draft(basket_id, program_id, db=db)
+        course = await CourseRepository.get_by_id(course_id, db=db)
+        if course is None or course.program_id != program_id or course.elective_basket_id != basket_id:
+            raise ProgramServiceError("NOT_FOUND", "That subject is not a choice in this slot.", 404)
+        await CourseRepository.delete(course_id, db=db)
+        await db.commit()
+
+    @staticmethod
+    async def _transition_slot(
+        program_id: UUID,
+        basket_id: UUID,
+        *,
+        expected: ElectiveSlotStatus,
+        target: ElectiveSlotStatus,
+        updates: dict,
+        db: AsyncSession,
+    ) -> ElectiveBasket:
+        slot = await ProgramService._load_slot(basket_id, program_id, db=db)
+        if slot.status != expected.value:
+            raise ProgramServiceError(
+                "INVALID_SLOT_STATUS",
+                f"{slot.name} is {slot.status.lower()}; this action requires it to be "
+                f"{expected.value.lower()}.",
+                409,
+            )
+        updated = await ElectiveBasketRepository.update(
+            basket_id,
+            {"status": target.value, "updated_at": datetime.now(timezone.utc), **updates},
+            db=db,
+        )
+        await db.commit()
+        return updated
+
+    @staticmethod
+    async def publish_slot(
+        program_id: UUID, basket_id: UUID, published_by: UUID, *, db: AsyncSession,
+    ) -> ElectiveBasket:
+        """Freeze the choice list and make the slot visible to students. A slot
+        with no choices would show students an empty question, so it is refused."""
+        slot = await ProgramService._load_slot(basket_id, program_id, db=db)
+        choices = await CourseRepository.list_by_basket(basket_id, db=db)
+        if not choices:
+            raise ProgramServiceError(
+                "SLOT_EMPTY",
+                f"{slot.name} has no choices yet. Add at least one subject before publishing.",
+                422,
+            )
+        return await ProgramService._transition_slot(
+            program_id, basket_id,
+            expected=ElectiveSlotStatus.DRAFT, target=ElectiveSlotStatus.PUBLISHED,
+            updates={
+                "published_at": datetime.now(timezone.utc),
+                "published_by_user_id": published_by,
+            },
+            db=db,
+        )
+
+    @staticmethod
+    async def open_slot_registration(
+        program_id: UUID, basket_id: UUID, *, db: AsyncSession,
+    ) -> ElectiveBasket:
+        return await ProgramService._transition_slot(
+            program_id, basket_id,
+            expected=ElectiveSlotStatus.PUBLISHED, target=ElectiveSlotStatus.OPEN,
+            updates={"registration_opened_at": datetime.now(timezone.utc)},
+            db=db,
+        )
+
+    @staticmethod
+    async def close_slot_registration(
+        program_id: UUID, basket_id: UUID, *, db: AsyncSession,
+    ) -> ElectiveBasket:
+        """The roster becomes final: students can no longer switch, and the
+        faculty teaching each option now has a stable class list."""
+        return await ProgramService._transition_slot(
+            program_id, basket_id,
+            expected=ElectiveSlotStatus.OPEN, target=ElectiveSlotStatus.CLOSED,
+            updates={"registration_closed_at": datetime.now(timezone.utc)},
+            db=db,
+        )
 
     # ------------------------------------------------------------------
     # Export
@@ -910,10 +1176,11 @@ class ProgramService:
             raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
         outcomes = await ProgramOutcomeRepository.list_by_program(program_id, db=db)
         course_nodes = await _build_course_nodes(program_id, db=db)
+        slot_nodes = await _build_elective_slot_nodes(program_id, db=db)
         program_node = ProgramNode(
             degree_type=program.degree_type,
             duration_years=program.duration_years,
             total_credits=program.total_credits,
             outcome_count=len(outcomes),
         )
-        return run_compliance_check(program_node, course_nodes)
+        return run_compliance_check(program_node, course_nodes, slot_nodes)

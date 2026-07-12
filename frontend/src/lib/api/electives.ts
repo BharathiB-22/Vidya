@@ -2,38 +2,76 @@ import api from '@/lib/api'
 
 const BASE = '/electives'
 
-export type ElectiveOfferingStatus = 'OPEN' | 'CLOSED'
-
-export interface OfferingCourse {
+/** One interchangeable choice inside a slot — a real subject with its own code,
+ *  credits and faculty. `registered_count` is demand, not capacity: Phase 5 has
+ *  no seat limit, so a choice is never "full". */
+export interface ElectiveOption {
   course_id: string
   code: string
   title: string
   credits: number
+  course_type: string | null
   description: string | null
   faculty_user_id: string | null
   faculty_name: string | null
-  seats_taken: number
+  registered_count: number
 }
 
-export interface ElectiveOffering {
-  id: string
+export type ElectiveSlotStatus = 'DRAFT' | 'PUBLISHED' | 'OPEN' | 'CLOSED'
+
+/** One curriculum elective slot the student must satisfy this semester, e.g.
+ *  "Elective 1 (3 credits)". The slot comes straight from the published
+ *  program — there is no separate offering to open. */
+export interface ElectiveSlot {
   basket_id: string
-  basket_name: string
-  basket_description: string | null
+  name: string
+  description: string | null
+  credits: number
+  semester: number
   semester_id: string
-  max_seats: number
-  courses: OfferingCourse[]
-  registration_opens_at: string | null
-  registration_closes_at: string | null
-  status: ElectiveOfferingStatus
-  created_at: string
+  status: ElectiveSlotStatus
+  /** True only while the slot is OPEN. PUBLISHED = visible but not yet
+   *  registerable; CLOSED = frozen. */
+  can_register: boolean
+  options: ElectiveOption[]
+  /** The option this student already picked for this slot, if any. */
+  chosen_course_id: string | null
+}
+
+/** A slot as the Dean sees it for one running term, each choice carrying the
+ *  faculty assigned for that term. Curriculum stays fixed across terms; only
+ *  the teaching assignment changes. */
+export interface DeanElectiveSlot {
+  basket_id: string
+  name: string
+  description: string | null
+  credits: number
+  semester: number
+  semester_id: string
+  status: ElectiveSlotStatus
+  options: ElectiveOption[]
+}
+
+export async function listElectiveSlotsForTerm(semesterId: string): Promise<DeanElectiveSlot[]> {
+  const { data } = await api.get<DeanElectiveSlot[]>(`${BASE}/slots/by-term`, {
+    params: { semester_id: semesterId },
+  })
+  return data
+}
+
+export async function assignElectiveChoiceFaculty(
+  semesterId: string, courseId: string, facultyUserId: string,
+): Promise<void> {
+  await api.post(`${BASE}/slots/by-term/${semesterId}/assign-faculty`, {
+    course_id: courseId,
+    faculty_user_id: facultyUserId,
+  })
 }
 
 /** Flat registration row — `is_current` (not a server-side current/past grouping)
  * is what distinguishes an active-semester registration from a past one. */
 export interface ElectiveRegistration {
   id: string
-  offering_id: string
   basket_id: string
   basket_name: string
   course_id: string
@@ -42,98 +80,13 @@ export interface ElectiveRegistration {
   credits: number
   semester_id: string
   semester_label: string | null
-  status: 'REGISTERED' | 'DROPPED' | 'WAITLISTED'
+  status: 'REGISTERED' | 'DROPPED'
   registered_at: string
   is_current: boolean
 }
 
-export interface EligibleBasketCourse {
-  course_id: string
-  code: string
-  title: string
-  credits: number
-  description: string | null
-  faculty_user_id: string | null
-  faculty_name: string | null
-}
-
-export interface EligibleElectiveBasket {
-  basket_id: string
-  name: string
-  description: string | null
-  courses: EligibleBasketCourse[]
-  already_offered: boolean
-}
-
 // ---------------------------------------------------------------------------
-// Dean — offering lifecycle (create with faculty, assign faculty, edit, stats)
-// ---------------------------------------------------------------------------
-
-export async function listEligibleElectiveBaskets(semesterId: string): Promise<EligibleElectiveBasket[]> {
-  const { data } = await api.get<EligibleElectiveBasket[]>(`${BASE}/eligible-baskets`, {
-    params: { semester_id: semesterId },
-  })
-  return data
-}
-
-export interface OfferingFacultyAssignment {
-  course_id: string
-  faculty_user_id: string
-}
-
-export interface ElectiveOfferingCreatePayload {
-  basket_id: string
-  semester_id: string
-  max_seats: number
-  faculty_assignments?: OfferingFacultyAssignment[]
-  registration_opens_at?: string
-  registration_closes_at?: string
-}
-
-export async function createElectiveOffering(payload: ElectiveOfferingCreatePayload): Promise<ElectiveOffering> {
-  const { data } = await api.post<ElectiveOffering>(`${BASE}/offerings`, payload)
-  return data
-}
-
-export async function assignElectiveFaculty(
-  offeringId: string, courseId: string, facultyUserId: string,
-): Promise<ElectiveOffering> {
-  const { data } = await api.post<ElectiveOffering>(`${BASE}/offerings/${offeringId}/assign-faculty`, {
-    course_id: courseId,
-    faculty_user_id: facultyUserId,
-  })
-  return data
-}
-
-export interface ElectiveOfferingUpdatePayload {
-  max_seats?: number
-  status?: ElectiveOfferingStatus
-  registration_opens_at?: string
-  registration_closes_at?: string
-}
-
-export async function updateElectiveOffering(
-  offeringId: string, payload: ElectiveOfferingUpdatePayload,
-): Promise<ElectiveOffering> {
-  const { data } = await api.patch<ElectiveOffering>(`${BASE}/offerings/${offeringId}`, payload)
-  return data
-}
-
-export interface DeanElectiveDashboard {
-  total_offerings: number
-  total_registrations: number
-  offerings: ElectiveOffering[]
-}
-
-export async function getDeanElectiveDashboard(semesterId?: string): Promise<DeanElectiveDashboard> {
-  const { data } = await api.get<DeanElectiveDashboard>(`${BASE}/dashboard`, {
-    params: semesterId ? { semester_id: semesterId } : undefined,
-  })
-  return data
-}
-
-// ---------------------------------------------------------------------------
-// Faculty — read-only roster of students who chose their elective(s)
+// Faculty — the combined elective class (one subject, every section that chose it)
 // ---------------------------------------------------------------------------
 
 export interface ElectiveRosterStudent {
@@ -141,6 +94,7 @@ export interface ElectiveRosterStudent {
   student_name: string
   usn: string | null
   student_email: string | null
+  section_name: string | null
   registered_at: string
 }
 
@@ -148,11 +102,13 @@ export interface FacultyElectiveRoster {
   course_id: string
   course_code: string
   course_title: string
-  offering_id: string
+  basket_id: string
   semester_id: string
   semester_label: string | null
   basket_name: string
   total_students: number
+  /** How many sections this combined class draws from (MCA-A + MCA-B -> 2). */
+  section_count: number
   students: ElectiveRosterStudent[]
 }
 
@@ -162,25 +118,25 @@ export async function getFacultyElectiveRoster(): Promise<FacultyElectiveRoster[
 }
 
 // ---------------------------------------------------------------------------
-// Student — available electives + register / drop / my electives
+// Student — this semester's slots, choose one option per slot, drop
 // ---------------------------------------------------------------------------
 
-export async function listElectiveOfferings(semesterId: string): Promise<ElectiveOffering[]> {
-  const { data } = await api.get<ElectiveOffering[]>(`${BASE}/offerings`, {
-    params: { semester_id: semesterId },
-  })
+/** The slots for the student's own current semester. The server derives the
+ *  semester from their active enrollment, so no semester id is passed. */
+export async function getMyElectiveSlots(): Promise<ElectiveSlot[]> {
+  const { data } = await api.get<ElectiveSlot[]>(`${BASE}/slots`)
   return data
 }
 
-export async function registerElective(offeringId: string, courseId: string): Promise<ElectiveRegistration> {
-  const { data } = await api.post<ElectiveRegistration>(`${BASE}/offerings/${offeringId}/register`, {
+export async function registerElective(basketId: string, courseId: string): Promise<ElectiveRegistration> {
+  const { data } = await api.post<ElectiveRegistration>(`${BASE}/slots/${basketId}/register`, {
     course_id: courseId,
   })
   return data
 }
 
-export async function dropElective(offeringId: string): Promise<ElectiveRegistration> {
-  const { data } = await api.post<ElectiveRegistration>(`${BASE}/offerings/${offeringId}/drop`)
+export async function dropElective(basketId: string): Promise<ElectiveRegistration> {
+  const { data } = await api.post<ElectiveRegistration>(`${BASE}/slots/${basketId}/drop`)
   return data
 }
 

@@ -1,7 +1,7 @@
 """My Subjects / Subject Details — service layer (student self-service).
 
 Reuses MarksRepository.get_student_marks_raw for the internal-marks breakdown
-(no new marks query) and the latest DEAN_APPROVED/DEAN_LOCKED Syllabus for
+(no new marks query) and the latest APPROVED/LOCKED Syllabus for
 units/course-outcomes.
 """
 from __future__ import annotations
@@ -145,7 +145,7 @@ class StudentSubjectsService:
             select(Syllabus)
             .where(
                 Syllabus.course_id == course_id,
-                Syllabus.status.in_([SyllabusStatus.DEAN_APPROVED, SyllabusStatus.DEAN_LOCKED]),
+                Syllabus.status.in_([SyllabusStatus.APPROVED, SyllabusStatus.LOCKED]),
             )
             .options(selectinload(Syllabus.units), selectinload(Syllabus.outcomes))
             .order_by(Syllabus.version.desc())

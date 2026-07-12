@@ -213,6 +213,30 @@ class StorageRepository:
         return await loop.run_in_executor(None, _gen_put)
 
     @staticmethod
+    async def put_object(object_key: str, data: bytes, content_type: str) -> None:
+        """Upload bytes directly from the API process.
+
+        Used for small server-mediated uploads (avatars) where round-tripping a
+        presigned URL through the browser buys nothing.
+        """
+        if not StorageRepository._validate_object_key(object_key):
+            raise ValueError(f"Invalid object_key format: {object_key}")
+
+        loop = asyncio.get_event_loop()
+
+        def _put():
+            client = StorageRepository._get_s3_client()
+            s3_key = object_key.removeprefix(f"{settings.S3_BUCKET}/")
+            client.put_object(
+                Bucket=settings.S3_BUCKET,
+                Key=s3_key,
+                Body=data,
+                ContentType=content_type,
+            )
+
+        return await loop.run_in_executor(None, _put)
+
+    @staticmethod
     async def generate_presigned_get_url(
         object_key: str,
         expires_in_seconds: int,

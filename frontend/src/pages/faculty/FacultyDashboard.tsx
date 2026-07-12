@@ -11,14 +11,16 @@ import { useAssignments as useCourseworkAssignments } from '@/hooks/coursework'
 import { listProblems } from '@/lib/api/research'
 import { StatCard } from '@/components/dashboard/shared'
 import { MyCoursesBanner } from '@/components/assignments/MyCoursesBanner'
-import { NotificationsWidget } from '@/components/student/dashboard/NotificationsWidget'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { getGreeting, getDisplayFirstName } from '@/components/dashboard/shared'
 
 /**
  * Faculty's homepage — one screen, composed entirely from existing
  * faculty-facing APIs (course allocation, syllabus, labs, coursework,
- * internal marks, research supervision, notifications). No new backend.
+ * internal marks, research supervision). No new backend.
+ *
+ * Notifications live solely in the Topbar bell — a dashboard widget here would
+ * be a second copy of the same feed.
  */
 export function FacultyDashboard() {
   const user = useCurrentUser()
@@ -43,9 +45,13 @@ export function FacultyDashboard() {
     })),
   })
   const syllabusLoading = myCoursesQ.isLoading || syllabusQueries.some((q) => q.isLoading)
-  const pendingReviewCount = syllabusQueries
+  // Faculty do not review syllabi — the governance authority writes and approves
+  // them. What matters to a lecturer is how many of their subjects have an
+  // OFFICIAL syllabus they can actually teach and plan against: a syllabus that
+  // is not LOCKED belongs to a curriculum that can still change underneath them.
+  const officialSyllabusCount = syllabusQueries
     .flatMap((q) => q.data?.items ?? [])
-    .filter((s) => s.status === 'PENDING_REVIEW' || s.status === 'REJECTED').length
+    .filter((s) => s.status === 'LOCKED').length
 
   const labsQ = useLabAssignments()
   const publishedLabs = (labsQ.data?.items ?? []).filter((a) => a.status === 'PUBLISHED').length
@@ -87,10 +93,9 @@ export function FacultyDashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <Link to="/syllabuses" className="block">
           <StatCard
-            label="Syllabus Review"
-            value={syllabusLoading ? '…' : String(pendingReviewCount)}
+            label="Official Syllabi"
+            value={syllabusLoading ? '…' : String(officialSyllabusCount)}
             icon={FileText}
-            accent={pendingReviewCount > 0}
           />
         </Link>
         <Link to="/labs" className="block">
@@ -125,10 +130,6 @@ export function FacultyDashboard() {
             />
           </Link>
         )}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <NotificationsWidget />
       </div>
     </div>
   )

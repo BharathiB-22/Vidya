@@ -10,18 +10,24 @@ import {
 } from '@/hooks/syllabuses'
 import type { ReferenceCandidate, RefType, SyllabusReference, SyllabusReferenceCreate } from '@/types/syllabus'
 
+// The label is the bibliography SECTION the reference will print under, not the
+// raw enum — the Board is choosing where it lands in the published document.
 const REF_TYPE_LABEL: Record<RefType, string> = {
-  TEXTBOOK:  'Textbook',
-  REFERENCE: 'Reference',
-  JOURNAL:   'Journal',
-  ONLINE:    'Online',
+  TEXTBOOK:          'Text Book',
+  REFERENCE:         'Reference Book',
+  JOURNAL:           'Reference Book (Journal)',
+  SUGGESTED_READING: 'Suggested Reading',
+  WEB_RESOURCE:      'Web Resource',
+  ONLINE:            'Web Resource',
 }
 
 const REF_TYPE_COLOR: Record<RefType, string> = {
-  TEXTBOOK:  'bg-blue-100 text-blue-700',
-  REFERENCE: 'bg-purple-100 text-purple-700',
-  JOURNAL:   'bg-green-100 text-green-700',
-  ONLINE:    'bg-orange-100 text-orange-700',
+  TEXTBOOK:          'bg-blue-100 text-blue-700',
+  REFERENCE:         'bg-purple-100 text-purple-700',
+  JOURNAL:           'bg-purple-100 text-purple-700',
+  SUGGESTED_READING: 'bg-amber-100 text-amber-700',
+  WEB_RESOURCE:      'bg-teal-100 text-teal-700',
+  ONLINE:            'bg-teal-100 text-teal-700',
 }
 
 interface Props {

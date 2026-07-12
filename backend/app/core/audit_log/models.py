@@ -79,6 +79,24 @@ class AuditEventType(str, enum.Enum):
     PROGRAM_PUBLISHED            = "PROGRAM_PUBLISHED"
     PROGRAM_REJECTED             = "PROGRAM_REJECTED"
     PROGRAM_FORKED               = "PROGRAM_FORKED"
+    # Phase A — Academic Governance. The Dean plans and submits; the Board
+    # (Board / University Members) enhances, generates the official syllabus,
+    # approves and LOCKS; the Dean then publishes.
+    #
+    # There is no CURRICULUM_RETURNED any more — the Board never sends work back,
+    # it enhances the curriculum itself. The value is kept so historical audit
+    # rows written under V1 still deserialize; nothing emits it. Audit history is
+    # append-only, so those rows stay.
+    #
+    # The Board has NO separation of duties: one member may enhance a curriculum,
+    # write its official syllabus, approve it and lock it, alone. Accountability
+    # therefore rests entirely on these events — which is why "who reviewed" is
+    # recorded too, not just who decided.
+    CURRICULUM_SUBMITTED         = "CURRICULUM_SUBMITTED"      # Dean → Board
+    CURRICULUM_REVIEW_OPENED     = "CURRICULUM_REVIEW_OPENED"  # a Board member opened it to review
+    CURRICULUM_RETURNED          = "CURRICULUM_RETURNED"       # retired (V1 only)
+    CURRICULUM_APPROVED          = "CURRICULUM_APPROVED"       # Board approved
+    CURRICULUM_LOCKED            = "CURRICULUM_LOCKED"         # curriculum + syllabi frozen
     PROGRAM_COURSE_ADDED         = "PROGRAM_COURSE_ADDED"
     PROGRAM_COURSE_UPDATED       = "PROGRAM_COURSE_UPDATED"
     PROGRAM_COURSE_DELETED       = "PROGRAM_COURSE_DELETED"
@@ -88,6 +106,11 @@ class AuditEventType(str, enum.Enum):
     ELECTIVE_BASKET_CREATED      = "ELECTIVE_BASKET_CREATED"
     ELECTIVE_BASKET_UPDATED      = "ELECTIVE_BASKET_UPDATED"
     ELECTIVE_BASKET_DELETED      = "ELECTIVE_BASKET_DELETED"
+    ELECTIVE_CHOICE_ADDED        = "ELECTIVE_CHOICE_ADDED"
+    ELECTIVE_CHOICE_REMOVED      = "ELECTIVE_CHOICE_REMOVED"
+    ELECTIVE_SLOT_PUBLISHED      = "ELECTIVE_SLOT_PUBLISHED"
+    ELECTIVE_SLOT_REG_OPENED     = "ELECTIVE_SLOT_REG_OPENED"
+    ELECTIVE_SLOT_REG_CLOSED     = "ELECTIVE_SLOT_REG_CLOSED"
     PROGRAM_EXPORT_REQUESTED     = "PROGRAM_EXPORT_REQUESTED"
     PROGRAM_EXPORT_COMPLETED     = "PROGRAM_EXPORT_COMPLETED"
     PROGRAM_EXPORT_FAILED        = "PROGRAM_EXPORT_FAILED"
@@ -110,6 +133,10 @@ class AuditEventType(str, enum.Enum):
     # Syllabus — M02 AI generation tasks (added in STEP-07; kept here for completeness)
     SYLLABUS_GENERATION_COMPLETED  = "SYLLABUS_GENERATION_COMPLETED"
     SYLLABUS_GENERATION_FAILED     = "SYLLABUS_GENERATION_FAILED"
+    # One section of an existing syllabus rewritten — a unit, the objectives, the
+    # outcomes or the bibliography. The Board should never have to regenerate a
+    # whole syllabus because one unit came out weak.
+    SYLLABUS_SECTION_REGENERATED   = "SYLLABUS_SECTION_REGENERATED"
     REFERENCE_ENRICHMENT_COMPLETED = "REFERENCE_ENRICHMENT_COMPLETED"
     REFERENCE_ENRICHMENT_FAILED    = "REFERENCE_ENRICHMENT_FAILED"
 

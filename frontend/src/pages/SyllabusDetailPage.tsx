@@ -11,17 +11,29 @@ import { UnitsSection } from '@/components/syllabus/UnitsSection'
 import { ReferencesSection } from '@/components/syllabus/ReferencesSection'
 import { CompliancePanel } from '@/components/syllabus/CompliancePanel'
 import { SyllabusApprovalPanel } from '@/components/syllabus/SyllabusApprovalPanel'
+import { CourseInformationHeader } from '@/components/syllabus/CourseInformationHeader'
+import { OfficialSyllabusDocument } from '@/components/syllabus/OfficialSyllabusDocument'
 import {
+  useDeanEditDocument,
   useSyllabus,
   useSyllabusOutcomes,
   useSyllabusUnits,
   useSyllabusReferences,
 } from '@/hooks/syllabuses'
+import { NON_SYLLABUS_TYPES } from '@/types/program'
 import { syllabusKeys } from '@/hooks/syllabuses/useSyllabuses'
 import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
 import { useWorkspace } from '@/lib/workspace'
 
-type Tab = 'overview' | 'outcomes' | 'matrix' | 'units' | 'references' | 'compliance' | 'approval'
+type Tab =
+  | 'document'
+  | 'overview'
+  | 'outcomes'
+  | 'matrix'
+  | 'units'
+  | 'references'
+  | 'compliance'
+  | 'approval'
 
 interface TabDef {
   key:   Tab
@@ -35,7 +47,14 @@ interface ContentCounts {
   references: number
 }
 
+// The DOCUMENT comes first, and it is where the Board works.
+//
+// The remaining tabs are the structured editors underneath it — the CO-PO matrix,
+// the reference search, the compliance report. They are still the right tool for
+// those jobs, but nobody drafts a regulation by filling in one field at a time,
+// so they are no longer the first thing you see.
 const TABS: TabDef[] = [
+  { key: 'document',   label: 'Official Syllabus' },
   { key: 'overview',   label: 'Overview' },
   { key: 'outcomes',   label: 'Course Outcomes',  badge: (c) => c.outcomes || null },
   { key: 'matrix',     label: 'CO-PO Matrix' },
@@ -45,13 +64,24 @@ const TABS: TabDef[] = [
   { key: 'approval',   label: 'Approval' },
 ]
 
-const EDITABLE_STATUSES = new Set(['DRAFT', 'REJECTED'])
+/**
+ * Who owns this document: the Board, and only the Board.
+ *
+ * DRAFT and APPROVED are both editable by the Board — approval is a sign-off, not
+ * a freeze, and editing an approved syllabus simply returns it to draft for
+ * re-approval. LOCKED means the curriculum was approved, and nothing inside a
+ * locked curriculum ever changes again.
+ *
+ * Faculty never edit any of it, in any state. They teach to the published
+ * syllabus and build lesson plans, PPTs, course kits and assignments under it.
+ */
+const EDITABLE_STATUSES = new Set(['DRAFT', 'APPROVED'])
 
 export default function SyllabusDetailPage() {
   const { id }   = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc       = useQueryClient()
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>('document')
   const { activeWorkspace: role } = useWorkspace()
   const isFaculty = role === 'FACULTY'
 
@@ -63,8 +93,27 @@ export default function SyllabusDetailPage() {
 
   const isEditable   = syllabus ? EDITABLE_STATUSES.has(syllabus.status) : false
   const isGenerating = syllabus?.status === 'AI_GENERATING'
-  const isLocked     = syllabus?.status === 'DEAN_LOCKED'
-  const isRejected   = syllabus?.status === 'REJECTED'
+  const isLocked     = syllabus?.status === 'LOCKED'
+  const isApproved   = syllabus?.status === 'APPROVED'
+
+  /*
+   * The Dean's post-approval edit of a guideline document.
+   *
+   * Four of the six course types produce documents whose content genuinely depends
+   * on things the Board cannot know when it approves them — which company hosts the
+   * student, which supervisors are free, the review calendar for this cohort. So the
+   * Dean may adapt those AFTER approval, and the Board's approval survives it.
+   *
+   * A THEORY syllabus is different in kind: the Board owns the taught curriculum,
+   * and the Dean publishes it without rewriting it. The API refuses that with 403 —
+   * this flag only decides whether we offer it, and is not what enforces it.
+   */
+  const deanEdit = useDeanEditDocument(syllabusId)
+  const canDeanEditGuidelines =
+    !!syllabus &&
+    role === 'DEAN' &&
+    NON_SYLLABUS_TYPES.includes(syllabus.doc_type) &&
+    (isApproved || isLocked)
 
   // Track whether AI generation was running in this session so we can detect failure
   const [wasGenerating, setWasGenerating] = useState(false)
@@ -156,70 +205,42 @@ export default function SyllabusDetailPage() {
       {/* ── Action bar ── */}
       <SyllabusActionBar syllabus={syllabus} />
 
+      {/* ── Course Information — the official syllabus header ── */}
+      {syllabus.course_information && (
+        <CourseInformationHeader info={syllabus.course_information} />
+      )}
+
       {/* ── Status banners ── */}
       {isLocked && (
-        <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
-          <Lock className="h-4 w-4 shrink-0" />
+        <div className="flex items-start gap-2 rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-800">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-gray-600" />
           <span>
-            This syllabus is <strong>Published</strong> and locked for the semester.
+            This is the <strong>official syllabus</strong> of an approved curriculum, and it is
+            locked permanently. Nobody may edit it — not Faculty, not the Dean, not the board.
             {isFaculty
-              ? ' It is final and cannot be edited.'
-              : <> Use <strong>Unlock</strong> or <strong>Fork Version</strong> to make changes.</>}
-          </span>
-        </div>
-      )}
-      {syllabus.status === 'PENDING_REVIEW' && (
-        <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            This syllabus is <strong>pending Dean review</strong> and cannot be edited.
-            The Dean may approve, reject, or request revisions.
-          </span>
-        </div>
-      )}
-      {syllabus.status === 'DEAN_APPROVED' && isFaculty && (
-        <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            This syllabus has been reviewed and approved by the Dean and is <strong>pending publication</strong>.
-            It becomes <strong>Published</strong> — the only final state — once the Dean publishes it.
-          </span>
-        </div>
-      )}
-      {syllabus.status === 'DEAN_APPROVED' && !isFaculty && (
-        <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-green-700 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            This syllabus has been <strong>Dean-approved</strong> and is immutable.
-            Use <strong>Lock</strong> to publish it for the semester, or <strong>Fork Version</strong> to start a new revision.
+              ? ' Teach to it, and build your lesson plans, materials and assessments under it.'
+              : ' A change means a new curriculum version.'}
           </span>
         </div>
       )}
 
-      {/* ── REJECTED banner with Dean feedback ── */}
-      {isRejected && syllabus.dean_comment && (
-        <div className="flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 px-4 py-4 text-red-900 text-sm">
-          <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-red-500" />
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-red-800">
-              {syllabus.dean_comment.startsWith('[REVISION REQUESTED]')
-                ? 'Revision Requested by Dean'
-                : 'Syllabus Rejected by Dean'}
-            </p>
-            <p className="mt-1 text-red-700 whitespace-pre-wrap">
-              {syllabus.dean_comment.replace(/^\[REVISION REQUESTED\]\s*/, '')}
-            </p>
-            <p className="mt-2 text-xs text-red-600">
-              Address the feedback above, then use <strong>Resubmit for Review</strong> to send it back to the Dean.
-            </p>
-          </div>
+      {isApproved && !isFaculty && (
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <span>
+            You have <strong>approved</strong> this syllabus. It will be locked when the curriculum
+            is approved. You may still revise it until then — but editing it returns it to draft,
+            and it will need approving again.
+          </span>
         </div>
       )}
-      {isRejected && !syllabus.dean_comment && (
-        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-red-800 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+
+      {isFaculty && !isLocked && (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
           <span>
-            This syllabus was <strong>rejected</strong> by the Dean. Edit and resubmit for review.
+            This syllabus is still being written by the governance authority and is not yet
+            official. It is <strong>read-only</strong> for you.
           </span>
         </div>
       )}
@@ -260,6 +281,40 @@ export default function SyllabusDetailPage() {
 
       {/* ── Tab content ── */}
       <div className="min-h-[24rem]">
+
+        {tab === 'document' && (
+          <>
+            {canDeanEditGuidelines && (
+              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                <p className="font-semibold">
+                  You may adapt these guidelines after Board approval.
+                </p>
+                <p className="mt-0.5 text-blue-800">
+                  Internship, project and seminar documents depend on the host company, the
+                  supervisor and institutional policy — things the Board could not settle when it
+                  approved them. Your edits do not withdraw that approval; they are recorded
+                  against your name in the governance trail. The academic substance — the outcomes
+                  and the rubric’s criteria — remains the Board’s.
+                </p>
+              </div>
+            )}
+            <OfficialSyllabusDocument
+              syllabus={syllabus}
+              outcomes={outcomes}
+              units={units}
+              references={references}
+              // The Board edits a DRAFT; the Dean edits an APPROVED guideline document.
+              // Both land here, and each is refused server-side if it is not theirs.
+              canEdit={(isEditable && !isFaculty) || canDeanEditGuidelines}
+              onSaveDocument={
+                canDeanEditGuidelines
+                  ? (document) => deanEdit.mutate({ document })
+                  : undefined
+              }
+              onSaveDocumentPending={deanEdit.isPending}
+            />
+          </>
+        )}
 
         {tab === 'overview' && (
           <div className="space-y-5">

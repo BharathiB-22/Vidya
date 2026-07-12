@@ -12,20 +12,108 @@ from app.database import Base
 
 
 class ProgramStatus(str, enum.Enum):
+    """Curriculum lifecycle. Ownership changes hands exactly twice, and never
+    comes back.
+
+    DRAFT / AI_GENERATING / GENERATION_FAILED
+        The DEAN owns the curriculum and may edit everything: semesters,
+        subjects, credits, labs, projects, elective baskets.
+    PENDING_APPROVAL
+        The GOVERNANCE AUTHORITY (Board / University Members) owns it. The Dean
+        is read-only, permanently — this is a one-way handover. The Board edits
+        the structure freely, generates the official syllabus, and approves.
+    APPROVED
+        Locked by the Board. Structure AND syllabus are frozen for everyone —
+        Dean, Board, Faculty, Admin alike. A change is a NEW version.
+    PUBLISHED
+        The Dean has released the locked curriculum to Faculty and Students.
+        Publishing does not unlock anything.
+
+    There is no RETURNED, no REJECTED and no reopen. The Board is the academic
+    authority: when it disagrees with the Dean's plan it enhances the plan
+    itself rather than handing the work back. Approval is the only freeze, and
+    the only way past it is a new version (see `fork_program`).
+    """
     DRAFT              = "DRAFT"
     AI_GENERATING      = "AI_GENERATING"
     GENERATION_FAILED  = "GENERATION_FAILED"
     PENDING_APPROVAL   = "PENDING_APPROVAL"
-    APPROVED           = "APPROVED"
+    APPROVED           = "APPROVED"          # approved AND locked by the Board
     PUBLISHED          = "PUBLISHED"
 
 
 class CourseType(str, enum.Enum):
-    THEORY     = "THEORY"
-    LAB        = "LAB"
-    PROJECT    = "PROJECT"
-    INTERNSHIP = "INTERNSHIP"
-    SEMINAR    = "SEMINAR"
+    """What KIND of course this is — and therefore what official document it carries.
+
+    This is not a label. It decides what the Board of Studies produces:
+
+        THEORY         a full university syllabus: Unit I-V, objectives, outcomes,
+                       text books, references
+        LAB            a Lab Manual: experiment list, lab outcomes, equipment and
+                       software, assessment guidelines. NO theory units — a
+                       laboratory is not taught in five units and never was
+        INTERNSHIP     no syllabus at all. Guidelines, duration, evaluation rubric,
+                       weekly activities, company requirements, report and viva
+                       formats
+        MINI_PROJECT   no syllabus. Project guidelines, milestones, deliverables,
+                       reviews, rubrics
+        MAJOR_PROJECT  no syllabus. A project handbook: proposal format, timeline,
+                       reviews, rubrics, final report format, demonstration, viva
+        SEMINAR        no syllabus. Seminar guidelines
+
+    Generating five units of theory for an internship is not a cosmetic error. It
+    is a document the Board would have to throw away, and — if it slipped through —
+    a regulation promising lectures that nobody will ever deliver.
+
+    MINI_PROJECT and MAJOR_PROJECT are separate types rather than one PROJECT
+    because they are different documents: a mini project is milestones and reviews
+    inside one semester, while a major project is a handbook with a proposal, a
+    demonstration and a viva. The two were a single PROJECT value until Phase A
+    V2.3; migration 0086ten splits the existing rows by title.
+    """
+    THEORY        = "THEORY"
+    LAB           = "LAB"
+    INTERNSHIP    = "INTERNSHIP"
+    MINI_PROJECT  = "MINI_PROJECT"
+    MAJOR_PROJECT = "MAJOR_PROJECT"
+    SEMINAR       = "SEMINAR"
+
+
+# The types whose official document is NOT a syllabus. The Board approves a set of
+# guidelines for these, and — unlike a theory syllabus — the Dean may then adapt
+# them, because they depend on the company, the supervisor and the institution's
+# policy in a way a taught syllabus does not. See m02.service.dean_edit_document.
+NON_SYLLABUS_TYPES: frozenset[str] = frozenset({
+    CourseType.INTERNSHIP.value,
+    CourseType.MINI_PROJECT.value,
+    CourseType.MAJOR_PROJECT.value,
+    CourseType.SEMINAR.value,
+})
+
+# The types the Dean may edit AFTER the Board has approved them. Identical to
+# NON_SYLLABUS_TYPES today, and deliberately a separate name: the reason a Dean may
+# touch these is that their content depends on industry and supervisor allocation,
+# not that they happen to lack units. If the two ever diverge, the call sites that
+# mean one must not silently get the other.
+DEAN_EDITABLE_TYPES: frozenset[str] = NON_SYLLABUS_TYPES
+
+
+class ElectiveSlotStatus(str, enum.Enum):
+    """An elective slot's own lifecycle, independent of its program's.
+
+    DRAFT     the Dean may add, edit and remove the slot's choices
+    PUBLISHED the choice list is frozen; students can see the slot
+    OPEN      students may choose (or switch) their one option
+    CLOSED    choices are frozen and the roster is final
+
+    Deliberately separate from ProgramStatus: a published curriculum must still
+    let the Dean fill in which subjects Elective 1 offers this year, and two
+    programs may open their electives at different times.
+    """
+    DRAFT     = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    OPEN      = "OPEN"
+    CLOSED    = "CLOSED"
 
 
 class Program(Base):
@@ -36,6 +124,16 @@ class Program(Base):
         Index("ix_programs_parent_version",   "parent_version_id"),
         Index("ix_programs_created_at",       "created_at"),
         Index("ix_programs_acad_program_id",  "acad_program_id"),
+        # One curriculum version per (program, batch, version). Partial: legacy
+        # rows predating batch-bound versioning have NULLs and are exempt.
+        Index(
+            "uq_programs_curriculum_version",
+            "acad_program_id", "effective_from_batch_id", "version",
+            unique=True,
+            postgresql_where=text(
+                "acad_program_id IS NOT NULL AND effective_from_batch_id IS NOT NULL"
+            ),
+        ),
     )
 
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -55,10 +153,32 @@ class Program(Base):
     ai_model            = Column(String, nullable=True)
     prompt_hash         = Column(String, nullable=True)
     ai_instructions     = Column(Text, nullable=True)
+    # Phase A: the Dean submits; the Board approves and locks.
+    submitted_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    submitted_at        = Column(DateTime(timezone=True), nullable=True)
     approved_by_user_id = Column(UUID(as_uuid=True), nullable=True)
     approved_at         = Column(DateTime(timezone=True), nullable=True)
+    locked_by_user_id   = Column(UUID(as_uuid=True), nullable=True)
+    locked_at           = Column(DateTime(timezone=True), nullable=True)
+    review_comment      = Column(Text, nullable=True)
     published_by_user_id = Column(UUID(as_uuid=True), nullable=True)
     published_at        = Column(DateTime(timezone=True), nullable=True)
+    # Stamped automatically the first time the Board generates the official
+    # syllabus — the structure the syllabus was written against. There is no
+    # "finalize" button and this does NOT freeze editing: the Board may revise
+    # the structure right up to approval. What keeps a stale syllabus out of a
+    # locked curriculum is the approve gate, not this column (see
+    # governance.service.approve_and_lock and m02.service.invalidate_for_course).
+    structure_finalized_at         = Column(DateTime(timezone=True), nullable=True)
+    structure_finalized_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    # A published curriculum version is identified by
+    # (acad_program_id, effective_from_batch_id, version) — "MCA, 2026-2028, v1".
+    # Old batches stay on the version they were admitted under, forever.
+    academic_year       = Column(String(9), nullable=True)    # '2026-2028'
+    regulation_year     = Column(Integer, nullable=True)
+    effective_from_batch_id = Column(
+        UUID(as_uuid=True), ForeignKey("acad_batches.id", ondelete="SET NULL"), nullable=True,
+    )
     created_by_user_id  = Column(UUID(as_uuid=True), nullable=False)
     created_at          = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at          = Column(DateTime(timezone=True), nullable=True)
@@ -92,23 +212,49 @@ class ProgramOutcome(Base):
 
 
 class ElectiveBasket(Base):
-    """A named group of elective courses within one program+semester (e.g.
-    'Artificial Intelligence Electives' containing AI, DL, ML, CV, NLP...).
+    """ONE curriculum elective slot in one program+semester — e.g. "Elective 1
+    (3 credits)" in Semester 3.
 
-    Electives are never modeled as a single standalone course — a course is
-    only offerable as an elective once it belongs to a basket. Students
-    register for ONE course from within an open basket (see
-    m_academics.ElectiveOffering/ElectiveRegistration)."""
+    The slot is the curriculum fact. The Dean hangs any number of real,
+    interchangeable option courses off it (AI301 Artificial Intelligence,
+    DM301 Data Mining, DL301 Deep Learning, ...), each with its own code,
+    syllabus, faculty and seats. A student takes exactly ONE of them, so the
+    slot contributes `credits` to the curriculum exactly once — never the sum
+    of its options. Compliance, semester load and program totals all read
+    `credits` here, not from the member courses.
+
+    Once the program is PUBLISHED the slot is itself the offering: a student in
+    the matching semester picks ONE of its options (see
+    m_academics.ElectiveRegistration). Nothing is opened or closed."""
     __tablename__ = "elective_baskets"
     __table_args__ = (
         Index("ix_elective_baskets_program_semester", "program_id", "semester"),
+        Index("ix_elective_baskets_status", "status"),
     )
 
     id                 = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     program_id         = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=False)
     semester           = Column(Integer, nullable=False)
     name               = Column(String, nullable=False)
+    # The slot's curriculum weight, independent of how many options it holds.
+    credits            = Column(Integer, nullable=False, default=3, server_default=text("3"))
     description        = Column(Text, nullable=True)
+    # The slot's own lifecycle. Choices may only change while this is DRAFT;
+    # students may only register while it is OPEN. See ElectiveSlotStatus.
+    status                 = Column(String(20), nullable=False, default=ElectiveSlotStatus.DRAFT.value,
+                                    server_default=text("'DRAFT'"))
+    published_at           = Column(DateTime(timezone=True), nullable=True)
+    published_by_user_id   = Column(UUID(as_uuid=True), nullable=True)
+    registration_opened_at = Column(DateTime(timezone=True), nullable=True)
+    registration_closed_at = Column(DateTime(timezone=True), nullable=True)
+    # Set when the curriculum is APPROVED. Freezes the slot's COMPOSITION — which
+    # subjects it offers — forever. Distinct from `status` above, which is the
+    # student-registration lifecycle and keeps moving on a published curriculum.
+    # No elective option may be added or removed once this is set: an option is a
+    # subject a student actually takes, so a late addition would smuggle a course
+    # with no Board-approved syllabus into a locked curriculum.
+    locked_at              = Column(DateTime(timezone=True), nullable=True)
+    locked_by_user_id      = Column(UUID(as_uuid=True), nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), nullable=False)
     created_at         = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at         = Column(DateTime(timezone=True), nullable=True)

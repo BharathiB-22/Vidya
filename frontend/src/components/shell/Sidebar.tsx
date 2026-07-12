@@ -54,14 +54,6 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── FACULTY / DEAN: Account (single shared location — do not duplicate per role) ──
-  {
-    heading: 'Account',
-    items: [
-      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['FACULTY', 'DEAN'] },
-    ],
-  },
-
   // ── FACULTY: My Teaching ───────────────────────────────────────────────────
   {
     heading: 'My Teaching',
@@ -73,7 +65,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Learning Materials',  to: '/learning-packages',            icon: Library,       roles: ['FACULTY'] },
       { label: 'Labs',                to: '/labs',                         icon: FlaskConical,  roles: ['FACULTY'] },
       { label: 'Assignments',         to: '/faculty/assignments',          icon: FileText,      roles: ['FACULTY'] },
-      { label: 'Attendance',          to: '/sis/attendance/mark',          icon: CalendarCheck, roles: ['FACULTY'] },
+      { label: 'Attendance',          to: '/sis/attendance',               icon: CalendarCheck, roles: ['FACULTY'] },
       { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
       { label: 'My Timetable',        to: '/faculty/timetable',            icon: CalendarClock, roles: ['FACULTY'] },
       { label: 'Elective Students',   to: '/faculty/elective-students',    icon: ListChecks,    roles: ['FACULTY'] },
@@ -113,15 +105,32 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 
-  // ── DEAN: Academic Governance ──────────────────────────────────────────────
+  // ── DEAN: Curriculum ──────────────────────────────────────────────────────
+  // Phase A: the Dean PREPARES curriculum and submits it. Approving and locking
+  // belong to the governance authority (see the BOARD section below), so this is
+  // no longer called "Academic Governance" on the Dean's side.
   {
-    heading: 'Academic Governance',
+    heading: 'Curriculum',
     items: [
       { label: 'Academic Ownership', to: '/dean/academic-ownership',        icon: LayoutList,    roles: ['DEAN'] },
       { label: 'Programs',            to: '/programs',                       icon: BookMarked,    roles: ['DEAN'] },
       { label: 'Syllabuses',          to: '/syllabuses',                     icon: GraduationCap, roles: ['DEAN'] },
       { label: 'Timetable',           to: '/timetable',                      icon: CalendarClock, roles: ['DEAN'] },
-      { label: 'Elective Offerings',  to: '/elective-offerings',             icon: ListChecks,    roles: ['DEAN'] },
+    ],
+  },
+
+  // ── BOARD: Academic Governance (Phase A) ──────────────────────────────────
+  // The governance authority owns the final curriculum. Unlike the Examination
+  // section below (a grant overlay), this is the BOARD workspace's OWN nav: it
+  // shows when the active workspace is BOARD. excludeRoles: DEAN keeps a Dean who
+  // also holds a BOARD grant out of it — a Dean must never approve curriculum
+  // they prepared, and the backend rejects it too (governance/service.py).
+  {
+    heading: 'Academic Governance',
+    items: [
+      { label: 'Curriculum Review',  to: '/governance/curriculum', icon: ClipboardCheck, roles: ['BOARD'], excludeRoles: ['DEAN'] },
+      { label: 'Approved Curricula', to: '/governance/approved',   icon: BookLock,       roles: ['BOARD'], excludeRoles: ['DEAN'] },
+      { label: 'Syllabuses',         to: '/syllabuses',            icon: GraduationCap,  roles: ['BOARD'], excludeRoles: ['DEAN'] },
     ],
   },
 
@@ -285,7 +294,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Assessments',
     items: [
       { label: 'Digital Exams',    to: '/student/exams/digital',   icon: Monitor,       roles: ['STUDENT'] },
-      { label: 'Attendance',       to: '/sis/attendance/me',       icon: CalendarCheck, roles: ['STUDENT'] },
+      { label: 'My Attendance',    to: '/sis/attendance/me',       icon: CalendarCheck, roles: ['STUDENT'] },
       { label: 'Internal Marks',   to: '/sis/marks/me',            icon: BookMarked,    roles: ['STUDENT'] },
       { label: 'Semester Results', to: '/student/semester-results', icon: BarChart2,     roles: ['STUDENT'] },
       { label: 'Hall Ticket',      to: '/sis/hall-tickets/me',     icon: Ticket,        roles: ['STUDENT'] },
@@ -303,7 +312,6 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Calendar',      to: '/student/calendar',   icon: CalendarRange, roles: ['STUDENT'] },
       { label: 'Events',        to: '/student/events',     icon: PartyPopper,   roles: ['STUDENT'] },
       { label: 'Notifications', to: '/notifications',      icon: Bell,          roles: ['STUDENT'] },
-      { label: 'My Profile',    to: '/sis/me/profile',     icon: UserCircle2,   roles: ['STUDENT'] },
     ],
   },
 
@@ -324,6 +332,16 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Research',
     items: [
       { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['GUIDE'], grantOverlay: true, excludeRoles: ['DEAN'] },
+    ],
+  },
+
+  // ── Account — MUST stay the last section so "My Profile" always sits at the
+  // bottom of the sidebar for every role. Admin has its own profile route.
+  {
+    heading: 'Account',
+    items: [
+      { label: 'My Profile', to: '/sis/me/profile', icon: UserCircle2, roles: ['STUDENT', 'FACULTY', 'DEAN'] },
+      { label: 'My Profile', to: '/my-profile',     icon: UserCircle2, roles: ['ADMIN'] },
     ],
   },
 ]

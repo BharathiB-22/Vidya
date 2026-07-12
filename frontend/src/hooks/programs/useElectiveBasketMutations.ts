@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import * as programsApi from '@/lib/api/programs'
-import type { ElectiveBasketCreate, ElectiveBasketUpdate } from '@/types/program'
+import type { ElectiveBasketCreate, ElectiveBasketUpdate, ElectiveChoiceCreate } from '@/types/program'
 import { programKeys } from './usePrograms'
 
 export function useCreateBasket(programId: string) {
@@ -35,13 +35,54 @@ export function useDeleteBasket(programId: string) {
   })
 }
 
-export function useRemoveCourseFromBasket(programId: string) {
+// ---------------------------------------------------------------------------
+// Slot choices + lifecycle. Adding a choice creates a real course, so the
+// program's course list is invalidated alongside the baskets.
+// ---------------------------------------------------------------------------
+
+function invalidateSlotAndCourses(qc: ReturnType<typeof useQueryClient>, programId: string) {
+  qc.invalidateQueries({ queryKey: programKeys.baskets(programId) })
+  qc.invalidateQueries({ queryKey: programKeys.courses(programId) })
+}
+
+export function useAddElectiveChoice(programId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (courseId: string) => programsApi.removeCourseFromBasket(programId, courseId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: programKeys.courses(programId) })
-      qc.invalidateQueries({ queryKey: programKeys.baskets(programId) })
-    },
+    mutationFn: ({ basketId, payload }: { basketId: string; payload: ElectiveChoiceCreate }) =>
+      programsApi.addElectiveChoice(programId, basketId, payload),
+    onSuccess: () => invalidateSlotAndCourses(qc, programId),
+  })
+}
+
+export function useRemoveElectiveChoice(programId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ basketId, courseId }: { basketId: string; courseId: string }) =>
+      programsApi.removeElectiveChoice(programId, basketId, courseId),
+    onSuccess: () => invalidateSlotAndCourses(qc, programId),
+  })
+}
+
+export function usePublishElectiveSlot(programId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (basketId: string) => programsApi.publishElectiveSlot(programId, basketId),
+    onSuccess: () => invalidateSlotAndCourses(qc, programId),
+  })
+}
+
+export function useOpenElectiveRegistration(programId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (basketId: string) => programsApi.openElectiveRegistration(programId, basketId),
+    onSuccess: () => invalidateSlotAndCourses(qc, programId),
+  })
+}
+
+export function useCloseElectiveRegistration(programId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (basketId: string) => programsApi.closeElectiveRegistration(programId, basketId),
+    onSuccess: () => invalidateSlotAndCourses(qc, programId),
   })
 }

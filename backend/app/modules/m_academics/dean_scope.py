@@ -26,7 +26,7 @@ async def get_semester_program_id(semester_id: UUID, db: AsyncSession) -> UUID |
     Mirrors `core/timetable/dean_scope.py`'s `get_section_program_id` (same
     join style, one level shorter since a semester already sits above section
     in the acad_* hierarchy) -- used to scope Dean-owned resources that are
-    keyed by semester_id rather than section_id (e.g. elective offerings).
+    keyed by semester_id rather than section_id (e.g. elective registration).
     """
     row = (
         await db.execute(

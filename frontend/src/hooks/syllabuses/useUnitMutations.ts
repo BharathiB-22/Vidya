@@ -23,6 +23,7 @@ export function useAddUnit(syllabusId: string) {
           syllabus_id:   syllabusId,
           unit_number:   payload.unit_number,
           title:         payload.title,
+          content:       payload.content ?? null,
           topics:        payload.topics ?? [],
           total_hours:   payload.total_hours,
           pedagogy:      payload.pedagogy ?? null,

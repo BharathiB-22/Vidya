@@ -1,6 +1,5 @@
 import api from '@/lib/api'
 import type {
-  ApproveRequest,
   Course,
   CourseCreate,
   CoursePrerequisite,
@@ -9,6 +8,7 @@ import type {
   ElectiveBasket,
   ElectiveBasketCreate,
   ElectiveBasketUpdate,
+  ElectiveChoiceCreate,
   ExportProgramRequest,
   GenerateProgramRequest,
   JobStatusResponse,
@@ -26,7 +26,6 @@ import type {
   ProgramUpdate,
   ProgramVersionResponse,
   PublishRequest,
-  RejectRequest,
 } from '@/types/program'
 
 const BASE = '/programs'
@@ -89,18 +88,10 @@ export async function getJobStatus(
   return data
 }
 
-export async function approveProgram(id: string, payload: ApproveRequest): Promise<Program> {
-  const { data } = await api.post<Program>(`${BASE}/${id}/approve`, payload)
-  return data
-}
-
-export async function rejectProgram(
-  id: string,
-  payload: RejectRequest,
-): Promise<ProgramStatusResponse> {
-  const { data } = await api.post<ProgramStatusResponse>(`${BASE}/${id}/reject`, payload)
-  return data
-}
+// Phase A: there is no Dean approve/reject any more. The Dean SUBMITS
+// (see lib/api/governance.ts → submitForApproval, POST /programs/{id}/submit),
+// and the governance authority approves/returns via /governance/*. Publishing
+// below stays with the Dean.
 
 export async function publishProgram(id: string, payload: PublishRequest): Promise<Program> {
   const { data } = await api.post<Program>(`${BASE}/${id}/publish`, payload)
@@ -231,4 +222,48 @@ export async function updateBasket(
 
 export async function deleteBasket(programId: string, basketId: string): Promise<void> {
   await api.delete(`${BASE}/${programId}/electives/baskets/${basketId}`)
+}
+
+// ---------------------------------------------------------------------------
+// Elective slot choices + lifecycle.
+//
+// Gated on the SLOT's status, not the program's — a Dean fills in what
+// Elective 1 offers this year on a curriculum published long ago. Course codes
+// are generated server-side; the Dean never types one.
+// ---------------------------------------------------------------------------
+
+export async function addElectiveChoice(
+  programId: string, basketId: string, payload: ElectiveChoiceCreate,
+): Promise<Course> {
+  const { data } = await api.post<Course>(
+    `${BASE}/${programId}/electives/baskets/${basketId}/choices`, payload,
+  )
+  return data
+}
+
+export async function removeElectiveChoice(
+  programId: string, basketId: string, courseId: string,
+): Promise<void> {
+  await api.delete(`${BASE}/${programId}/electives/baskets/${basketId}/choices/${courseId}`)
+}
+
+export async function publishElectiveSlot(programId: string, basketId: string): Promise<ElectiveBasket> {
+  const { data } = await api.post<ElectiveBasket>(
+    `${BASE}/${programId}/electives/baskets/${basketId}/publish`,
+  )
+  return data
+}
+
+export async function openElectiveRegistration(programId: string, basketId: string): Promise<ElectiveBasket> {
+  const { data } = await api.post<ElectiveBasket>(
+    `${BASE}/${programId}/electives/baskets/${basketId}/open-registration`,
+  )
+  return data
+}
+
+export async function closeElectiveRegistration(programId: string, basketId: string): Promise<ElectiveBasket> {
+  const { data } = await api.post<ElectiveBasket>(
+    `${BASE}/${programId}/electives/baskets/${basketId}/close-registration`,
+  )
+  return data
 }

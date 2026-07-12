@@ -25,9 +25,58 @@ class CourseNode:
     is_elective:             bool
     prerequisite_course_ids: list[UUID]
     course_type:             str | None = None   # THEORY|LAB|PROJECT|INTERNSHIP|SEMINAR
+    # Set when this course is one interchangeable OPTION inside an elective
+    # slot. Options are real courses (own code, syllabus, faculty, seats) but
+    # they are not curriculum entries in their own right — the slot is.
+    elective_basket_id:      UUID | None = None
 
     def is_project_or_internship(self) -> bool:
         return self.course_type in ("PROJECT", "INTERNSHIP")
+
+
+@dataclasses.dataclass
+class ElectiveSlotNode:
+    """ONE elective slot in the curriculum, e.g. "Elective 1" worth 3 credits
+    in Semester 3. A student takes exactly one of its options, so the slot
+    counts once, at its own credit weight, no matter how many options exist."""
+    id:       UUID
+    name:     str
+    credits:  int
+    semester: int
+
+
+def _curriculum_units(
+    courses: list[CourseNode],
+    slots: list[ElectiveSlotNode],
+) -> list[CourseNode]:
+    """The list every credit- and shape-based rule must reason over: real
+    curriculum entries, with each elective slot standing in for the whole
+    basket of options behind it.
+
+    Semester 3 holding OS(4) + CN(4) + Elective 1(3) over {AI, DM, DL} yields
+    three units totalling 11 credits — not five units totalling 17.
+
+    An option whose slot was not supplied still counts individually, so a
+    caller that passes no slots keeps the pre-slot behaviour rather than
+    silently dropping credits."""
+    known_slot_ids = {s.id for s in slots}
+    units = [
+        c for c in courses
+        if c.elective_basket_id is None or c.elective_basket_id not in known_slot_ids
+    ]
+    units.extend(
+        CourseNode(
+            id=slot.id,
+            code=slot.name,
+            credits=slot.credits,
+            semester=slot.semester,
+            is_elective=True,
+            prerequisite_course_ids=[],
+            course_type=None,
+        )
+        for slot in slots
+    )
+    return units
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +107,6 @@ class _Thresholds:
     max_total_credits: int
     min_sem_credits:   int
     max_sem_credits:   int
-    min_elective_ratio: float
     min_po_count:      int
     min_course_credits: int
     max_course_credits: int
@@ -67,7 +115,6 @@ class _Thresholds:
 _UG4 = _Thresholds(   # 4-year UG: B.Tech, BE, BCA, B.Arch, B.Pharm
     min_total_credits=160, max_total_credits=200,
     min_sem_credits=14,    max_sem_credits=30,
-    min_elective_ratio=0.20,
     min_po_count=3,
     min_course_credits=1,  max_course_credits=6,
 )
@@ -75,7 +122,6 @@ _UG4 = _Thresholds(   # 4-year UG: B.Tech, BE, BCA, B.Arch, B.Pharm
 _UG3 = _Thresholds(   # 3-year UG: BSc, BBA, BA, B.Com, BHM, BDes
     min_total_credits=120, max_total_credits=160,
     min_sem_credits=14,    max_sem_credits=30,
-    min_elective_ratio=0.20,
     min_po_count=3,
     min_course_credits=1,  max_course_credits=6,
 )
@@ -83,7 +129,6 @@ _UG3 = _Thresholds(   # 3-year UG: BSc, BBA, BA, B.Com, BHM, BDes
 _PG2 = _Thresholds(   # 2-year PG: M.Tech, ME, MBA, MSc, MCA, MA, M.Com, M.Pharm
     min_total_credits=60,  max_total_credits=120,
     min_sem_credits=12,    max_sem_credits=30,
-    min_elective_ratio=0.15,
     min_po_count=3,
     min_course_credits=1,  max_course_credits=6,
 )
@@ -91,7 +136,6 @@ _PG2 = _Thresholds(   # 2-year PG: M.Tech, ME, MBA, MSc, MCA, MA, M.Com, M.Pharm
 _DEFAULT = _Thresholds(
     min_total_credits=60,  max_total_credits=200,
     min_sem_credits=12,    max_sem_credits=30,
-    min_elective_ratio=0.15,
     min_po_count=3,
     min_course_credits=1,  max_course_credits=6,
 )
@@ -166,11 +210,11 @@ def _check_total_credits_max(
 
 
 def _check_semester_credits_min(
-    courses: list[CourseNode],
+    units: list[CourseNode],
     t: _Thresholds,
 ) -> list[ComplianceViolation]:
     sem_credits: dict[int, int] = {}
-    for course in courses:
+    for course in units:
         sem_credits[course.semester] = sem_credits.get(course.semester, 0) + course.credits
 
     violations = []
@@ -189,7 +233,7 @@ def _check_semester_credits_min(
 
 
 def _check_semester_credits_max(
-    courses: list[CourseNode],
+    units: list[CourseNode],
     t: _Thresholds,
 ) -> list[ComplianceViolation]:
     """Phase 4.2 policy: a program is validated against its TOTAL configured
@@ -198,7 +242,7 @@ def _check_semester_credits_max(
     non-blocking, advisory recommendation to rebalance. Total-credit ceilings
     are still enforced by _check_total_credits_max."""
     sem_credits: dict[int, int] = {}
-    for course in courses:
+    for course in units:
         sem_credits[course.semester] = sem_credits.get(course.semester, 0) + course.credits
 
     if not sem_credits:
@@ -228,11 +272,11 @@ def _check_semester_credits_max(
 
 
 def _check_semester_balance(
-    courses: list[CourseNode],
+    units: list[CourseNode],
     t: _Thresholds,
 ) -> list[ComplianceViolation]:
     sem_credits: dict[int, int] = {}
-    for course in courses:
+    for course in units:
         sem_credits[course.semester] = sem_credits.get(course.semester, 0) + course.credits
 
     if len(sem_credits) < 2:
@@ -254,31 +298,37 @@ def _check_semester_balance(
     return []
 
 
-def _check_elective_ratio(
+def _check_slot_option_credits(
     courses: list[CourseNode],
-    t: _Thresholds,
+    slots: list[ElectiveSlotNode],
 ) -> list[ComplianceViolation]:
-    if not courses:
-        return []
-    elective_count = sum(1 for c in courses if c.is_elective)
-    ratio = elective_count / len(courses)
-    if ratio < t.min_elective_ratio:
-        return [ComplianceViolation(
-            rule_id="UGC-ELEC-001",
-            rule_ref="UGC LOCF 2020 §5.3",
-            message=(
-                f"Electives are {round(ratio * 100, 1)}% of total "
-                f"({elective_count}/{len(courses)}), below the recommended "
-                f"{round(t.min_elective_ratio * 100)}% minimum. Elective selection "
-                "is not yet implemented in this phase — current elective courses "
-                "are placeholders, so this is informational only and not a defect "
-                "in the generated structure."
-            ),
-            severity="INFO",
-        )]
-    return []
+    """Options inside one slot are interchangeable, so they must all be worth
+    the slot's credits. If Elective 1 is a 3-credit slot but DM301 carries 4,
+    a student who picks DM301 earns 4 credits while the curriculum counted 3 —
+    attendance and internal marks run against the course the student actually
+    chose, so the mismatch reaches transcripts."""
+    by_id = {s.id: s for s in slots}
+    violations = []
+    for course in courses:
+        slot = by_id.get(course.elective_basket_id) if course.elective_basket_id else None
+        if slot is not None and course.credits != slot.credits:
+            violations.append(ComplianceViolation(
+                rule_id="UGC-ELEC-002",
+                rule_ref="Internal — Curriculum Integrity",
+                message=(
+                    f"Elective option {course.code!r} is {course.credits} credit(s) but its "
+                    f"slot {slot.name!r} is worth {slot.credits}. Every option in a slot must "
+                    f"carry the slot's credits — a student takes exactly one of them."
+                ),
+                severity="WARNING",
+            ))
+    return violations
 
 
+# A mini-project in an early semester is routinely worth 2 credits, while a
+# final-year dissertation runs to 20. Both are PROJECT courses, so the band has
+# to span the whole range rather than assume the dissertation.
+_PROJECT_INTERNSHIP_MIN_CREDITS = 2
 _PROJECT_INTERNSHIP_MAX_CREDITS = 20
 
 
@@ -289,14 +339,14 @@ def _check_course_credit_range(
     violations = []
     for course in courses:
         if course.is_project_or_internship():
-            # Projects and internships may span 6–20 credits per UGC flexibility norms.
-            if not (6 <= course.credits <= _PROJECT_INTERNSHIP_MAX_CREDITS):
+            if not (_PROJECT_INTERNSHIP_MIN_CREDITS <= course.credits <= _PROJECT_INTERNSHIP_MAX_CREDITS):
                 violations.append(ComplianceViolation(
                     rule_id="UGC-COURSE-002",
                     rule_ref="UGC LOCF 2020 §3.2 (project/internship flexibility)",
                     message=(
                         f"Course {course.code!r} ({course.course_type}) has {course.credits} credit(s); "
-                        f"project/internship range is [6, {_PROJECT_INTERNSHIP_MAX_CREDITS}]."
+                        f"project/internship range is "
+                        f"[{_PROJECT_INTERNSHIP_MIN_CREDITS}, {_PROJECT_INTERNSHIP_MAX_CREDITS}]."
                     ),
                     severity="WARNING",
                 ))
@@ -316,11 +366,11 @@ def _check_course_credit_range(
 
 def _check_lab_presence(
     program: ProgramNode,
-    courses: list[CourseNode],
+    units: list[CourseNode],
 ) -> list[ComplianceViolation]:
     final_semester = program.duration_years * 2
     sem_types: dict[int, set[str]] = {}
-    for course in courses:
+    for course in units:
         sem_types.setdefault(course.semester, set()).add(course.course_type or "")
 
     violations = []
@@ -343,10 +393,10 @@ def _check_lab_presence(
 
 def _check_final_semester_composition(
     program: ProgramNode,
-    courses: list[CourseNode],
+    units: list[CourseNode],
 ) -> list[ComplianceViolation]:
     final_semester = program.duration_years * 2
-    final_courses = [c for c in courses if c.semester == final_semester]
+    final_courses = [c for c in units if c.semester == final_semester]
     if not final_courses:
         return []
 
@@ -368,11 +418,11 @@ def _check_final_semester_composition(
 
 def _check_layout_zones(
     program: ProgramNode,
-    courses: list[CourseNode],
+    units: list[CourseNode],
 ) -> list[ComplianceViolation]:
     """Finalized curriculum layout: every semester before the last two is
-    core-only (no project/internship/elective); the second-to-last semester
-    holds the mini project + elective basket(s); the final semester is
+    core-only (no project/internship/elective slot); the second-to-last semester
+    holds the mini project + elective slot(s); the final semester is
     checked separately by _check_final_semester_composition. A soft realism
     warning, same severity tier as the rest of this module's shape checks."""
     total_semesters = program.duration_years * 2
@@ -382,7 +432,7 @@ def _check_layout_zones(
     mini_project_semester = total_semesters - 1
     violations: list[ComplianceViolation] = []
 
-    core_zone_courses = [c for c in courses if c.semester < mini_project_semester]
+    core_zone_courses = [c for c in units if c.semester < mini_project_semester]
     misplaced = [
         c for c in core_zone_courses
         if c.is_elective or c.is_project_or_internship()
@@ -399,7 +449,7 @@ def _check_layout_zones(
             severity="WARNING",
         ))
 
-    mini_semester_courses = [c for c in courses if c.semester == mini_project_semester]
+    mini_semester_courses = [c for c in units if c.semester == mini_project_semester]
     if mini_semester_courses:
         has_mini_project = any(c.course_type == "PROJECT" for c in mini_semester_courses)
         has_elective = any(c.is_elective for c in mini_semester_courses)
@@ -414,7 +464,7 @@ def _check_layout_zones(
             violations.append(ComplianceViolation(
                 rule_id="UGC-LAYOUT-003",
                 rule_ref="Internal — Curriculum Realism",
-                message=f"Semester {mini_project_semester} is missing its elective basket course(s).",
+                message=f"Semester {mini_project_semester} is missing its elective slot.",
                 severity="WARNING",
             ))
 
@@ -514,21 +564,39 @@ def detect_prerequisite_cycles(
 def run_compliance_check(
     program: ProgramNode,
     courses: list[CourseNode],
+    slots: list[ElectiveSlotNode] | None = None,
 ) -> ComplianceResult:
+    """`courses` is every course in the program, including each option inside
+    every elective slot. `slots` are the curriculum's elective slots.
+
+    Rules split into two families. Credit and shape rules run over the
+    *curriculum units* — cores plus one entry per slot — so a slot contributes
+    its own credits once rather than once per option. Integrity rules (unique
+    codes, per-course credit range, prerequisite cycles) run over every real
+    course, options included, because each option is a real course a student
+    can enrol in.
+
+    Omitting `slots` reproduces the pre-slot behaviour for callers that have no
+    basket information."""
     t = _get_thresholds(program.degree_type)
+    slots = slots or []
+    units = _curriculum_units(courses, slots)
     violations: list[ComplianceViolation] = []
 
+    # Curriculum-shape rules — one slot is one course.
     violations.extend(_check_total_credits_min(program, t))
     violations.extend(_check_total_credits_max(program, t))
-    violations.extend(_check_semester_credits_min(courses, t))
-    violations.extend(_check_semester_credits_max(courses, t))
-    violations.extend(_check_semester_balance(courses, t))
-    violations.extend(_check_elective_ratio(courses, t))
-    violations.extend(_check_course_credit_range(courses, t))
-    violations.extend(_check_lab_presence(program, courses))
-    violations.extend(_check_final_semester_composition(program, courses))
-    violations.extend(_check_layout_zones(program, courses))
+    violations.extend(_check_semester_credits_min(units, t))
+    violations.extend(_check_semester_credits_max(units, t))
+    violations.extend(_check_semester_balance(units, t))
+    violations.extend(_check_lab_presence(program, units))
+    violations.extend(_check_final_semester_composition(program, units))
+    violations.extend(_check_layout_zones(program, units))
     violations.extend(_check_program_outcomes(program, t))
+
+    # Integrity rules — every option is a real course.
+    violations.extend(_check_course_credit_range(courses, t))
+    violations.extend(_check_slot_option_credits(courses, slots))
     violations.extend(_check_duplicate_codes(courses))
     violations.extend(detect_prerequisite_cycles(courses))
 

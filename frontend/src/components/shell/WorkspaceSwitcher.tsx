@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { useWorkspace } from '@/lib/workspace'
+import { useGovernance } from '@/lib/governance'
 
 /** Hidden entirely when the user has only one workspace — per spec, nothing
  *  to switch between. */
 export function WorkspaceSwitcher() {
   const { activeWorkspace, availableWorkspaces, setActiveWorkspace } = useWorkspace()
+  const { bodyLabel } = useGovernance()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  // The governance workspace is named by the tenant, not by us: "Board" in one
+  // university, "University Members" in another. Every other workspace keeps its
+  // static label.
+  const labelFor = (key: string, fallback: string) =>
+    key === 'BOARD' ? bodyLabel : fallback
 
   useEffect(() => {
     if (!open) return
@@ -35,7 +43,9 @@ export function WorkspaceSwitcher() {
         aria-expanded={open}
       >
         <current.icon className="h-4 w-4 text-sv-accent flex-shrink-0" />
-        <span className="flex-1 text-sm font-semibold text-white truncate">{current.label}</span>
+        <span className="flex-1 text-sm font-semibold text-white truncate">
+          {labelFor(current.key, current.label)}
+        </span>
         <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -57,7 +67,7 @@ export function WorkspaceSwitcher() {
                 }`}
               >
                 <w.icon className="h-4 w-4 flex-shrink-0" />
-                <span className="flex-1 text-left truncate">{w.label}</span>
+                <span className="flex-1 text-left truncate">{labelFor(w.key, w.label)}</span>
                 {isActive && <Check className="h-3.5 w-3.5 text-sv-accent flex-shrink-0" />}
               </button>
             )

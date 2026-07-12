@@ -129,3 +129,13 @@ class CourseWithAssignmentsOut(BaseModel):
     code:        str
     title:       str
     assignments: list[AssignmentOut]
+    # Teaching load, used by the timetable's Generate action to work out how many
+    # weekly periods a course needs. L-T-P are hours per week; older AI-generated
+    # courses left them null, so callers fall back to `credits`.
+    credits:         int
+    hours_lecture:   int | None = None
+    hours_tutorial:  int | None = None
+    hours_practical: int | None = None
+    # An elective choice is taught as one combined class across every section
+    # that chose it, so the timetable cell must not claim a single section.
+    is_elective:     bool = False

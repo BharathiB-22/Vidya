@@ -22,9 +22,12 @@ from app.core.auth.schemas import (
     TenantInfo,
     TokenResponse,
     CurrentUser,
-    UpdateMyAvatarRequest,
 )
 from app.core.auth.service import AuthError, TenantAuthService
+from app.config import settings
+from app.core.storage.models import StorageEntityType
+from app.core.storage.repository import StorageRepository
+from app.core.storage.service import StorageError, StorageService
 
 router = APIRouter(tags=["auth"])
 
@@ -171,26 +174,16 @@ async def get_me(
     )
 
 
-@router.patch("/me/avatar", response_model=MeResponse)
-async def update_my_avatar(
-    body: UpdateMyAvatarRequest,
-    current_user: CurrentUser = Depends(get_current_user),
-) -> MeResponse:
-    """Set/clear the caller's own profile picture URL, after it has been
-    uploaded via the storage module (entity_type="avatar") and persisted as
-    a StorageAsset. Available to every tenant role — Student/Faculty/Dean/Admin."""
-    if current_user.is_super_admin:
-        raise HTTPException(
-            status_code=403,
-            detail={"error": "FORBIDDEN", "message": "Use /platform/auth/me for super admin"},
-        )
+async def _set_my_avatar(current_user: CurrentUser, object_key: str | None) -> MeResponse:
+    """Persist the caller's avatar reference (an object key, or None to clear)
+    inside their own tenant schema and return the refreshed profile."""
     async with AsyncSessionLocal() as session:
         async with session.begin():
             await session.execute(
                 text(f"SET LOCAL search_path = {current_user.schema_name}, public")
             )
             user = await TenantRepository.update_user(
-                current_user.user_id, {"avatar_url": body.avatar_url}, session
+                current_user.user_id, {"avatar_url": object_key}, session
             )
     if not user:
         raise HTTPException(
@@ -211,6 +204,96 @@ async def update_my_avatar(
         schema_name=current_user.schema_name,
         first_login=user.password_changed_at is None or user.must_change_password,
     )
+
+
+async def _read_upload(file: UploadFile, max_bytes: int) -> bytes:
+    """Read at most max_bytes + 1 so an oversized file is rejected without
+    buffering the whole thing."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "FILE_TOO_LARGE",
+                    "message": f"Profile picture must be {settings.AVATAR_MAX_UPLOAD_SIZE_MB}MB or smaller.",
+                },
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post("/me/avatar", response_model=MeResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(..., description="JPG, JPEG, PNG or WEBP profile picture"),
+    current_user: CurrentUser = Depends(get_current_user),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
+) -> MeResponse:
+    """Upload the caller's own profile picture. Available to every tenant role —
+    Student / Faculty / Dean / Admin.
+
+    The image goes into this tenant's storage prefix and only its object key is
+    written to the tenant database; the entity id is taken from the access token,
+    so no UUID is ever accepted from the client.
+    """
+    if current_user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Use /platform/auth/me/avatar for super admin"},
+        )
+
+    data = await _read_upload(file, settings.AVATAR_MAX_UPLOAD_SIZE_MB * 1024 * 1024)
+    try:
+        object_key, content_type = await StorageService.upload_avatar(
+            owner_id=current_user.user_id,
+            scope_slug=tenant_info.slug,
+            filename=file.filename,
+            content_type=file.content_type,
+            data=data,
+        )
+    except StorageError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"error": e.code, "message": e.message},
+        )
+
+    # Track the object so retention/audit see it, exactly like any other asset.
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(
+                text(f"SET LOCAL search_path = {current_user.schema_name}, public")
+            )
+            await StorageRepository.create(
+                uploaded_by_user_id=current_user.user_id,
+                entity_type=StorageEntityType.AVATAR.value,
+                entity_id=current_user.user_id,
+                object_key=object_key,
+                original_filename=file.filename or "photo",
+                size_bytes=len(data),
+                content_type=content_type,
+                db=session,
+            )
+
+    return await _set_my_avatar(current_user, object_key)
+
+
+@router.delete("/me/avatar", response_model=MeResponse)
+async def delete_my_avatar(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> MeResponse:
+    """Clear the caller's profile picture. The stored object is left for the
+    retention job; only the reference is dropped."""
+    if current_user.is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "FORBIDDEN", "message": "Use /platform/auth/me/avatar for super admin"},
+        )
+    return await _set_my_avatar(current_user, None)
 
 
 @router.post("/change-password", status_code=200)

@@ -26,6 +26,9 @@ from app.core.timetable.schemas import (
     TimetableRejectRequest,
     TimetableSlotCreate,
     TimetableSlotOut,
+    TimetableSlotSwap,
+    TimetableSlotUpdate,
+    TimetableUpdate,
     TimetableTemplateCreate,
     TimetableTemplateListItem,
     TimetableTemplateOut,
@@ -47,6 +50,7 @@ async def _to_out(tt, db: AsyncSession, with_slots: bool = True) -> TimetableOut
     return TimetableOut(
         id=tt.id, section_id=tt.section_id, section_name=ctx["section_name"], semester_id=tt.semester_id,
         semester_label=ctx["semester_label"], program_name=ctx["program_name"],
+        program_code=ctx.get("program_code"), academic_year=ctx.get("academic_year"),
         status=tt.status, slots=slots, template_id=tt.template_id, template=template,
         created_by_user_id=tt.created_by_user_id,
         submitted_at=tt.submitted_at, reviewed_by_user_id=tt.reviewed_by_user_id, reviewed_at=tt.reviewed_at,
@@ -61,6 +65,7 @@ async def _to_list_item(tt, db: AsyncSession) -> TimetableListItem:
     return TimetableListItem(
         id=tt.id, section_id=tt.section_id, section_name=ctx["section_name"], semester_id=tt.semester_id,
         semester_label=ctx["semester_label"], program_name=ctx["program_name"],
+        program_code=ctx.get("program_code"), academic_year=ctx.get("academic_year"),
         status=tt.status, slot_count=len(slots), template_id=tt.template_id,
         created_by_user_id=tt.created_by_user_id,
         submitted_at=tt.submitted_at, published_at=tt.published_at, created_at=tt.created_at,
@@ -337,6 +342,65 @@ async def add_slot(
         raise _err(e)
 
 
+@router.patch("/{timetable_id}", response_model=TimetableOut)
+async def update_timetable(
+    timetable_id: UUID,
+    body: TimetableUpdate,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> TimetableOut:
+    """Re-point a draft timetable at a different schedule template."""
+    tt = await TimetableService.get(timetable_id, db)
+    if tt is None:
+        raise HTTPException(404, detail={"error": "TIMETABLE_NOT_FOUND", "message": "Timetable not found."})
+    try:
+        await assert_dean_owns_section(current_user.user_id, tt.section_id, db)
+        updated = await TimetableService.set_template(timetable_id, body.template_id, db)
+    except TimetableServiceError as e:
+        raise _err(e)
+    return await _to_out(updated, db)
+
+
+@router.post("/{timetable_id}/slots/swap", response_model=list[TimetableSlotOut])
+async def swap_slots(
+    timetable_id: UUID,
+    body: TimetableSlotSwap,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[TimetableSlotOut]:
+    """Exchange the day/period of two slots. Declared before the `{slot_id}`
+    routes so "swap" is never parsed as a slot id."""
+    tt = await TimetableService.get(timetable_id, db)
+    if tt is None:
+        raise HTTPException(404, detail={"error": "TIMETABLE_NOT_FOUND", "message": "Timetable not found."})
+    try:
+        await assert_dean_owns_section(current_user.user_id, tt.section_id, db)
+        slots = await TimetableService.swap_slots(timetable_id, body.slot_a_id, body.slot_b_id, db)
+        return [await TimetableService.slot_out(s, db) for s in slots]
+    except TimetableServiceError as e:
+        raise _err(e)
+
+
+@router.patch("/{timetable_id}/slots/{slot_id}", response_model=TimetableSlotOut)
+async def update_slot(
+    timetable_id: UUID,
+    slot_id: UUID,
+    body: TimetableSlotUpdate,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> TimetableSlotOut:
+    """Move a slot to another day/period, or change its faculty, room or remarks."""
+    tt = await TimetableService.get(timetable_id, db)
+    if tt is None:
+        raise HTTPException(404, detail={"error": "TIMETABLE_NOT_FOUND", "message": "Timetable not found."})
+    try:
+        await assert_dean_owns_section(current_user.user_id, tt.section_id, db)
+        slot = await TimetableService.update_slot(timetable_id, slot_id, body, db)
+        return await TimetableService.slot_out(slot, db)
+    except TimetableServiceError as e:
+        raise _err(e)
+
+
 @router.delete("/{timetable_id}/slots/{slot_id}", status_code=204)
 async def delete_slot(
     timetable_id: UUID,
@@ -350,6 +414,24 @@ async def delete_slot(
     try:
         await assert_dean_owns_section(current_user.user_id, tt.section_id, db)
         await TimetableService.delete_slot(timetable_id, slot_id, db)
+    except TimetableServiceError as e:
+        raise _err(e)
+
+
+@router.delete("/{timetable_id}", status_code=204)
+async def delete_timetable(
+    timetable_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> None:
+    """Delete a timetable and its slots. Refused once PUBLISHED. Removes no
+    programme, semester, course, faculty or assignment record."""
+    tt = await TimetableService.get(timetable_id, db)
+    if tt is None:
+        raise HTTPException(404, detail={"error": "TIMETABLE_NOT_FOUND", "message": "Timetable not found."})
+    try:
+        await assert_dean_owns_section(current_user.user_id, tt.section_id, db)
+        await TimetableService.delete_timetable(timetable_id, db)
     except TimetableServiceError as e:
         raise _err(e)
 

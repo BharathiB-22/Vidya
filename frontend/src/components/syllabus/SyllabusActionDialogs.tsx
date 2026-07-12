@@ -123,117 +123,12 @@ export function ApproveSyllabusDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Reject Dialog
-// ---------------------------------------------------------------------------
-
-interface RejectDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSubmit: (reason: string) => void
-  isPending?: boolean
-}
-
-export function RejectSyllabusDialog({
-  open, onOpenChange, onSubmit, isPending,
-}: RejectDialogProps) {
-  const [reason, setReason] = useState('')
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (reason.length < 5) return
-    onSubmit(reason)
-    setReason('')
-    onOpenChange(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Reject Syllabus</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Rejection Reason <span className="text-red-500">*</span>
-            </label>
-            <Textarea
-              rows={3}
-              required
-              minLength={5}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Please provide the reason for rejection…"
-            />
-          </div>
-          <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md p-3">
-            Rejection creates a new DRAFT version for revision. The approved version is preserved.
-          </p>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" variant="destructive" disabled={isPending || reason.length < 5}>
-              {isPending ? 'Rejecting…' : 'Reject'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Lock Dialog
-// ---------------------------------------------------------------------------
-
-interface LockDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSubmit: (comment?: string) => void
-  isPending?: boolean
-}
-
-export function LockSyllabusDialog({
-  open, onOpenChange, onSubmit, isPending,
-}: LockDialogProps) {
-  const [comment, setComment] = useState('')
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    onSubmit(comment || undefined)
-    setComment('')
-    onOpenChange(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Lock Syllabus for Semester</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Lock Comment (optional)
-            </label>
-            <Input
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="e.g. Locked for Semester 5 AY 2025-26"
-            />
-          </div>
-          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-            Locking freezes the syllabus for the current semester. Only Admins/Deans can unlock.
-          </p>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={isPending} className="bg-orange-600 hover:bg-orange-700">
-              {isPending ? 'Locking…' : 'Lock'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Fork Dialog
+//
+// The Reject, Request Revision and Lock dialogs used to live here. All three are
+// gone: the Board writes the official syllabus and signs it off, so there is
+// nobody to reject it to; and a syllabus is locked by CURRICULUM approval, never
+// on its own.
 // ---------------------------------------------------------------------------
 
 interface ForkDialogProps {
@@ -286,68 +181,7 @@ export function ForkSyllabusDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Request Revision Dialog (Dean — from PENDING_REVIEW)
-// ---------------------------------------------------------------------------
-
-interface RequestRevisionDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSubmit: (comments: string) => void
-  isPending?: boolean
-}
-
-export function RequestRevisionDialog({
-  open, onOpenChange, onSubmit, isPending,
-}: RequestRevisionDialogProps) {
-  const [comments, setComments] = useState('')
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (comments.length < 5) return
-    onSubmit(comments)
-    setComments('')
-    onOpenChange(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Request Revision</DialogTitle></DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Revision Comments <span className="text-red-500">*</span>
-            </label>
-            <Textarea
-              rows={4}
-              required
-              minLength={5}
-              value={comments}
-              onChange={(e) => setComments(e.target.value)}
-              placeholder="e.g. Improve CO mapping. Add Bloom levels. Add practical outcomes."
-            />
-          </div>
-          <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md p-3">
-            The syllabus will be returned to faculty as REJECTED with your comments. Faculty can revise and resubmit.
-          </p>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button
-              type="submit"
-              disabled={isPending || comments.length < 5}
-              className="bg-orange-600 hover:bg-orange-700"
-            >
-              {isPending ? 'Sending…' : 'Request Revision'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Delete Confirm Dialog
+// Delete Confirm
 // ---------------------------------------------------------------------------
 
 interface DeleteConfirmDialogProps {

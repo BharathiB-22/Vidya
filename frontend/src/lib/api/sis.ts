@@ -448,11 +448,41 @@ export interface SectionCapacityOut {
 
 export interface AttendanceSessionCreateIn {
   course_id:         string
-  section_id:        string
+  /** Pass for a regular class; omit for an elective (pass semester_id instead). */
+  section_id?:       string
+  /** Pass for an elective's combined class, which has no single section. */
+  semester_id?:      string
   session_date:      string  // YYYY-MM-DD
   period_number?:    number
   duration_minutes?: number
   topic_covered?:    string
+}
+
+/** One class on the faculty's timetable for a day — a dashboard card. */
+export interface FacultyDayClass {
+  course_id:      string
+  course_code:    string
+  course_title:   string
+  is_elective:    boolean
+  section_id:     string | null
+  section_name:   string | null
+  semester_id:    string
+  semester_label: string
+  period_number:  number
+  start_time:     string | null
+  end_time:       string | null
+  period_label:   string | null
+  student_count:  number
+  session_id:     string | null
+  is_taken:       boolean
+  present_count:  number | null
+  total_marked:   number | null
+}
+
+export interface FacultyDay {
+  on_date: string
+  weekday: number
+  today:   FacultyDayClass[]
 }
 
 export interface AttendanceSessionUpdateIn {
@@ -560,6 +590,13 @@ export interface SessionRecordForStudent {
   topic_covered:  string | null
   status:         'PRESENT' | 'ABSENT'
   remarks:        string | null
+  course_code:    string | null
+  course_title:   string | null
+  faculty_name:   string | null
+  /** "HH:MM:SS" from the section's timetable template; null when none is linked. */
+  start_time:     string | null
+  end_time:       string | null
+  session_type:   'THEORY' | 'LAB'
 }
 
 export interface MyCourseAttendanceDetail {
@@ -943,6 +980,13 @@ export const sisApi = {
   // ---------------------------------------------------------------------------
   // Attendance (H55)
   // ---------------------------------------------------------------------------
+
+  /** The signed-in faculty's classes for a date (defaults to today), each with
+   *  class size and whether attendance was already taken. */
+  getFacultyToday: (date?: string): Promise<FacultyDay> =>
+    api.get<FacultyDay>('/sis/attendance/faculty/today', {
+      params: date ? { date } : undefined,
+    }).then(r => r.data),
 
   createAttendanceSession: (body: AttendanceSessionCreateIn): Promise<AttendanceSessionOut> =>
     api.post<AttendanceSessionOut>('/sis/attendance/sessions', body).then(r => r.data),

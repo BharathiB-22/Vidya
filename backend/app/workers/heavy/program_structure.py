@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import sys
 from datetime import datetime, timezone
 from uuid import UUID
@@ -39,8 +40,10 @@ def _get_async_engine():
 # ---------------------------------------------------------------------------
 
 def _course_credit_bounds(course: dict) -> tuple[int, int]:
+    # Mirrors compliance._check_course_credit_range. A mini-project may be worth
+    # as little as 2 credits, so rebalancing must not push it up to 6.
     if (course.get("course_type") or "") in ("PROJECT", "INTERNSHIP"):
-        return 6, 20   # UGC project/internship flexibility
+        return 2, 20   # UGC project/internship flexibility
     return 1, 6
 
 
@@ -56,15 +59,32 @@ def _rebalance_priority(course: dict) -> int:
 
 
 def _basket_key(course: dict):
-    """Grouping key for elective-basket members, or None for a standalone
-    course. A basket (e.g. "AI Electives") groups several interchangeable
-    elective courses of which a student takes exactly ONE — so a basket must
-    contribute its credits only ONCE toward the program total, not once per
-    option."""
+    """Grouping key for the alternatives of one elective paper, or None for a
+    standalone course. An elective paper (e.g. "Elective 1") offers several
+    interchangeable alternatives of which a student takes exactly ONE — so the
+    paper contributes its credits only ONCE toward the program total, not once
+    per alternative. Papers themselves are independent: three 3-credit papers in
+    one semester contribute 9 credits, not 3."""
     name = (course.get("elective_basket_name") or "").strip()
     if not name:
         return None
     return (course.get("semester"), name)
+
+
+_PAPER_LABEL_RE = re.compile(r"^elective\s+(\d+)$", re.IGNORECASE)
+
+
+def _is_paper_label(name: str) -> bool:
+    """True for names the AI already gave in positional form ("Elective 2")."""
+    return _PAPER_LABEL_RE.match(name.strip()) is not None
+
+
+def _paper_sort_key(name: str) -> tuple[int, str]:
+    """Order papers within a semester. "Elective 2" must precede "Elective 10",
+    which a plain lexicographic sort gets wrong. Names that are not positional
+    labels sort after the labelled ones, alphabetically."""
+    m = _PAPER_LABEL_RE.match(name.strip())
+    return (int(m.group(1)), "") if m else (1_000_000, name.lower())
 
 
 def _rebalance_reps(reps: list[dict], target_total: int) -> int:
@@ -321,23 +341,39 @@ async def _run_generation(
             await ElectiveBasketRepository.delete(basket_id, db=session)
 
         # ------------------------------------------------------------------
-        # Elective baskets — the AI groups elective courses under a shared
-        # elective_basket_name (e.g. "Artificial Intelligence Electives").
-        # Create one ElectiveBasket per unique (semester, name) and remember
-        # its id so each course below can be linked to it.
+        # Elective papers. Each distinct elective_basket_name within a semester is
+        # ONE curriculum course: Semester 3 holding Elective 1, Elective 2 and
+        # Elective 3 contributes 3 + 3 + 3 = 9 credits, because the student takes
+        # all three papers and chooses one alternative inside each. Collapsing the
+        # alternatives under a single shared name would lose two thirds of that.
+        #
+        # Papers are named positionally — "Elective 1", "Elective 2" — since that
+        # is what the curriculum shows. Ordering is by the AI's own name so the
+        # numbering is stable rather than dependent on which alternative happened
+        # to appear first in the course list. When the AI already labelled a paper
+        # "Elective 2" the label is redundant as a description and dropped.
+        #
+        # A paper's credits come from its alternatives, which
+        # normalize_total_credits has already equalized across the group.
         # ------------------------------------------------------------------
-        basket_name_to_id: dict[tuple[int, str], UUID] = {}
+        papers: dict[int, dict[str, int]] = {}
         for c in result.courses:
             basket_name = (c.get("elective_basket_name") or "").strip()
             if not basket_name:
                 continue
-            key = (c["semester"], basket_name)
-            if key in basket_name_to_id:
-                continue
-            basket = await ElectiveBasketRepository.create(
-                program_id, c["semester"], basket_name, None, program.created_by_user_id, db=session,
-            )
-            basket_name_to_id[key] = basket.id
+            papers.setdefault(c["semester"], {}).setdefault(basket_name, c["credits"])
+
+        basket_name_to_id: dict[tuple[int, str], UUID] = {}
+        for semester in sorted(papers):
+            for position, ai_name in enumerate(sorted(papers[semester], key=_paper_sort_key), start=1):
+                canonical = f"Elective {position}"
+                basket = await ElectiveBasketRepository.create(
+                    program_id, semester, canonical,
+                    None if _is_paper_label(ai_name) else ai_name,
+                    program.created_by_user_id,
+                    credits=papers[semester][ai_name], db=session,
+                )
+                basket_name_to_id[(semester, ai_name)] = basket.id
 
         # ------------------------------------------------------------------
         # Bulk create new AI courses, then flag them as AI-generated.
@@ -423,14 +459,19 @@ async def _run_generation(
         )
 
         # ------------------------------------------------------------------
-        # Update program — record AI metadata and advance status
+        # Update program — record AI metadata and hand the draft BACK to the Dean
+        #
+        # Phase A: generation lands in DRAFT, never PENDING_APPROVAL. AI advises;
+        # a human decides. The Dean reviews what the model produced and submits
+        # it to the governance authority themselves — nothing reaches the review
+        # queue without a person putting it there.
         # ------------------------------------------------------------------
         await ProgramRepository.update(
             program_id,
             {
                 "ai_model":   result.model_used,
                 "prompt_hash": result.prompt_hash,
-                "status":     ProgramStatus.PENDING_APPROVAL,
+                "status":     ProgramStatus.DRAFT,
                 "updated_at": datetime.now(timezone.utc),
             },
             db=session,

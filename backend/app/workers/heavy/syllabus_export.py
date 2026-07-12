@@ -103,7 +103,7 @@ async def _run_export(
     tenant_slug = schema_name.removeprefix("tenant_")
     engine = _get_async_engine()
 
-    _EXPORTABLE = {SyllabusStatus.DEAN_APPROVED, SyllabusStatus.DEAN_LOCKED}
+    _EXPORTABLE = {SyllabusStatus.APPROVED, SyllabusStatus.LOCKED}
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
@@ -115,7 +115,7 @@ async def _run_export(
             if syllabus.status not in _EXPORTABLE:
                 raise ValueError(
                     f"Syllabus {syllabus_id} is {syllabus.status.value}; "
-                    "export requires DEAN_APPROVED or DEAN_LOCKED."
+                    "export requires an APPROVED or LOCKED official syllabus."
                 )
 
             course = await CourseRepository.get_by_id(syllabus.course_id, db=session)
@@ -248,17 +248,34 @@ def _s3_put_object(object_key: str, file_bytes: bytes, content_type: str) -> Non
 
 
 # ---------------------------------------------------------------------------
-# PDF generation (reportlab)
+# PDF generation (reportlab) — the OFFICIAL university regulation document
+#
+# This is not a summary of a syllabus. It is the syllabus: the page that goes into
+# the university's regulation handbook, is approved by the Board of Studies, and
+# is handed to faculty and students as the definitive statement of what the course
+# teaches. It has to look like one.
+#
+# Layout, in the order a regulation prints:
+#
+#     COURSE CODE - COURSE NAME
+#     Course Information table (Code / Name / Credits / L-T-P / Contact Hours / Category)
+#     COURSE OBJECTIVES
+#     COURSE OUTCOMES              CO1..CO5 with Bloom levels
+#     CO-PO MAPPING MATRIX
+#     UNIT I .. UNIT V             each a prose block with its hour allocation
+#     PRACTICAL COMPONENTS         (only if the course has practical hours)
+#     INTERNAL ASSESSMENT          (only if suggested)
+#     TEXT BOOKS / REFERENCE BOOKS / SUGGESTED READING / WEB RESOURCES
 # ---------------------------------------------------------------------------
 
 def _generate_pdf(buf, syllabus, course, pos):
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.platypus import (
         HRFlowable,
-        PageBreak,
         Paragraph,
         SimpleDocTemplate,
         Spacer,
@@ -266,345 +283,386 @@ def _generate_pdf(buf, syllabus, course, pos):
         TableStyle,
     )
 
-    _BLUE     = colors.HexColor("#2E4057")
-    _ACCENT   = colors.HexColor("#4472C4")
-    _ALT_ROW  = colors.HexColor("#EBF0FA")
+    from app.modules.m02_syllabus.formatting import (
+        course_information,
+        group_references,
+        roman,
+        unit_topic_lines,
+    )
+
+    _INK      = colors.HexColor("#111111")
+    _RULE     = colors.HexColor("#333333")
+    _BAND     = colors.HexColor("#E8E8E8")
     _STRENGTH = {"HIGH": "H", "MEDIUM": "M", "LOW": "L"}
 
-    BASE_GRID = TableStyle([
-        ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
-        ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 8),
-        ("BACKGROUND",    (0, 0), (-1, 0),  _ACCENT),
-        ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, _ALT_ROW]),
-        ("BOX",           (0, 0), (-1, -1), 0.5, colors.grey),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.grey),
+    styles = getSampleStyleSheet()
+
+    doc_title = ParagraphStyle(
+        "docTitle", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=13, leading=16, alignment=1, textColor=_INK,
+    )
+    section = ParagraphStyle(
+        "section", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=10, leading=13, spaceBefore=10, spaceAfter=5, textColor=_INK,
+    )
+    unit_head = ParagraphStyle(
+        "unitHead", parent=styles["Normal"], fontName="Helvetica-Bold",
+        fontSize=9.5, leading=12, spaceBefore=8, spaceAfter=3, textColor=_INK,
+    )
+    # Justified body text is what makes a page read as a regulation rather than as
+    # a printout: the unit blocks are prose, and prose in an official document is
+    # set flush on both edges.
+    body = ParagraphStyle(
+        "body", parent=styles["Normal"], fontName="Helvetica",
+        fontSize=9, leading=13, alignment=TA_JUSTIFY, textColor=_INK,
+    )
+    listed = ParagraphStyle(
+        "listed", parent=body, leftIndent=14, spaceAfter=2, alignment=0,
+    )
+    # One syllabus line. Tight leading, hanging indent — a regulation packs 12-20 of
+    # these under each unit heading and they must not sprawl over the page.
+    topic = ParagraphStyle(
+        "topic", parent=styles["Normal"], fontName="Helvetica", fontSize=9,
+        leading=11.5, leftIndent=16, firstLineIndent=-10, spaceAfter=1, textColor=_INK,
+    )
+    tiny = ParagraphStyle("tiny", parent=styles["Normal"], fontSize=7, leading=9)
+
+    grid = TableStyle([
+        ("FONTNAME",      (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 8.5),
+        ("BOX",           (0, 0), (-1, -1), 0.6, _RULE),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.3, _RULE),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
-        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ])
 
-    styles  = getSampleStyleSheet()
-    small   = ParagraphStyle("small",  parent=styles["Normal"], fontSize=8,  leading=10)
-    tiny    = ParagraphStyle("tiny",   parent=styles["Normal"], fontSize=7,  leading=9)
-    h1      = ParagraphStyle("h1sect", parent=styles["Heading1"], textColor=_BLUE)
-    h2      = ParagraphStyle("h2sect", parent=styles["Heading2"], textColor=_ACCENT)
-
-    # Use portrait for most; switch to landscape only for wide CO-PO matrix
-    use_landscape = len(pos) > 8
-    pagesize = landscape(A4) if use_landscape else A4
     doc = SimpleDocTemplate(
-        buf, pagesize=pagesize,
-        topMargin=2*cm, bottomMargin=2*cm,
-        leftMargin=2*cm, rightMargin=2*cm,
+        buf, pagesize=A4,
+        topMargin=1.8 * cm, bottomMargin=1.8 * cm,
+        leftMargin=2 * cm, rightMargin=2 * cm,
+        title=f"{course.code} {course.title}",
     )
     story = []
 
-    # ── Cover ────────────────────────────────────────────────────────────────
-    story.append(Paragraph(f"{course.code}: {course.title}", styles["Title"]))
-    story.append(Spacer(1, 0.2*cm))
-    story.append(Paragraph("Course Syllabus", styles["Heading2"]))
-    story.append(Spacer(1, 0.3*cm))
-    story.append(HRFlowable(width="100%", thickness=2, color=_BLUE))
-    story.append(Spacer(1, 0.4*cm))
+    def rule(thickness=1.0):
+        story.append(HRFlowable(width="100%", thickness=thickness, color=_RULE))
 
-    approved_at = (
-        syllabus.approved_at.strftime("%Y-%m-%d") if syllabus.approved_at else "—"
-    )
-    locked_at = (
-        syllabus.locked_at.strftime("%Y-%m-%d")   if syllabus.locked_at   else "—"
-    )
-    ltp = (
-        f"{course.hours_lecture or 0}L / "
-        f"{course.hours_tutorial or 0}T / "
-        f"{course.hours_practical or 0}P"
-    )
-    meta_rows = [
-        ["Course Code",    course.code],
-        ["Course Title",   course.title],
-        ["Credits",        str(course.credits)],
-        ["Semester",       str(course.semester)],
-        ["Hours (L/T/P)",  ltp],
-        ["Syllabus Version", str(syllabus.version)],
-        ["Status",         syllabus.status.value],
-        ["Approved At",    approved_at],
-        ["Locked At",      locked_at],
+    # ── Title ────────────────────────────────────────────────────────────────
+    story.append(Paragraph(f"{course.code} &nbsp;-&nbsp; {course.title.upper()}", doc_title))
+    story.append(Spacer(1, 0.15 * cm))
+    rule(1.2)
+    story.append(Spacer(1, 0.3 * cm))
+
+    # ── Course Information ───────────────────────────────────────────────────
+    # Every value here is DERIVED from the course row — the printed page cannot
+    # disagree with the curriculum it belongs to.
+    info = course_information(course)
+    info_rows = [
+        ["Course Code",   info["course_code"],   "Credits",       str(info["credits"])],
+        ["Course Name",   info["course_name"],   "L-T-P",         info["ltp"]],
+        ["Category",      info["category"],      "Contact Hours", str(info["contact_hours"])],
     ]
-    meta_t = Table(meta_rows, colWidths=[4.5*cm, 10*cm])
-    meta_t.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (0, -1), colors.HexColor("#F2F2F2")),
-        ("FONTNAME",      (0, 0), (-1, -1), "Helvetica"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("ROWBACKGROUNDS",(0, 0), (-1, -1), [colors.whitesmoke, colors.white]),
-        ("BOX",           (0, 0), (-1, -1), 0.5, colors.grey),
-        ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.grey),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    t = Table(info_rows, colWidths=[3 * cm, 6.4 * cm, 3 * cm, 4.6 * cm])
+    t.setStyle(TableStyle(grid.getCommands() + [
+        ("BACKGROUND", (0, 0), (0, -1), _BAND),
+        ("BACKGROUND", (2, 0), (2, -1), _BAND),
+        ("FONTNAME",   (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME",   (2, 0), (2, -1), "Helvetica-Bold"),
     ]))
-    story.append(meta_t)
-    story.append(Spacer(1, 1*cm))
+    story.append(t)
 
-    # ── Course Outcomes ───────────────────────────────────────────────────────
+    # ── Course Objectives ────────────────────────────────────────────────────
+    objectives = list(syllabus.objectives or [])
+    if objectives:
+        story.append(Paragraph("COURSE OBJECTIVES", section))
+        for i, obj in enumerate(objectives, 1):
+            story.append(Paragraph(f"{i}. {obj}", listed))
+
+    # ── Course Outcomes ──────────────────────────────────────────────────────
     cos_sorted = sorted(syllabus.outcomes, key=lambda c: c.display_order)
     if cos_sorted:
-        story.append(Paragraph("Course Outcomes", h1))
-        story.append(Spacer(1, 0.3*cm))
-        header = [["CO Code", "Description", "Bloom Level"]]
-        rows = [
-            [co.code, Paragraph(co.description, small), co.bloom_level.value if co.bloom_level else "—"]
+        story.append(Paragraph("COURSE OUTCOMES", section))
+        story.append(Paragraph(
+            "On successful completion of this course, the student will be able to:", body,
+        ))
+        story.append(Spacer(1, 0.15 * cm))
+        rows = [["CO", "Course Outcome", "Bloom's Level"]] + [
+            [
+                co.code,
+                Paragraph(co.description, body),
+                co.bloom_level.value.title() if co.bloom_level else "-",
+            ]
             for co in cos_sorted
         ]
-        t = Table(header + rows, colWidths=[2.2*cm, 11*cm, 3*cm])
-        t.setStyle(BASE_GRID)
+        t = Table(rows, colWidths=[1.6 * cm, 12.4 * cm, 3 * cm])
+        t.setStyle(TableStyle(grid.getCommands() + [
+            ("BACKGROUND", (0, 0), (-1, 0), _BAND),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME",   (0, 1), (0, -1), "Helvetica-Bold"),
+            ("ALIGN",      (0, 0), (0, -1), "CENTER"),
+            ("ALIGN",      (2, 0), (2, -1), "CENTER"),
+        ]))
         story.append(t)
-        story.append(Spacer(1, 1*cm))
 
-    # ── CO-PO Mapping Matrix ──────────────────────────────────────────────────
+    # ── CO-PO Mapping ────────────────────────────────────────────────────────
     if cos_sorted and pos:
-        story.append(Paragraph("CO–PO Mapping Matrix", h1))
-        story.append(Spacer(1, 0.2*cm))
-        story.append(Paragraph(
-            "H = High  |  M = Medium  |  L = Low  |  blank = No mapping",
-            tiny,
-        ))
-        story.append(Spacer(1, 0.3*cm))
-
-        po_map: dict[UUID, object] = {p.id: p for p in pos}
-        mapping_index: dict[tuple, str] = {}
-        for co in cos_sorted:
-            for m in co.mappings:
-                mapping_index[(co.id, m.po_id)] = m.mapping_strength.value
-
-        col_w = max(1.2*cm, min(2*cm, 16*cm / (len(pos) + 1)))
-        header = [["CO"] + [p.code for p in pos]]
-        rows = []
-        for co in cos_sorted:
-            row = [co.code]
-            for p in pos:
-                strength = mapping_index.get((co.id, p.id), "")
-                row.append(_STRENGTH.get(strength, ""))
-            rows.append(row)
-
-        matrix_style = TableStyle([
-            ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
-            ("FONTNAME",      (0, 0), (0, -1),  "Helvetica-Bold"),
-            ("FONTNAME",      (1, 1), (-1, -1), "Helvetica"),
-            ("FONTSIZE",      (0, 0), (-1, -1), 8),
-            ("BACKGROUND",    (0, 0), (-1, 0),  _ACCENT),
-            ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
-            ("BACKGROUND",    (0, 1), (0, -1),  colors.HexColor("#F2F2F2")),
-            ("ALIGN",         (1, 1), (-1, -1), "CENTER"),
-            ("ALIGN",         (0, 0), (-1, 0),  "CENTER"),
-            ("BOX",           (0, 0), (-1, -1), 0.5, colors.grey),
-            ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.grey),
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 3),
-            ("TOPPADDING",    (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ])
-        t = Table(
-            header + rows,
-            colWidths=[2*cm] + [col_w] * len(pos),
-        )
-        t.setStyle(matrix_style)
+        story.append(Paragraph("CO-PO MAPPING", section))
+        index = {
+            (co.id, m.po_id): m.mapping_strength.value
+            for co in cos_sorted for m in co.mappings
+        }
+        header = ["CO"] + [p.code for p in pos]
+        rows = [header] + [
+            [co.code] + [_STRENGTH.get(index.get((co.id, p.id), ""), "-") for p in pos]
+            for co in cos_sorted
+        ]
+        col = max(0.9 * cm, min(1.6 * cm, 15 * cm / (len(pos) + 1)))
+        t = Table(rows, colWidths=[1.6 * cm] + [col] * len(pos))
+        t.setStyle(TableStyle(grid.getCommands() + [
+            ("BACKGROUND", (0, 0), (-1, 0), _BAND),
+            ("BACKGROUND", (0, 0), (0, -1), _BAND),
+            ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME",   (0, 0), (0, -1), "Helvetica-Bold"),
+            ("ALIGN",      (0, 0), (-1, -1), "CENTER"),
+            ("FONTSIZE",   (0, 0), (-1, -1), 8),
+        ]))
         story.append(t)
-        story.append(Spacer(1, 1*cm))
+        story.append(Spacer(1, 0.1 * cm))
+        story.append(Paragraph("H = High   M = Medium   L = Low", tiny))
 
-    # ── Syllabus Units ────────────────────────────────────────────────────────
+    # ── Units ────────────────────────────────────────────────────────────────
+    # The heart of the document. Each unit is a heading with its hour allocation,
+    # then a single justified prose block naming the concepts it teaches.
     units_sorted = sorted(syllabus.units, key=lambda u: u.unit_number)
     if units_sorted:
-        story.append(Paragraph("Syllabus Units", h1))
-        story.append(Spacer(1, 0.3*cm))
+        story.append(Spacer(1, 0.25 * cm))
+        rule(0.8)
+        total = sum(u.total_hours or 0 for u in units_sorted)
+
         for unit in units_sorted:
-            story.append(Paragraph(
-                f"Unit {unit.unit_number}: {unit.title}  ({unit.total_hours or '?'} hrs)",
-                h2,
-            ))
-            if unit.pedagogy:
-                story.append(Paragraph(f"Pedagogy: {unit.pedagogy}", small))
-            topics = unit.topics or []
-            for topic in topics:
-                label = topic.get("title") or topic.get("name") or str(topic)
-                sub   = topic.get("sub_topics") or topic.get("subtopics") or []
-                story.append(Paragraph(f"• {label}", small))
-                for s in sub:
-                    story.append(Paragraph(f"    – {s}", tiny))
-            story.append(Spacer(1, 0.5*cm))
+            hours = f"{unit.total_hours} Hours" if unit.total_hours else ""
+            head = Table(
+                [[
+                    Paragraph(
+                        f"UNIT {roman(unit.unit_number)} &nbsp;-&nbsp; {(unit.title or '').upper()}",
+                        unit_head,
+                    ),
+                    Paragraph(hours, ParagraphStyle(
+                        "hrs", parent=unit_head, alignment=2,
+                    )),
+                ]],
+                colWidths=[13.5 * cm, 3.5 * cm],
+            )
+            head.setStyle(TableStyle([
+                ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING",   (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING",(0, 0), (-1, -1), 2),
+                ("LINEBELOW",    (0, 0), (-1, -1), 0.4, _RULE),
+                ("VALIGN",       (0, 0), (-1, -1), "BOTTOM"),
+            ]))
+            story.append(head)
 
-    # ── References ────────────────────────────────────────────────────────────
-    confirmed_refs = [r for r in syllabus.references if r.is_confirmed]
-    if confirmed_refs:
-        story.append(Paragraph("References", h1))
-        story.append(Spacer(1, 0.3*cm))
+            # The unit's academic topics, one per line — 12 to 20 of them in a real
+            # regulation. This IS the unit: it is what a lecturer reads to know what
+            # to teach, and what a student reads to know what they will be taught.
+            lines = unit_topic_lines(unit)
+            if lines:
+                story.append(Spacer(1, 0.12 * cm))
+                for line in lines:
+                    story.append(Paragraph(f"&bull;&nbsp;&nbsp;{line}", topic))
 
-        from collections import defaultdict
-        by_type = defaultdict(list)
-        for ref in confirmed_refs:
-            by_type[ref.ref_type.value].append(ref)
+        if total:
+            story.append(Spacer(1, 0.2 * cm))
+            story.append(Paragraph(f"<b>TOTAL: {total} HOURS</b>", body))
+        rule(0.8)
 
-        for rtype in ["TEXTBOOK", "REFERENCE", "JOURNAL", "ONLINE"]:
-            rlist = by_type.get(rtype)
-            if not rlist:
-                continue
-            story.append(Paragraph(rtype.capitalize() + "s", h2))
-            for i, ref in enumerate(rlist, 1):
-                authors = ", ".join(ref.authors) if ref.authors else "Unknown"
-                year    = str(ref.year) if ref.year else "n.d."
-                line    = f"{i}. {authors} ({year}). {ref.title}."
-                if ref.publisher:
-                    line += f" {ref.publisher}."
-                if ref.doi:
-                    line += f" DOI: {ref.doi}"
-                elif ref.isbn:
-                    line += f" ISBN: {ref.isbn}"
-                elif ref.url:
-                    line += f" URL: {ref.url}"
-                story.append(Paragraph(line, small))
-            story.append(Spacer(1, 0.4*cm))
+    # ── Practical Components ─────────────────────────────────────────────────
+    practicals = list(syllabus.practical_components or [])
+    if practicals:
+        story.append(Paragraph("PRACTICAL COMPONENTS", section))
+        for i, item in enumerate(practicals, 1):
+            story.append(Paragraph(f"{i}. {item}", listed))
+
+    # ── Internal Assessment ──────────────────────────────────────────────────
+    assessment = list(getattr(syllabus, "internal_assessment", None) or [])
+    if assessment:
+        story.append(Paragraph("INTERNAL ASSESSMENT", section))
+        for item in assessment:
+            story.append(Paragraph(f"&bull; {item}", listed))
+
+    # ── Bibliography — four sections, empty ones omitted ──────────────────────
+    # Only CONFIRMED references print: the AI never invents bibliographic detail,
+    # so an unconfirmed row is a search result nobody has vouched for and has no
+    # place in a published regulation.
+    confirmed = [r for r in syllabus.references if r.is_confirmed]
+    for heading, refs in group_references(confirmed).items():
+        story.append(Paragraph(heading.upper(), section))
+        for i, ref in enumerate(refs, 1):
+            authors = ", ".join(ref.authors) if ref.authors else ""
+            year    = f"({ref.year})" if ref.year else ""
+            line    = ". ".join(x for x in [f"{i}. {authors}".rstrip(". "), f"{year} {ref.title}".strip()] if x.strip())
+            if ref.publisher:
+                line += f", {ref.publisher}"
+            if ref.isbn:
+                line += f". ISBN: {ref.isbn}"
+            elif ref.doi:
+                line += f". DOI: {ref.doi}"
+            elif ref.url:
+                line += f". {ref.url}"
+            story.append(Paragraph(line + ".", listed))
 
     doc.build(story)
 
 
 # ---------------------------------------------------------------------------
-# DOCX generation (python-docx)
+# DOCX generation (python-docx) — the same official regulation document
+#
+# Deliberately mirrors the PDF section for section. A Board that exports one
+# format and then the other should get the same document, not two different
+# takes on it.
 # ---------------------------------------------------------------------------
 
 def _generate_docx(buf, syllabus, course, pos):
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Pt, RGBColor
-    from collections import defaultdict
+    from docx.shared import Pt
+
+    from app.modules.m02_syllabus.formatting import (
+        course_information,
+        group_references,
+        roman,
+        unit_topic_lines,
+    )
 
     _STRENGTH = {"HIGH": "H", "MEDIUM": "M", "LOW": "L"}
 
     doc = Document()
 
-    # ── Cover ─────────────────────────────────────────────────────────────────
-    title_para = doc.add_heading(f"{course.code}: {course.title}", 0)
-    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    sub = doc.add_paragraph("Course Syllabus")
-    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    sub.runs[0].bold = True
+    def heading(text):
+        p = doc.add_paragraph()
+        run = p.add_run(text.upper())
+        run.bold = True
+        run.font.size = Pt(11)
+        return p
 
-    doc.add_heading("Syllabus Details", 1)
-    meta_t = doc.add_table(rows=0, cols=2)
-    meta_t.style = "Table Grid"
-    approved_at = syllabus.approved_at.strftime("%Y-%m-%d") if syllabus.approved_at else "—"
-    locked_at   = syllabus.locked_at.strftime("%Y-%m-%d")   if syllabus.locked_at   else "—"
-    ltp = (
-        f"{course.hours_lecture or 0}L / "
-        f"{course.hours_tutorial or 0}T / "
-        f"{course.hours_practical or 0}P"
-    )
-    for label, value in [
-        ("Course Code",       course.code),
-        ("Course Title",      course.title),
-        ("Credits",           str(course.credits)),
-        ("Semester",          str(course.semester)),
-        ("Hours (L/T/P)",     ltp),
-        ("Syllabus Version",  str(syllabus.version)),
-        ("Status",            syllabus.status.value),
-        ("Approved At",       approved_at),
-        ("Locked At",         locked_at),
+    # ── Title ────────────────────────────────────────────────────────────────
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = title.add_run(f"{course.code} - {course.title.upper()}")
+    run.bold = True
+    run.font.size = Pt(14)
+
+    # ── Course Information ───────────────────────────────────────────────────
+    info = course_information(course)
+    t = doc.add_table(rows=0, cols=4)
+    t.style = "Table Grid"
+    for left, lval, right, rval in [
+        ("Course Code", info["course_code"], "Credits",       str(info["credits"])),
+        ("Course Name", info["course_name"], "L-T-P",         info["ltp"]),
+        ("Category",    info["category"],    "Contact Hours", str(info["contact_hours"])),
     ]:
-        row = meta_t.add_row()
-        row.cells[0].text = label
-        row.cells[1].text = value
-    doc.add_paragraph()
+        row = t.add_row().cells
+        row[0].text, row[1].text, row[2].text, row[3].text = left, lval, right, rval
+        for idx in (0, 2):
+            for para in row[idx].paragraphs:
+                for r in para.runs:
+                    r.bold = True
 
-    # ── Course Outcomes ───────────────────────────────────────────────────────
+    # ── Course Objectives ────────────────────────────────────────────────────
+    objectives = list(syllabus.objectives or [])
+    if objectives:
+        heading("Course Objectives")
+        for obj in objectives:
+            doc.add_paragraph(obj, style="List Number")
+
+    # ── Course Outcomes ──────────────────────────────────────────────────────
     cos_sorted = sorted(syllabus.outcomes, key=lambda c: c.display_order)
     if cos_sorted:
-        doc.add_heading("Course Outcomes", 1)
+        heading("Course Outcomes")
+        doc.add_paragraph(
+            "On successful completion of this course, the student will be able to:"
+        )
         t = doc.add_table(rows=1, cols=3)
         t.style = "Table Grid"
         hdr = t.rows[0].cells
-        hdr[0].text = "CO Code"
-        hdr[1].text = "Description"
-        hdr[2].text = "Bloom Level"
+        hdr[0].text, hdr[1].text, hdr[2].text = "CO", "Course Outcome", "Bloom's Level"
+        for cell in hdr:
+            for para in cell.paragraphs:
+                for r in para.runs:
+                    r.bold = True
         for co in cos_sorted:
-            row = t.add_row()
-            row.cells[0].text = co.code
-            row.cells[1].text = co.description
-            row.cells[2].text = co.bloom_level.value if co.bloom_level else "—"
-        doc.add_paragraph()
+            row = t.add_row().cells
+            row[0].text = co.code
+            row[1].text = co.description
+            row[2].text = co.bloom_level.value.title() if co.bloom_level else "-"
 
-    # ── CO-PO Mapping Matrix ──────────────────────────────────────────────────
+    # ── CO-PO Mapping ────────────────────────────────────────────────────────
     if cos_sorted and pos:
-        doc.add_heading("CO–PO Mapping Matrix", 1)
-        doc.add_paragraph("H = High  |  M = Medium  |  L = Low  |  blank = No mapping")
-
-        mapping_index: dict[tuple, str] = {}
-        for co in cos_sorted:
-            for m in co.mappings:
-                mapping_index[(co.id, m.po_id)] = m.mapping_strength.value
-
-        ncols = len(pos) + 1
-        t = doc.add_table(rows=1, cols=ncols)
+        heading("CO-PO Mapping")
+        index = {
+            (co.id, m.po_id): m.mapping_strength.value
+            for co in cos_sorted for m in co.mappings
+        }
+        t = doc.add_table(rows=1, cols=len(pos) + 1)
         t.style = "Table Grid"
         hdr = t.rows[0].cells
-        hdr[0].text = "CO \\ PO"
+        hdr[0].text = "CO"
         for i, po in enumerate(pos, 1):
             hdr[i].text = po.code
-
         for co in cos_sorted:
-            row = t.add_row()
-            row.cells[0].text = co.code
+            row = t.add_row().cells
+            row[0].text = co.code
             for i, po in enumerate(pos, 1):
-                strength = mapping_index.get((co.id, po.id), "")
-                row.cells[i].text = _STRENGTH.get(strength, "")
-        doc.add_paragraph()
+                row[i].text = _STRENGTH.get(index.get((co.id, po.id), ""), "-")
+        doc.add_paragraph("H = High   M = Medium   L = Low")
 
-    # ── Syllabus Units ────────────────────────────────────────────────────────
+    # ── Units ────────────────────────────────────────────────────────────────
     units_sorted = sorted(syllabus.units, key=lambda u: u.unit_number)
-    if units_sorted:
-        doc.add_heading("Syllabus Units", 1)
-        for unit in units_sorted:
-            doc.add_heading(
-                f"Unit {unit.unit_number}: {unit.title}  ({unit.total_hours or '?'} hrs)", 2
-            )
-            if unit.pedagogy:
-                doc.add_paragraph(f"Pedagogy: {unit.pedagogy}")
-            topics = unit.topics or []
-            for topic in topics:
-                label = topic.get("title") or topic.get("name") or str(topic)
-                sub   = topic.get("sub_topics") or topic.get("subtopics") or []
-                doc.add_paragraph(f"• {label}", style="List Bullet")
-                for s in sub:
-                    doc.add_paragraph(f"    – {s}")
+    total = sum(u.total_hours or 0 for u in units_sorted)
+    for unit in units_sorted:
+        hours = f"   ({unit.total_hours} Hours)" if unit.total_hours else ""
+        heading(f"Unit {roman(unit.unit_number)} - {unit.title}{hours}")
+        for line in unit_topic_lines(unit):
+            doc.add_paragraph(line, style="List Bullet")
+    if total:
+        p = doc.add_paragraph()
+        p.add_run(f"TOTAL: {total} HOURS").bold = True
 
-    # ── References ────────────────────────────────────────────────────────────
-    confirmed_refs = [r for r in syllabus.references if r.is_confirmed]
-    if confirmed_refs:
-        doc.add_heading("References", 1)
-        by_type = defaultdict(list)
-        for ref in confirmed_refs:
-            by_type[ref.ref_type.value].append(ref)
+    # ── Practical Components ─────────────────────────────────────────────────
+    practicals = list(syllabus.practical_components or [])
+    if practicals:
+        heading("Practical Components")
+        for item in practicals:
+            doc.add_paragraph(item, style="List Number")
 
-        for rtype in ["TEXTBOOK", "REFERENCE", "JOURNAL", "ONLINE"]:
-            rlist = by_type.get(rtype)
-            if not rlist:
-                continue
-            doc.add_heading(rtype.capitalize() + "s", 2)
-            for i, ref in enumerate(rlist, 1):
-                authors = ", ".join(ref.authors) if ref.authors else "Unknown"
-                year    = str(ref.year) if ref.year else "n.d."
-                line    = f"{i}. {authors} ({year}). {ref.title}."
-                if ref.publisher:
-                    line += f" {ref.publisher}."
-                if ref.doi:
-                    line += f" DOI: {ref.doi}"
-                elif ref.isbn:
-                    line += f" ISBN: {ref.isbn}"
-                elif ref.url:
-                    line += f" URL: {ref.url}"
-                doc.add_paragraph(line)
+    # ── Internal Assessment ──────────────────────────────────────────────────
+    assessment = list(getattr(syllabus, "internal_assessment", None) or [])
+    if assessment:
+        heading("Internal Assessment")
+        for item in assessment:
+            doc.add_paragraph(item, style="List Bullet")
+
+    # ── Bibliography — four sections, empty ones omitted ──────────────────────
+    confirmed = [r for r in syllabus.references if r.is_confirmed]
+    for section_name, refs in group_references(confirmed).items():
+        heading(section_name)
+        for ref in refs:
+            authors = ", ".join(ref.authors) if ref.authors else ""
+            year    = f"({ref.year}) " if ref.year else ""
+            line    = f"{authors}. {year}{ref.title}".strip(". ")
+            if ref.publisher:
+                line += f", {ref.publisher}"
+            if ref.isbn:
+                line += f". ISBN: {ref.isbn}"
+            elif ref.doi:
+                line += f". DOI: {ref.doi}"
+            elif ref.url:
+                line += f". {ref.url}"
+            doc.add_paragraph(line + ".", style="List Number")
 
     doc.save(buf)
 
@@ -686,11 +744,19 @@ def _generate_json(buf, syllabus, course, pos):
                 for co in cos_sorted
             ],
         },
+        # The official prose sections, so a JSON export is the same document as the
+        # PDF rather than a lossy sibling of it.
+        "objectives":           list(syllabus.objectives or []),
+        "practical_components": list(syllabus.practical_components or []),
+        "internal_assessment":  list(getattr(syllabus, "internal_assessment", None) or []),
         "units": [
             {
                 "id":           str(unit.id),
                 "unit_number":  unit.unit_number,
                 "title":        unit.title,
+                # `content` is what prints; `topics` is the structured scaffolding
+                # underneath it that downstream generators read.
+                "content":      unit.content,
                 "total_hours":  unit.total_hours,
                 "pedagogy":     unit.pedagogy,
                 "topics":       unit.topics or [],

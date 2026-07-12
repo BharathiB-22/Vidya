@@ -1,11 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  User, Mail, Lock, Shield, RefreshCw, Camera, Eye, EyeOff, CheckCircle2,
+  User, Mail, Lock, Shield, RefreshCw, Camera, Eye, EyeOff, CheckCircle2, Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { addToast } from '@/hooks/useToast'
 import { getAdminErrorMessage } from '@/lib/adminApi'
+import {
+  AVATAR_ACCEPT,
+  AvatarUploadError,
+  isDisplayableImageUrl,
+  removePlatformAvatar,
+  uploadPlatformAvatar,
+} from '@/lib/api/avatar'
 import {
   getPlatformProfile,
   getPlatformSessions,
@@ -63,6 +70,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 // ---------------------------------------------------------------------------
 
 function ProfileView({ profile }: { profile: ReturnType<typeof getPlatformProfile> extends Promise<infer T> ? T : never }) {
+  const qc = useQueryClient()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+
   const initials = profile.full_name
     .split(' ')
     .map((n) => n[0])
@@ -70,18 +81,75 @@ function ProfileView({ profile }: { profile: ReturnType<typeof getPlatformProfil
     .toUpperCase()
     .slice(0, 2)
 
+  const photo = isDisplayableImageUrl(profile.avatar_url) ? profile.avatar_url : null
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      await uploadPlatformAvatar(file)
+      await qc.invalidateQueries({ queryKey: ['platform-profile'] })
+      addToast('Profile picture updated.', 'success')
+    } catch (err) {
+      addToast(err instanceof AvatarUploadError ? err.message : getAdminErrorMessage(err), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onRemove() {
+    setBusy(true)
+    try {
+      await removePlatformAvatar()
+      await qc.invalidateQueries({ queryKey: ['platform-profile'] })
+      addToast('Profile picture removed.', 'success')
+    } catch (err) {
+      addToast(getAdminErrorMessage(err), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex items-start gap-5">
-      <div
-        className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
-        style={{
-          background: profile.avatar_url ? undefined : 'linear-gradient(135deg, #10b981, #059669)',
-          backgroundImage: profile.avatar_url ? `url(${profile.avatar_url})` : undefined,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        {!profile.avatar_url && initials}
+      <div className="relative w-16 h-16 flex-shrink-0">
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white"
+          style={{
+            background: photo ? undefined : 'linear-gradient(135deg, #10b981, #059669)',
+            backgroundImage: photo ? `url(${photo})` : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        >
+          {!photo && initials}
+        </div>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full flex items-center justify-center text-slate-300 disabled:opacity-60"
+          style={{ background: '#0e182d', border: '1px solid rgba(255,255,255,0.15)' }}
+          aria-label="Change profile picture"
+          title="Change profile picture (JPG, JPEG, PNG, WEBP)"
+        >
+          {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
+        </button>
+        {photo && !busy && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="absolute -bottom-1 -left-1 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-400"
+            style={{ background: '#0e182d', border: '1px solid rgba(255,255,255,0.15)' }}
+            aria-label="Remove profile picture"
+            title="Remove profile picture"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
+        <input ref={fileRef} type="file" accept={AVATAR_ACCEPT} className="hidden" onChange={onPick} />
       </div>
       <div className="flex-1 min-w-0 space-y-2">
         <div>
@@ -133,12 +201,12 @@ function EditProfileForm({ profile, onSuccess }: {
 }) {
   const qc = useQueryClient()
   const [name, setName] = useState(profile.full_name)
-  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url ?? '')
 
   const mut = useMutation({
+    // The picture is set by uploading it on the profile card above, not by
+    // pasting a URL — so this form only carries the display name.
     mutationFn: () => updatePlatformProfile({
       full_name: name !== profile.full_name ? name : undefined,
-      avatar_url: avatarUrl !== (profile.avatar_url ?? '') ? (avatarUrl || undefined) : undefined,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['platform-profile'] })
@@ -158,18 +226,6 @@ function EditProfileForm({ profile, onSuccess }: {
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
         />
-      </Field>
-      <Field label="Avatar URL (optional)">
-        <div className="flex items-center gap-2">
-          <Camera className="h-4 w-4 text-slate-600 flex-shrink-0" />
-          <input
-            className={`${inputCls} flex-1`}
-            style={inputStyle}
-            value={avatarUrl}
-            onChange={(e) => setAvatarUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </div>
       </Field>
       <Button
         onClick={() => mut.mutate()}

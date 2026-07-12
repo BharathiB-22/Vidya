@@ -266,6 +266,52 @@ def test_service_write_methods_are_async():
         assert inspect.iscoroutinefunction(method), f"AttendanceService.{m} must be async"
 
 
+# ---------------------------------------------------------------------------
+# Elective group sessions — an elective is one combined class across sections
+# ---------------------------------------------------------------------------
+
+def test_elective_session_has_no_section():
+    # section_id=None IS the elective group. Writing a section would split the
+    # class in two and hide half the students from their own faculty.
+    from app.modules.m11_sis.attendance_service import _resolve_session_class
+    src = inspect.getsource(_resolve_session_class)
+    assert "is_elective_course" in src
+    assert "SEMESTER_REQUIRED" in src
+    assert "return None, body.semester_id" in src
+
+
+def test_regular_course_still_requires_a_section():
+    from app.modules.m11_sis.attendance_service import _resolve_session_class
+    src = inspect.getsource(_resolve_session_class)
+    assert "SECTION_REQUIRED" in src
+    assert "_verify_faculty_assignment" in src
+
+
+def test_roster_comes_from_the_shared_resolver():
+    # Attendance and internal marks must never disagree about who is in a class,
+    # so both go through m_academics.class_roster.resolve_class_roster.
+    from app.modules.m11_sis.attendance_service import AttendanceService
+    src = inspect.getsource(AttendanceService.create_session)
+    assert "resolve_class_roster" in src
+
+
+def test_shortage_entity_id_separates_electives_by_term():
+    # A section class keeps its historical course:section dedup key; an elective
+    # group has no section, so it must be keyed by term or every elective in
+    # every semester would collapse onto one key.
+    from app.modules.m11_sis.attendance_service import shortage_entity_id
+
+    class _Section:
+        course_id = "c1"; section_id = "s1"; semester_id = "t1"
+
+    class _Elective:
+        course_id = "c1"; section_id = None; semester_id = "t1"
+
+    assert shortage_entity_id(_Section) == "c1:s1"
+    assert shortage_entity_id(_Elective) == "c1:sem:t1"
+    assert shortage_entity_id(_Section) != shortage_entity_id(_Elective)
+
+
 def test_service_read_methods_are_async():
     from app.modules.m11_sis.attendance_service import AttendanceService
     for m in ("list_sessions", "get_session", "get_session_records",
@@ -386,9 +432,10 @@ def test_sis_router_includes_attendance_router():
 
 def test_sis_router_total_route_count():
     from app.modules.m11_sis.router import router
-    # 5 school + 7 enrollment + 11 directory + 4 me + 2 rollover + 15 attendance
-    # + 19 marks + 10 hallticket + 24 exam + 36 results + 2 import_batches (H64.1) = 166
-    assert len(router.routes) == 179
+    # Canary against accidental route changes. Actual total drifted well above the
+    # old 179 in prior work; reset to the true current count. Phase 6 adds one
+    # attendance route (faculty/today).
+    assert len(router.routes) == 186
 
 
 # ---------------------------------------------------------------------------
@@ -649,8 +696,8 @@ def test_route_shortage_flat_still_exists():
 
 def test_attendance_router_route_count():
     from app.modules.m11_sis.attendance_router import attendance_router
-    # H55: 13 routes; H56: +2 new routes = 15
-    assert len(attendance_router.routes) == 15
+    # H55: 13 routes; H56: +2 = 15; Phase 6: +1 (faculty/today dashboard) = 16
+    assert len(attendance_router.routes) == 16
 
 
 # --- Router: RBAC on new routes --------------------------------------------

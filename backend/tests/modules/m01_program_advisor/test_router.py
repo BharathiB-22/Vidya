@@ -8,6 +8,8 @@ import uuid
 
 from tests.conftest import make_tenant_headers
 from tests.modules.m01_program_advisor.conftest import (
+    approve_all_syllabi_committed,
+    bind_to_batch_committed,
     force_status_committed,
     make_program_payload,
 )
@@ -53,7 +55,8 @@ async def _add_course(
 
 
 async def _build_compliant_via_api(async_client, headers, program_id: str) -> None:
-    """Add 3 outcomes + 12 courses (4 sems × 3 × 5 credits = 60) that satisfy MSc rules."""
+    """Add 3 outcomes + 12 courses (4 sems × 3 × 5 credits = 60) that satisfy MSc
+    rules, and bind the curriculum to a batch so it can be submitted."""
     for i in range(1, 4):
         await _add_outcome(async_client, headers, program_id, f"PO{i}")
     idx = 1
@@ -65,6 +68,7 @@ async def _build_compliant_via_api(async_client, headers, program_id: str) -> No
                 is_elective=(idx in (3, 6)),
             )
             idx += 1
+    await bind_to_batch_committed(uuid.UUID(program_id))
 
 
 # ---------------------------------------------------------------------------
@@ -97,26 +101,44 @@ async def test_faculty_cannot_delete_program(async_client, test_tenant_a, admin_
     assert resp.status_code == 403
 
 
-async def test_faculty_cannot_approve_program(async_client, test_tenant_a, admin_user_a, faculty_user_a):
+async def test_faculty_cannot_approve_curriculum(async_client, test_tenant_a, admin_user_a, faculty_user_a):
     admin_h = make_tenant_headers(admin_user_a)
     program = await _create_program(async_client, admin_h)
 
     faculty_h = make_tenant_headers(faculty_user_a)
-    resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=faculty_h)
+    resp = await async_client.post(
+        f"/governance/programs/{program['id']}/approve", json={}, headers=faculty_h,
+    )
     assert resp.status_code == 403
 
 
-async def test_admin_cannot_approve_program(async_client, test_tenant_a, admin_user_a):
+async def test_dean_cannot_approve_curriculum(async_client, test_tenant_a, admin_user_a, dean_user_a):
+    """The central rule of Phase A: the Dean prepares curriculum and can never
+    approve it. There is no Dean-facing approve endpoint, and the governance
+    endpoint rejects a DEAN outright."""
     admin_h = make_tenant_headers(admin_user_a)
     program = await _create_program(async_client, admin_h)
+    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.PENDING_APPROVAL)
 
-    resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=admin_h)
+    dean_h = make_tenant_headers(dean_user_a)
+    resp = await async_client.post(
+        f"/governance/programs/{program['id']}/approve", json={}, headers=dean_h,
+    )
     assert resp.status_code == 403
+    assert resp.json()["error"] == "NOT_GOVERNANCE"
+
+    # And the old Dean approve route is gone for good.
+    legacy = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
+    assert legacy.status_code == 404
 
 
-async def test_unauthenticated_returns_422(async_client, test_tenant_a):
+async def test_unauthenticated_returns_401(async_client, test_tenant_a):
+    # No Authorization header. `get_current_user` takes only optional header
+    # params, so FastAPI calls it before the missing X-Tenant-Slug can be raised
+    # as a 422 — and it rejects the request outright. 401 is the right answer for
+    # "no credentials"; the old assertion of 422 described the wrong dependency.
     resp = await async_client.get(BASE)
-    assert resp.status_code == 422
+    assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -237,71 +259,202 @@ async def test_compliance_check_endpoint(async_client, test_tenant_a, admin_user
 # State transitions via API
 # ---------------------------------------------------------------------------
 
-async def test_approve_requires_pending_approval_status(async_client, test_tenant_a, admin_user_a, dean_user_a):
+async def test_dean_submits_then_governance_approves_and_locks(
+    async_client, test_tenant_a, admin_user_a, dean_user_a, board_user_a,
+):
+    """The whole Phase A happy path, end to end over HTTP:
+    Dean prepares → Dean submits → Board writes the syllabus → Board approves and
+    locks → Dean publishes."""
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    board_h = make_tenant_headers(board_user_a)
+
+    program = await _create_program(async_client, admin_h)
+    await _build_compliant_via_api(async_client, admin_h, program["id"])
+
+    submitted = await async_client.post(
+        f"{BASE}/{program['id']}/submit", json={"note": "Ready"}, headers=dean_h,
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "PENDING_APPROVAL"
+
+    # The Board's readiness worksheet: nothing has a syllabus yet, so the
+    # curriculum cannot be approved.
+    readiness = await async_client.get(
+        f"/governance/programs/{program['id']}/readiness", headers=board_h,
+    )
+    assert readiness.status_code == 200
+    assert readiness.json()["can_approve"] is False
+    assert readiness.json()["missing_count"] == readiness.json()["total_subjects"]
+
+    await approve_all_syllabi_committed(uuid.UUID(program["id"]), board_user_a["id"])
+
+    approved = await async_client.post(
+        f"/governance/programs/{program['id']}/approve",
+        json={"comment": "Approved by BoS"},
+        headers=board_h,
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "APPROVED"
+
+    published = await async_client.post(f"{BASE}/{program['id']}/publish", json={}, headers=dean_h)
+    assert published.status_code == 200
+    assert published.json()["status"] == "PUBLISHED"
+
+
+async def test_approve_is_refused_until_every_subject_has_a_syllabus(
+    async_client, test_tenant_a, admin_user_a, dean_user_a, board_user_a,
+):
+    """The gate, over HTTP. Approval is permanent, so a subject locked with no
+    official syllabus could never be given one."""
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    board_h = make_tenant_headers(board_user_a)
+
+    program = await _create_program(async_client, admin_h)
+    await _build_compliant_via_api(async_client, admin_h, program["id"])
+    await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
+
+    resp = await async_client.post(
+        f"/governance/programs/{program['id']}/approve", json={}, headers=board_h,
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "SYLLABUS_INCOMPLETE"
+
+
+async def test_submit_requires_draft(async_client, test_tenant_a, admin_user_a, dean_user_a):
     admin_h = make_tenant_headers(admin_user_a)
     program = await _create_program(async_client, admin_h)
+    await _build_compliant_via_api(async_client, admin_h, program["id"])
+    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.APPROVED)
 
     dean_h = make_tenant_headers(dean_user_a)
-    resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
+    resp = await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
     assert resp.status_code == 409
     assert resp.json()["error"] == "INVALID_STATUS"
 
 
-async def test_dean_can_approve_pending_program(async_client, test_tenant_a, admin_user_a, dean_user_a):
+async def test_submit_non_compliant_curriculum_returns_422(
+    async_client, test_tenant_a, admin_user_a, dean_user_a,
+):
+    # No courses, no outcomes. The Board must never be handed this.
     admin_h = make_tenant_headers(admin_user_a)
+    program = await _create_program(async_client, admin_h)
+
+    dean_h = make_tenant_headers(dean_user_a)
+    resp = await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "COMPLIANCE_FAILED"
+
+
+async def test_there_is_no_return_or_reject_endpoint(
+    async_client, test_tenant_a, admin_user_a, dean_user_a, board_user_a,
+):
+    """The Board is the academic authority: it enhances the curriculum rather
+    than handing it back. Work never returns to the Dean, so the routes that used
+    to do that are gone — not merely hidden from the UI."""
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    board_h = make_tenant_headers(board_user_a)
+
     program = await _create_program(async_client, admin_h)
     await _build_compliant_via_api(async_client, admin_h, program["id"])
-    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.PENDING_APPROVAL)
+    await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
 
-    dean_h = make_tenant_headers(dean_user_a)
-    resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "APPROVED"
+    for url in (
+        f"/governance/programs/{program['id']}/return",
+        f"{BASE}/{program['id']}/reject",
+    ):
+        resp = await async_client.post(url, json={"comment": "x", "reason": "x"}, headers=board_h)
+        assert resp.status_code == 404, url
 
 
-async def test_approve_non_compliant_program_returns_422(async_client, test_tenant_a, admin_user_a, dean_user_a):
-    # A freshly created DRAFT program (no courses, no outcomes) forced to PENDING_APPROVAL
-    # must fail compliance and return 422 COMPLIANCE_FAILED, not silently succeed.
+async def test_dean_cannot_edit_curriculum_under_review(
+    async_client, test_tenant_a, admin_user_a, dean_user_a,
+):
+    """Once submitted, the curriculum belongs to the governance authority. The
+    Dean is read-only on it — enforced on the API, not just hidden in the UI."""
     admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+
     program = await _create_program(async_client, admin_h)
-    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.PENDING_APPROVAL)
+    await _build_compliant_via_api(async_client, admin_h, program["id"])
+    await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
 
-    dean_h = make_tenant_headers(dean_user_a)
-    resp = await async_client.post(f"{BASE}/{program['id']}/approve", json={}, headers=dean_h)
-    assert resp.status_code == 422
-    body = resp.json()
-    assert body["error"] == "COMPLIANCE_FAILED"
-    assert body["message"]  # non-empty compliance violation string
+    resp = await async_client.patch(
+        f"{BASE}/{program['id']}", json={"title": "Sneaky edit"}, headers=dean_h,
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"] == "AWAITING_GOVERNANCE"
+
+    course = await async_client.post(
+        f"{BASE}/{program['id']}/courses",
+        json={"code": "CS998", "title": "Sneaky", "credits": 4, "semester": 1, "is_elective": False},
+        headers=dean_h,
+    )
+    assert course.status_code == 403
 
 
-async def test_dean_can_reject_pending_program(async_client, test_tenant_a, admin_user_a, dean_user_a):
+async def test_governance_can_edit_curriculum_under_review(
+    async_client, test_tenant_a, admin_user_a, dean_user_a, board_user_a,
+):
+    """The mirror image: governance CAN revise credits/structure while it holds
+    the curriculum. That is what "Board can modify" means."""
     admin_h = make_tenant_headers(admin_user_a)
-    program = await _create_program(async_client, admin_h)
-    await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.PENDING_APPROVAL)
+    dean_h  = make_tenant_headers(dean_user_a)
+    board_h = make_tenant_headers(board_user_a)
 
-    dean_h = make_tenant_headers(dean_user_a)
-    resp = await async_client.post(
-        f"{BASE}/{program['id']}/reject", json={"reason": "Needs revision"}, headers=dean_h
+    program = await _create_program(async_client, admin_h)
+    await _build_compliant_via_api(async_client, admin_h, program["id"])
+    await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
+
+    resp = await async_client.patch(
+        f"{BASE}/{program['id']}", json={"title": "Board Revised"}, headers=board_h,
     )
     assert resp.status_code == 200
-    assert resp.json()["status"] == "DRAFT"
+    assert resp.json()["title"] == "Board Revised"
+
+
+async def test_curriculum_is_locked_after_approval(
+    async_client, test_tenant_a, admin_user_a, dean_user_a, board_user_a,
+):
+    """Approval freezes it for EVERYONE — the Dean, the Admin, and the very Board
+    that just approved it. A change means a new version."""
+    admin_h = make_tenant_headers(admin_user_a)
+    dean_h  = make_tenant_headers(dean_user_a)
+    board_h = make_tenant_headers(board_user_a)
+
+    program = await _create_program(async_client, admin_h)
+    await _build_compliant_via_api(async_client, admin_h, program["id"])
+    await async_client.post(f"{BASE}/{program['id']}/submit", json={}, headers=dean_h)
+    await approve_all_syllabi_committed(uuid.UUID(program["id"]), board_user_a["id"])
+    await async_client.post(
+        f"/governance/programs/{program['id']}/approve", json={}, headers=board_h,
+    )
+
+    for headers in (dean_h, board_h, admin_h):
+        resp = await async_client.patch(
+            f"{BASE}/{program['id']}", json={"title": "Locked"}, headers=headers,
+        )
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "CURRICULUM_LOCKED"
 
 
 # ---------------------------------------------------------------------------
 # Immutability via API
 # ---------------------------------------------------------------------------
 
-async def test_update_approved_program_allowed(async_client, test_tenant_a, admin_user_a):
-    # Phase 4.2: Approved programs remain editable/deletable until Published.
+async def test_update_approved_program_blocked(async_client, test_tenant_a, admin_user_a):
+    # Phase A: approval LOCKS the curriculum. It is no longer editable, by anyone.
     admin_h = make_tenant_headers(admin_user_a)
     program = await _create_program(async_client, admin_h)
     await force_status_committed(uuid.UUID(program["id"]), ProgramStatus.APPROVED)
 
     resp = await async_client.patch(
-        f"{BASE}/{program['id']}", json={"title": "Still Editable"}, headers=admin_h
+        f"{BASE}/{program['id']}", json={"title": "Not Editable"}, headers=admin_h
     )
-    assert resp.status_code == 200
-    assert resp.json()["title"] == "Still Editable"
+    assert resp.status_code == 409
+    assert resp.json()["error"] == "CURRICULUM_LOCKED"
 
 
 async def test_update_published_program_blocked(async_client, test_tenant_a, admin_user_a):
@@ -313,10 +466,10 @@ async def test_update_published_program_blocked(async_client, test_tenant_a, adm
         f"{BASE}/{program['id']}", json={"title": "Blocked"}, headers=admin_h
     )
     assert resp.status_code == 409
-    assert resp.json()["error"] == "INVALID_STATUS"
+    assert resp.json()["error"] == "CURRICULUM_LOCKED"
 
 
-async def test_publish_program_locks_it(async_client, test_tenant_a, admin_user_a, dean_user_a):
+async def test_publish_keeps_it_locked(async_client, test_tenant_a, admin_user_a, dean_user_a):
     admin_h = make_tenant_headers(admin_user_a)
     dean_h = make_tenant_headers(dean_user_a)
     program = await _create_program(async_client, admin_h)
@@ -330,7 +483,7 @@ async def test_publish_program_locks_it(async_client, test_tenant_a, admin_user_
         f"{BASE}/{program['id']}", json={"title": "Blocked"}, headers=admin_h
     )
     assert blocked.status_code == 409
-    assert blocked.json()["error"] == "INVALID_STATUS"
+    assert blocked.json()["error"] == "CURRICULUM_LOCKED"
 
 
 async def test_add_course_to_approved_blocked(async_client, test_tenant_a, admin_user_a):

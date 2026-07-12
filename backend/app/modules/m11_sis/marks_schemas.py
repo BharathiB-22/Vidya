@@ -39,8 +39,14 @@ BUILT_IN_TEMPLATES: list[ComponentTemplate] = [
 # ---------------------------------------------------------------------------
 
 class ComponentCreateIn(BaseModel):
+    """A component belongs to exactly one class.
+
+    Regular course: pass `section_id` (and `semester_id`).
+    Elective course: pass `semester_id` and leave `section_id` unset — the class
+    is every student who chose the elective, across all sections.
+    """
     course_id:      UUID
-    section_id:     UUID
+    section_id:     Optional[UUID] = None
     semester_id:    UUID
     component_type: str = Field(..., pattern="^(CIE|ASSIGNMENT|QUIZ|LAB|OTHER)$")
     name:           str = Field(..., min_length=1, max_length=100)
@@ -72,7 +78,8 @@ class ComponentOut(BaseModel):
     course_id:       UUID
     course_code:     Optional[str]    = None
     course_title:    Optional[str]    = None
-    section_id:      UUID
+    # Null for an elective group — the class spans every section that chose it.
+    section_id:      Optional[UUID]   = None
     section_name:    Optional[str]    = None
     semester_id:     UUID
     created_by:      UUID

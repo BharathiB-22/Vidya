@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft } from 'lucide-react'
@@ -22,6 +22,10 @@ export default function ProgramDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+
+  // Controlled, so the submission checklist can jump the Dean straight to the tab
+  // that holds whatever is missing.
+  const [tab, setTab] = useState('structure')
 
   const { data: program, isLoading } = useQuery({
     queryKey: programKeys.detail(id!),
@@ -107,11 +111,14 @@ export default function ProgramDetailPage() {
         </div>
       </div>
 
-      {/* Action bar */}
-      <ActionBar program={program} />
+      {/* Action bar.
+          `onNavigateToSection` lets the submission checklist take the Dean straight
+          to whatever is missing — a list of failures you then have to go and find
+          yourself is only half an answer. */}
+      <ActionBar program={program} onNavigateToSection={setTab} />
 
       {/* Content tabs */}
-      <Tabs defaultValue="structure" className="mt-6">
+      <Tabs value={tab} onValueChange={setTab} className="mt-6">
         <TabsList>
           <TabsTrigger value="structure">Structure</TabsTrigger>
           <TabsTrigger value="electives">Elective Basket</TabsTrigger>

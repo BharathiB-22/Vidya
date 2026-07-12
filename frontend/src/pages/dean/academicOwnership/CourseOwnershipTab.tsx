@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import { Plus, X, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -123,95 +123,116 @@ function AssignDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-md">
+      {/* Four dropdowns stack taller than a short viewport, so the dialog scrolls
+          inside itself (see ui/dialog.tsx) instead of running off the screen.
+          Every field is the same full width, and each popper is capped to its
+          trigger so a long "name — email" option cannot spill outside. */}
+      <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Assign Faculty</DialogTitle>
+          <DialogTitle className="text-base">Assign Faculty</DialogTitle>
+          <p className="truncate text-sm text-gray-500">{courseName}</p>
         </DialogHeader>
-        <p className="text-sm text-gray-500 -mt-2">{courseName}</p>
-        <div className="space-y-4 py-2">
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Semester</label>
+
+        <div className="space-y-4">
+          <Field label="Semester">
             {loadingSemesters ? (
-              <p className="text-xs text-gray-400 py-2">Loading semesters…</p>
+              <p className="py-2 text-xs text-gray-400">Loading semesters…</p>
             ) : validSemesters.length === 0 ? (
-              <p className="text-xs text-red-500 py-2">
+              <p className="text-xs leading-relaxed text-red-500">
                 No active semesters found for this course's program. Set up the academic
                 structure (batches/semesters) for this program first.
               </p>
             ) : (
               <>
                 <Select value={semesterId} onValueChange={setSemesterId}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select semester…" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                     {validSemesters.map(s => (
                       <SelectItem key={s.id} value={s.id}>
-                        {s.program_name} • Semester {s.number}{s.label ? ` — ${s.label}` : ''} ({s.batch_name})
+                        <span className="block truncate">
+                          {s.program_name} · Semester {s.number}{s.label ? ` — ${s.label}` : ''}
+                          {s.batch_name ? ` (${s.batch_name})` : ''}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {semesterData && !semesterData.scoped && (
-                  <p className="text-[11px] text-amber-600 mt-1">
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-amber-600">
                     This course isn't linked to the academic structure yet — showing every
                     active semester across all programs. Double-check your selection.
                   </p>
                 )}
               </>
             )}
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Faculty</label>
+          </Field>
+
+          <Field label="Faculty">
             <Select value={facultyId} onValueChange={setFacultyId}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder={facultyList.length === 0 ? 'No faculty found' : 'Select faculty…'} />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                 {facultyList.map(u => (
                   <SelectItem key={u.id} value={u.id}>
-                    {u.full_name}
-                    {u.role === 'DEAN' && ' (Dean)'}
-                    {' — '}{u.email}
+                    <span className="block truncate">
+                      {u.full_name}{u.role === 'DEAN' && ' (Dean)'}
+                      <span className="text-gray-400"> · {u.email}</span>
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">
-              Section <span className="text-gray-400 font-normal normal-case">(optional)</span>
-            </label>
+          </Field>
+
+          <Field label="Section" hint="optional">
             <Select value={sectionId || '_none_'} onValueChange={v => setSectionId(v === '_none_' ? '' : v)}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="No section selected" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                 <SelectItem value="_none_">— No specific section —</SelectItem>
                 {sections.map((s: any) => (
                   <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Role</label>
+          </Field>
+
+          <Field label="Role">
             <Select value={role} onValueChange={v => setRole(v as CourseRoleInCourse)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                 <SelectItem value="PRIMARY">Primary Faculty</SelectItem>
                 <SelectItem value="CO_FACULTY">Co-Faculty</SelectItem>
                 <SelectItem value="GUEST">Guest</SelectItem>
               </SelectContent>
             </Select>
-          </div>
+          </Field>
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>{saving ? 'Assigning…' : 'Assign'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** One labelled row of the assign form. Every field gets the same label
+ *  treatment and the same full width, so the four dropdowns line up. */
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+        {label}
+        {hint && <span className="ml-1 font-medium normal-case tracking-normal text-gray-400">({hint})</span>}
+      </label>
+      {children}
+    </div>
   )
 }
 

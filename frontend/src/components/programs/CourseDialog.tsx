@@ -29,12 +29,27 @@ interface Props {
 
 const NEW_BASKET_VALUE = '__new_basket__'
 
-const COURSE_TYPES: { value: CourseType; label: string }[] = [
-  { value: 'THEORY',     label: 'Theory' },
-  { value: 'LAB',        label: 'Lab' },
-  { value: 'PROJECT',    label: 'Project' },
-  { value: 'INTERNSHIP', label: 'Internship' },
-  { value: 'SEMINAR',    label: 'Seminar' },
+/**
+ * The course's type is NOT a label. It decides which official document the Board of
+ * Studies produces for this course — a syllabus, a lab manual, a set of internship
+ * guidelines, a project handbook — so the hint says what each one yields. Picking
+ * the wrong one here does not mis-tag the course; it generates the wrong document
+ * for it.
+ */
+const COURSE_TYPES: { value: CourseType; label: string; hint: string }[] = [
+  { value: 'THEORY',        label: 'Theory',        hint: 'Full syllabus — Unit I–V, objectives, outcomes, books' },
+  { value: 'LAB',           label: 'Laboratory',    hint: 'Lab manual and experiment list — no theory units' },
+  { value: 'INTERNSHIP',    label: 'Internship',    hint: 'Guidelines, rubric, weekly activities, viva — no syllabus' },
+  { value: 'MINI_PROJECT',  label: 'Mini Project',  hint: 'Milestones, deliverables, reviews, rubrics — no syllabus' },
+  { value: 'MAJOR_PROJECT', label: 'Major Project', hint: 'Handbook: proposal, timeline, demo, viva — no syllabus' },
+  { value: 'SEMINAR',       label: 'Seminar',       hint: 'Seminar guidelines — no syllabus' },
+]
+
+/** The types that carry no syllabus, and therefore no L-T-P worth speaking of. */
+const PROJECT_LIKE: CourseType[] = [
+  'INTERNSHIP',
+  'MINI_PROJECT',
+  'MAJOR_PROJECT',
 ]
 
 const EMPTY = {
@@ -51,9 +66,14 @@ const EMPTY = {
   description: '',
 }
 
+/** Must mirror `compliance._check_course_credit_range` on the backend.
+ *
+ *  Projects and internships span 2–20: a Semester 3 mini-project is routinely
+ *  worth 2 credits, while a final-year dissertation runs to 20. Everything else
+ *  stays in the ordinary 1–6 band. */
 function creditBounds(courseType: CourseType | ''): { min: number; max: number; hint: string } {
-  if (courseType === 'PROJECT' || courseType === 'INTERNSHIP') {
-    return { min: 6, max: 20, hint: '6–20 (project/internship)' }
+  if (courseType && PROJECT_LIKE.includes(courseType)) {
+    return { min: 2, max: 20, hint: '2–20 (project/internship)' }
   }
   return { min: 1, max: 6, hint: '1–6' }
 }
@@ -101,6 +121,7 @@ export function CourseDialog({
   }, [open, mode, initial])
 
   const bounds = creditBounds(f.course_type)
+  const selectedType = COURSE_TYPES.find((ct) => ct.value === f.course_type)
 
   async function resolveBasketId(): Promise<string | undefined> {
     if (!f.is_elective) return undefined
@@ -192,7 +213,6 @@ export function CourseDialog({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Course Type
-              <span className="text-gray-400 font-normal ml-1">(optional)</span>
             </label>
             <select
               className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
@@ -212,6 +232,19 @@ export function CourseDialog({
                 <option key={ct.value} value={ct.value}>{ct.label}</option>
               ))}
             </select>
+            {/*
+              The type decides WHICH DOCUMENT the Board generates for this course —
+              not merely how it is tagged. An internship marked THEORY gets five
+              units of lectures for a student who is not on campus to attend them,
+              and that is a document the Board must throw away. So the consequence
+              is stated at the point the choice is made.
+            */}
+            <p className="mt-1 text-xs text-gray-500">
+              {selectedType
+                ? selectedType.hint
+                : 'Decides what the Board generates: a syllabus, a lab manual, or guidelines. ' +
+                  'Leave unset and this course is treated as Theory.'}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

@@ -20,6 +20,7 @@ from app.core.timetable.schemas import (
     TimetablePeriodOut,
     TimetableSlotCreate,
     TimetableSlotOut,
+    TimetableSlotUpdate,
     TimetableTemplateOut,
 )
 
@@ -51,7 +52,8 @@ async def _resolve_period_time(
 
 async def _slot_out(slot: TimetableSlot, db: AsyncSession) -> TimetableSlotOut:
     row = (await db.execute(text("""
-        SELECT c.code AS course_code, c.title AS course_title, u.full_name AS faculty_name
+        SELECT c.code AS course_code, c.title AS course_title, u.full_name AS faculty_name,
+               (c.is_elective OR c.elective_basket_id IS NOT NULL) AS is_elective
         FROM courses c
         LEFT JOIN users u ON u.id = :faculty_user_id
         WHERE c.id = :course_id
@@ -63,6 +65,7 @@ async def _slot_out(slot: TimetableSlot, db: AsyncSession) -> TimetableSlotOut:
         course_title=row["course_title"] if row else None,
         faculty_user_id=slot.faculty_user_id, faculty_name=row["faculty_name"] if row else None,
         room=slot.room, remarks=slot.remarks,
+        is_elective=bool(row["is_elective"]) if row else False,
         start_time=start_time, end_time=end_time, period_label=period_label,
     )
 
@@ -145,25 +148,54 @@ class TimetableService:
         return await _slot_out(slot, db)
 
     @staticmethod
-    async def add_slot(timetable_id: UUID, body: TimetableSlotCreate, db: AsyncSession) -> TimetableSlot:
+    async def _require_editable(timetable_id: UUID, verb: str, db: AsyncSession) -> Timetable:
         tt = await TimetableService.get(timetable_id, db)
         if tt is None:
             raise TimetableServiceError("TIMETABLE_NOT_FOUND", "Timetable not found.", 404)
         if tt.status not in (TimetableStatus.DRAFT.value, TimetableStatus.REJECTED.value):
             raise TimetableServiceError(
-                "NOT_EDITABLE", "Slots can only be added while the timetable is DRAFT or REJECTED.", 409,
+                "NOT_EDITABLE",
+                f"Slots can only be {verb} while the timetable is DRAFT or REJECTED.", 409,
             )
-        existing = (await db.execute(select(TimetableSlot).where(
-            TimetableSlot.timetable_id == timetable_id,
-            TimetableSlot.day_of_week == body.day_of_week,
-            TimetableSlot.period_number == body.period_number,
-        ))).scalar_one_or_none()
-        if existing is not None:
-            raise TimetableServiceError("SLOT_CONFLICT", "That day/period is already occupied in this timetable.", 409)
+        return tt
 
-        # Cross-timetable conflict validation (Phase 4.1) — scoped to the same
-        # semester, excluding this timetable and REJECTED ones (moot slots).
-        if body.faculty_user_id is not None:
+    @staticmethod
+    async def _assert_no_slot_conflicts(
+        tt: Timetable,
+        *,
+        day_of_week: int,
+        period_number: int,
+        faculty_user_id: UUID | None,
+        room: str | None,
+        db: AsyncSession,
+        exclude_slot_ids: tuple[UUID, ...] = (),
+    ) -> None:
+        """The one place slot conflicts are decided.
+
+        Three rules, unchanged from Phase 4.1: a day/period may hold at most one
+        entry in this timetable; a faculty member may not teach two sections of
+        the same semester at the same day/period; a room may not host two.
+
+        `exclude_slot_ids` lets a slot be validated against its own new position
+        without colliding with the row it is about to vacate — which is what
+        makes move and swap possible. Every write path (add, update, swap) goes
+        through here so the rules cannot drift apart.
+        """
+        occupied = select(TimetableSlot).where(
+            TimetableSlot.timetable_id == tt.id,
+            TimetableSlot.day_of_week == day_of_week,
+            TimetableSlot.period_number == period_number,
+        )
+        if exclude_slot_ids:
+            occupied = occupied.where(TimetableSlot.id.notin_(exclude_slot_ids))
+        if (await db.execute(occupied)).scalar_one_or_none() is not None:
+            raise TimetableServiceError(
+                "SLOT_CONFLICT", "That day/period is already occupied in this timetable.", 409,
+            )
+
+        # Cross-timetable conflicts — scoped to the same semester, excluding this
+        # timetable and REJECTED ones (moot slots).
+        if faculty_user_id is not None:
             conflict = (await db.execute(text("""
                 SELECT sec.name AS section_name
                 FROM timetable_slots ts2
@@ -177,8 +209,8 @@ class TimetableService:
                   AND tt2.id != :timetable_id
                 LIMIT 1
             """), {
-                "faculty_id": str(body.faculty_user_id), "day": body.day_of_week, "period": body.period_number,
-                "semester_id": str(tt.semester_id), "timetable_id": str(timetable_id),
+                "faculty_id": str(faculty_user_id), "day": day_of_week, "period": period_number,
+                "semester_id": str(tt.semester_id), "timetable_id": str(tt.id),
             })).mappings().first()
             if conflict is not None:
                 raise TimetableServiceError(
@@ -187,7 +219,7 @@ class TimetableService:
                     409,
                 )
 
-        if body.room:
+        if room:
             conflict = (await db.execute(text("""
                 SELECT sec.name AS section_name
                 FROM timetable_slots ts2
@@ -201,15 +233,23 @@ class TimetableService:
                   AND tt2.id != :timetable_id
                 LIMIT 1
             """), {
-                "room": body.room, "day": body.day_of_week, "period": body.period_number,
-                "semester_id": str(tt.semester_id), "timetable_id": str(timetable_id),
+                "room": room, "day": day_of_week, "period": period_number,
+                "semester_id": str(tt.semester_id), "timetable_id": str(tt.id),
             })).mappings().first()
             if conflict is not None:
                 raise TimetableServiceError(
                     "ROOM_CONFLICT",
-                    f"Room '{body.room}' is already booked for {conflict['section_name']} at this day/period.",
+                    f"Room '{room}' is already booked for {conflict['section_name']} at this day/period.",
                     409,
                 )
+
+    @staticmethod
+    async def add_slot(timetable_id: UUID, body: TimetableSlotCreate, db: AsyncSession) -> TimetableSlot:
+        tt = await TimetableService._require_editable(timetable_id, "added", db)
+        await TimetableService._assert_no_slot_conflicts(
+            tt, day_of_week=body.day_of_week, period_number=body.period_number,
+            faculty_user_id=body.faculty_user_id, room=body.room, db=db,
+        )
 
         slot = TimetableSlot(
             id=uuid.uuid4(), timetable_id=timetable_id, day_of_week=body.day_of_week,
@@ -222,14 +262,167 @@ class TimetableService:
         return slot
 
     @staticmethod
-    async def delete_slot(timetable_id: UUID, slot_id: UUID, db: AsyncSession) -> None:
+    async def update_slot(
+        timetable_id: UUID, slot_id: UUID, body: TimetableSlotUpdate, db: AsyncSession,
+    ) -> TimetableSlot:
+        """Move a slot (day/period) or change its faculty, room or remarks.
+
+        Validated against the slot's *target* position before anything is
+        written, so a rejected move leaves the entry exactly where it was. The
+        slot excludes itself from the occupancy check — otherwise moving a slot
+        onto its own cell, or changing only its room, would collide with itself.
+        """
+        tt = await TimetableService._require_editable(timetable_id, "edited", db)
+        slot = (await db.execute(select(TimetableSlot).where(
+            TimetableSlot.id == slot_id, TimetableSlot.timetable_id == timetable_id,
+        ))).scalar_one_or_none()
+        if slot is None:
+            raise TimetableServiceError("SLOT_NOT_FOUND", "Slot not found.", 404)
+
+        updates = body.model_dump(exclude_unset=True)
+        if not updates:
+            raise TimetableServiceError("NO_FIELDS", "No fields to update.", 422)
+
+        target_day     = updates.get("day_of_week",    slot.day_of_week)
+        target_period  = updates.get("period_number",  slot.period_number)
+        target_faculty = updates.get("faculty_user_id", slot.faculty_user_id)
+        target_room    = updates.get("room",           slot.room)
+
+        await TimetableService._assert_no_slot_conflicts(
+            tt, day_of_week=target_day, period_number=target_period,
+            faculty_user_id=target_faculty, room=target_room, db=db,
+            exclude_slot_ids=(slot.id,),
+        )
+
+        for field, value in updates.items():
+            setattr(slot, field, value)
+        await db.commit()
+        await db.refresh(slot)
+        return slot
+
+    @staticmethod
+    async def swap_slots(
+        timetable_id: UUID, slot_a_id: UUID, slot_b_id: UUID, db: AsyncSession,
+    ) -> list[TimetableSlot]:
+        """Exchange the day/period of two slots in the same timetable.
+
+        `uq_timetable_slot_period` is an immediate constraint, so updating A onto
+        B's cell collides before B has vacated it. The two rows are therefore
+        deleted and re-inserted at each other's positions within one transaction.
+        Slot ids are referenced by nothing else, so re-minting them is safe.
+
+        Each slot is validated at its destination with BOTH originals excluded —
+        they are the rows about to disappear.
+        """
+        if slot_a_id == slot_b_id:
+            raise TimetableServiceError("INVALID_SWAP", "A slot cannot be swapped with itself.", 422)
+
+        tt = await TimetableService._require_editable(timetable_id, "moved", db)
+        slots = (await db.execute(select(TimetableSlot).where(
+            TimetableSlot.timetable_id == timetable_id,
+            TimetableSlot.id.in_((slot_a_id, slot_b_id)),
+        ))).scalars().all()
+        by_id = {s.id: s for s in slots}
+        a, b = by_id.get(slot_a_id), by_id.get(slot_b_id)
+        if a is None or b is None:
+            raise TimetableServiceError("SLOT_NOT_FOUND", "Slot not found.", 404)
+
+        both = (a.id, b.id)
+        for moving, target in ((a, b), (b, a)):
+            await TimetableService._assert_no_slot_conflicts(
+                tt, day_of_week=target.day_of_week, period_number=target.period_number,
+                faculty_user_id=moving.faculty_user_id, room=moving.room, db=db,
+                exclude_slot_ids=both,
+            )
+
+        def _clone(src: TimetableSlot, at: TimetableSlot) -> TimetableSlot:
+            return TimetableSlot(
+                id=uuid.uuid4(), timetable_id=timetable_id,
+                day_of_week=at.day_of_week, period_number=at.period_number,
+                course_id=src.course_id, faculty_user_id=src.faculty_user_id,
+                room=src.room, remarks=src.remarks,
+            )
+
+        new_a, new_b = _clone(a, b), _clone(b, a)
+        await db.delete(a)
+        await db.delete(b)
+        await db.flush()   # vacate both cells before re-occupying them
+        db.add_all([new_a, new_b])
+        await db.commit()
+        await db.refresh(new_a)
+        await db.refresh(new_b)
+        return [new_a, new_b]
+
+    @staticmethod
+    async def set_template(
+        timetable_id: UUID, template_id: UUID | None, db: AsyncSession,
+    ) -> Timetable:
+        """Re-point a draft timetable at another schedule template.
+
+        A template decides which period numbers exist and which are breaks. Swapping
+        one in under existing slots can strand an entry on a period the new template
+        does not teach — the slot survives in the database but never renders, and
+        the Dean has no way to find it. So the swap is refused, naming the periods
+        at fault, rather than quietly losing work.
+        """
+        tt = await TimetableService._require_editable(timetable_id, "re-templated", db)
+
+        if template_id is not None:
+            template = (await db.execute(select(TimetableTemplate).where(
+                TimetableTemplate.id == template_id,
+            ))).scalar_one_or_none()
+            if template is None:
+                raise TimetableServiceError("TEMPLATE_NOT_FOUND", "Template not found.", 404)
+
+            taught = set((await db.execute(
+                select(TimetablePeriod.period_number).where(
+                    TimetablePeriod.template_id == template_id,
+                    TimetablePeriod.period_type == "PERIOD",
+                )
+            )).scalars().all())
+            used = set((await db.execute(
+                select(TimetableSlot.period_number).where(TimetableSlot.timetable_id == timetable_id)
+            )).scalars().all())
+            stranded = sorted(used - taught)
+            if stranded:
+                periods = ", ".join(str(p) for p in stranded)
+                raise TimetableServiceError(
+                    "TEMPLATE_STRANDS_SLOTS",
+                    f"This template does not teach period {periods}. "
+                    f"Remove or move those entries before switching template.",
+                    409,
+                )
+
+        tt.template_id = template_id
+        tt.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(tt)
+        return tt
+
+    @staticmethod
+    async def delete_timetable(timetable_id: UUID, db: AsyncSession) -> None:
+        """Delete a timetable and, by FK cascade, its slots — nothing else.
+
+        A PUBLISHED timetable is refused: students and faculty are reading it,
+        and deleting it would silently empty their week. Unpublish is not a thing
+        in this model, so the Dean must live with a published week until the next
+        semester's timetable supersedes it.
+        """
         tt = await TimetableService.get(timetable_id, db)
         if tt is None:
             raise TimetableServiceError("TIMETABLE_NOT_FOUND", "Timetable not found.", 404)
-        if tt.status not in (TimetableStatus.DRAFT.value, TimetableStatus.REJECTED.value):
+        if tt.status == TimetableStatus.PUBLISHED.value:
             raise TimetableServiceError(
-                "NOT_EDITABLE", "Slots can only be removed while the timetable is DRAFT or REJECTED.", 409,
+                "CANNOT_DELETE_PUBLISHED",
+                "A published timetable cannot be deleted — students and faculty are using it.",
+                409,
             )
+        await db.delete(tt)
+        await db.commit()
+
+    @staticmethod
+    async def delete_slot(timetable_id: UUID, slot_id: UUID, db: AsyncSession) -> None:
+        await TimetableService._require_editable(timetable_id, "removed", db)
         slot = (await db.execute(select(TimetableSlot).where(
             TimetableSlot.id == slot_id, TimetableSlot.timetable_id == timetable_id,
         ))).scalar_one_or_none()
@@ -305,14 +498,18 @@ class TimetableService:
 
     @staticmethod
     async def get_section_context(section_id: UUID, db: AsyncSession) -> dict:
-        """Program name + semester label + section name for a section, so the
-        timetable can be identified unambiguously as 'MCA · Semester 1 · Section
-        A' instead of a bare 'Section A'. Any piece may be None if the section's
-        scheduling chain (section -> semester -> batch -> program) is incomplete."""
+        """Program name + code + batch years + semester label + section name for a
+        section, so the timetable can be identified unambiguously as 'MCA
+        (2026–2028) · Semester 1 · Section A' instead of a bare 'Section A'. The
+        code and the batch years are what separate two live admissions of the same
+        programme. Any piece may be None if the section's scheduling chain
+        (section -> semester -> batch -> program) is incomplete."""
         row = (await db.execute(text("""
             SELECT sec.name AS section_name,
                    COALESCE(sem.label, 'Semester ' || sem.number) AS semester_label,
                    ap.name AS program_name,
+                   ap.code AS program_code,
+                   ab.name AS batch_name,
                    CASE WHEN ab.start_year IS NOT NULL
                         THEN ab.start_year || '–' || ab.end_year END AS academic_year
             FROM acad_sections sec
@@ -322,7 +519,10 @@ class TimetableService:
             WHERE sec.id = :id
         """), {"id": str(section_id)})).mappings().first()
         if row is None:
-            return {"section_name": None, "semester_label": None, "program_name": None, "academic_year": None}
+            return {
+                "section_name": None, "semester_label": None, "program_name": None,
+                "program_code": None, "batch_name": None, "academic_year": None,
+            }
         return dict(row)
 
     @staticmethod
@@ -360,6 +560,7 @@ class TimetableService:
             SELECT ts.id, ts.day_of_week, ts.period_number, ts.course_id, ts.faculty_user_id, ts.room,
                    ts.remarks,
                    c.code AS course_code, c.title AS course_title,
+                   (c.is_elective OR c.elective_basket_id IS NOT NULL) AS is_elective,
                    sec.name AS section_name,
                    COALESCE(sem.label, 'Semester ' || sem.number) AS semester_name,
                    tp.start_time, tp.end_time, tp.label AS period_label
@@ -377,7 +578,7 @@ class TimetableService:
                 id=r["id"], day_of_week=r["day_of_week"], period_number=r["period_number"],
                 course_id=r["course_id"], course_code=r["course_code"], course_title=r["course_title"],
                 faculty_user_id=r["faculty_user_id"], faculty_name=None, room=r["room"],
-                remarks=r["remarks"],
+                remarks=r["remarks"], is_elective=bool(r["is_elective"]),
                 start_time=r["start_time"], end_time=r["end_time"], period_label=r["period_label"],
                 section_name=r["section_name"], semester_name=r["semester_name"],
             )

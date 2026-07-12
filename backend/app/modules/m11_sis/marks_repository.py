@@ -198,6 +198,45 @@ class MarksRepository:
         return [dict(row) for row in result.mappings().all()]
 
     @staticmethod
+    async def get_elective_group_students(
+        course_id: UUID, semester_id: UUID, db: AsyncSession,
+    ) -> list[dict]:
+        """Every student who chose this elective this semester, across all
+        sections — the combined class, in the same row shape as
+        `get_enrolled_students`."""
+        sql = text("""
+            SELECT
+                er.student_user_id AS student_id,
+                u.full_name,
+                u.email,
+                sp.usn
+            FROM elective_registrations er
+            JOIN users u ON u.id = er.student_user_id AND u.is_active = true
+            LEFT JOIN sis_student_profiles sp ON sp.user_id = er.student_user_id
+            WHERE er.course_id   = :course_id
+              AND er.semester_id = :semester_id
+              AND er.status      = 'REGISTERED'
+            ORDER BY sp.usn NULLS LAST, u.full_name
+        """)
+        result = await db.execute(
+            sql, {"course_id": str(course_id), "semester_id": str(semester_id)},
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    @staticmethod
+    async def get_class_students(component, db: AsyncSession) -> list[dict]:
+        """The roster for whichever kind of class this component belongs to.
+
+        Keeps the elective/section branch in one place so publish notifications,
+        CSV import and the marks sheet cannot disagree about who is in the class.
+        """
+        if component.section_id is None:
+            return await MarksRepository.get_elective_group_students(
+                component.course_id, component.semester_id, db,
+            )
+        return await MarksRepository.get_enrolled_students(component.section_id, db)
+
+    @staticmethod
     async def bulk_upsert_entries(
         *,
         component_id: UUID,
@@ -272,7 +311,19 @@ class MarksRepository:
 
     @staticmethod
     async def get_section_marks_raw(section_id: UUID, course_id: Optional[UUID], db: AsyncSession) -> list[dict]:
-        """Per-student marks summary across all PUBLISHED/LOCKED components."""
+        """Per-student marks summary across all PUBLISHED/LOCKED components.
+
+        A student in this section is graded by two kinds of component:
+
+          - the section's own components (`mc.section_id = :section_id`);
+          - the elective-group components of whichever electives they chose,
+            which carry no section at all.
+
+        Filtering on `mc.section_id = :section_id` alone would silently omit
+        every elective mark from the section report. The elective half is joined
+        only for students who actually registered for that elective, so a student
+        is never paired with a sibling elective they did not take.
+        """
         params: dict = {"section_id": str(section_id)}
         course_filter = ""
         if course_id:
@@ -280,6 +331,9 @@ class MarksRepository:
             params["course_id"] = str(course_id)
 
         sql = text(f"""
+            WITH sec AS (
+                SELECT semester_id FROM acad_sections WHERE id = :section_id
+            )
             SELECT
                 ae.student_id,
                 u.full_name     AS student_name,
@@ -290,14 +344,28 @@ class MarksRepository:
             FROM acad_enrollments  ae
             JOIN  users            u   ON u.id  = ae.student_id
             LEFT JOIN sis_student_profiles sp ON sp.user_id = ae.student_id
-            CROSS JOIN sis_marks_components mc
+            CROSS JOIN sec
+            JOIN sis_marks_components mc
+                ON mc.is_active = true
+               AND mc.status IN ('PUBLISHED', 'LOCKED')
+               AND (
+                     mc.section_id = :section_id
+                  OR (
+                       mc.section_id IS NULL
+                   AND mc.semester_id = sec.semester_id
+                   AND EXISTS (
+                           SELECT 1 FROM elective_registrations er
+                           WHERE er.student_user_id = ae.student_id
+                             AND er.course_id       = mc.course_id
+                             AND er.semester_id     = mc.semester_id
+                             AND er.status          = 'REGISTERED'
+                       )
+                     )
+               )
             LEFT JOIN sis_marks_entries me
                 ON me.component_id = mc.id AND me.student_id = ae.student_id
             WHERE ae.section_id   = :section_id
               AND ae.is_active    = true
-              AND mc.section_id   = :section_id
-              AND mc.is_active    = true
-              AND mc.status       IN ('PUBLISHED', 'LOCKED')
               {course_filter}
             ORDER BY sp.usn NULLS LAST, u.full_name, mc.display_order NULLS LAST
         """)
@@ -310,7 +378,12 @@ class MarksRepository:
 
     @staticmethod
     async def get_student_marks_raw(student_id: UUID, db: AsyncSession) -> list[dict]:
-        """All PUBLISHED/LOCKED component marks for a student."""
+        """All PUBLISHED/LOCKED component marks for a student.
+
+        Covers both the components of their section and the elective-group
+        components of the electives they chose (which have no section, so
+        `mc.section_id = ae.section_id` would hide them entirely).
+        """
         sql = text("""
             SELECT
                 mc.id           AS component_id,
@@ -329,8 +402,24 @@ class MarksRepository:
                 me.marks_obtained,
                 me.remarks
             FROM acad_enrollments  ae
-            JOIN  acad_sections    s   ON s.id  = ae.section_id
-            JOIN  sis_marks_components mc ON mc.section_id = ae.section_id
+            JOIN  acad_sections    s2  ON s2.id = ae.section_id
+            JOIN  sis_marks_components mc
+                ON (
+                     mc.section_id = ae.section_id
+                  OR (
+                       mc.section_id IS NULL
+                   AND mc.semester_id = s2.semester_id
+                   AND EXISTS (
+                           SELECT 1 FROM elective_registrations er
+                           WHERE er.student_user_id = ae.student_id
+                             AND er.course_id       = mc.course_id
+                             AND er.semester_id     = mc.semester_id
+                             AND er.status          = 'REGISTERED'
+                       )
+                     )
+                )
+            -- LEFT: an elective-group component has no section to name.
+            LEFT JOIN acad_sections s ON s.id = mc.section_id
             LEFT JOIN courses      c   ON c.id  = mc.course_id
             LEFT JOIN sis_marks_entries me
                 ON me.component_id = mc.id AND me.student_id = ae.student_id
@@ -359,27 +448,61 @@ class MarksRepository:
           - marks_filled (count of LOCKED components with entry for student)
           - marks_total_locked (count of LOCKED components for the section)
         """
+        # Electives make `total_locked` a per-student number, not a per-section
+        # one: two students in the same section sit different electives, so they
+        # owe different components. Counting only the section's components would
+        # let a student with no elective marks look complete.
         sql = text("""
-            WITH enrolled AS (
+            WITH sec AS (
+                SELECT semester_id FROM acad_sections WHERE id = :section_id
+            ),
+            enrolled AS (
                 SELECT ae.student_id, u.full_name, sp.usn
                 FROM acad_enrollments ae
                 JOIN  users u ON u.id = ae.student_id
                 LEFT JOIN sis_student_profiles sp ON sp.user_id = ae.student_id
                 WHERE ae.section_id = :section_id AND ae.is_active = true
             ),
-            locked_components AS (
-                SELECT COUNT(*) AS total_locked
-                FROM sis_marks_components
-                WHERE section_id = :section_id AND status = 'LOCKED' AND is_active = true
+            locked_per_student AS (
+                SELECT
+                    e.student_id,
+                    (
+                        SELECT COUNT(*)
+                        FROM sis_marks_components mc, sec
+                        WHERE mc.status = 'LOCKED' AND mc.is_active = true
+                          AND (
+                                mc.section_id = :section_id
+                             OR (
+                                  mc.section_id IS NULL
+                              AND mc.semester_id = sec.semester_id
+                              AND EXISTS (
+                                      SELECT 1 FROM elective_registrations er
+                                      WHERE er.student_user_id = e.student_id
+                                        AND er.course_id       = mc.course_id
+                                        AND er.semester_id     = mc.semester_id
+                                        AND er.status          = 'REGISTERED'
+                                  )
+                                )
+                          )
+                    ) AS total_locked
+                FROM enrolled e
             ),
             att_stats AS (
+                -- Records only exist for members of the class, so matching the
+                -- session is enough; the outer join to `enrolled` keeps this
+                -- section's students. Elective-group sessions have no section.
                 SELECT
                     ar.student_id,
                     COUNT(CASE WHEN ar.status = 'PRESENT' THEN 1 END) AS attended,
                     COUNT(*) AS countable
                 FROM sis_attendance_records ar
                 JOIN sis_attendance_sessions ss ON ss.id = ar.session_id
-                WHERE ss.section_id = :section_id AND ss.status = 'LOCKED'
+                CROSS JOIN sec
+                WHERE ss.status = 'LOCKED'
+                  AND (
+                        ss.section_id = :section_id
+                     OR (ss.section_id IS NULL AND ss.semester_id = sec.semester_id)
+                  )
                 GROUP BY ar.student_id
             ),
             marks_fill AS (
@@ -388,9 +511,13 @@ class MarksRepository:
                     COUNT(me.id) AS filled_locked
                 FROM sis_marks_entries me
                 JOIN sis_marks_components mc ON mc.id = me.component_id
-                WHERE mc.section_id = :section_id
-                  AND mc.status = 'LOCKED'
+                CROSS JOIN sec
+                WHERE mc.status = 'LOCKED'
                   AND me.marks_obtained IS NOT NULL
+                  AND (
+                        mc.section_id = :section_id
+                     OR (mc.section_id IS NULL AND mc.semester_id = sec.semester_id)
+                  )
                 GROUP BY me.student_id
             )
             SELECT
@@ -402,9 +529,9 @@ class MarksRepository:
                      ELSE NULL
                 END             AS attendance_pct,
                 COALESCE(mf.filled_locked, 0) AS marks_filled,
-                lc.total_locked
+                lps.total_locked
             FROM enrolled e
-            CROSS JOIN locked_components lc
+            JOIN locked_per_student lps ON lps.student_id = e.student_id
             LEFT JOIN att_stats  att ON att.student_id = e.student_id
             LEFT JOIN marks_fill mf  ON mf.student_id  = e.student_id
             ORDER BY e.usn NULLS LAST, e.full_name
@@ -417,27 +544,55 @@ class MarksRepository:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def get_enrolled_with_entries(component_id: UUID, section_id: UUID, db: AsyncSession) -> list[dict]:
-        """All enrolled students with their existing entry (if any) for a component."""
-        sql = text("""
-            SELECT
-                ae.student_id,
-                u.full_name,
-                u.email,
-                sp.usn,
-                me.marks_obtained,
-                me.remarks
-            FROM acad_enrollments  ae
-            JOIN  users            u   ON u.id  = ae.student_id AND u.is_active = true
-            LEFT JOIN sis_student_profiles sp ON sp.user_id = ae.student_id
-            LEFT JOIN sis_marks_entries me
-                ON me.component_id = :component_id AND me.student_id = ae.student_id
-            WHERE ae.section_id  = :section_id
-              AND ae.is_active   = true
-            ORDER BY sp.usn NULLS LAST, u.full_name
-        """)
-        result = await db.execute(sql, {
-            "component_id": str(component_id),
-            "section_id":   str(section_id),
-        })
+    async def get_enrolled_with_entries(component, db: AsyncSession) -> list[dict]:
+        """The component's whole class, each row carrying that student's existing
+        entry (if any). For an elective group this is every student who chose the
+        subject, across sections — the same roster attendance uses."""
+        if component.section_id is None:
+            sql = text("""
+                SELECT
+                    er.student_user_id AS student_id,
+                    u.full_name,
+                    u.email,
+                    sp.usn,
+                    me.marks_obtained,
+                    me.remarks
+                FROM elective_registrations er
+                JOIN users u ON u.id = er.student_user_id AND u.is_active = true
+                LEFT JOIN sis_student_profiles sp ON sp.user_id = er.student_user_id
+                LEFT JOIN sis_marks_entries me
+                    ON me.component_id = :component_id AND me.student_id = er.student_user_id
+                WHERE er.course_id   = :course_id
+                  AND er.semester_id = :semester_id
+                  AND er.status      = 'REGISTERED'
+                ORDER BY sp.usn NULLS LAST, u.full_name
+            """)
+            params = {
+                "component_id": str(component.id),
+                "course_id":    str(component.course_id),
+                "semester_id":  str(component.semester_id),
+            }
+        else:
+            sql = text("""
+                SELECT
+                    ae.student_id,
+                    u.full_name,
+                    u.email,
+                    sp.usn,
+                    me.marks_obtained,
+                    me.remarks
+                FROM acad_enrollments  ae
+                JOIN  users            u   ON u.id  = ae.student_id AND u.is_active = true
+                LEFT JOIN sis_student_profiles sp ON sp.user_id = ae.student_id
+                LEFT JOIN sis_marks_entries me
+                    ON me.component_id = :component_id AND me.student_id = ae.student_id
+                WHERE ae.section_id  = :section_id
+                  AND ae.is_active   = true
+                ORDER BY sp.usn NULLS LAST, u.full_name
+            """)
+            params = {
+                "component_id": str(component.id),
+                "section_id":   str(component.section_id),
+            }
+        result = await db.execute(sql, params)
         return [dict(row) for row in result.mappings().all()]

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import * as programsApi from '@/lib/api/programs'
-import type { ApproveRequest, ExportProgramRequest, GenerateProgramRequest, PublishRequest, RejectRequest } from '@/types/program'
+import type { ExportProgramRequest, GenerateProgramRequest, PublishRequest } from '@/types/program'
 import { programKeys } from './usePrograms'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
@@ -17,22 +17,9 @@ export function useGenerateProgram(programId: string) {
   })
 }
 
-export function useApproveProgram() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: ApproveRequest }) =>
-      programsApi.approveProgram(id, payload),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: programKeys.status(data.id) })
-      qc.invalidateQueries({ queryKey: programKeys.detail(data.id) })
-      qc.invalidateQueries({ queryKey: programKeys.all })
-      addToast('Program approved successfully.', 'success')
-    },
-    onError: (err) => {
-      addToast(getErrorMessage(err), 'error', 8000)
-    },
-  })
-}
+// Phase A: useApproveProgram / useRejectProgram are gone. The Dean cannot
+// approve or reject curriculum — see hooks/governance (useSubmitForApproval for
+// the Dean, useApproveCurriculum / useReturnCurriculum for governance).
 
 export function usePublishProgram() {
   const qc = useQueryClient()
@@ -47,19 +34,6 @@ export function usePublishProgram() {
     },
     onError: (err) => {
       addToast(getErrorMessage(err), 'error', 8000)
-    },
-  })
-}
-
-export function useRejectProgram() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: RejectRequest }) =>
-      programsApi.rejectProgram(id, payload),
-    onSuccess: (_data, { id }) => {
-      qc.invalidateQueries({ queryKey: programKeys.status(id) })
-      qc.invalidateQueries({ queryKey: programKeys.detail(id) })
-      qc.invalidateQueries({ queryKey: programKeys.all })
     },
   })
 }

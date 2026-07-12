@@ -21,6 +21,10 @@ logger = logging.getLogger("vidya.academics.assignment")
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+from app.modules.m_academics.curriculum_scope import (
+    draft_paper_name_for_course,
+    published_course_sql,
+)
 from app.modules.m_academics.dean_scope import get_dean_program_ids, get_semester_program_id
 from app.modules.m_academics.assignment_schemas import (
     AssignmentCreate,
@@ -395,6 +399,19 @@ class AssignmentService:
         # belong together.
         await _check_program_alignment(body.course_id, body.semester_id, db)
 
+        # A choice inside an unpublished elective slot is a real `courses` row
+        # (it needs a code, credits, a syllabus) but it is not yet curriculum.
+        # Refuse to staff it, or the Dean would see faculty teaching a subject
+        # that does not exist for anyone else.
+        draft_paper = await draft_paper_name_for_course(body.course_id, db)
+        if draft_paper is not None:
+            raise AssignmentServiceError(
+                "ELECTIVE_SLOT_NOT_PUBLISHED",
+                f"{draft_paper} has not been published yet. Publish the elective paper "
+                f"before assigning faculty to its subjects.",
+                409,
+            )
+
         # Dean scope enforcement: DEAN may only assign to courses in programs they govern.
         # ADMIN and SUPER_ADMIN bypass this check.
         if actor_role == "DEAN":
@@ -627,12 +644,17 @@ class AssignmentService:
 
         course_rows = (await db.execute(
             text(
-                "SELECT c.id, c.code, c.title "
+                "SELECT c.id, c.code, c.title, c.credits, "
+                "       c.hours_lecture, c.hours_tutorial, c.hours_practical, "
+                "       (c.is_elective OR c.elective_basket_id IS NOT NULL) AS is_elective "
                 "FROM courses c "
                 "JOIN programs p ON p.id = c.program_id "
                 "WHERE p.acad_program_id = :acad_program_id "
-                "  AND p.status IN ('APPROVED', 'PUBLISHED') "
                 "  AND c.semester = :semester_number "
+                # Only published curriculum is assignable. An unpublished
+                # programme, or a choice inside an unpublished elective paper,
+                # is not yet a subject anyone can be asked to teach.
+                f" AND {published_course_sql()} "
                 "ORDER BY c.title"
             ),
             {"acad_program_id": str(acad_program_id), "semester_number": sem_row["number"]},
@@ -654,6 +676,11 @@ class AssignmentService:
             CourseWithAssignmentsOut(
                 course_id=row["id"], code=row["code"], title=row["title"],
                 assignments=by_course.get(row["id"], []),
+                credits=row["credits"],
+                hours_lecture=row["hours_lecture"],
+                hours_tutorial=row["hours_tutorial"],
+                hours_practical=row["hours_practical"],
+                is_elective=bool(row["is_elective"]),
             )
             for row in course_rows
         ]

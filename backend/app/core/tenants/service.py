@@ -100,6 +100,7 @@ class TenantService:
             primary_color=body.primary_color,
             secondary_color=body.secondary_color,
             institution_domain=institution_domain,
+            governance_type=body.governance_type.value,
         )
         await db.commit()
 
@@ -391,6 +392,9 @@ class TenantService:
         for field in ("name", "contact_email", "logo_url", "primary_color", "secondary_color"):
             if field in raw:
                 updates[field] = raw[field]
+
+        if "governance_type" in raw:
+            updates["governance_type"] = raw["governance_type"].value
 
         # Status transition atomically drives is_active
         if "status" in raw:

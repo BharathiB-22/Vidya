@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
+from app.core.storage.avatar import normalize_avatar_upload
 from app.core.storage.models import StorageAsset, StorageEntityType
 from app.core.storage.repository import StorageRepository
 from app.core.storage.schemas import (
@@ -51,6 +52,51 @@ class StorageService:
 
         file_uuid = uuid.uuid4()
         return f"vidya-assets/{tenant_slug}/{entity_type}/{entity_id}/{file_uuid}-{safe_filename}"
+
+    # ------------------------------------------------------------------
+    # Avatars (server-mediated upload — no presigned round trip, no UUID input)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def upload_avatar(
+        *,
+        owner_id: UUID,
+        scope_slug: str,
+        filename: str | None,
+        content_type: str | None,
+        data: bytes,
+    ) -> tuple[str, str]:
+        """Store a profile picture and return ``(object_key, content_type)``.
+
+        The caller's own id is the entity id, so nothing UUID-shaped is ever
+        accepted from the client. ``scope_slug`` is the tenant slug (or
+        ``platform`` for super admins), which keeps every image inside its own
+        tenant's storage prefix.
+        """
+        if not data:
+            raise StorageError("EMPTY_FILE", "The selected file is empty.", 400)
+
+        max_bytes = settings.AVATAR_MAX_UPLOAD_SIZE_MB * 1024 * 1024
+        if len(data) > max_bytes:
+            raise StorageError(
+                "FILE_TOO_LARGE",
+                f"Profile picture must be {settings.AVATAR_MAX_UPLOAD_SIZE_MB}MB or smaller.",
+                400,
+            )
+
+        try:
+            resolved_type, ext = normalize_avatar_upload(filename, content_type)
+        except ValueError as e:
+            raise StorageError("INVALID_CONTENT_TYPE", str(e), 400)
+
+        object_key = StorageService._generate_object_key(
+            tenant_slug=scope_slug,
+            entity_type=StorageEntityType.AVATAR.value,
+            entity_id=owner_id,
+            original_filename=f"photo{ext}",
+        )
+        await StorageRepository.put_object(object_key, data, resolved_type)
+        return object_key, resolved_type
 
     # ------------------------------------------------------------------
     # Upload URL generation (with authorization checks)

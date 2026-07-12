@@ -41,6 +41,8 @@ class ProgramRepository:
         db: AsyncSession,
         acad_program_id: UUID | None = None,
         ai_instructions: str | None = None,
+        regulation_year: int | None = None,
+        effective_from_batch_id: UUID | None = None,
     ) -> Program:
         program = Program(
             title=title,
@@ -51,6 +53,8 @@ class ProgramRepository:
             created_by_user_id=created_by_user_id,
             acad_program_id=acad_program_id,
             ai_instructions=ai_instructions,
+            regulation_year=regulation_year,
+            effective_from_batch_id=effective_from_batch_id,
         )
         db.add(program)
         await db.flush()
@@ -494,6 +498,21 @@ class CourseRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def list_by_basket(
+        basket_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> list[Course]:
+        """The interchangeable option courses hanging off one elective slot."""
+        stmt = (
+            select(Course)
+            .where(Course.elective_basket_id == basket_id)
+            .order_by(Course.code.asc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
     async def list_by_program(
         program_id: UUID,
         *,
@@ -547,10 +566,11 @@ class ElectiveBasketRepository:
         description: str | None,
         created_by_user_id: UUID,
         *,
+        credits: int = 3,
         db: AsyncSession,
     ) -> ElectiveBasket:
         basket = ElectiveBasket(
-            program_id=program_id, semester=semester, name=name,
+            program_id=program_id, semester=semester, name=name, credits=credits,
             description=description, created_by_user_id=created_by_user_id,
         )
         db.add(basket)

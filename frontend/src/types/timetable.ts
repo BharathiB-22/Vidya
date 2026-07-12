@@ -57,9 +57,17 @@ export interface TimetableSlot {
   faculty_name: string | null
   room: string | null
   remarks: string | null
+  /** True when the course is an elective choice, which is taught as one combined
+   *  class across every section that chose it. The cell badges this and never
+   *  names a section; scheduling the combined class is a later phase. */
+  is_elective: boolean
   start_time: string | null
   end_time: string | null
   period_label: string | null
+  /** Not persisted yet. Locks live in the workspace's session state; the grid
+   *  reads `slot.is_locked ?? localLocks.has(slot.id)` so that the day a column
+   *  exists, only the source of truth changes. */
+  is_locked?: boolean
 }
 
 export interface FacultyTimetableSlot extends TimetableSlot {
@@ -74,6 +82,11 @@ export interface Timetable {
   semester_id: string
   semester_label: string | null
   program_name: string | null
+  /** Short programme code, e.g. "MCA". */
+  program_code: string | null
+  /** The batch this section belongs to, e.g. "2026–2028". Two live admissions of
+   *  the same programme are told apart by this and nothing else. */
+  academic_year: string | null
   status: TimetableStatus
   slots: TimetableSlot[]
   template_id: string | null
@@ -121,6 +134,27 @@ export interface AddSlotPayload {
   faculty_user_id?: string
   room?: string
   remarks?: string
+}
+
+/** Move a slot (day/period) or edit it in place. Only what is sent changes; the
+ *  server validates the resulting position, so a rejected move leaves the entry
+ *  exactly where it was. */
+export interface UpdateSlotPayload {
+  day_of_week?: number
+  period_number?: number
+  faculty_user_id?: string | null
+  room?: string | null
+  remarks?: string | null
+}
+
+export interface SwapSlotsPayload {
+  slot_a_id: string
+  slot_b_id: string
+}
+
+/** `template_id: null` detaches the template and falls back to Period 1..8. */
+export interface UpdateTimetablePayload {
+  template_id: string | null
 }
 
 export interface CreateTemplatePayload {

@@ -105,6 +105,27 @@ async def _require_student_package_ownership(
         )
 
 
+async def _require_package_access(package_id: UUID, current_user: CurrentUser, db: AsyncSession):
+    """Load a package the caller is allowed to see, or 404.
+
+    Routes through the role-scoped `get_package`, so a faculty who does not teach
+    the package's course (or a dean who does not govern it, or a student not
+    enrolled) gets a 404 rather than another owner's materials. Every package-id
+    route that acts on a single package's contents gates through here."""
+    if current_user.role == TenantRole.STUDENT.value:
+        await _require_student_package_ownership(package_id, current_user.user_id, db)
+        return await LearningPackageService.get_package(package_id, db=db)
+    pkg = await LearningPackageService.get_package(
+        package_id,
+        caller_role=current_user.role,
+        caller_user_id=current_user.user_id,
+        db=db,
+    )
+    if pkg is None:
+        raise _404()
+    return pkg
+
+
 # ---------------------------------------------------------------------------
 # Student self-service list — declared before the generic "/{package_id}"
 # route so the literal "/student" path segment matches first.
@@ -155,6 +176,15 @@ async def trigger_curation(
     current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CurationJobResponse:
+    # A faculty may only curate materials for a course they teach.
+    if current_user.role == TenantRole.FACULTY.value:
+        if not await LearningPackageService._faculty_can_see_syllabus(
+            payload.syllabus_id, current_user.user_id, db=db
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "NOT_ASSIGNED", "message": "You are not assigned to this course."},
+            )
     try:
         result = await LearningPackageService.dispatch_curation(
             syllabus_id=payload.syllabus_id,
@@ -182,6 +212,7 @@ async def trigger_rag_indexing(
     current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
+    await _require_package_access(package_id, current_user, db)
     try:
         job_id = await LearningPackageService.dispatch_rag_indexing(
             package_id=package_id,
@@ -304,8 +335,7 @@ async def list_items(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[PackageItemResponse]:
-    if current_user.role == TenantRole.STUDENT.value:
-        await _require_student_package_ownership(package_id, current_user.user_id, db)
+    await _require_package_access(package_id, current_user, db)
     items = await LearningPackageService.list_items(
         package_id, faculty_only=faculty_only, db=db
     )
@@ -319,6 +349,7 @@ async def add_faculty_item(
     current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageItemResponse:
+    await _require_package_access(package_id, current_user, db)
     try:
         item = await LearningPackageService.add_faculty_item(
             package_id=package_id,
@@ -353,6 +384,7 @@ async def remove_item(
     current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
+    await _require_package_access(package_id, current_user, db)
     try:
         await LearningPackageService.remove_item(
             package_id=package_id, item_id=item_id, db=db
@@ -395,6 +427,7 @@ async def upload_faculty_note(
 
     RBAC: ADMIN, FACULTY only.
     """
+    await _require_package_access(package_id, current_user, db)
     file_bytes = await file.read()
     content_type = file.content_type or "application/octet-stream"
     filename = file.filename or "note"
@@ -444,6 +477,7 @@ async def toggle_recommendation(
     current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> PackageItemResponse:
+    await _require_package_access(package_id, current_user, db)
     try:
         item = await LearningPackageService.toggle_faculty_recommendation(
             package_id=package_id,
@@ -482,8 +516,7 @@ async def ask_question(
     current_user: CurrentUser = Depends(require_roles(*_FULL)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> RAGAnswerResponse:
-    if current_user.role == TenantRole.STUDENT.value:
-        await _require_student_package_ownership(package_id, current_user.user_id, db)
+    await _require_package_access(package_id, current_user, db)
     try:
         result = await LearningPackageService.ask_question(
             package_id=package_id,

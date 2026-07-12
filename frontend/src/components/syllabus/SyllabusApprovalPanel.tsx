@@ -1,23 +1,28 @@
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink, Send, UserCheck, XCircle } from 'lucide-react'
+import { CheckCircle, Lock, FileText, GitFork, Bot, ExternalLink, UserCheck } from 'lucide-react'
 import { useSyllabusVersions } from '@/hooks/syllabuses'
 import { SyllabusStatusBadge } from './SyllabusStatusBadge'
 import type { Syllabus } from '@/types/syllabus'
 
+/**
+ * The life of an official syllabus, in three steps.
+ *
+ * There is no "pending review" step, because the body that writes this document
+ * is the body that approves it — there is nobody to submit it to. And the final
+ * freeze is not a syllabus-level act: the syllabus locks when the CURRICULUM is
+ * approved, together with the structure it describes.
+ */
 const STEPS = [
-  { key: 'DRAFT',          label: 'Draft',          desc: 'Content editing open',   icon: FileText    },
-  { key: 'PENDING_REVIEW', label: 'Pending Review', desc: 'Submitted to Dean',       icon: Send        },
-  { key: 'DEAN_APPROVED',  label: 'Dean Approved',  desc: 'Approved — post-unlock',  icon: UserCheck   },
-  { key: 'DEAN_LOCKED',    label: 'Locked',         desc: 'Frozen for semester',     icon: Lock        },
+  { key: 'DRAFT',    label: 'Draft',    desc: 'Written by the board',            icon: FileText  },
+  { key: 'APPROVED', label: 'Approved', desc: 'Signed off by a board member',    icon: UserCheck },
+  { key: 'LOCKED',   label: 'Official', desc: 'Locked with the curriculum',      icon: Lock      },
 ] as const
 
 const STATUS_STEP: Record<string, number> = {
-  DRAFT:          0,
-  AI_GENERATING:  0,
-  REJECTED:       0,   // REJECTED is a variant of DRAFT-stage
-  PENDING_REVIEW: 1,
-  DEAN_APPROVED:  2,
-  DEAN_LOCKED:    3,
+  DRAFT:         0,
+  AI_GENERATING: 0,
+  APPROVED:      1,
+  LOCKED:        2,
 }
 
 interface Props {
@@ -62,12 +67,12 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
                     {step.desc}
                   </span>
                   {/* Timestamp under completed steps */}
-                  {idx === 2 && syllabus.approved_at && (
+                  {idx === 1 && syllabus.approved_at && (
                     <span className="text-[10px] text-green-600">
                       {new Date(syllabus.approved_at).toLocaleDateString()}
                     </span>
                   )}
-                  {idx === 3 && syllabus.locked_at && (
+                  {idx === 2 && syllabus.locked_at && (
                     <span className="text-[10px] text-green-600">
                       {new Date(syllabus.locked_at).toLocaleDateString()}
                     </span>
@@ -85,18 +90,17 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
         {syllabus.status === 'AI_GENERATING' && (
           <div className="mt-4 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             <Bot className="h-4 w-4 shrink-0" />
-            AI generation in progress. Syllabus remains in Draft until complete.
+            Writing the official syllabus. It returns to Draft for the board to review.
           </div>
         )}
 
-        {/* REJECTED sub-state note */}
-        {syllabus.status === 'REJECTED' && (
-          <div className="mt-4 flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-            <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+        {/* APPROVED sub-state note */}
+        {syllabus.status === 'APPROVED' && (
+          <div className="mt-4 flex items-start gap-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
-              {syllabus.dean_comment?.startsWith('[REVISION REQUESTED]')
-                ? 'Dean has requested revisions. Address the feedback and resubmit.'
-                : 'Syllabus was rejected by Dean. Revise and resubmit for approval.'}
+              Signed off. It becomes official — and permanently locked — when the curriculum is
+              approved. Editing it before then returns it to draft for re-approval.
             </span>
           </div>
         )}

@@ -15,11 +15,11 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { TimetableGrid } from '@/components/timetable/TimetableGrid'
+import { TimetableWorkspace } from './timetable/TimetableWorkspace'
+import { STATUS_COLORS, programLabel, timetableLabel } from './timetable/shared'
 import { academicsApi } from '@/lib/api/academics'
-import { assignmentsApi } from '@/lib/api/assignments'
 import {
-  listTimetables, createTimetable, getTimetable,
-  addSlot, deleteSlot, submitTimetable, publishTimetable,
+  listTimetables, createTimetable, getTimetable, publishTimetable,
   listPendingTimetables, approveTimetable, rejectTimetable,
   listTemplates, createTemplate, getTemplate, updateTemplate, deleteTemplate,
   addPeriod, deletePeriod,
@@ -27,30 +27,10 @@ import {
 import { getErrorMessage } from '@/lib/api'
 import {
   DAYS_OF_WEEK, BREAK_PRESETS, formatClockTime,
-  type TimetableSlot, type SaturdayMode, type PeriodType, type TimetableListItem,
+  type SaturdayMode, type PeriodType, type TimetableListItem,
   type TimetableTemplateListItem, type CreatePeriodPayload,
 } from '@/types/timetable'
 
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT:           'bg-gray-100 text-gray-600',
-  PENDING_REVIEW:  'bg-yellow-50 text-yellow-700',
-  APPROVED:        'bg-blue-50 text-blue-700',
-  REJECTED:        'bg-red-50 text-red-700',
-  PUBLISHED:       'bg-green-50 text-green-700',
-}
-
-/** Unambiguous timetable label: "MCA · Semester 1 · Section A" instead of a
- *  bare "Section A". Falls back gracefully when the program/semester chain is
- *  incomplete. */
-function timetableLabel(t: {
-  program_name?: string | null
-  semester_label?: string | null
-  section_name?: string | null
-}): string {
-  return [t.program_name, t.semester_label, t.section_name ? `Section ${t.section_name}` : null]
-    .filter(Boolean)
-    .join(' · ') || 'Section'
-}
 
 // ---------------------------------------------------------------------------
 // Templates — academic schedule configuration (working days, periods, breaks)
@@ -588,11 +568,11 @@ function TemplateDetail({ id, onBack }: { id: string; onBack: () => void }) {
       )}
 
       {sortedPeriods.length === 0 ? (
-        <div className="text-center py-10 rounded-xl border border-dashed border-gray-200">
+        <div className="rounded-xl border border-dashed border-gray-200 px-6 py-14 text-center">
           <p className="text-sm text-gray-400">No periods configured yet.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
           {sortedPeriods.map((p) => (
             <div key={p.id} className="px-5 py-3 flex items-center justify-between gap-4">
               <div>
@@ -662,7 +642,7 @@ function TemplatesTab() {
   const items = data ?? []
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-5xl space-y-4">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-gray-400">
           Configure working days, college hours, periods, and breaks before building section timetables.
@@ -681,12 +661,15 @@ function TemplatesTab() {
       {isLoading ? (
         <div className="space-y-3">{[1, 2].map((n) => <div key={n} className="h-14 rounded-xl bg-gray-50 animate-pulse" />)}</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
-          <Settings2 className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No templates configured yet.</p>
+        <div className="rounded-xl border border-dashed border-gray-200 px-6 py-20 text-center">
+          <Settings2 className="h-10 w-10 mx-auto mb-4 text-gray-200" />
+          <p className="text-sm font-medium text-gray-500">No templates configured yet.</p>
+          <p className="mt-1 text-xs text-gray-400">
+            A template sets the working days, periods and breaks every timetable is built on.
+          </p>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
           {items.map((t) => (
             <div key={t.id} className="flex items-center justify-between gap-2 px-5 py-4 hover:bg-gray-50 transition-colors">
               <button onClick={() => setSelectedId(t.id)} className="flex-1 text-left min-w-0">
@@ -751,260 +734,6 @@ function TemplatesTab() {
 // Timetables — section-wise, built against a template
 // ---------------------------------------------------------------------------
 
-function AddSlotDialog({
-  open, onOpenChange, semesterId, sectionId, dayOfWeek, periodNumber, onSubmit, isSubmitting, error,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  semesterId: string
-  sectionId: string
-  dayOfWeek: number | null
-  periodNumber: number | null
-  onSubmit: (payload: { course_id: string; faculty_user_id?: string; room?: string; remarks?: string }) => void
-  isSubmitting: boolean
-  error: string | null
-}) {
-  const [courseId, setCourseId] = useState<string>('')
-  const [facultyUserId, setFacultyUserId] = useState<string>('')
-  const [room, setRoom] = useState('')
-  const [remarks, setRemarks] = useState('')
-
-  // Every course in this semester's program is selectable, whether or not it
-  // has a faculty assignment yet: zero -> save with no faculty, one -> auto-
-  // fill, more than one -> show a picker.
-  const coursesQ = useQuery({
-    queryKey: ['courses-for-slot', semesterId, sectionId],
-    queryFn: () => assignmentsApi.listCoursesForSlot(semesterId, sectionId),
-    enabled: open,
-  })
-
-  const courses = coursesQ.data ?? []
-  const selectedCourse = courses.find((c) => c.course_id === courseId)
-  const facultyForCourse = selectedCourse?.assignments ?? []
-  const needsFacultyPicker = facultyForCourse.length > 1
-
-  function handleCourseChange(id: string) {
-    setCourseId(id)
-    const options = courses.find((c) => c.course_id === id)?.assignments ?? []
-    setFacultyUserId(options.length === 1 ? (options[0].faculty_user_id ?? '') : '')
-  }
-
-  const resolvedFacultyName = facultyForCourse.length === 1
-    ? (facultyForCourse[0].faculty?.full_name ?? 'Unassigned faculty')
-    : null
-
-  const canSubmit = !!courseId && (!needsFacultyPicker || !!facultyUserId)
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            Add slot — {dayOfWeek != null ? DAYS_OF_WEEK[dayOfWeek] : ''} · Period {periodNumber}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Course</label>
-            <Select value={courseId} onValueChange={handleCourseChange}>
-              <SelectTrigger>
-                <SelectValue placeholder={coursesQ.isLoading ? 'Loading…' : 'Select a course'} />
-              </SelectTrigger>
-              <SelectContent>
-                {courses.map((c) => (
-                  <SelectItem key={c.course_id} value={c.course_id}>{c.code} — {c.title}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {!coursesQ.isLoading && courses.length === 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                No courses found for this semester.
-              </p>
-            )}
-          </div>
-
-          {needsFacultyPicker ? (
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Faculty</label>
-              <Select value={facultyUserId} onValueChange={setFacultyUserId}>
-                <SelectTrigger><SelectValue placeholder="Multiple faculty teach this course — pick one" /></SelectTrigger>
-                <SelectContent>
-                  {facultyForCourse.map((a) => (
-                    <SelectItem key={a.id} value={a.faculty_user_id ?? ''}>
-                      {a.faculty?.full_name ?? 'Unassigned faculty'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : resolvedFacultyName ? (
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Faculty</label>
-              <p className="text-sm text-gray-900 px-3 py-2 rounded-md border border-gray-200 bg-gray-50">
-                {resolvedFacultyName}
-              </p>
-            </div>
-          ) : courseId ? (
-            <p className="text-xs text-gray-500">
-              No faculty assigned to this course yet — the slot can still be saved without one.
-            </p>
-          ) : null}
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Room / Lab (optional)</label>
-            <Input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="e.g. Block A, Room 204" />
-          </div>
-
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Remarks (optional)</label>
-            <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="e.g. Tutorial, Guest lecture" />
-          </div>
-
-          {error && <p className="text-xs text-red-600">{error}</p>}
-        </div>
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button
-            disabled={!canSubmit || isSubmitting}
-            onClick={() => {
-              if (!courseId) return
-              onSubmit({
-                course_id: courseId,
-                faculty_user_id: facultyUserId || undefined,
-                room: room || undefined,
-                remarks: remarks || undefined,
-              })
-            }}
-          >
-            {isSubmitting ? 'Adding…' : 'Add Slot'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function TimetableDetail({ id, onBack }: { id: string; onBack: () => void }) {
-  const queryClient = useQueryClient()
-  const [dialogCell, setDialogCell] = useState<{ day: number; period: number } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['timetable-detail', id],
-    queryFn: () => getTimetable(id),
-  })
-
-  function invalidate() {
-    queryClient.invalidateQueries({ queryKey: ['timetable-detail', id] })
-    queryClient.invalidateQueries({ queryKey: ['timetables'] })
-  }
-
-  const addSlotMut = useMutation({
-    mutationFn: (payload: { course_id: string; faculty_user_id?: string; room?: string; remarks?: string }) =>
-      addSlot(id, {
-        day_of_week: dialogCell!.day,
-        period_number: dialogCell!.period,
-        ...payload,
-      }),
-    onSuccess: () => {
-      setDialogCell(null)
-      setError(null)
-      invalidate()
-    },
-    onError: (e) => setError(getErrorMessage(e)),
-  })
-
-  const deleteSlotMut = useMutation({
-    mutationFn: (slot: TimetableSlot) => deleteSlot(id, slot.id),
-    onSuccess: invalidate,
-    onError: (e) => setError(getErrorMessage(e)),
-  })
-
-  const submitMut = useMutation({
-    mutationFn: () => submitTimetable(id),
-    onSuccess: invalidate,
-    onError: (e) => setError(getErrorMessage(e)),
-  })
-
-  if (isError) {
-    return (
-      <div className="space-y-4">
-        <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-          <ChevronLeft className="h-4 w-4" /> Back to timetables
-        </button>
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          Failed to load this timetable. Please go back and try again.
-        </div>
-      </div>
-    )
-  }
-
-  if (isLoading || !data) {
-    return <div className="h-64 rounded-xl bg-gray-50 animate-pulse" />
-  }
-
-  const editable = data.status === 'DRAFT' || data.status === 'REJECTED'
-
-  return (
-    <div className="space-y-4">
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ChevronLeft className="h-4 w-4" /> Back to timetables
-      </button>
-
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">{timetableLabel(data)}</h2>
-          <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[data.status] ?? 'bg-gray-100 text-gray-600'}`}>
-            {data.status.replace('_', ' ')}
-          </span>
-          {!data.template && (
-            <span className="ml-2 text-[11px] text-gray-400">No template linked — using default periods.</span>
-          )}
-        </div>
-        {editable && data.slots.length > 0 && (
-          <Button disabled={submitMut.isPending} onClick={() => submitMut.mutate()}>
-            {submitMut.isPending ? 'Submitting…' : 'Submit for Review'}
-          </Button>
-        )}
-      </div>
-
-      {data.status === 'REJECTED' && data.review_comment && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          <strong>Rejected:</strong> {data.review_comment}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-
-      <TimetableGrid
-        slots={data.slots}
-        periods={data.template?.periods}
-        workingDays={data.template?.working_days}
-        saturdayMode={data.template?.saturday_mode}
-        editable={editable}
-        onAddSlot={editable ? (day, period) => setDialogCell({ day, period }) : undefined}
-        onDeleteSlot={editable ? (slot) => deleteSlotMut.mutate(slot) : undefined}
-      />
-
-      {dialogCell && (
-        <AddSlotDialog
-          open={!!dialogCell}
-          onOpenChange={(v) => !v && setDialogCell(null)}
-          semesterId={data.semester_id}
-          sectionId={data.section_id}
-          dayOfWeek={dialogCell.day}
-          periodNumber={dialogCell.period}
-          onSubmit={(p) => addSlotMut.mutate(p)}
-          isSubmitting={addSlotMut.isPending}
-          error={error}
-        />
-      )}
-    </div>
-  )
-}
 
 function CreateTimetableDialog({
   open, onOpenChange, onCreated,
@@ -1123,20 +852,28 @@ function TimetableListSection({
       {isLoading ? (
         <div className="space-y-3">{[1, 2].map((n) => <div key={n} className="h-14 rounded-xl bg-gray-50 animate-pulse" />)}</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
-          <EmptyIcon className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-          <p className="text-sm text-gray-500">{emptyMessage}</p>
+        <div className="rounded-xl border border-dashed border-gray-200 px-6 py-20 text-center">
+          <EmptyIcon className="h-10 w-10 mx-auto mb-4 text-gray-200" />
+          <p className="text-sm font-medium text-gray-500">{emptyMessage}</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
           {items.map((t) => (
             <button
               key={t.id}
               onClick={() => onSelect(t.id)}
               className="w-full flex items-center justify-between gap-4 px-5 py-4 hover:bg-gray-50 transition-colors text-left"
             >
-              <span className="text-sm font-semibold text-gray-800">{timetableLabel(t)}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[t.status] ?? 'bg-gray-100 text-gray-600'}`}>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-gray-900">
+                  {programLabel(t) ?? 'Programme'}
+                </span>
+                <span className="block text-xs text-gray-500">
+                  {[t.semester_label, t.section_name ? `Section ${t.section_name}` : null]
+                    .filter(Boolean).join(' · ')}
+                </span>
+              </span>
+              <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide ${STATUS_COLORS[t.status] ?? 'bg-gray-100 text-gray-600'}`}>
                 {t.status.replace('_', ' ')}
               </span>
             </button>
@@ -1166,14 +903,16 @@ function DraftTimetablesTab() {
     enabled: !selectedId,
   })
 
+  // The workspace is the grid, and the grid wants the whole page — it is not
+  // returned inside the reading-width column the list view sits in.
   if (selectedId) {
-    return <TimetableDetail id={selectedId} onBack={() => setSelectedId(null)} />
+    return <TimetableWorkspace id={selectedId} onBack={() => setSelectedId(null)} />
   }
 
   const items = [...(draftQ.data ?? []), ...(rejectedQ.data ?? [])]
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-5xl space-y-4">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-gray-500">Create and manage class timetables per section.</p>
         <Button size="sm" onClick={() => setCreating(true)}>
@@ -1234,7 +973,7 @@ function PendingReviewRow({ item }: { item: TimetableListItem }) {
   })
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -1306,7 +1045,7 @@ function PendingReviewTab() {
   const items = data ?? []
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-5xl space-y-4">
       <p className="text-sm text-gray-500">Approve or reject timetables submitted for review.</p>
 
       {isError && (
@@ -1320,9 +1059,9 @@ function PendingReviewTab() {
           {[1, 2].map((n) => <div key={n} className="h-16 rounded-xl bg-gray-50 animate-pulse" />)}
         </div>
       ) : items.length === 0 ? (
-        <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
-          <ClipboardCheck className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-          <p className="text-sm text-gray-500">No timetables are pending review.</p>
+        <div className="rounded-xl border border-dashed border-gray-200 px-6 py-20 text-center">
+          <ClipboardCheck className="h-10 w-10 mx-auto mb-4 text-gray-200" />
+          <p className="text-sm font-medium text-gray-500">No timetables are pending review.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1363,28 +1102,36 @@ function PublishedTimetablesTab() {
   })
 
   if (selectedId) {
-    return <TimetableDetail id={selectedId} onBack={() => setSelectedId(null)} />
+    return <TimetableWorkspace id={selectedId} onBack={() => setSelectedId(null)} />
   }
 
   const approvedItems = approvedQ.data ?? []
   const publishedItems = publishedQ.data ?? []
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl space-y-8">
       {error && <div className="text-xs text-red-600">{error}</div>}
 
       <div className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ready to Publish</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ready to Publish</h3>
         {approvedQ.isLoading ? (
           <div className="h-14 rounded-xl bg-gray-50 animate-pulse" />
         ) : approvedItems.length === 0 ? (
-          <p className="text-sm text-gray-500">No approved timetables waiting to publish.</p>
+          <p className="rounded-xl border border-dashed border-gray-200 px-5 py-6 text-center text-sm text-gray-400">
+            No approved timetables waiting to publish.
+          </p>
         ) : (
-          <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
+          <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
             {approvedItems.map((t) => (
               <div key={t.id} className="flex items-center justify-between gap-4 px-5 py-4">
-                <button onClick={() => setSelectedId(t.id)} className="text-sm font-semibold text-gray-800 hover:underline text-left">
-                  {timetableLabel(t)}
+                <button onClick={() => setSelectedId(t.id)} className="min-w-0 text-left">
+                  <span className="block text-sm font-semibold text-gray-900 hover:underline">
+                    {programLabel(t) ?? 'Programme'}
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    {[t.semester_label, t.section_name ? `Section ${t.section_name}` : null]
+                      .filter(Boolean).join(' · ')}
+                  </span>
                 </button>
                 <Button size="sm" disabled={publishMut.isPending} onClick={() => publishMut.mutate(t.id)}>
                   <Rocket className="h-3.5 w-3.5 mr-1.5" /> Publish
@@ -1414,16 +1161,19 @@ function PublishedTimetablesTab() {
 
 function ArchiveTimetablesTab() {
   return (
-    <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
-      <Archive className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-      <p className="text-sm text-gray-500">Superseded and past-semester timetables will appear here.</p>
+    <div className="max-w-5xl rounded-xl border border-dashed border-gray-200 px-6 py-20 text-center">
+      <Archive className="h-10 w-10 mx-auto mb-4 text-gray-200" />
+      <p className="text-sm font-medium text-gray-500">Superseded and past-semester timetables will appear here.</p>
     </div>
   )
 }
 
 export default function TimetableBuilderPage() {
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+    // The timetable is the Dean's primary workspace, so the page runs nearly the
+    // full viewport rather than sitting in a reading-width column. The cap only
+    // stops the grid stretching absurdly on an ultrawide monitor.
+    <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 py-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Timetable</h1>
         <p className="text-sm text-gray-500 mt-0.5">

@@ -5,41 +5,91 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CourseDialog } from './CourseDialog'
 import { useAddCourse, useUpdateCourse, useDeleteCourse, useElectiveBaskets } from '@/hooks/programs'
-import type { Course, CourseType, Program } from '@/types/program'
+import type { Course, CourseType, ElectiveBasket, Program } from '@/types/program'
 
 const COURSE_TYPE_COLORS: Record<CourseType, string> = {
-  THEORY:     'bg-blue-50 text-blue-700 border-blue-100',
-  LAB:        'bg-purple-50 text-purple-700 border-purple-100',
-  PROJECT:    'bg-green-50 text-green-700 border-green-100',
-  INTERNSHIP: 'bg-orange-50 text-orange-700 border-orange-100',
-  SEMINAR:    'bg-yellow-50 text-yellow-700 border-yellow-100',
+  THEORY:        'bg-blue-50 text-blue-700 border-blue-100',
+  LAB:           'bg-purple-50 text-purple-700 border-purple-100',
+  MINI_PROJECT:  'bg-green-50 text-green-700 border-green-100',
+  MAJOR_PROJECT: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+  INTERNSHIP:    'bg-orange-50 text-orange-700 border-orange-100',
+  SEMINAR:       'bg-yellow-50 text-yellow-700 border-yellow-100',
 }
 
-/** Courses saved before course_type was captured (or added without picking one)
- * have course_type: null. Infer a sensible type from the title so the badge is
- * never blank, rather than leaving it unset. */
+/**
+ * Courses saved before course_type was captured (or added without picking one) have
+ * course_type: null. Infer a sensible type from the title so the badge is never
+ * blank, rather than leaving it unset.
+ *
+ * The type is not cosmetic — it decides which document the Board generates — so
+ * "mini" is checked before the general project case, exactly as migration 0086ten
+ * splits the old PROJECT rows. A major project is the safer fallback of the two:
+ * its document is the superset, and a Board correcting one down to a mini project
+ * loses nothing, while the reverse would silently drop the proposal and the viva.
+ */
 function resolveCourseType(course: Course): CourseType {
   if (course.course_type) return course.course_type
   const title = course.title.toLowerCase()
   if (title.includes('internship')) return 'INTERNSHIP'
-  if (title.includes('project')) return 'PROJECT'
+  if (title.includes('mini') && title.includes('project')) return 'MINI_PROJECT'
+  if (title.includes('project')) return 'MAJOR_PROJECT'
   if (title.includes('lab') || title.includes('laboratory')) return 'LAB'
   if (title.includes('seminar')) return 'SEMINAR'
   return 'THEORY'
 }
 
-/** Credits a student actually earns in a set of courses: every elective basket
- *  counts ONCE (the student takes one course from it), not once per option, so
- *  the displayed total matches the program's configured credits. Non-basket
- *  courses (core + standalone electives) each count fully. */
-function effectiveCredits(list: Course[]): number {
-  const seenBaskets = new Set<string>()
-  let total = 0
+/** One elective slot in the structure, e.g. "Elective 1 (3 cr)".
+ *
+ *  Rendered exactly like a curriculum course, because that is what it is: one
+ *  curriculum position worth its own credits. Its choices are deliberately NOT
+ *  listed here — the structure answers "where do electives sit in this
+ *  programme", and Elective Basket answers "which subjects does this slot
+ *  offer". Showing the choices here would read as though the student takes all
+ *  of them, and would duplicate the Basket.
+ *
+ *  `optionCount` is shown only so an empty slot is visibly unfinished. */
+function ElectiveSlotCard({ slot, optionCount }: { slot: ElectiveBasket; optionCount: number }) {
+  return (
+    <div className="rounded-md border border-gray-200 bg-white p-2 shadow-sm">
+      <div className="flex items-start justify-between gap-1">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800 leading-tight">{slot.name}</p>
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
+            <span className="text-xs text-gray-500">{slot.credits} cr</span>
+            <Badge variant="info" className="text-[10px] py-0 px-1.5">
+              Choose one
+            </Badge>
+            {/* A draft slot is not curriculum yet: it is invisible to Academic
+                Ownership, faculty assignment and students. Say so plainly rather
+                than letting it look like a live subject. */}
+            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border border-gray-200 text-gray-500">
+              {slot.status}
+            </span>
+          </div>
+          <p className="mt-1 text-[10px] text-gray-500">
+            {optionCount === 0
+              ? 'No choices yet — add them in Elective Basket.'
+              : `${optionCount} choice${optionCount === 1 ? '' : 's'} in Elective Basket`}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Credits the curriculum actually carries: each elective slot contributes its
+ *  own `credits` exactly once (the student takes one option from it), never the
+ *  sum of its options. Non-option courses (core + standalone electives) each
+ *  count fully. `baskets` must be the slots belonging to the same scope as
+ *  `list` — the whole program, or one semester.
+ *
+ *  An option whose slot is absent from `baskets` still counts individually,
+ *  so a not-yet-loaded basket query understates rather than drops credits. */
+function effectiveCredits(list: Course[], baskets: ElectiveBasket[]): number {
+  const slotIds = new Set(baskets.map((b) => b.id))
+  let total = baskets.reduce((sum, b) => sum + b.credits, 0)
   for (const c of list) {
-    if (c.elective_basket_id) {
-      if (seenBaskets.has(c.elective_basket_id)) continue
-      seenBaskets.add(c.elective_basket_id)
-    }
+    if (c.elective_basket_id && slotIds.has(c.elective_basket_id)) continue
     total += c.credits
   }
   return total
@@ -60,13 +110,15 @@ export function SemesterGrid({ program, courses }: Props) {
   const update = useUpdateCourse(program.id)
   const del = useDeleteCourse(program.id)
   const basketsQ = useElectiveBaskets(program.id)
-  const basketNameById = new Map((basketsQ.data ?? []).map((b) => [b.id, b.name]))
+  const baskets = basketsQ.data ?? []
+  const basketNameById = new Map(baskets.map((b) => [b.id, b.name]))
 
   const [addSem, setAddSem] = useState<number | null>(null)
   const [editCourse, setEditCourse] = useState<Course | null>(null)
 
-  const computedTotal = effectiveCredits(courses)
-  const matches = computedTotal === program.total_credits
+  const computedTotal = effectiveCredits(courses, baskets)
+  // Slots carry the credits, so the total is only meaningful once they load.
+  const matches = basketsQ.isLoading || computedTotal === program.total_credits
 
   return (
     <div className="space-y-3">
@@ -93,7 +145,22 @@ export function SemesterGrid({ program, courses }: Props) {
       <div className="flex gap-4 min-w-max pb-4">
         {semesters.map((sem) => {
           const semCourses = courses.filter((c) => c.semester === sem)
-          const semCredits = effectiveCredits(semCourses)
+          const semBaskets = baskets.filter((b) => b.semester === sem)
+          const semCredits = effectiveCredits(semCourses, semBaskets)
+
+          // Options are shown inside their slot's card, never as loose courses.
+          // A course whose slot hasn't loaded yet stays a loose card rather
+          // than vanishing.
+          const slotIds = new Set(semBaskets.map((b) => b.id))
+          const optionsBySlot = new Map<string, Course[]>(semBaskets.map((b) => [b.id, []]))
+          const looseCourses: Course[] = []
+          for (const c of semCourses) {
+            if (c.elective_basket_id && slotIds.has(c.elective_basket_id)) {
+              optionsBySlot.get(c.elective_basket_id)!.push(c)
+            } else {
+              looseCourses.push(c)
+            }
+          }
 
           return (
             <div key={sem} className="w-56 flex-shrink-0">
@@ -102,7 +169,7 @@ export function SemesterGrid({ program, courses }: Props) {
                 <span className="text-xs text-gray-500">{semCredits} cr</span>
               </div>
               <div className="space-y-2 min-h-[4rem]">
-                {semCourses.map((course) => {
+                {looseCourses.map((course) => {
                   const courseType = resolveCourseType(course)
                   return (
                   <div
@@ -169,6 +236,15 @@ export function SemesterGrid({ program, courses }: Props) {
                   </div>
                   )
                 })}
+
+                {semBaskets.map((slot) => (
+                  <ElectiveSlotCard
+                    key={slot.id}
+                    slot={slot}
+                    optionCount={(optionsBySlot.get(slot.id) ?? []).length}
+                  />
+                ))}
+
                 {isEditable && (
                   <Button
                     variant="outline"

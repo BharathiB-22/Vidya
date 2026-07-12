@@ -41,13 +41,35 @@ class AttendanceStatus(str, enum.Enum):
 
 
 class SisAttendanceSession(Base):
+    """One class period.
+
+    The class is either a section or an elective group, never both:
+
+      section_id IS NOT NULL   a regular course taught to one section
+      section_id IS NULL       an elective group — every student in `semester_id`
+                               who registered for `course_id`, across all sections
+
+    Uniqueness is therefore enforced by two partial indexes rather than one
+    constraint (see tenant migration 0080ten): a plain UNIQUE over section_id
+    would not constrain elective sessions at all, because Postgres treats every
+    NULL as distinct.
+    """
     __tablename__ = "sis_attendance_sessions"
     __table_args__ = (
-        UniqueConstraint(
+        # Regular class: one session per course+section+date+period.
+        Index(
+            "uq_att_sessions_section_class",
             "course_id", "section_id", "session_date", "period_number",
-            name="uq_att_sessions_course_section_date_period",
+            unique=True, postgresql_where=text("section_id IS NOT NULL"),
+        ),
+        # Elective group: one session per course+semester+date+period.
+        Index(
+            "uq_att_sessions_elective_class",
+            "course_id", "semester_id", "session_date", "period_number",
+            unique=True, postgresql_where=text("section_id IS NULL"),
         ),
         Index("ix_att_sessions_section_date",  "section_id",      "session_date"),
+        Index("ix_att_sessions_semester_date", "semester_id",     "session_date"),
         Index("ix_att_sessions_course_date",   "course_id",       "session_date"),
         Index("ix_att_sessions_faculty_date",  "faculty_user_id", "session_date"),
         Index("ix_att_sessions_status",        "status"),
@@ -57,9 +79,12 @@ class SisAttendanceSession(Base):
 
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Context
+    # Context. NULL section_id means "elective group", not "unknown class".
     course_id        = Column(UUID(as_uuid=True), ForeignKey("courses.id",       ondelete="CASCADE"), nullable=False)
-    section_id       = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id", ondelete="CASCADE"), nullable=False)
+    section_id       = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id", ondelete="CASCADE"), nullable=True)
+    # Always set. Without it an elective session could not name its term, since
+    # the term was previously only reachable via section -> semester.
+    semester_id      = Column(UUID(as_uuid=True), ForeignKey("acad_semesters.id", ondelete="CASCADE"), nullable=False)
     faculty_user_id  = Column(UUID(as_uuid=True), nullable=False)   # plain UUID (no FK — codebase pattern)
 
     # When

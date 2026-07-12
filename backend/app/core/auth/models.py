@@ -30,6 +30,17 @@ class OTPPurpose(str, enum.Enum):
     PASSWORD_RESET = "PASSWORD_RESET"
 
 
+class GovernanceType(str, enum.Enum):
+    """What a tenant calls its academic governance authority.
+
+    A DISPLAY NAME ONLY. The permissions, endpoints and workflow behind both
+    values are identical — the TenantRole.BOARD role backs them either way.
+    University A calls it a "Board"; University B calls it "University Members".
+    """
+    BOARD              = "BOARD"
+    UNIVERSITY_MEMBERS = "UNIVERSITY_MEMBERS"
+
+
 # ---------------------------------------------------------------------------
 # PUBLIC SCHEMA MODELS
 # ---------------------------------------------------------------------------
@@ -47,6 +58,14 @@ class Tenant(Base):
     contact_email = Column(String, nullable=True)
     # P1.2 Task C: email domain for generated institution emails ({usn}@{domain})
     institution_domain = Column(String, nullable=True)
+    # Phase A: display name for the academic governance authority. Behaviour is
+    # identical for both values — see GovernanceType.
+    governance_type = Column(
+        String(30),
+        nullable=False,
+        default=GovernanceType.BOARD.value,
+        server_default=text("'BOARD'"),
+    )
     # NOTE: default_student_password_pattern intentionally NOT in ORM model.
     # The column is created by migration 0015pub. Add it here ONLY after that migration
     # has been applied to the database, to prevent SELECT failures on older deployments.

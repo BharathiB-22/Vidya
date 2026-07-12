@@ -1,10 +1,25 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Copy, Check, Palette, ExternalLink, Lock } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Copy, Check, Palette, ExternalLink, Lock, Landmark } from 'lucide-react'
 import { createTenant } from '@/lib/api/tenants'
 import { getAdminErrorMessage } from '@/lib/adminApi'
-import type { Tenant } from '@/lib/api/tenants'
+import type { GovernanceType, Tenant } from '@/lib/api/tenants'
+
+// The two names a university may give the body that approves its curriculum.
+// Identical permissions — this only decides the word the tenant's UI will use.
+const GOVERNANCE_CHOICES: { value: GovernanceType; label: string; hint: string }[] = [
+  {
+    value: 'BOARD',
+    label: 'Board',
+    hint: 'Members appear as “Board Members”. Typical for a Board of Studies.',
+  },
+  {
+    value: 'UNIVERSITY_MEMBERS',
+    label: 'University Members',
+    hint: 'Members appear as “University Members”. For an academic council model.',
+  },
+]
 
 function validatePassword(pw: string): string | null {
   if (pw.length < 8)            return 'Minimum 8 characters'
@@ -195,6 +210,7 @@ export default function TenantCreatePage() {
   const [logoUrl,        setLogoUrl]        = useState('')
   const [primaryColor,   setPrimaryColor]   = useState('#2563eb')
   const [secondaryColor, setSecondaryColor] = useState('')
+  const [governanceType, setGovernanceType] = useState<GovernanceType>('BOARD')
 
   const passwordError = touched ? validatePassword(adminPassword) : null
 
@@ -209,6 +225,7 @@ export default function TenantCreatePage() {
         logo_url:        logoUrl.trim() || undefined,
         primary_color:   primaryColor.trim() || undefined,
         secondary_color: secondaryColor.trim() || undefined,
+        governance_type: governanceType,
       }),
     onSuccess: (tenant) =>
       setSuccessData({ tenant, adminEmail: adminEmail.trim(), adminPassword }),
@@ -322,6 +339,49 @@ export default function TenantCreatePage() {
                 />
                 <p className="text-[10px] text-slate-600 mt-0.5">3–100 characters. Used to derive the Institution ID (slug).</p>
               </div>
+            </section>
+
+            {/* Governance authority — Phase A.
+                A display name only: BOARD and UNIVERSITY_MEMBERS have byte-for-byte
+                identical permissions. Whichever is chosen is the word this tenant's
+                entire UI will use for the body that approves curriculum. */}
+            <section>
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.14em] mb-3 flex items-center gap-1.5">
+                <Landmark className="h-3 w-3 text-slate-600" />
+                Academic governance authority
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {GOVERNANCE_CHOICES.map((choice) => {
+                  const selected = governanceType === choice.value
+                  return (
+                    <button
+                      key={choice.value}
+                      type="button"
+                      onClick={() => setGovernanceType(choice.value)}
+                      className="rounded-xl p-4 text-left transition-colors"
+                      style={{
+                        background: selected ? 'rgba(59,130,246,0.10)' : 'rgba(255,255,255,0.02)',
+                        border: selected
+                          ? '1px solid rgba(59,130,246,0.55)'
+                          : '1px solid rgba(255,255,255,0.08)',
+                      }}
+                      aria-pressed={selected}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-slate-100">{choice.label}</span>
+                        {selected && <CheckCircle2 className="h-4 w-4 text-blue-400" />}
+                      </div>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                        {choice.hint}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-slate-600 mt-2">
+                Display name only — permissions are identical either way. This body reviews, approves
+                and locks curriculum; Deans prepare and publish it.
+              </p>
             </section>
 
             {/* Admin account */}

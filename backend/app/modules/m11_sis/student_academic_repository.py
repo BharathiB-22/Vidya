@@ -53,7 +53,7 @@ async def get_student_enrolled_course_ids(
 
 
 async def get_student_enrolled_syllabus_ids(student_id: UUID, db: AsyncSession) -> set[UUID]:
-    """Syllabus IDs (DEAN_APPROVED/DEAN_LOCKED only) for the student's enrolled courses.
+    """Syllabus IDs (APPROVED/LOCKED only) for the student's enrolled courses.
 
     Used as the ownership check for student-facing Course Kit / Learning
     Material access: a kit/package's syllabus_id must be in this set.
@@ -65,7 +65,7 @@ async def get_student_enrolled_syllabus_ids(student_id: UUID, db: AsyncSession) 
         {_ASSIGNMENT_JOIN}
         JOIN syllabi syl
           ON syl.course_id = sa.course_id
-         AND syl.status IN ('DEAN_APPROVED', 'DEAN_LOCKED')
+         AND syl.status IN ('APPROVED', 'LOCKED')
         WHERE ae.student_id = :student_id
           AND ae.is_active   = true
     """)
@@ -112,7 +112,7 @@ async def get_student_enrolled_courses_raw(
             SELECT syl.id, syl.status
             FROM syllabi syl
             WHERE syl.course_id = c.id
-              AND syl.status IN ('DEAN_APPROVED', 'DEAN_LOCKED')
+              AND syl.status IN ('APPROVED', 'LOCKED')
             ORDER BY syl.version DESC
             LIMIT 1
         ) latest_syl ON true

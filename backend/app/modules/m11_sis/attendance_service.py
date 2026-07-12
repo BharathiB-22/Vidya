@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.core.auth.models import User
+from app.modules.m_academics.class_roster import is_elective_course, resolve_class_roster
 from app.modules.m11_sis.attendance_models import (
     AttendanceStatus, SessionStatus, SisAttendanceRecord, SisAttendanceSession,
 )
@@ -38,7 +39,8 @@ from app.modules.m11_sis.attendance_repository import (
 )
 from app.modules.m11_sis.attendance_schemas import (
     AttendanceDashboardOut, AttendanceMarkIn, AttendanceMarkResult, AttendanceRecordOut,
-    CourseAttendanceSummary, FacultyCourseShortage, FacultyShortageReportOut,
+    CourseAttendanceSummary, FacultyCourseShortage, FacultyDayClassOut, FacultyDayOut,
+    FacultyShortageReportOut,
     MyCourseAttendanceDetail, MyAttendanceSummary,
     RecordEditIn, ReopenSessionIn, SectionAttendanceOut, SectionStudentAttendance,
     SessionCreateIn, SessionOut, SessionRecordForStudent,
@@ -134,8 +136,9 @@ def _shortage_student_from_row(r: dict) -> ShortageStudentOut:
         student_name=r["student_name"],
         usn=r.get("usn"),
         email=r["email"],
-        section_id=UUID(str(r["section_id"])),
-        section_name=r["section_name"],
+        # Both null for an elective group, which has no section.
+        section_id=UUID(str(r["section_id"])) if r.get("section_id") else None,
+        section_name=r.get("section_name"),
         course_id=UUID(str(r["course_id"])),
         course_code=r["course_code"],
         course_title=r["course_title"],
@@ -234,6 +237,19 @@ async def _notify_safe(
 # Helper: check and fire shortage warnings after marking
 # ---------------------------------------------------------------------------
 
+def shortage_entity_id(session: SisAttendanceSession) -> str:
+    """Dedup key identifying the class a shortage warning is about.
+
+    A section class keeps the historical `course:section` form so notifications
+    already sent stay deduplicated. An elective group has no section, so it is
+    keyed by its term instead — otherwise every elective in every semester would
+    collapse onto the same `course:None` key.
+    """
+    if session.section_id is not None:
+        return f"{session.course_id}:{session.section_id}"
+    return f"{session.course_id}:sem:{session.semester_id}"
+
+
 async def _check_threshold_and_notify(
     session: SisAttendanceSession,
     affected_student_ids: list[UUID],
@@ -241,9 +257,11 @@ async def _check_threshold_and_notify(
     db: AsyncSession,
 ) -> None:
     try:
+        entity_id = shortage_entity_id(session)
         pcts = await AttendanceRepository.get_students_course_pct_batch(
             student_ids=affected_student_ids,
             course_id=session.course_id,
+            semester_id=session.semester_id,
             section_id=session.section_id,
             db=db,
         )
@@ -251,7 +269,7 @@ async def _check_threshold_and_notify(
             if pct is None or pct >= threshold:
                 continue
             already_warned = await AttendanceRepository.check_shortage_warning_exists(
-                student_id, session.course_id, session.section_id, db
+                student_id, entity_id, db
             )
             if already_warned:
                 continue
@@ -276,7 +294,7 @@ async def _check_threshold_and_notify(
                     "Contact your faculty or Dean for guidance."
                 ),
                 entity_type="attendance_shortage",
-                entity_id=f"{session.course_id}:{session.section_id}",
+                entity_id=entity_id,
                 db=db,
             )
     except Exception:
@@ -288,6 +306,37 @@ async def _check_threshold_and_notify(
 # ---------------------------------------------------------------------------
 # Helper: verify faculty assignment
 # ---------------------------------------------------------------------------
+
+async def _assert_faculty_teaches(
+    course_id: UUID,
+    semester_id: UUID,
+    faculty_id: UUID,
+    db: AsyncSession,
+) -> None:
+    """Raise unless `faculty_id` actively teaches `course_id` in this term.
+
+    Assignment is keyed on (course, semester) — never on a section — which is
+    what lets one faculty member own an elective taught across several sections.
+    """
+    assignment = (
+        await db.execute(
+            select(SubjectAssignment)
+            .where(SubjectAssignment.course_id      == course_id)
+            .where(SubjectAssignment.semester_id    == semester_id)
+            .where(SubjectAssignment.faculty_user_id == faculty_id)
+            .where(SubjectAssignment.is_active.is_(True))
+            .where(SubjectAssignment.role_in_course.in_(["PRIMARY", "CO_FACULTY"]))
+        )
+    ).scalar_one_or_none()
+
+    if assignment is None:
+        raise AttendanceServiceError(
+            "NOT_ASSIGNED",
+            "You must be an active PRIMARY or CO_FACULTY for this course in this "
+            "semester to mark attendance.",
+            403,
+        )
+
 
 async def _verify_faculty_assignment(
     course_id: UUID,
@@ -307,25 +356,39 @@ async def _verify_faculty_assignment(
     if not section.is_active:
         raise AttendanceServiceError("SECTION_INACTIVE", "Section is inactive.", 400)
 
-    assignment = (
-        await db.execute(
-            select(SubjectAssignment)
-            .where(SubjectAssignment.course_id      == course_id)
-            .where(SubjectAssignment.semester_id    == section.semester_id)
-            .where(SubjectAssignment.faculty_user_id == faculty_id)
-            .where(SubjectAssignment.is_active.is_(True))
-            .where(SubjectAssignment.role_in_course.in_(["PRIMARY", "CO_FACULTY"]))
-        )
-    ).scalar_one_or_none()
-
-    if assignment is None:
-        raise AttendanceServiceError(
-            "NOT_ASSIGNED",
-            "You must be an active PRIMARY or CO_FACULTY for this course in the "
-            "section's semester to mark attendance.",
-            403,
-        )
+    await _assert_faculty_teaches(course_id, section.semester_id, faculty_id, db)
     return section
+
+
+async def _resolve_session_class(
+    body: SessionCreateIn,
+    faculty_id: UUID,
+    db: AsyncSession,
+) -> tuple[Optional[UUID], UUID]:
+    """Decide which class this session is for, and check the faculty owns it.
+
+    Returns `(section_id, semester_id)`. `section_id is None` marks an elective
+    group: everyone in the term who chose this elective, no section split.
+    """
+    if await is_elective_course(body.course_id, db):
+        # An elective is not taught to a section, so accepting one would silently
+        # halve the class.
+        if body.semester_id is None:
+            raise AttendanceServiceError(
+                "SEMESTER_REQUIRED",
+                "This is an elective. Pass semester_id — its class is every student "
+                "who chose it this semester, not a section.",
+                422,
+            )
+        await _assert_faculty_teaches(body.course_id, body.semester_id, faculty_id, db)
+        return None, body.semester_id
+
+    if body.section_id is None:
+        raise AttendanceServiceError(
+            "SECTION_REQUIRED", "This course is taught per section. Pass section_id.", 422,
+        )
+    section = await _verify_faculty_assignment(body.course_id, body.section_id, faculty_id, db)
+    return body.section_id, section.semester_id
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +410,48 @@ class AttendanceServiceError(Exception):
 class AttendanceService:
 
     # ------------------------------------------------------------------
+    # Faculty: today's classes (redesigned dashboard)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_faculty_today(
+        faculty_id: UUID, on_date: date, db: AsyncSession,
+    ) -> FacultyDayOut:
+        """The signed-in faculty's classes for `on_date`, from their published
+        timetable, each annotated with class size and whether attendance was
+        already taken that day. Self-scoped — a faculty only ever sees their own
+        `faculty_user_id`'s slots."""
+        rows = await AttendanceRepository.get_faculty_day_classes(
+            faculty_id, on_date.weekday(), on_date, db,
+        )
+        classes = [
+            FacultyDayClassOut(
+                course_id=r["course_id"],
+                course_code=r["course_code"],
+                course_title=r["course_title"],
+                is_elective=bool(r["is_elective"]),
+                section_id=r["section_id"],
+                section_name=r["section_name"],
+                semester_id=r["semester_id"],
+                semester_label=r["semester_label"],
+                period_number=r["period_number"],
+                start_time=r["start_time"],
+                end_time=r["end_time"],
+                period_label=r["period_label"],
+                student_count=int(r["student_count"] or 0),
+                session_id=r["session_id"],
+                # A session created-but-not-yet-saved (first_marked_at NULL) is
+                # not "taken" — it holds only the seeded ABSENT rows. Keying on
+                # first_marked_at keeps the dashboard honest.
+                is_taken=r["first_marked_at"] is not None,
+                present_count=int(r["present_count"]) if r["first_marked_at"] is not None else None,
+                total_marked=int(r["total_marked"]) if r["first_marked_at"] is not None else None,
+            )
+            for r in rows
+        ]
+        return FacultyDayOut(on_date=on_date, weekday=on_date.weekday(), today=classes)
+
+    # ------------------------------------------------------------------
     # Faculty: create session
     # ------------------------------------------------------------------
 
@@ -359,12 +464,13 @@ class AttendanceService:
         schema_name: Optional[str],
         db: AsyncSession,
     ) -> SessionOut:
-        section = await _verify_faculty_assignment(body.course_id, body.section_id, actor_id, db)
+        section_id, semester_id = await _resolve_session_class(body, actor_id, db)
 
         session = SisAttendanceSession(
             id=uuid.uuid4(),
             course_id=body.course_id,
-            section_id=body.section_id,
+            section_id=section_id,
+            semester_id=semester_id,
             faculty_user_id=actor_id,
             session_date=body.session_date,
             period_number=body.period_number,
@@ -374,15 +480,10 @@ class AttendanceService:
         )
         session = await AttendanceRepository.create_session(session, db)
 
-        # Pre-populate the roster as ABSENT. For an elective course the roster
-        # is the students who registered for it (Step 7 — no manual filtering);
-        # for a regular course it is everyone enrolled in the section.
-        if await AttendanceRepository.is_elective_course(body.course_id, db):
-            student_ids = await AttendanceRepository.get_elective_registered_student_ids(
-                body.course_id, section.semester_id, body.section_id, db,
-            )
-        else:
-            student_ids = await AttendanceRepository.get_enrolled_student_ids(body.section_id, db)
+        # Pre-populate the roster as ABSENT. An elective's roster is everyone who
+        # chose it this semester, across every section; a regular course's is the
+        # section's enrolment. One resolver so attendance and marks never diverge.
+        student_ids = await resolve_class_roster(body.course_id, semester_id, section_id, db)
         await AttendanceRepository.bulk_create_absent_records(session.id, student_ids, db)
         await db.commit()
 
@@ -396,7 +497,9 @@ class AttendanceService:
             target_id=str(session.id),
             metadata={
                 "course_id": str(body.course_id),
-                "section_id": str(body.section_id),
+                "section_id": str(section_id) if section_id else None,
+                "semester_id": str(semester_id),
+                "is_elective_group": section_id is None,
                 "session_date": str(body.session_date),
                 "students_enrolled": len(student_ids),
             },
@@ -405,7 +508,9 @@ class AttendanceService:
         rows = await AttendanceRepository.list_sessions_enriched(
             faculty_user_id=actor_id,
             course_id=body.course_id,
-            section_id=body.section_id,
+            # Filter on the class we actually created, not on what the caller
+            # sent: an elective session resolves to section_id=None regardless.
+            section_id=section_id,
             db=db,
         )
         row = next((r for r in rows if r["id"] == session.id), None)
@@ -825,6 +930,12 @@ class AttendanceService:
                 topic_covered=r.get("topic_covered"),
                 status=r["status"],
                 remarks=r.get("remarks"),
+                course_code=r.get("course_code"),
+                course_title=r.get("course_title"),
+                faculty_name=r.get("faculty_name"),
+                start_time=r.get("start_time"),
+                end_time=r.get("end_time"),
+                session_type=r.get("session_type") or "THEORY",
             )
             for r in session_rows
         ]
@@ -846,7 +957,21 @@ class AttendanceService:
         section_id: UUID,
         threshold: float,
         db: AsyncSession,
+        *,
+        caller_role: str = "",
+        caller_user_id: UUID | None = None,
     ) -> SectionAttendanceOut:
+        # A faculty may only see a section's attendance figures if they teach in
+        # that section's term — otherwise every section's full attendance is one
+        # guessable id away. ADMIN/DEAN are unrestricted here (Dean scope is
+        # enforced by the shortage-report endpoints, not this per-section read).
+        if caller_role == "FACULTY" and caller_user_id is not None:
+            from app.modules.m_academics.faculty_scope import faculty_teaches_in_section
+            if not await faculty_teaches_in_section(caller_user_id, section_id, db):
+                raise AttendanceServiceError(
+                    "FORBIDDEN", "You do not teach in this section.", 403,
+                )
+
         context, rows = await AttendanceRepository.get_section_analytics_raw(
             section_id, threshold, db
         )

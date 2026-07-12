@@ -80,6 +80,15 @@ export interface CourseWithAssignments {
   code: string
   title: string
   assignments: Assignment[]
+  /** Teaching load. L-T-P are contact hours per week; older AI-generated courses
+   *  left them null, so the timetable's auto-fill falls back to `credits`. */
+  credits: number
+  hours_lecture: number | null
+  hours_tutorial: number | null
+  hours_practical: number | null
+  /** An elective choice is taught as one combined class across every section
+   *  that chose it, so its timetable cell must not claim a single section. */
+  is_elective: boolean
 }
 
 const B = '/course-assignments'

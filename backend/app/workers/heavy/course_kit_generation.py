@@ -146,8 +146,8 @@ async def _run_generation(
                     f"Syllabus {kit.syllabus_id} not found for kit {kit_id}."
                 )
             if syllabus.status not in (
-                SyllabusStatus.DEAN_APPROVED,
-                SyllabusStatus.DEAN_LOCKED,
+                SyllabusStatus.APPROVED,
+                SyllabusStatus.LOCKED,
             ):
                 raise ValueError(
                     f"Syllabus {kit.syllabus_id} is {syllabus.status.value}; "

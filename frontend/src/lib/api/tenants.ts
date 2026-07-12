@@ -2,6 +2,10 @@ import adminApi from '@/lib/adminApi'
 
 export type TenantStatus = 'PROVISIONING' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' | 'FAILED' | 'DELETED' | 'PERMANENTLY_DELETED'
 
+/** What an institution calls its academic governance authority.
+ *  A DISPLAY NAME ONLY — the permissions behind both are identical. */
+export type GovernanceType = 'BOARD' | 'UNIVERSITY_MEMBERS'
+
 export interface Tenant {
   id: string
   name: string
@@ -13,6 +17,7 @@ export interface Tenant {
   logo_url: string | null
   primary_color: string | null
   secondary_color: string | null
+  governance_type: GovernanceType
   created_at: string
   deleted_at: string | null
   deleted_by_user_id: string | null
@@ -27,6 +32,7 @@ export interface CreateTenantPayload {
   logo_url?: string
   primary_color?: string
   secondary_color?: string
+  governance_type?: GovernanceType
 }
 
 export async function listTenants(includeInactive = true): Promise<Tenant[]> {

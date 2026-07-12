@@ -14,6 +14,7 @@ function RosterCard({ roster }: { roster: FacultyElectiveRoster }) {
           </div>
           <div className="text-xs text-gray-500 mt-0.5">
             {roster.basket_name} · {roster.semester_label ?? ''}
+            {roster.section_count > 1 && ` · combined across ${roster.section_count} sections`}
           </div>
         </div>
         <span className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-full px-2.5 py-1 shrink-0">
@@ -29,10 +30,13 @@ function RosterCard({ roster }: { roster: FacultyElectiveRoster }) {
           {roster.students.map((s, i) => (
             <li key={s.student_id} className="flex items-center gap-3 px-4 py-2.5">
               <span className="text-xs text-gray-400 w-6 shrink-0">{i + 1}.</span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <span className="text-sm font-medium text-gray-900">{s.student_name}</span>
                 {s.usn && <span className="text-xs text-gray-500 ml-2">{s.usn}</span>}
               </div>
+              {s.section_name && (
+                <span className="text-xs text-gray-400 shrink-0">{s.section_name}</span>
+              )}
             </li>
           ))}
         </ol>
@@ -54,8 +58,8 @@ export default function ElectiveStudentsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">My Elective Students</h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          Students who registered for the elective courses the Dean assigned you to teach.
-          The same roster drives attendance and internal marks — no manual filtering.
+          Students who chose the elective subjects the Dean assigned you to teach. Everyone
+          who picked the same subject forms one class, whichever section they belong to.
         </p>
       </div>
 
@@ -76,7 +80,7 @@ export default function ElectiveStudentsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {rosters.map((r) => <RosterCard key={r.offering_id + r.course_id} roster={r} />)}
+          {rosters.map((r) => <RosterCard key={r.course_id} roster={r} />)}
         </div>
       )}
     </div>

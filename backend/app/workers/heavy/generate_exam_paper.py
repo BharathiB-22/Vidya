@@ -295,11 +295,11 @@ async def _fetch_syllabus_units(
         from sqlalchemy import select, text as sa_text
         from app.modules.m02_syllabus.models import Syllabus
 
-        # Get latest DEAN_LOCKED or DEAN_APPROVED syllabus for this course
+        # Get latest LOCKED or APPROVED (official) syllabus for this course
         result = await session.execute(
             select(Syllabus)
             .where(Syllabus.course_id == course_id)
-            .where(Syllabus.status.in_(["DEAN_LOCKED", "DEAN_APPROVED"]))
+            .where(Syllabus.status.in_(["LOCKED", "APPROVED"]))
             .order_by(Syllabus.version.desc())
             .limit(1)
         )
@@ -370,7 +370,7 @@ async def _fetch_course_outcomes(*, course_id, session) -> list[dict]:
         syl_result = await session.execute(
             select(Syllabus)
             .where(Syllabus.course_id == course_id)
-            .where(Syllabus.status.in_(["DEAN_LOCKED", "DEAN_APPROVED"]))
+            .where(Syllabus.status.in_(["LOCKED", "APPROVED"]))
             .order_by(Syllabus.version.desc())
             .limit(1)
         )

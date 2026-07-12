@@ -1,0 +1,219 @@
+"""Official university syllabus formatting — the Course Information header.
+
+An official syllabus opens with a course header:
+
+    Course Code    : MCA201
+    Course Name    : Machine Learning
+    Credits        : 4
+    L-T-P          : 3-1-2
+    Contact Hours  : 90
+    Category       : Core
+
+Every one of those six values is DERIVED from the `courses` row. None is stored
+on the syllabus, and none is typed in by anyone.
+
+That is a deliberate choice. A stored copy of the credits or the category would
+be a second source of truth, and the moment the Board adjusts a course's credits
+during review the printed syllabus would quietly disagree with the curriculum it
+belongs to. Deriving them means the syllabus document cannot drift from the
+course: there is nothing to keep in sync.
+
+It is also why the Dean's course form gains no new fields in Phase A — Category
+and Contact Hours are read out of columns that already exist.
+"""
+from __future__ import annotations
+
+from typing import Protocol
+
+from app.modules.m02_syllabus.models import RefType
+
+# A standard semester. Contact hours are the total taught hours across it, which
+# is what a university syllabus prints — not the weekly load.
+WEEKS_PER_SEMESTER = 15
+
+
+class _CourseLike(Protocol):
+    """The parts of `Course` this module reads. A Protocol rather than the ORM
+    class so these helpers stay unit-testable without a database."""
+    is_elective: bool
+    course_type: str | None
+    hours_lecture: int | None
+    hours_tutorial: int | None
+    hours_practical: int | None
+
+
+# ---------------------------------------------------------------------------
+# Category — Core | Elective | Lab | Project
+# ---------------------------------------------------------------------------
+
+CATEGORY_CORE     = "Core"
+CATEGORY_ELECTIVE = "Elective"
+CATEGORY_LAB      = "Lab"
+CATEGORY_PROJECT  = "Project"
+
+
+def derive_category(course: _CourseLike) -> str:
+    """The course's category, from fields the Dean already fills in.
+
+    Elective wins over course_type: a student choosing between three elective
+    subjects is making an elective choice, whatever the subject happens to be.
+    INTERNSHIP and SEMINAR fold into Project — they are the same kind of thing
+    for a syllabus header, and the vocabulary is deliberately four words wide.
+    """
+    if course.is_elective:
+        return CATEGORY_ELECTIVE
+    course_type = (course.course_type or "").upper()
+    if course_type == "LAB":
+        return CATEGORY_LAB
+    if course_type in ("PROJECT", "INTERNSHIP", "SEMINAR"):
+        return CATEGORY_PROJECT
+    return CATEGORY_CORE
+
+
+# ---------------------------------------------------------------------------
+# L-T-P and Contact Hours
+# ---------------------------------------------------------------------------
+
+def derive_ltp(course: _CourseLike) -> tuple[int, int, int]:
+    """(Lecture, Tutorial, Practical) hours per week. Missing reads as zero."""
+    return (
+        course.hours_lecture   or 0,
+        course.hours_tutorial  or 0,
+        course.hours_practical or 0,
+    )
+
+
+def format_ltp(course: _CourseLike) -> str:
+    """'3-1-2' — the canonical L-T-P string."""
+    lecture, tutorial, practical = derive_ltp(course)
+    return f"{lecture}-{tutorial}-{practical}"
+
+
+def derive_contact_hours(course: _CourseLike) -> int:
+    """Total taught hours for the semester: (L + T + P) x 15 weeks.
+
+    Returns 0 when a course carries no L-T-P at all, rather than inventing a
+    figure — an empty header is honest; a fabricated 45 is not.
+    """
+    lecture, tutorial, practical = derive_ltp(course)
+    return (lecture + tutorial + practical) * WEEKS_PER_SEMESTER
+
+
+def has_practical(course: _CourseLike) -> bool:
+    """Whether the syllabus should carry a Practical Components section."""
+    return (course.hours_practical or 0) > 0 or derive_category(course) == CATEGORY_LAB
+
+
+def course_information(course) -> dict:
+    """The full Course Information header, ready to render.
+
+    Takes the ORM `Course` (needs `code`, `title` and `credits` on top of the
+    Protocol above) and returns the six header fields.
+    """
+    return {
+        "course_code":   course.code,
+        "course_name":   course.title,
+        "credits":       course.credits,
+        "ltp":           format_ltp(course),
+        "contact_hours": derive_contact_hours(course),
+        "category":      derive_category(course),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Bibliography — three printed sections, five stored types
+# ---------------------------------------------------------------------------
+
+SECTION_TEXT_BOOKS        = "Text Books"
+SECTION_REFERENCE_BOOKS   = "Reference Books"
+SECTION_SUGGESTED_READING = "Suggested Reading"
+SECTION_WEB_RESOURCES     = "Web Resources"
+
+BIBLIOGRAPHY_SECTIONS: dict[str, str] = {
+    RefType.TEXTBOOK.value:          SECTION_TEXT_BOOKS,
+    RefType.REFERENCE.value:         SECTION_REFERENCE_BOOKS,
+    RefType.JOURNAL.value:           SECTION_REFERENCE_BOOKS,
+    RefType.SUGGESTED_READING.value: SECTION_SUGGESTED_READING,
+    RefType.WEB_RESOURCE.value:      SECTION_WEB_RESOURCES,
+    RefType.ONLINE.value:            SECTION_WEB_RESOURCES,
+}
+
+# Print order. A section with no references is omitted entirely rather than
+# printed empty.
+SECTION_ORDER = (
+    SECTION_TEXT_BOOKS,
+    SECTION_REFERENCE_BOOKS,
+    SECTION_SUGGESTED_READING,
+    SECTION_WEB_RESOURCES,
+)
+
+
+# ---------------------------------------------------------------------------
+# Unit numbering — a regulation prints Unit I, not Unit 1
+# ---------------------------------------------------------------------------
+
+_ROMAN = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+
+
+def roman(unit_number: int) -> str:
+    """1 -> 'I'. Falls back to the digit beyond X, which no syllabus reaches."""
+    if 1 <= unit_number <= len(_ROMAN):
+        return _ROMAN[unit_number - 1]
+    return str(unit_number)
+
+
+def unit_heading(unit) -> str:
+    """The heading exactly as it prints in the regulation:
+
+        UNIT I - INTRODUCTION TO COMPUTER SYSTEMS                    (12 Hours)
+    """
+    hours = f"{unit.total_hours} Hours" if unit.total_hours else ""
+    title = (unit.title or "").upper()
+    return f"UNIT {roman(unit.unit_number)} - {title}".rstrip(" -") + (f"  ({hours})" if hours else "")
+
+
+def unit_topic_lines(unit) -> list[str]:
+    """The unit's printed lines — 12-20 of them in a real regulation.
+
+    THIS is the unit. The list of academic topics under the heading is what an
+    AICTE / Anna University / VTU syllabus prints, and it is what a lecturer reads
+    to know what to teach.
+
+    Falls back to splitting the prose block for syllabi that predate the topic list
+    (or for a Board that pasted a paragraph in) — they must still print as a
+    document rather than as nothing.
+    """
+    titles = [
+        str(t.get("title", "")).strip()
+        for t in (unit.topics or [])
+        if isinstance(t, dict) and str(t.get("title", "")).strip()
+    ]
+    if titles:
+        return titles
+
+    prose = (unit.content or "").strip().rstrip(".")
+    return [part.strip() for part in prose.split(",") if part.strip()] if prose else []
+
+
+def unit_body(unit) -> str:
+    """The unit as one prose line, for regulations that print paragraphs rather
+    than bullets — and for anywhere a single string is more useful than a list."""
+    if unit.content and unit.content.strip():
+        return unit.content.strip()
+
+    lines = unit_topic_lines(unit)
+    return ", ".join(lines) + "." if lines else ""
+
+
+def section_for(ref_type: str | RefType) -> str:
+    value = ref_type.value if isinstance(ref_type, RefType) else str(ref_type)
+    return BIBLIOGRAPHY_SECTIONS.get(value.upper(), SECTION_SUGGESTED_READING)
+
+
+def group_references(references: list) -> dict[str, list]:
+    """Group references into the three printed sections, in print order,
+    omitting sections that have none."""
+    grouped: dict[str, list] = {name: [] for name in SECTION_ORDER}
+    for ref in references:
+        grouped[section_for(ref.ref_type)].append(ref)
+    return {name: refs for name, refs in grouped.items() if refs}

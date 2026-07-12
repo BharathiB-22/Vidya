@@ -8,7 +8,11 @@ import uuid
 
 from app.modules.m01_program_advisor.compliance import (
     CourseNode,
+    ElectiveSlotNode,
     ProgramNode,
+    _check_course_credit_range,
+    _curriculum_units,
+    _get_thresholds,
     detect_prerequisite_cycles,
     run_compliance_check,
 )
@@ -44,9 +48,9 @@ def _course(
 
 
 def _spread_courses(n_sems: int = 8, code_offset: int = 0) -> list[CourseNode]:
-    """4 courses × 4 credits per semester; 1 elective per 4 (25 %).
+    """4 courses × 4 credits per semester; 1 standalone elective per 4.
     Satisfies: UGC-COURSE-001 (4 ∈ [1,6]), UGC-SEM-001 (16 ≥ 14),
-    UGC-SEM-002 (16 ≤ 30), UGC-ELEC-001 (25 % ≥ 20 % for BTech).
+    UGC-SEM-002 (16 ≤ 30).
     code_offset prevents duplicate codes when combined with extra courses."""
     result = []
     for sem in range(1, n_sems + 1):
@@ -171,13 +175,135 @@ def test_sem_balance_warning_only():
 
 
 # ---------------------------------------------------------------------------
-# Elective ratio
+# Elective slots — one basket is ONE curriculum course, at the slot's credits
 # ---------------------------------------------------------------------------
 
-def test_elective_ratio_informational_only():
-    # 8 courses across 2 semesters, none elective → 0 % < 20 % minimum.
-    # Semester credits: 4 × 4 = 16 per sem (valid). Each course 4 ∈ [1,6].
-    # Elective selection isn't implemented yet, so this is advisory (INFO), not a WARNING.
+def _slot(name: str = "Elective 1", credits: int = 3, semester: int = 1) -> ElectiveSlotNode:
+    return ElectiveSlotNode(id=uuid.uuid4(), name=name, credits=credits, semester=semester)
+
+
+def _option(code: str, slot: ElectiveSlotNode, credits: int | None = None) -> CourseNode:
+    return CourseNode(
+        id=uuid.uuid4(),
+        code=code,
+        credits=slot.credits if credits is None else credits,
+        semester=slot.semester,
+        is_elective=True,
+        prerequisite_course_ids=[],
+        elective_basket_id=slot.id,
+    )
+
+
+def test_slot_counts_once_not_once_per_option():
+    """Semester 3 = OS(4) + CN(4) + Elective 1(3 cr over AI/DM/DL/Cloud/BA).
+    The semester is worth 11 credits, not 4+4+15=23."""
+    slot = _slot(semester=3)
+    courses = [
+        _course("OS301", credits=4, semester=3),
+        _course("CN301", credits=4, semester=3),
+        *(_option(code, slot) for code in ("AI301", "DM301", "DL301", "CLD301", "BA301")),
+    ]
+    units = _curriculum_units(courses, [slot])
+
+    assert sum(u.credits for u in units) == 11
+    assert len(units) == 3
+    # Five options collapse into exactly one curriculum entry, named for the slot.
+    assert sorted(u.code for u in units) == ["CN301", "Elective 1", "OS301"]
+
+
+def test_three_independent_papers_in_one_semester_count_nine_credits():
+    """Semester 3 holds Elective 1, Elective 2 and Elective 3 — three separate
+    curriculum courses. The student takes all three, choosing one alternative
+    inside each, so they contribute 3 + 3 + 3 = 9 credits, not 3."""
+    e1 = _slot(name="Elective 1", credits=3, semester=3)
+    e2 = _slot(name="Elective 2", credits=3, semester=3)
+    e3 = _slot(name="Elective 3", credits=3, semester=3)
+    courses = [
+        _option("AI301", e1), _option("ML301", e1),
+        _option("DM301", e2), _option("DS301", e2), _option("BI301", e2),
+        _option("BM301", e3), _option("SMM301", e3),
+    ]
+    units = _curriculum_units(courses, [e1, e2, e3])
+
+    assert len(units) == 3, "three papers are three curriculum courses"
+    assert sum(u.credits for u in units) == 9
+    assert sorted(u.code for u in units) == ["Elective 1", "Elective 2", "Elective 3"]
+
+
+def test_semester_credits_include_every_paper():
+    """A semester's load is its cores plus EACH elective paper, not one of them."""
+    e1 = _slot(name="Elective 1", credits=3, semester=3)
+    e2 = _slot(name="Elective 2", credits=3, semester=3)
+    e3 = _slot(name="Elective 3", credits=3, semester=3)
+    courses = [
+        _course("OS301", credits=4, semester=3),
+        _course("CN301", credits=4, semester=3),
+        _option("AI301", e1), _option("ML301", e1),
+        _option("DM301", e2), _option("DS301", e2),
+        _option("BM301", e3), _option("SMM301", e3),
+    ]
+    units = _curriculum_units(courses, [e1, e2, e3])
+    assert sum(u.credits for u in units) == 4 + 4 + 3 + 3 + 3 == 17
+
+
+def test_slot_credits_are_the_slots_own_not_derived_from_options():
+    """The slot's weight is a curriculum fact, so it holds even when the
+    options disagree with it or when there are no options at all yet."""
+    empty = _slot(name="Elective 1", credits=3)
+    assert [u.credits for u in _curriculum_units([], [empty])] == [3]
+
+    # A 4-credit option does not drag the 3-credit slot up.
+    slot = _slot(name="Elective 2", credits=3)
+    units = _curriculum_units([_option("DM301", slot, credits=4)], [slot])
+    assert [u.credits for u in units] == [3]
+
+
+def test_many_options_do_not_overload_a_semester():
+    """The old model counted each option, so a basket of 5 blew past the
+    30-credit advisory ceiling. One slot must never trigger UGC-SEM-002."""
+    program = _btech_program()
+    slot = _slot(semester=1, credits=3)
+    courses = [
+        _course("CS101", credits=4, semester=1),
+        _course("CS102", credits=4, semester=1),
+        _course("CS103", credits=4, semester=1),
+        *(_option(f"EL1{i:02d}", slot) for i in range(8)),   # 8 × 3 = 24 raw credits
+    ]
+    result = run_compliance_check(program, courses, [slot])
+    assert [v for v in result.violations if v.rule_id == "UGC-SEM-002"] == []
+
+
+def test_option_credits_must_match_slot_credits():
+    # 3 cores × 4 cr + a 3 cr slot = 15, clearing the 14-credit semester minimum
+    # so the only thing under test here is the option/slot mismatch.
+    slot = _slot(credits=3)
+    courses = [
+        _course("CS101", credits=4), _course("CS102", credits=4), _course("CS103", credits=4),
+        _option("AI301", slot), _option("DM301", slot, credits=4),
+    ]
+    result = run_compliance_check(_btech_program(), courses, [slot])
+
+    elec002 = [v for v in result.violations if v.rule_id == "UGC-ELEC-002"]
+    assert len(elec002) == 1
+    assert "DM301" in elec002[0].message
+    assert elec002[0].severity == "WARNING"
+    assert result.passed is True   # advisory, never blocks approval
+
+
+def test_option_codes_are_still_checked_for_uniqueness():
+    """Options are real courses, so integrity rules still see them even though
+    the credit rules do not."""
+    slot = _slot()
+    courses = [_option("AI301", slot), _option("AI301", slot)]
+    result = run_compliance_check(_btech_program(), courses, [slot])
+
+    assert "UGC-CODE-001" in [v.rule_id for v in result.violations]
+    assert result.passed is False
+
+
+def test_removed_elective_ratio_rule_never_fires():
+    """UGC-ELEC-001 ("Electives are only XX% … placeholders … not implemented")
+    was invalid once slots existed. It must not come back."""
     program = _btech_program()
     courses = [
         CourseNode(id=uuid.uuid4(), code=f"CS{i:03d}", credits=4,
@@ -186,11 +312,23 @@ def test_elective_ratio_informational_only():
         for i in range(1, 9)
     ]
     result = run_compliance_check(program, courses)
-    rule_ids = [v.rule_id for v in result.violations]
-    assert "UGC-ELEC-001" in rule_ids
-    severities = [v.severity for v in result.violations if v.rule_id == "UGC-ELEC-001"]
-    assert severities == ["INFO"]
+    assert "UGC-ELEC-001" not in [v.rule_id for v in result.violations]
     assert result.passed is True
+
+
+def test_no_slots_preserves_pre_slot_behaviour():
+    """Backward compatibility: a caller that supplies no slots still gets every
+    course counted individually, rather than options silently vanishing."""
+    orphan_basket_id = uuid.uuid4()
+    courses = [
+        _course("OS301", credits=4, semester=3),
+        CourseNode(id=uuid.uuid4(), code="AI301", credits=3, semester=3,
+                   is_elective=True, prerequisite_course_ids=[],
+                   elective_basket_id=orphan_basket_id),
+    ]
+    units = _curriculum_units(courses, [])
+    assert sum(u.credits for u in units) == 7
+    assert len(units) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -307,3 +445,55 @@ def test_pg_mba_thresholds():
     result = run_compliance_check(program, courses)
     cred_errors = [v for v in result.violations if v.rule_id == "UGC-CRED-001"]
     assert cred_errors == [], "60 credits should satisfy MBA PG2 minimum of 60"
+
+
+# ---------------------------------------------------------------------------
+# Project / internship credit range — [2, 20], not [6, 20]
+# ---------------------------------------------------------------------------
+
+def _typed_course(code: str, credits: int, course_type: str) -> CourseNode:
+    return CourseNode(
+        id=uuid.uuid4(),
+        code=code,
+        credits=credits,
+        semester=3,
+        is_elective=False,
+        prerequisite_course_ids=[],
+        course_type=course_type,
+    )
+
+
+def _credit_range_violations(course: CourseNode) -> list:
+    return _check_course_credit_range([course], _get_thresholds("MCA"))
+
+
+def test_two_credit_mini_project_is_valid():
+    # A Semester 3 mini-project is routinely 2 credits. Flagging it was the bug.
+    assert _credit_range_violations(_typed_course("MCA309", 2, "PROJECT")) == []
+
+
+def test_two_credit_internship_is_valid():
+    assert _credit_range_violations(_typed_course("MCA310", 2, "INTERNSHIP")) == []
+
+
+def test_twenty_credit_dissertation_is_valid():
+    assert _credit_range_violations(_typed_course("MCA401", 20, "PROJECT")) == []
+
+
+def test_one_credit_project_is_still_flagged():
+    # The floor moved to 2, it did not disappear.
+    v = _credit_range_violations(_typed_course("MCA311", 1, "PROJECT"))
+    assert len(v) == 1 and v[0].rule_id == "UGC-COURSE-002"
+    assert "[2, 20]" in v[0].message
+
+
+def test_twentyone_credit_project_is_still_flagged():
+    v = _credit_range_violations(_typed_course("MCA402", 21, "PROJECT"))
+    assert len(v) == 1 and v[0].rule_id == "UGC-COURSE-002"
+
+
+def test_theory_course_keeps_the_narrow_band():
+    # A 20-credit THEORY course must still be an error, not a project's warning.
+    v = _credit_range_violations(_typed_course("MCA303", 20, "THEORY"))
+    assert len(v) == 1 and v[0].rule_id == "UGC-COURSE-001"
+    assert v[0].severity == "ERROR"

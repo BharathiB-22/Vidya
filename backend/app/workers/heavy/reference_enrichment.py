@@ -63,9 +63,17 @@ def enrich_references(
     tenant_id: str,
     schema_name: str,
     reference_queries: list[dict],
+    replace_types: list[str] | None = None,
     request_id: str | None = None,
     **kwargs,
 ) -> dict:
+    """Fetch real bibliographic metadata for the AI's search queries.
+
+    `replace_types` scopes which part of the bibliography is cleared before the new
+    references land. A BOOKS regeneration passes ["TEXTBOOK"], so the Reference
+    Books and Web Resources the Board was happy with survive it. None (a full
+    generation) clears the whole unconfirmed bibliography.
+    """
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
@@ -74,6 +82,7 @@ def enrich_references(
             tenant_id=UUID(tenant_id),
             schema_name=schema_name,
             reference_queries=reference_queries,
+            replace_types=replace_types,
         )
     )
 
@@ -87,6 +96,7 @@ async def _run_enrichment(
     tenant_id: UUID,
     schema_name: str,
     reference_queries: list[dict],
+    replace_types: list[str] | None = None,
 ) -> dict:
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,16 +126,31 @@ async def _run_enrichment(
                 )
 
             # ------------------------------------------------------------------
-            # Idempotent cleanup: delete all unconfirmed references
-            # (confirmed references = faculty-curated, never touched)
+            # Idempotent cleanup: delete the unconfirmed references this run is
+            # about to replace. Confirmed references are Board-curated and are
+            # never touched.
+            #
+            # `replace_types` scopes the clear. A BOOKS regeneration rewrites the
+            # Text Books alone, so it must not take the Reference Books and Web
+            # Resources down with them — the Board did not ask to lose those, and
+            # would have no way of knowing they had gone.
             # ------------------------------------------------------------------
+            scoped_types: list[RefType] = []
+            for name in (replace_types or []):
+                try:
+                    scoped_types.append(RefType(name))
+                except ValueError:
+                    logger.warning("m02.enrich: ignoring unknown ref_type %r in replace_types", name)
+
             deleted = await SyllabusReferenceRepository.delete_all_unconfirmed(
-                syllabus_id, db=session
+                syllabus_id, db=session, ref_types=scoped_types or None,
             )
             if deleted:
                 logger.info(
-                    "m02.enrich: cleared %d stale unconfirmed references (syllabus=%s)",
+                    "m02.enrich: cleared %d stale unconfirmed references "
+                    "(syllabus=%s scope=%s)",
                     deleted, syllabus_id,
+                    [t.value for t in scoped_types] or "ALL",
                 )
 
             # ------------------------------------------------------------------

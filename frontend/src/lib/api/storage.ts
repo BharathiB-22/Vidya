@@ -46,8 +46,11 @@ export async function generateUploadUrl(
 }
 
 export async function createAsset(payload: CreateAssetPayload): Promise<StorageAsset> {
-  const { data } = await api.post(`${BASE}/assets`, payload)
-  return data
+  // The endpoint answers with a StorageAssetListResponse wrapper holding the
+  // single created asset — unwrap it, or callers read `id` off the wrapper and
+  // send `undefined` to the next request.
+  const { data } = await api.post<{ items: StorageAsset[] }>(`${BASE}/assets`, payload)
+  return data.items[0]
 }
 
 export async function getDownloadUrl(assetId: string): Promise<string> {

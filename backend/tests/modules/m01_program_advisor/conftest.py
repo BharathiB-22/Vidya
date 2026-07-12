@@ -5,7 +5,7 @@ import uuid
 import pytest_asyncio
 from sqlalchemy import select, text
 
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, _tenant_schema_ctx
 from app.modules.m01_program_advisor.models import Program, ProgramStatus
 from app.modules.m01_program_advisor.schemas import CourseCreate, ProgramOutcomeCreate
 from app.modules.m01_program_advisor.service import ProgramService
@@ -23,20 +23,51 @@ async def dean_user_a(test_tenant_a):
 
 
 # ---------------------------------------------------------------------------
+# GOVERNANCE (BOARD) user fixtures — Phase A.
+#
+# Two of them, because the separation-of-duties rule needs two distinct people:
+# the member who submits can never be the member who approves.
+# ---------------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def board_user_a(test_tenant_a):
+    user = await _insert_tenant_user(SCHEMA_A, "board_a@test.com", "Board1234!", "BOARD", "Board A")
+    yield {**user, "tenant_id": test_tenant_a["id"], "schema_name": SCHEMA_A, "slug": SLUG_A}
+
+
+@pytest_asyncio.fixture
+async def board_user_a2(test_tenant_a):
+    user = await _insert_tenant_user(SCHEMA_A, "board_a2@test.com", "Board1234!", "BOARD", "Board A2")
+    yield {**user, "tenant_id": test_tenant_a["id"], "schema_name": SCHEMA_A, "slug": SLUG_A}
+
+
+# ---------------------------------------------------------------------------
 # Schema-aware DB session for service-layer tests.
 #
-# Uses SET search_path (without LOCAL) so the search_path survives across
-# multiple commits inside a single session — service methods each call
-# db.commit(), ending the current transaction; SET LOCAL would be lost.
+# Uses the app's OWN mechanism — the `_tenant_schema_ctx` ContextVar, which the
+# engine's "begin" event reads to inject `SET LOCAL search_path` at the start of
+# every transaction (app/database.py).
+#
+# The previous approach — one session-level `SET search_path` at fixture setup —
+# looked simpler but was quietly broken. Service methods commit, which ends the
+# transaction and returns the connection to the pool; the next statement may check
+# out a DIFFERENT connection, which never saw that SET. It happened to work when
+# these tests ran alone (the pool handed back the same connection every time) and
+# failed the moment another test file churned the pool first, with a baffling
+# `relation "programs" does not exist`.
+#
+# Setting the ContextVar re-injects the search_path on every BEGIN, so it cannot
+# be lost — which is exactly why the app does it this way.
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
 async def tenant_db_a(test_tenant_a):
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            await session.execute(text(f"SET search_path = {SCHEMA_A}, public"))
-        # search_path is now session-level; persists for subsequent auto-begin transactions
-        yield session
+    token = _tenant_schema_ctx.set(SCHEMA_A)
+    try:
+        async with AsyncSessionLocal() as session:
+            yield session
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +123,8 @@ def make_program_payload(**overrides) -> dict:
 
 
 async def build_compliant_program(program_id: uuid.UUID, tenant_db) -> None:
-    """Add 3 outcomes + 12 courses that satisfy all MSc compliance rules.
+    """Add 3 outcomes + 12 courses that satisfy all MSc compliance rules, and
+    bind the curriculum to a batch so it can be submitted.
 
     Layout: 4 semesters × 3 courses × 5 credits = 60 total.
     Electives: courses 3 and 6 → 2/12 = 16.7 % ≥ 15 % minimum.
@@ -119,3 +151,118 @@ async def build_compliant_program(program_id: uuid.UUID, tenant_db) -> None:
                 db=tenant_db,
             )
             idx += 1
+
+    await bind_to_batch(program_id, tenant_db)
+
+
+async def bind_to_batch(program_id: uuid.UUID, tenant_db) -> uuid.UUID:
+    """Give the curriculum an Academic Year and a Batch. Returns the batch id.
+
+    `submit_for_approval` requires both: an approved curriculum is immutable and
+    students stay on the version they were admitted under, so which batch it
+    governs cannot be answered after the fact.
+
+    A batch hangs off an acad_program, which hangs off an acad_department, so the
+    chain is built once and reused. Idempotent — many tests call this.
+    """
+    batch_id = (
+        await tenant_db.execute(
+            text("SELECT id FROM acad_batches WHERE name = 'Test Batch 2026-2028'")
+        )
+    ).scalar_one_or_none()
+
+    if batch_id is None:
+        dept_id = (
+            await tenant_db.execute(
+                text("SELECT id FROM acad_departments WHERE code = 'TCS'")
+            )
+        ).scalar_one_or_none()
+        if dept_id is None:
+            dept_id = uuid.uuid4()
+            await tenant_db.execute(
+                text(
+                    "INSERT INTO acad_departments (id, name, code) "
+                    "VALUES (:id, 'Test Computer Science', 'TCS')"
+                ),
+                {"id": str(dept_id)},
+            )
+
+        acad_program_id = (
+            await tenant_db.execute(
+                text("SELECT id FROM acad_programs WHERE code = 'TMSC'")
+            )
+        ).scalar_one_or_none()
+        if acad_program_id is None:
+            acad_program_id = uuid.uuid4()
+            await tenant_db.execute(
+                text(
+                    "INSERT INTO acad_programs "
+                    "(id, department_id, name, code, degree_type, duration_years) "
+                    "VALUES (:id, :d, 'Test M.Sc CS', 'TMSC', 'PG', 2)"
+                ),
+                {"id": str(acad_program_id), "d": str(dept_id)},
+            )
+
+        batch_id = uuid.uuid4()
+        await tenant_db.execute(
+            text(
+                "INSERT INTO acad_batches (id, program_id, name, start_year, end_year) "
+                "VALUES (:id, :p, 'Test Batch 2026-2028', 2026, 2028)"
+            ),
+            {"id": str(batch_id), "p": str(acad_program_id)},
+        )
+
+    await tenant_db.execute(
+        text(
+            "UPDATE programs SET academic_year = '2026-2028', "
+            "effective_from_batch_id = :b WHERE id = :id"
+        ),
+        {"b": str(batch_id), "id": str(program_id)},
+    )
+    await tenant_db.flush()
+    return batch_id
+
+
+async def bind_to_batch_committed(program_id: uuid.UUID) -> None:
+    """`bind_to_batch` for router tests, which drive the app over HTTP and so use
+    a different session from the test's own."""
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(text(f"SET LOCAL search_path = {SCHEMA_A}, public"))
+            await bind_to_batch(program_id, session)
+
+
+async def approve_all_syllabi_committed(program_id: uuid.UUID, approved_by: uuid.UUID) -> int:
+    """`approve_all_syllabi` for router tests."""
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(text(f"SET LOCAL search_path = {SCHEMA_A}, public"))
+            return await approve_all_syllabi(program_id, session, approved_by)
+
+
+async def approve_all_syllabi(program_id: uuid.UUID, tenant_db, approved_by: uuid.UUID) -> int:
+    """Give every subject in the curriculum an APPROVED official syllabus.
+
+    The Board cannot approve a curriculum until every subject has one — that gate
+    is the whole point of Phase A, so a test that wants to reach an APPROVED
+    curriculum has to satisfy it. This is the shortcut: it writes the syllabi
+    straight in rather than running forty AI generations.
+    """
+    course_ids = (
+        await tenant_db.execute(
+            text("SELECT id FROM courses WHERE program_id = :p"), {"p": str(program_id)},
+        )
+    ).scalars().all()
+
+    for course_id in course_ids:
+        await tenant_db.execute(
+            text(
+                "INSERT INTO syllabi "
+                "(id, course_id, version, status, created_by_user_id, "
+                " approved_by_user_id, approved_at, objectives, practical_components) "
+                "VALUES (:id, :c, 1, 'APPROVED', :u, :u, now(), '[]'::jsonb, '[]'::jsonb)"
+            ),
+            {"id": str(uuid.uuid4()), "c": str(course_id), "u": str(approved_by)},
+        )
+    await tenant_db.flush()
+    return len(course_ids)

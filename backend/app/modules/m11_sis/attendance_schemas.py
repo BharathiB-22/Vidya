@@ -11,7 +11,7 @@ Edit reason is mandatory on any modification after the first save.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -22,9 +22,61 @@ from pydantic import BaseModel, field_validator
 # Requests — Faculty
 # ---------------------------------------------------------------------------
 
+class FacultyDayClassOut(BaseModel):
+    """One class on the faculty's timetable for a given day — the unit the
+    redesigned dashboard renders as a card.
+
+    Everything needed to render the card and to open Take Attendance is here:
+    the course, where it sits, when it runs, how many students, and — if the
+    session has already been taken — its id and present/total counts.
+
+    `section_id` is null for a combined elective class; `semester_id` is always
+    present, so Take Attendance passes semester_id for electives and section_id
+    otherwise (exactly what SessionCreateIn expects).
+    """
+    course_id:      UUID
+    course_code:    str
+    course_title:   str
+    is_elective:    bool
+    section_id:     Optional[UUID] = None
+    section_name:   Optional[str] = None
+    semester_id:    UUID
+    semester_label: str
+    period_number:  int
+    start_time:     Optional[time] = None
+    end_time:       Optional[time] = None
+    period_label:   Optional[str] = None
+    student_count:  int
+    # Session state — null until attendance is taken for this class on this date.
+    session_id:     Optional[UUID] = None
+    is_taken:       bool = False
+    present_count:  Optional[int] = None
+    total_marked:   Optional[int] = None
+
+
+class FacultyDayOut(BaseModel):
+    """The faculty's classes for one date, split into the three dashboard groups.
+
+    'today' is the requested date's classes; 'upcoming' and 'completed' are the
+    other weekdays' scheduled classes, so the dashboard can show the week at a
+    glance without a second request.
+    """
+    on_date:  date
+    weekday:  int   # 0=Monday..6=Sunday
+    today:    list[FacultyDayClassOut]
+
+
 class SessionCreateIn(BaseModel):
+    """A session belongs to exactly one class.
+
+    Regular course: pass `section_id`; the term is derived from it.
+    Elective course: pass `semester_id` and leave `section_id` unset — the class
+    is every student in that term who chose this elective, across all sections.
+    The service rejects the wrong combination for the course's kind.
+    """
     course_id:        UUID
-    section_id:       UUID
+    section_id:       Optional[UUID] = None
+    semester_id:      Optional[UUID] = None
     session_date:     date
     period_number:    Optional[int]  = None
     duration_minutes: Optional[int]  = None
@@ -88,8 +140,9 @@ class SessionOut(BaseModel):
     course_id:        UUID
     course_code:      str
     course_title:     str
-    section_id:       UUID
-    section_name:     str
+    # Null for an elective group — the class spans every section that chose it.
+    section_id:       Optional[UUID] = None
+    section_name:     Optional[str]  = None
     semester_number:  int
     faculty_user_id:  UUID
     faculty_name:     str
@@ -173,6 +226,14 @@ class SessionRecordForStudent(BaseModel):
     topic_covered:   Optional[str]
     status:          str
     remarks:         Optional[str]
+    # Context for the session detail sheet. start/end are None when the
+    # section's timetable predates schedule templates (no clock times exist).
+    course_code:     Optional[str] = None
+    course_title:    Optional[str] = None
+    faculty_name:    Optional[str] = None
+    start_time:      Optional[time] = None
+    end_time:        Optional[time] = None
+    session_type:    str = "THEORY"        # THEORY | LAB
 
 
 class MyCourseAttendanceDetail(BaseModel):
@@ -217,8 +278,9 @@ class ShortageStudentOut(BaseModel):
     student_name:      str
     usn:               Optional[str]
     email:             str
-    section_id:        UUID
-    section_name:      str
+    # Null when the shortage is in an elective group rather than a section.
+    section_id:        Optional[UUID] = None
+    section_name:      Optional[str]  = None
     course_id:         UUID
     course_code:       str
     course_title:      str
@@ -242,8 +304,9 @@ class FacultyCourseShortage(BaseModel):
     course_id:       UUID
     course_code:     str
     course_title:    str
-    section_id:      UUID
-    section_name:    str
+    # Null for an elective group; `total_enrolled` then counts its registrants.
+    section_id:      Optional[UUID] = None
+    section_name:    Optional[str]  = None
     semester_number: int
     at_risk_count:   int
     total_enrolled:  int
@@ -263,8 +326,9 @@ class FacultyShortageReportOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ShortageSectionGroup(BaseModel):
-    section_id:      UUID
-    section_name:    str
+    # Null section = the course's elective group, grouped as one class.
+    section_id:      Optional[UUID] = None
+    section_name:    Optional[str]  = None
     semester_number: int
     at_risk_count:   int
     avg_pct:         Optional[float]

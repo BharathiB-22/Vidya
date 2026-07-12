@@ -9,8 +9,8 @@ syllabi reference M01 course IDs.
 
 Session note
 ------------
-tenant_db_a uses SET search_path (no LOCAL) so the path persists across
-the multiple commits service methods make within a single test.
+tenant_db_a sets the app's `_tenant_schema_ctx` ContextVar rather than issuing a
+session-level SET search_path — see the fixture for why the latter is unsafe.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import uuid
 import pytest_asyncio
 from sqlalchemy import text
 
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, _tenant_schema_ctx
 from app.modules.m01_program_advisor.schemas import (
     CourseCreate,
     ProgramCreate,
@@ -47,20 +47,36 @@ async def dean_user_a(test_tenant_a):
     yield {**user, "tenant_id": test_tenant_a["id"], "schema_name": SCHEMA_A, "slug": SLUG_A}
 
 
+# Phase A: the governance authority (Board / University Members) owns the
+# syllabus — it writes, approves and locks it.
+@pytest_asyncio.fixture
+async def board_user_a(test_tenant_a):
+    user = await _insert_tenant_user(SCHEMA_A, "board_a3@test.com", "Board1234!", "BOARD", "Board A3")
+    yield {**user, "tenant_id": test_tenant_a["id"], "schema_name": SCHEMA_A, "slug": SLUG_A}
+
+
 # ---------------------------------------------------------------------------
 # Schema-aware DB session for service-layer tests.
-# SET search_path (no LOCAL) persists the path across auto-begin transactions.
+#
+# Uses the app's own `_tenant_schema_ctx` ContextVar, which the engine's "begin"
+# event reads to inject `SET LOCAL search_path` at the start of EVERY transaction
+# (app/database.py). A single session-level `SET search_path` at fixture setup is
+# not enough: a service method's commit returns the connection to the pool, and
+# the next statement may check out a different one that never saw it. See the
+# same fixture in tests/modules/m01_program_advisor/conftest.py.
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
 async def tenant_db_a(test_tenant_a):
-    async with AsyncSessionLocal() as session:
-        async with session.begin():
-            await session.execute(text(f"SET search_path = {SCHEMA_A}, public"))
-        try:
-            yield session
-        finally:
-            await session.rollback()
+    token = _tenant_schema_ctx.set(SCHEMA_A)
+    try:
+        async with AsyncSessionLocal() as session:
+            try:
+                yield session
+            finally:
+                await session.rollback()
+    finally:
+        _tenant_schema_ctx.reset(token)
 
 
 # ---------------------------------------------------------------------------

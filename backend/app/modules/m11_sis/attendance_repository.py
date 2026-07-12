@@ -43,6 +43,96 @@ DEFAULT_SHORTAGE_THRESHOLD: float = 75.0
 class AttendanceRepository:
 
     # ------------------------------------------------------------------
+    # Faculty "today's classes" dashboard
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_faculty_day_classes(
+        faculty_id: UUID, weekday: int, on_date, db: AsyncSession,
+    ) -> list[dict]:
+        """The faculty's scheduled classes for one weekday, each with its class
+        size and — if attendance was already taken on `on_date` — its session id
+        and present/total counts.
+
+        A timetable is always per-section, but an elective is taught as one
+        combined class keyed by semester (Phase-5 model): so an elective slot's
+        card counts the elective's registrants (not the section's enrolment),
+        matches its session on (course, semester) with a NULL section, and is
+        deduplicated across sections — an elective scheduled in both MCA-A and
+        MCA-B at the same period is ONE class, shown once. Regular slots stay
+        one card per (course, section, period).
+
+        The session join keys on `on_date` alone, so "taken" reflects that exact
+        day; the same weekly slot is untaken again next week.
+        """
+        rows = (await db.execute(text("""
+            WITH slots AS (
+                SELECT DISTINCT ON (dedup_key)
+                       ts.course_id, ts.period_number,
+                       c.code AS course_code, c.title AS course_title,
+                       (c.is_elective OR c.elective_basket_id IS NOT NULL) AS is_elective,
+                       -- An elective's class is the combined group, so it carries
+                       -- no section; a regular class keeps its section.
+                       CASE WHEN (c.is_elective OR c.elective_basket_id IS NOT NULL)
+                            THEN NULL ELSE tt.section_id END AS section_id,
+                       CASE WHEN (c.is_elective OR c.elective_basket_id IS NOT NULL)
+                            THEN NULL ELSE sec.name END AS section_name,
+                       tt.semester_id,
+                       COALESCE(sem.label, 'Semester ' || sem.number) AS semester_label,
+                       tp.start_time, tp.end_time, tp.label AS period_label
+                FROM timetable_slots ts
+                JOIN timetables tt      ON tt.id = ts.timetable_id AND tt.status = 'PUBLISHED'
+                JOIN courses c          ON c.id = ts.course_id
+                JOIN acad_sections sec  ON sec.id = tt.section_id
+                JOIN acad_semesters sem ON sem.id = tt.semester_id
+                LEFT JOIN timetable_periods tp
+                       ON tp.template_id = tt.template_id AND tp.period_number = ts.period_number,
+                LATERAL (
+                    -- Dedup key: electives collapse across sections, regular
+                    -- classes stay distinct per section.
+                    SELECT CASE WHEN (c.is_elective OR c.elective_basket_id IS NOT NULL)
+                                THEN ts.course_id::text || ':' || tt.semester_id::text || ':' || ts.period_number
+                                ELSE ts.course_id::text || ':' || tt.section_id::text || ':' || ts.period_number
+                           END AS dedup_key
+                ) k
+                WHERE ts.faculty_user_id = :faculty_id
+                  AND ts.day_of_week = :weekday
+            )
+            SELECT s.*,
+                   CASE WHEN s.section_id IS NOT NULL THEN (
+                            SELECT COUNT(*) FROM acad_enrollments ae
+                            WHERE ae.section_id = s.section_id AND ae.is_active = true)
+                        ELSE (
+                            SELECT COUNT(*) FROM elective_registrations er
+                            WHERE er.course_id = s.course_id AND er.semester_id = s.semester_id
+                              AND er.status = 'REGISTERED')
+                   END AS student_count,
+                   sess.id AS session_id,
+                   sess.first_marked_at,
+                   sess.present_count,
+                   sess.total_marked
+            FROM slots s
+            LEFT JOIN LATERAL (
+                SELECT ss.id, ss.first_marked_at,
+                       COUNT(r.id) FILTER (WHERE r.status = 'PRESENT') AS present_count,
+                       COUNT(r.id) FILTER (WHERE r.status IN ('PRESENT','ABSENT')) AS total_marked
+                FROM sis_attendance_sessions ss
+                LEFT JOIN sis_attendance_records r ON r.session_id = ss.id
+                WHERE ss.course_id = s.course_id
+                  AND ss.semester_id = s.semester_id
+                  AND ss.period_number = s.period_number
+                  AND ss.session_date = :on_date
+                  AND ss.section_id IS NOT DISTINCT FROM s.section_id
+                GROUP BY ss.id
+                LIMIT 1
+            ) sess ON true
+            ORDER BY s.period_number
+        """), {
+            "faculty_id": str(faculty_id), "weekday": weekday, "on_date": on_date,
+        })).mappings().all()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
     # Session CRUD
     # ------------------------------------------------------------------
 
@@ -90,52 +180,10 @@ class AttendanceRepository:
         )
         return [UUID(str(r[0])) for r in rows.all()]
 
-    # ------------------------------------------------------------------
-    # Elective roster sourcing — an elective course is not taken by a whole
-    # section; only the students who registered for it attend. For an
-    # elective session we therefore build the roster from the elective
-    # registrations (intersected with the session's section so a per-section
-    # sheet still only lists that section's registrants), NOT section
-    # enrollment.
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    async def is_elective_course(course_id: UUID, db: AsyncSession) -> bool:
-        row = await db.execute(
-            text("""
-                SELECT (is_elective OR elective_basket_id IS NOT NULL) AS is_elective
-                FROM courses WHERE id = :course_id
-            """),
-            {"course_id": str(course_id)},
-        )
-        result = row.scalar_one_or_none()
-        return bool(result)
-
-    @staticmethod
-    async def get_elective_registered_student_ids(
-        course_id: UUID, semester_id: UUID, section_id: UUID, db: AsyncSession,
-    ) -> list[UUID]:
-        rows = await db.execute(
-            text("""
-                SELECT DISTINCT er.student_user_id
-                FROM elective_registrations er
-                JOIN elective_offerings eo ON eo.id = er.offering_id
-                JOIN acad_enrollments ae
-                     ON ae.student_id = er.student_user_id
-                    AND ae.section_id = :section_id
-                    AND ae.is_active = TRUE
-                WHERE er.course_id = :course_id
-                  AND eo.semester_id = :semester_id
-                  AND er.status = 'REGISTERED'
-                ORDER BY er.student_user_id
-            """),
-            {
-                "course_id": str(course_id),
-                "semester_id": str(semester_id),
-                "section_id": str(section_id),
-            },
-        )
-        return [UUID(str(r[0])) for r in rows.all()]
+    # Elective rosters are NOT sourced here. An elective course is taught as one
+    # combined class across every section that chose it, so its roster comes from
+    # `m_academics.class_roster.resolve_class_roster` — the same resolver internal
+    # marks uses, which is what keeps the two rosters identical.
 
     # ------------------------------------------------------------------
     # Bulk create ABSENT records (called after session creation)
@@ -356,8 +404,12 @@ class AttendanceRepository:
                     COUNT(r.id) AS total_enrolled
                 FROM sis_attendance_sessions s
                 JOIN courses c          ON c.id    = s.course_id
-                JOIN acad_sections sect ON sect.id = s.section_id
-                JOIN acad_semesters sem ON sem.id  = sect.semester_id
+                -- LEFT: an elective-group session has no section. An inner join
+                -- here would silently drop every elective class from the list.
+                LEFT JOIN acad_sections sect ON sect.id = s.section_id
+                -- The term comes off the session, not the section, so it resolves
+                -- for both kinds of class.
+                JOIN acad_semesters sem ON sem.id  = s.semester_id
                 JOIN users u            ON u.id    = s.faculty_user_id
                 LEFT JOIN sis_attendance_records r ON r.session_id = s.id
                 WHERE {where}
@@ -411,6 +463,14 @@ class AttendanceRepository:
         course_id: UUID,
         db: AsyncSession,
     ) -> list[dict]:
+        """Per-session attendance rows for one student+course.
+
+        Enriched (read-only) with what a student needs to identify a class:
+        who taught it, the clock times of that period, and whether it was a
+        theory lecture or a lab. Times come from the section's timetable
+        template when one is linked; they are NULL for timetables created before
+        templates existed, and the caller renders "Period N" instead.
+        """
         rows = await db.execute(
             text("""
                 SELECT
@@ -419,9 +479,34 @@ class AttendanceRepository:
                     s.period_number,
                     s.topic_covered,
                     r.status,
-                    r.remarks
+                    r.remarks,
+                    c.code  AS course_code,
+                    c.title AS course_title,
+                    u.full_name AS faculty_name,
+                    slot.start_time,
+                    slot.end_time,
+                    CASE
+                        WHEN UPPER(COALESCE(c.course_type, '')) LIKE '%LAB%'
+                          OR UPPER(COALESCE(c.course_type, '')) LIKE '%PRACTICAL%'
+                        THEN 'LAB'
+                        ELSE 'THEORY'
+                    END AS session_type
                 FROM sis_attendance_records r
                 JOIN sis_attendance_sessions s ON s.id = r.session_id
+                JOIN courses c                 ON c.id = s.course_id
+                LEFT JOIN users u              ON u.id = s.faculty_user_id
+                -- A section has one timetable per semester; LATERAL ... LIMIT 1
+                -- keeps this a lookup and never fans a session into two rows.
+                LEFT JOIN LATERAL (
+                    SELECT tp.start_time, tp.end_time
+                    FROM timetables tt
+                    JOIN timetable_periods tp
+                      ON tp.template_id = tt.template_id
+                     AND tp.period_number = s.period_number
+                    WHERE tt.section_id = s.section_id
+                    ORDER BY tt.published_at DESC NULLS LAST
+                    LIMIT 1
+                ) slot ON TRUE
                 WHERE r.student_id = :student_id AND s.course_id = :course_id
                 ORDER BY s.session_date DESC, s.period_number NULLS LAST
             """),
@@ -437,9 +522,17 @@ class AttendanceRepository:
     async def get_students_course_pct_batch(
         student_ids: list[UUID],
         course_id: UUID,
-        section_id: UUID,
+        semester_id: UUID,
+        section_id: Optional[UUID],
         db: AsyncSession,
     ) -> dict[UUID, Optional[float]]:
+        """Percentage per student within ONE class.
+
+        The class is (course, semester, section-or-elective-group). `section_id`
+        is compared with IS NOT DISTINCT FROM so a NULL matches the elective
+        group's NULL — a plain `=` would match nothing and silently suppress
+        every shortage warning for electives.
+        """
         if not student_ids:
             return {}
         rows = await db.execute(
@@ -451,14 +544,16 @@ class AttendanceRepository:
                 FROM sis_attendance_records r
                 JOIN sis_attendance_sessions s ON s.id = r.session_id
                 WHERE r.student_id = ANY(:sids::uuid[])
-                  AND s.course_id  = :course_id
-                  AND s.section_id = :section_id
+                  AND s.course_id   = :course_id
+                  AND s.semester_id = :semester_id
+                  AND s.section_id IS NOT DISTINCT FROM :section_id
                 GROUP BY r.student_id
             """),
             {
-                "sids":       [str(s) for s in student_ids],
-                "course_id":  str(course_id),
-                "section_id": str(section_id),
+                "sids":        [str(s) for s in student_ids],
+                "course_id":   str(course_id),
+                "semester_id": str(semester_id),
+                "section_id":  str(section_id) if section_id else None,
             },
         )
         result = {}
@@ -567,7 +662,9 @@ class AttendanceRepository:
         params: dict = {"threshold": threshold}
 
         if semester_id:
-            extra_filters.append("AND sect.semester_id = :semester_id")
+            # Read the term off the session, not the section: an elective-group
+            # session has no section but always has a semester.
+            extra_filters.append("AND s.semester_id = :semester_id")
             params["semester_id"] = str(semester_id)
         if section_id:
             extra_filters.append("AND s.section_id = :section_id")
@@ -580,7 +677,7 @@ class AttendanceRepository:
             # sessions may still be edited so they are excluded from finalized reports.
             extra_filters.append("AND s.status = 'LOCKED'")
         if batch_id or program_id or allowed_program_ids is not None:
-            extra_joins.append("JOIN acad_semesters _sem ON _sem.id = sect.semester_id")
+            extra_joins.append("JOIN acad_semesters _sem ON _sem.id = s.semester_id")
             extra_joins.append("JOIN acad_batches   _bat ON _bat.id = _sem.batch_id")
             if batch_id:
                 extra_filters.append("AND _bat.id = :batch_id")
@@ -604,15 +701,18 @@ class AttendanceRepository:
                         r.student_id,
                         s.course_id,
                         s.section_id,
+                        s.semester_id,
                         COUNT(*)                                     AS total_sessions,
                         COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
-                    JOIN acad_sections sect        ON sect.id = s.section_id
+                    -- LEFT: elective-group sessions have no section, and an inner
+                    -- join would drop those students out of the shortage report.
+                    LEFT JOIN acad_sections sect  ON sect.id = s.section_id
                     {joins_sql}
                     WHERE 1=1
                     {where_sql}
-                    GROUP BY r.student_id, s.course_id, s.section_id
+                    GROUP BY r.student_id, s.course_id, s.section_id, s.semester_id
                 ),
                 with_pct AS (
                     SELECT *,
@@ -639,8 +739,8 @@ class AttendanceRepository:
                 FROM with_pct wp
                 JOIN users u            ON u.id    = wp.student_id
                 JOIN courses c          ON c.id    = wp.course_id
-                JOIN acad_sections sect ON sect.id = wp.section_id
-                JOIN acad_semesters sem ON sem.id  = sect.semester_id
+                LEFT JOIN acad_sections sect ON sect.id = wp.section_id
+                JOIN acad_semesters sem ON sem.id  = wp.semester_id
                 LEFT JOIN sis_student_profiles sp ON sp.user_id = wp.student_id
                 WHERE wp.attendance_pct < :threshold
                 ORDER BY wp.attendance_pct ASC NULLS LAST, u.full_name
@@ -698,16 +798,20 @@ class AttendanceRepository:
                         r.student_id,
                         s.course_id,
                         s.section_id,
+                        s.semester_id,
                         COUNT(*)                                     AS total_sessions,
                         COUNT(*) FILTER (WHERE r.status = 'PRESENT') AS attended_count
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
-                    JOIN acad_sections sect        ON sect.id = s.section_id
+                    -- LEFT: an elective-group session has no section.
+                    LEFT JOIN acad_sections sect  ON sect.id = s.section_id
+                    -- Match the assignment on the session's own term, which is
+                    -- set for both section classes and elective groups.
                     JOIN faculty_courses fc        ON fc.course_id   = s.course_id
-                                                 AND fc.semester_id  = sect.semester_id
+                                                 AND fc.semester_id  = s.semester_id
                     WHERE 1=1
                     {where}
-                    GROUP BY r.student_id, s.course_id, s.section_id
+                    GROUP BY r.student_id, s.course_id, s.section_id, s.semester_id
                 ),
                 with_pct AS (
                     SELECT *,
@@ -731,12 +835,15 @@ class AttendanceRepository:
                     wp.total_sessions,
                     wp.attended_count AS attended_sessions,
                     wp.attendance_pct,
-                    COALESCE(enroll_counts.total_enrolled, 0) AS total_enrolled
+                    -- A section class is sized by its enrolment; an elective group
+                    -- by how many students chose it. Without the second source an
+                    -- elective would always report 0 students.
+                    COALESCE(enroll_counts.total_enrolled, elective_counts.total_enrolled, 0) AS total_enrolled
                 FROM with_pct wp
                 JOIN users u            ON u.id    = wp.student_id
                 JOIN courses c          ON c.id    = wp.course_id
-                JOIN acad_sections sect ON sect.id = wp.section_id
-                JOIN acad_semesters sem ON sem.id  = sect.semester_id
+                LEFT JOIN acad_sections sect ON sect.id = wp.section_id
+                JOIN acad_semesters sem ON sem.id  = wp.semester_id
                 LEFT JOIN sis_student_profiles sp ON sp.user_id = wp.student_id
                 LEFT JOIN (
                     SELECT section_id, COUNT(*) AS total_enrolled
@@ -744,8 +851,16 @@ class AttendanceRepository:
                     WHERE is_active = TRUE
                     GROUP BY section_id
                 ) enroll_counts ON enroll_counts.section_id = wp.section_id
+                LEFT JOIN (
+                    SELECT course_id, semester_id, COUNT(*) AS total_enrolled
+                    FROM elective_registrations
+                    WHERE status = 'REGISTERED'
+                    GROUP BY course_id, semester_id
+                ) elective_counts ON wp.section_id IS NULL
+                                 AND elective_counts.course_id   = wp.course_id
+                                 AND elective_counts.semester_id = wp.semester_id
                 WHERE wp.attendance_pct < :threshold
-                ORDER BY c.code, sect.name, wp.attendance_pct ASC NULLS LAST
+                ORDER BY c.code, sect.name NULLS FIRST, wp.attendance_pct ASC NULLS LAST
             """),
             params,
         )
@@ -763,7 +878,10 @@ class AttendanceRepository:
         *,
         allowed_program_ids: Optional[list[UUID]] = None,
     ) -> dict:
-        sem_filter = "AND sect.semester_id = :semester_id" if semester_id else ""
+        # Reach the term straight off the session. Walking through acad_sections
+        # would inner-join away every elective-group session, under-reporting the
+        # Dean's dashboard the moment an elective is taught.
+        sem_filter = "AND s.semester_id = :semester_id" if semester_id else ""
         params: dict = {"threshold": threshold}
         if semester_id:
             params["semester_id"] = str(semester_id)
@@ -774,8 +892,7 @@ class AttendanceRepository:
         prog_filter_below = ""
         if allowed_program_ids is not None:
             prog_join_top = (
-                "JOIN acad_sections _sect2 ON _sect2.id = s.section_id "
-                "JOIN acad_semesters _sem2 ON _sem2.id = _sect2.semester_id "
+                "JOIN acad_semesters _sem2 ON _sem2.id = s.semester_id "
                 "JOIN acad_batches _bat2   ON _bat2.id = _sem2.batch_id "
                 "JOIN acad_programs _prog2 ON _prog2.id = _bat2.program_id"
             )
@@ -813,8 +930,7 @@ class AttendanceRepository:
                         COUNT(*)                                     AS total_sessions
                     FROM sis_attendance_records r
                     JOIN sis_attendance_sessions s ON s.id = r.session_id
-                    JOIN acad_sections sect        ON sect.id = s.section_id
-                    JOIN acad_semesters _sem       ON _sem.id = sect.semester_id
+                    JOIN acad_semesters _sem       ON _sem.id = s.semester_id
                     {prog_join_below}
                     WHERE 1=1 {sem_filter}
                     {prog_filter_below}
@@ -845,11 +961,11 @@ class AttendanceRepository:
     @staticmethod
     async def check_shortage_warning_exists(
         student_id: UUID,
-        course_id:  UUID,
-        section_id: UUID,
+        entity_id: str,
         db: AsyncSession,
     ) -> bool:
-        entity_id = f"{course_id}:{section_id}"
+        """`entity_id` must be built by `shortage_entity_id` so the dedup key
+        matches the one the notification was written with."""
         row = await db.execute(
             text("""
                 SELECT 1 FROM notifications

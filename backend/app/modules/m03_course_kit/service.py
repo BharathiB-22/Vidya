@@ -281,7 +281,7 @@ class CourseKitService:
         """
         Create a new DRAFT course kit for a syllabus unit.
 
-        The syllabus must be DEAN_APPROVED or DEAN_LOCKED; kits are only
+        The syllabus must be APPROVED or LOCKED; kits are only
         built on dean-approved syllabi.  Version is auto-incremented per unit.
         """
         from app.modules.m02_syllabus.models import SyllabusStatus
@@ -297,8 +297,8 @@ class CourseKitService:
         if syllabus is None:
             raise KitServiceError("NOT_FOUND", "Syllabus not found.", 404)
         if syllabus.status not in (
-            SyllabusStatus.DEAN_APPROVED,
-            SyllabusStatus.DEAN_LOCKED,
+            SyllabusStatus.APPROVED,
+            SyllabusStatus.LOCKED,
         ):
             raise KitServiceError(
                 "SYLLABUS_NOT_APPROVED",

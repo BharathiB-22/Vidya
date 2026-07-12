@@ -45,11 +45,28 @@ class ComponentStatus(str, enum.Enum):
 
 
 class SisMarksComponent(Base):
+    """One assessment component for one class.
+
+    As with attendance, the class is either a section or an elective group:
+
+      section_id IS NOT NULL   a regular course taught to one section
+      section_id IS NULL       an elective group — every student in `semester_id`
+                               who registered for `course_id`, across all sections
+
+    A faculty member teaching an elective defines ONE "CIE 1" for the whole
+    group, not one per contributing section. See tenant migration 0081ten.
+    """
     __tablename__ = "sis_marks_components"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_marks_components_section_class",
             "course_id", "section_id", "name",
-            name="uq_marks_components_course_section_name",
+            unique=True, postgresql_where=text("section_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_marks_components_elective_class",
+            "course_id", "semester_id", "name",
+            unique=True, postgresql_where=text("section_id IS NULL"),
         ),
         Index("ix_marks_components_course_section", "course_id",   "section_id"),
         Index("ix_marks_components_section_status", "section_id",  "status"),
@@ -60,9 +77,10 @@ class SisMarksComponent(Base):
 
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Context (semester_id denormalised for fast filtering without JOIN chain)
+    # Context (semester_id denormalised for fast filtering without JOIN chain).
+    # NULL section_id means "elective group", not "unknown class".
     course_id        = Column(UUID(as_uuid=True), ForeignKey("courses.id",        ondelete="CASCADE"), nullable=False)
-    section_id       = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id",  ondelete="CASCADE"), nullable=False)
+    section_id       = Column(UUID(as_uuid=True), ForeignKey("acad_sections.id",  ondelete="CASCADE"), nullable=True)
     semester_id      = Column(UUID(as_uuid=True), ForeignKey("acad_semesters.id", ondelete="CASCADE"), nullable=False)
     created_by       = Column(UUID(as_uuid=True), nullable=False)   # faculty_user_id; plain UUID — codebase pattern
 

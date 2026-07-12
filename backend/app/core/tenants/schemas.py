@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, field_validator
 
-from app.core.auth.models import TenantStatus
+from app.core.auth.models import GovernanceType, TenantStatus
 
 _PW_UPPER = re.compile(r"[A-Z]")
 _PW_LOWER = re.compile(r"[a-z]")
@@ -49,6 +49,9 @@ class CreateTenantRequest(BaseModel):
     logo_url: Optional[str] = None
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
+    # Phase A: what this institution calls its curriculum approval authority.
+    # Display name only — permissions are identical either way.
+    governance_type: GovernanceType = GovernanceType.BOARD
 
     @field_validator("name")
     @classmethod
@@ -82,6 +85,7 @@ class TenantResponse(BaseModel):
     logo_url: Optional[str] = None
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
+    governance_type: GovernanceType = GovernanceType.BOARD
     created_at: datetime
     deleted_at: Optional[datetime] = None
     deleted_by_user_id: Optional[UUID] = None
@@ -97,6 +101,7 @@ class TenantUpdateRequest(BaseModel):
     logo_url: Optional[str] = None
     primary_color: Optional[str] = None
     secondary_color: Optional[str] = None
+    governance_type: Optional[GovernanceType] = None
 
     @field_validator("name")
     @classmethod

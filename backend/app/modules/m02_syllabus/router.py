@@ -1,16 +1,33 @@
 """
-M02 Syllabus router — ~33 endpoints, RBAC enforced.
+M02 Syllabus router — the OFFICIAL university syllabus. RBAC enforced.
 
-RBAC
-----
-  _WRITE  = ADMIN + (FACULTY role OR active FACULTY grant, e.g. a DEAN with a
-            FACULTY grant)   create / edit / generate / approve / reject / fork
-  _READ   = ADMIN + DEAN + FACULTY   any view
-  _LOCK   = ADMIN + DEAN   lock / unlock (semester gate, not content approval)
-  _EXPORT = ADMIN + DEAN + FACULTY   export (same population as _READ)
+Who may do what
+---------------
+The syllabus is CURRICULUM, and the curriculum belongs to the Board. That is the
+whole point of Phase A:
+
+  Before: Faculty AUTHORED the syllabus; the Dean reviewed, approved and locked it.
+  Now:    the Board (Board / University Members) generates, edits and approves it;
+          it is locked with the curriculum. Faculty TEACH to the approved syllabus
+          and build lesson plans, PPTs, course kits, assignments and question
+          papers under it — they never write it. The Dean reads it.
+
+  _WRITE  — create, edit, AI-generate, approve, delete   (Board + ADMIN)
+  _READ   — view                                          (every content role)
+  _EXPORT — export an approved official syllabus          (same as _READ)
+
+_WRITE goes through `require_responsibility`, so a senior professor who sits on
+the Board (a FACULTY account holding a BOARD grant) exercises Board rights from
+their single account — exactly as real universities staff a Board of Studies.
+
+Removed with the old workflow: submit-for-review, resubmit, reject,
+request-revision, dean-overview, lock and unlock. The first four only made sense
+when the author and the approver were different people. Lock/unlock is gone
+because a syllabus is locked by CURRICULUM APPROVAL (governance.approve_and_lock)
+— the structure and the syllabus freeze together — and is never unlocked.
 
 All business logic lives in SyllabusService.
-Router is pure HTTP glue: deserialise → call service → audit → serialise.
+Router is pure HTTP glue: deserialise -> call service -> audit -> serialise.
 """
 from __future__ import annotations
 
@@ -35,21 +52,19 @@ from app.modules.m02_syllabus.schemas import (
     COPOMappingResponse,
     COPOMatrixResponse,
     ComplianceCheckResponse,
+    CourseInformation,
     CourseOutcomeCreate,
     CourseOutcomeResponse,
     CourseOutcomeUpdate,
+    DeanDocumentEditRequest,
     ForkRequest,
     GenerateSyllabusRequest,
-    LockRequest,
     ReferenceCandidate,
-    RejectRequest,
-    RequestRevisionRequest,
+    RegenerateSectionRequest,
     SyllabusAIJobResponse,
     SyllabusCreate,
     SyllabusDetail,
     SyllabusExportJobResponse,
-    SyllabusDeanItem,
-    SyllabusDeanOverviewResponse,
     SyllabusListItem,
     SyllabusListResponse,
     SyllabusReferenceCreate,
@@ -65,24 +80,20 @@ from app.modules.m02_syllabus.schemas import (
     SyllabusVersionResponse,
     ReferenceSearchRequest,
 )
+from app.modules.m02_syllabus.formatting import course_information
 from app.modules.m02_syllabus.models import RefType, SyllabusStatus
 from app.modules.m02_syllabus.service import SyllabusService, SyllabusServiceError
 
 router = APIRouter(tags=["syllabi"])
 
-# ---------------------------------------------------------------------------
-# RBAC role sets
-#   _WRITE  — create, edit, generate, submit-for-review (FACULTY + ADMIN)
-#   _READ   — view (all content roles)
-#   _DEAN   — approve, reject (DEAN only — academic governance)
-#   _LOCK   — lock, unlock semester (DEAN only)
-#   _EXPORT — export approved syllabi
-# ---------------------------------------------------------------------------
-_WRITE  = (TenantRole.ADMIN, TenantRole.FACULTY)
-_READ   = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
-_DEAN   = (TenantRole.DEAN,)
-_LOCK   = (TenantRole.DEAN,)
-_EXPORT = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY)
+_WRITE  = (TenantRole.ADMIN, TenantRole.BOARD)
+_READ   = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD)
+_EXPORT = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD)
+
+# The Dean's post-approval edit of a guideline document — Internship, Mini Project,
+# Major Project and Seminar only. The service refuses a theory syllabus outright
+# (SyllabusService.dean_edit_document); this gate is only about WHO may ask.
+_DEAN_EDIT = (TenantRole.ADMIN, TenantRole.DEAN)
 
 
 async def _lookup_user(user_id, *, db: AsyncSession) -> dict:
@@ -94,6 +105,28 @@ async def _lookup_user(user_id, *, db: AsyncSession) -> dict:
     )
     row = result.mappings().first()
     return dict(row) if row else {}
+
+
+async def _program_id_for_syllabus(syllabus_id: UUID, db: AsyncSession) -> str | None:
+    """The curriculum this syllabus belongs to, stamped into every audit entry.
+
+    The Dean is shown a summary of everything the Board changed while it held
+    their curriculum (governance.get_change_summary), and that summary is built by
+    querying the audit log for events on the program. But an audit row for a
+    syllabus edit carries the SYLLABUS id, not the program id — so without this
+    stamp the Board's syllabus work would be invisible to the query, and the Dean
+    would be told the Board had changed nothing.
+    """
+    from sqlalchemy import text as _text
+    return (
+        await db.execute(
+            _text(
+                "SELECT c.program_id::text FROM syllabi s "
+                "JOIN courses c ON c.id = s.course_id WHERE s.id = :sid"
+            ),
+            {"sid": str(syllabus_id)},
+        )
+    ).scalar_one_or_none()
 
 
 def _err(e: SyllabusServiceError) -> HTTPException:
@@ -201,111 +234,6 @@ async def list_syllabi(
     )
 
 
-@router.get("/dean-overview", response_model=SyllabusDeanOverviewResponse)
-async def dean_overview(
-    status: list[str] = Query(
-        default=["PENDING_REVIEW", "REJECTED", "DEAN_APPROVED", "DEAN_LOCKED"],
-        description="Status filter (multi-value). Default: pending + rejected + approved + locked.",
-    ),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=500),
-    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN, TenantRole.ADMIN)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusDeanOverviewResponse:
-    """Return enriched syllabus rows for the Dean review dashboard.
-
-    Joins course code/title + faculty name from the tenant users table.
-    """
-    from sqlalchemy import text, func, select
-    from app.modules.m02_syllabus.models import Syllabus, CourseOutcome, SyllabusUnit
-    from app.modules.m01_program_advisor.models import Course, Program
-    from app.modules.m_academics.dean_scope import get_dean_program_ids
-
-    offset = (page - 1) * page_size
-
-    # Base query: syllabuses filtered by status
-    # Dean overview defaults include REJECTED so deans see what they sent back.
-    stmt = (
-        select(Syllabus)
-        .where(Syllabus.status.in_(status))
-        .order_by(Syllabus.updated_at.desc().nullslast(), Syllabus.created_at.desc())
-        .offset(offset)
-        .limit(page_size)
-    )
-    count_stmt = select(func.count(Syllabus.id)).where(Syllabus.status.in_(status))
-
-    if current_user.role == "DEAN":
-        governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
-        if governed is not None:
-            course_subq = (
-                select(Course.id)
-                .join(Program, Program.id == Course.program_id)
-                .where(Program.acad_program_id.in_(governed))
-            )
-            stmt = stmt.where(Syllabus.course_id.in_(course_subq))
-            count_stmt = count_stmt.where(Syllabus.course_id.in_(course_subq))
-
-    result = await db.execute(stmt)
-    syllabuses = result.scalars().all()
-
-    total = (await db.execute(count_stmt)).scalar_one()
-
-    if not syllabuses:
-        return SyllabusDeanOverviewResponse(total=total, items=[])
-
-    # Bulk-fetch courses
-    course_ids = list({s.course_id for s in syllabuses})
-    courses_result = await db.execute(select(Course).where(Course.id.in_(course_ids)))
-    course_map = {c.id: c for c in courses_result.scalars().all()}
-
-    # Bulk-fetch faculty names from tenant users table
-    user_ids = list({str(s.created_by_user_id) for s in syllabuses})
-    user_rows = (await db.execute(
-        text("SELECT id::text, full_name, email FROM users WHERE id = ANY(:ids)"),
-        {"ids": user_ids},
-    )).mappings().all()
-    user_map = {r["id"]: r for r in user_rows}
-
-    # Bulk-fetch unit counts
-    unit_counts_result = await db.execute(
-        select(SyllabusUnit.syllabus_id, func.count(SyllabusUnit.id).label("cnt"))
-        .where(SyllabusUnit.syllabus_id.in_([s.id for s in syllabuses]))
-        .group_by(SyllabusUnit.syllabus_id)
-    )
-    unit_count_map = {row.syllabus_id: row.cnt for row in unit_counts_result}
-
-    # Bulk-fetch CO counts
-    co_counts_result = await db.execute(
-        select(CourseOutcome.syllabus_id, func.count(CourseOutcome.id).label("cnt"))
-        .where(CourseOutcome.syllabus_id.in_([s.id for s in syllabuses]))
-        .group_by(CourseOutcome.syllabus_id)
-    )
-    co_count_map = {row.syllabus_id: row.cnt for row in co_counts_result}
-
-    items = []
-    for s in syllabuses:
-        course = course_map.get(s.course_id)
-        u_id = str(s.created_by_user_id)
-        user = user_map.get(u_id, {})
-        items.append(SyllabusDeanItem(
-            id=s.id,
-            status=s.status,
-            version=s.version,
-            course_id=s.course_id,
-            course_code=course.code if course else "—",
-            course_title=course.title if course else "Unknown Course",
-            faculty_name=user.get("full_name"),
-            faculty_email=user.get("email"),
-            unit_count=unit_count_map.get(s.id, 0),
-            co_count=co_count_map.get(s.id, 0),
-            dean_comment=s.dean_comment,
-            created_at=s.created_at,
-            updated_at=s.updated_at,
-        ))
-
-    return SyllabusDeanOverviewResponse(total=total, items=items)
-
-
 @router.get("/{syllabus_id}", response_model=SyllabusDetail)
 async def get_syllabus(
     syllabus_id: UUID,
@@ -320,6 +248,14 @@ async def get_syllabus(
     if syllabus is None:
         raise _404()
 
+    # A faculty may only open a syllabus for a course they teach — otherwise a
+    # colleague's syllabus is one guessable id away. Mirrors the ownership the
+    # LIST endpoint already enforces (m02/service.py list_syllabi FACULTY branch).
+    if current_user.role == "FACULTY":
+        from app.modules.m_academics.faculty_scope import faculty_teaches_course
+        if not await faculty_teaches_course(current_user.user_id, syllabus.course_id, db):
+            raise _404()
+
     detail = SyllabusDetail.model_validate(syllabus)
 
     course_result = await db.execute(select(Course).where(Course.id == syllabus.course_id))
@@ -333,6 +269,9 @@ async def get_syllabus(
             if governed is not None and owned_acad_id not in governed:
                 raise _404()
         detail = detail.model_copy(update={
+            # The official syllabus header — code, name, credits, L-T-P, contact
+            # hours and category — all derived from the course, never stored.
+            "course_information": CourseInformation(**course_information(course)),
             "course_title": course.title,
             "course_code":  course.code,
             "program_name": program.title if program else "Unknown Program",
@@ -362,7 +301,10 @@ async def update_syllabus(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusResponse:
     try:
-        syllabus = await SyllabusService.update_syllabus(syllabus_id, payload, db=db)
+        syllabus = await SyllabusService.update_syllabus(
+            syllabus_id, payload,
+            caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db,
+        )
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -373,7 +315,10 @@ async def update_syllabus(
         schema_name=current_user.schema_name,
         target_entity="Syllabus",
         target_id=str(syllabus_id),
-        metadata={"changes": payload.model_dump(exclude_none=True)},
+        metadata={
+            "changes": payload.model_dump(exclude_none=True),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return SyllabusResponse.model_validate(syllabus)
 
@@ -386,7 +331,8 @@ async def delete_syllabus(
 ) -> dict:
     try:
         await SyllabusService.delete_syllabus(
-            syllabus_id, caller_role=current_user.role, db=db
+            syllabus_id, caller_role=current_user.role,
+            faculty_user_id=current_user.user_id, db=db,
         )
     except SyllabusServiceError as e:
         raise _err(e)
@@ -436,7 +382,7 @@ async def generate_syllabus(
             await SyllabusService.update_syllabus(
                 syllabus_id,
                 SyllabusUpdate(custom_instructions=payload.custom_instructions),
-                db=db,
+                caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db,
             )
         except SyllabusServiceError as e:
             raise _err(e)
@@ -445,6 +391,8 @@ async def generate_syllabus(
             syllabus_id=syllabus_id,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
+            caller_role=current_user.role,
+            faculty_user_id=current_user.user_id,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -460,6 +408,109 @@ async def generate_syllabus(
         metadata={"job_id": job_id},
     )
     return SyllabusAIJobResponse(job_id=UUID(job_id), syllabus_id=syllabus_id)
+
+
+@router.post("/{syllabus_id}/regenerate", response_model=SyllabusAIJobResponse)
+@limiter.limit("15/minute")
+async def regenerate_section(
+    request: Request,
+    syllabus_id: UUID,
+    payload: RegenerateSectionRequest,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> SyllabusAIJobResponse:
+    """Rewrite ONE section of the syllabus: a unit, the objectives, the outcomes,
+    or the bibliography.
+
+    The Board should never have to regenerate a whole syllabus because one unit came
+    out weak. By the time they notice, the other four units and the outcomes will
+    often have been hand-edited, and a full regeneration throws every bit of that
+    away.
+
+    A regenerated unit is told what the OTHER units already teach, so it fills its
+    own place in the syllabus rather than drifting into theirs — and it is held to
+    exactly the same depth bar as a full generation, so this cannot become the back
+    door through which a thin unit reaches the document.
+    """
+    try:
+        job_id = await SyllabusService.dispatch_section_regeneration(
+            syllabus_id,
+            payload.section.value,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+            unit_id=payload.unit_id,
+            guidance=payload.guidance,
+            db=db,
+        )
+    except SyllabusServiceError as e:
+        raise _err(e)
+
+    await AuditService.log(
+        AuditEventType.SYLLABUS_GENERATION_QUEUED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Syllabus",
+        target_id=str(syllabus_id),
+        metadata={
+            "job_id":   job_id,
+            "section":  payload.section.value,
+            "unit_id":  str(payload.unit_id) if payload.unit_id else None,
+            "guidance": payload.guidance,
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
+    )
+    return SyllabusAIJobResponse(job_id=UUID(job_id), syllabus_id=syllabus_id)
+
+
+@router.patch("/{syllabus_id}/document/dean", response_model=SyllabusResponse)
+async def dean_edit_document(
+    syllabus_id: UUID,
+    payload: DeanDocumentEditRequest,
+    current_user: CurrentUser = Depends(require_roles(*_DEAN_EDIT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """The Dean adapting an APPROVED Internship / Project / Seminar document.
+
+    Permitted because those documents depend on the company, the supervisor and
+    institutional policy — things the Board cannot settle at approval time, and the
+    Dean must before students start.
+
+    A THEORY syllabus is refused (403). The Board owns the taught curriculum: it
+    writes the syllabus and it approves it, and the Dean publishes it without
+    rewriting it. The refusal lives in the service, not merely in the UI, because a
+    hidden button is a suggestion and this is a rule.
+
+    Unlike every other write, this does NOT withdraw the Board's approval — the
+    Board approved the academic substance and the Dean is filling in the
+    institutional detail beneath it. The row is stamped instead, so the governance
+    trail can always separate the two hands.
+    """
+    try:
+        syllabus = await SyllabusService.dean_edit_document(
+            syllabus_id, payload, current_user.user_id, db=db,
+        )
+    except SyllabusServiceError as e:
+        raise _err(e)
+
+    await AuditService.log(
+        AuditEventType.SYLLABUS_UPDATED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="Syllabus",
+        target_id=str(syllabus_id),
+        metadata={
+            "dean_guideline_edit": True,
+            "doc_type":   syllabus.doc_type,
+            "sections":   sorted((syllabus.document or {}).keys()),
+            "note":       payload.note,
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
+    )
+    return syllabus
 
 
 @router.get("/{syllabus_id}/jobs/{job_id}")
@@ -481,106 +532,35 @@ async def get_generation_job(
 
 
 # ===========================================================================
-# State transitions
+# State transitions — the Board approves its own syllabus
+#
+# Gone with the old workflow: submit-for-review, resubmit, reject,
+# request-revision, lock and unlock.
+#
+# The first four existed because Faculty AUTHORED a syllabus and a Dean REVIEWED
+# it — two parties, so the work had to be handed between them. The Board writes
+# the syllabus and signs it off, so there is nobody to hand it to and nothing to
+# send back: when the Board is unhappy with a syllabus, it edits it.
+#
+# Lock/unlock is gone because locking is not a syllabus-level act any more. A
+# syllabus is locked when the CURRICULUM is approved (governance.approve_and_lock)
+# — structure and syllabus freeze as one thing, or the pair is incoherent — and
+# it is never unlocked. A change means a new curriculum version.
 # ===========================================================================
-
-async def _notify_deans_of_syllabus_submission(
-    syllabus_id: UUID, version: int, db: AsyncSession
-) -> None:
-    """Best-effort: notify deans governing this syllabus's program that it awaits review."""
-    from sqlalchemy import select
-    from app.core.notifications.dispatch import notify_program_deans
-    from app.core.notifications.models import NotificationType
-    from app.modules.m01_program_advisor.models import Course, Program
-    from app.modules.m02_syllabus.models import Syllabus
-
-    try:
-        acad_program_id = (
-            await db.execute(
-                select(Program.acad_program_id)
-                .select_from(Syllabus)
-                .join(Course, Course.id == Syllabus.course_id)
-                .join(Program, Program.id == Course.program_id)
-                .where(Syllabus.id == syllabus_id)
-            )
-        ).scalar_one_or_none()
-        if not acad_program_id:
-            return
-        await notify_program_deans(
-            db,
-            notification_type=NotificationType.SYLLABUS_SUBMITTED,
-            program_id=acad_program_id,
-            title="Faculty submitted a syllabus",
-            body=f"A syllabus (version {version}) is awaiting your review.",
-            entity_type="Syllabus",
-            entity_id=str(syllabus_id),
-        )
-    except Exception:
-        logger.exception("syllabus submission dean-notify failed syllabus=%s", syllabus_id)
-
-
-@router.post("/{syllabus_id}/submit-for-review", response_model=SyllabusStatusResponse)
-async def submit_syllabus_for_review(
-    syllabus_id: UUID,
-    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusStatusResponse:
-    """DRAFT → PENDING_REVIEW. Faculty submits syllabus for Dean approval."""
-    try:
-        syllabus = await SyllabusService.submit_for_review(
-            syllabus_id, submitted_by=current_user.user_id, db=db
-        )
-    except SyllabusServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.SYLLABUS_APPROVED,  # reuse closest event type
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Syllabus",
-        target_id=str(syllabus_id),
-        metadata={"action": "SUBMIT_FOR_REVIEW", "version": syllabus.version},
-    )
-    await _notify_deans_of_syllabus_submission(syllabus_id, syllabus.version, db)
-    return SyllabusStatusResponse.model_validate(syllabus)
-
-
-@router.post("/{syllabus_id}/resubmit", response_model=SyllabusStatusResponse)
-async def resubmit_syllabus(
-    syllabus_id: UUID,
-    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusStatusResponse:
-    """REJECTED → PENDING_REVIEW. Faculty resubmits after addressing Dean feedback."""
-    try:
-        syllabus = await SyllabusService.resubmit(
-            syllabus_id, submitted_by=current_user.user_id, db=db
-        )
-    except SyllabusServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.SYLLABUS_RESUBMITTED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Syllabus",
-        target_id=str(syllabus_id),
-        metadata={"version": syllabus.version},
-    )
-    await _notify_deans_of_syllabus_submission(syllabus_id, syllabus.version, db)
-    return SyllabusStatusResponse.model_validate(syllabus)
-
 
 @router.post("/{syllabus_id}/approve", response_model=SyllabusStatusResponse)
 async def approve_syllabus(
     syllabus_id: UUID,
     payload: ApproveRequest,
-    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
-    """PENDING_REVIEW → DEAN_APPROVED. Dean approves faculty-submitted syllabus."""
+    """DRAFT -> APPROVED. The Board signs off one official syllabus.
+
+    This is a per-subject sign-off, not the curriculum decision. The curriculum
+    can only be approved once EVERY subject has passed through here — see
+    governance.approve_and_lock.
+    """
     try:
         syllabus = await SyllabusService.approve(
             syllabus_id, approved_by=current_user.user_id, db=db
@@ -595,194 +575,11 @@ async def approve_syllabus(
         schema_name=current_user.schema_name,
         target_entity="Syllabus",
         target_id=str(syllabus_id),
-        metadata={"action": "DEAN_APPROVED", "version": syllabus.version, "comment": payload.comment},
-    )
-    try:
-        from app.core.notifications.service import NotificationService
-        from app.core.notifications.models import NotificationType
-        faculty = await _lookup_user(syllabus.created_by_user_id, db=db)
-        await NotificationService.send(
-            NotificationType.SYLLABUS_APPROVED,
-            recipient_user_id=syllabus.created_by_user_id,
-            recipient_email=faculty.get("email"),
-            title="Syllabus Approved",
-            body=f"Your syllabus (v{syllabus.version}) has been approved by the Dean."
-                 + (f" Note: {payload.comment}" if payload.comment else ""),
-            entity_type="Syllabus",
-            entity_id=str(syllabus_id),
-            db=db,
-        )
-    except Exception:
-        logger.warning("m02.approve: notification failed (non-blocking)", exc_info=True)
-    return SyllabusStatusResponse.model_validate(syllabus)
-
-
-@router.post("/{syllabus_id}/reject", response_model=SyllabusStatusResponse)
-async def reject_syllabus(
-    syllabus_id: UUID,
-    payload: RejectRequest,
-    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusStatusResponse:
-    """PENDING_REVIEW → REJECTED. Dean rejects syllabus; faculty can edit and resubmit."""
-    try:
-        syllabus = await SyllabusService.reject(
-            syllabus_id,
-            reason=payload.reason,
-            db=db,
-        )
-    except SyllabusServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.SYLLABUS_REJECTED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Syllabus",
-        target_id=str(syllabus_id),
-        metadata={"reason": payload.reason, "version": syllabus.version},
-    )
-    # Notify the faculty who created the syllabus
-    try:
-        from app.core.notifications.service import NotificationService
-        from app.core.notifications.models import NotificationType
-        faculty = await _lookup_user(syllabus.created_by_user_id, db=db)
-        await NotificationService.send(
-            NotificationType.SYLLABUS_REJECTED,
-            recipient_user_id=syllabus.created_by_user_id,
-            recipient_email=faculty.get("email"),
-            title="Syllabus Rejected",
-            body=f"Your syllabus (v{syllabus.version}) was rejected by the Dean. Reason: {payload.reason}",
-            entity_type="Syllabus",
-            entity_id=str(syllabus_id),
-            db=db,
-        )
-    except Exception:
-        logger.warning("m02.reject: notification failed (non-blocking)", exc_info=True)
-    return SyllabusStatusResponse.model_validate(syllabus)
-
-
-@router.post("/{syllabus_id}/request-revision", response_model=SyllabusStatusResponse)
-async def request_revision(
-    syllabus_id: UUID,
-    payload: RequestRevisionRequest,
-    current_user: CurrentUser = Depends(require_roles(*_DEAN)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusStatusResponse:
-    """PENDING_REVIEW → REJECTED (revision type). Dean requests specific changes."""
-    try:
-        syllabus = await SyllabusService.request_revision(
-            syllabus_id,
-            comments=payload.comments,
-            db=db,
-        )
-    except SyllabusServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.SYLLABUS_REVISION_REQUESTED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Syllabus",
-        target_id=str(syllabus_id),
-        metadata={"comments": payload.comments, "version": syllabus.version},
-    )
-    try:
-        from app.core.notifications.service import NotificationService
-        from app.core.notifications.models import NotificationType
-        faculty = await _lookup_user(syllabus.created_by_user_id, db=db)
-        await NotificationService.send(
-            NotificationType.SYLLABUS_REVISION_REQUESTED,
-            recipient_user_id=syllabus.created_by_user_id,
-            recipient_email=faculty.get("email"),
-            title="Syllabus Revision Requested",
-            body=f"The Dean has requested revisions to your syllabus (v{syllabus.version}): {payload.comments}",
-            entity_type="Syllabus",
-            entity_id=str(syllabus_id),
-            db=db,
-        )
-    except Exception:
-        logger.warning("m02.request_revision: notification failed (non-blocking)", exc_info=True)
-    return SyllabusStatusResponse.model_validate(syllabus)
-
-
-@router.post("/{syllabus_id}/lock", response_model=SyllabusStatusResponse)
-async def lock_syllabus(
-    syllabus_id: UUID,
-    payload: LockRequest,
-    current_user: CurrentUser = Depends(require_roles(*_LOCK)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusStatusResponse:
-    try:
-        syllabus = await SyllabusService.lock(
-            syllabus_id, locked_by=current_user.user_id, db=db
-        )
-    except SyllabusServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.SYLLABUS_LOCKED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Syllabus",
-        target_id=str(syllabus_id),
-        metadata={"version": syllabus.version, "comment": payload.comment},
-    )
-
-    # M05 hook — mark related learning packages OUTDATED when syllabus is locked.
-    # Deferred import avoids circular dependency (M02 ↔ M05).
-    # Non-blocking: a bump failure must not prevent the lock from succeeding.
-    try:
-        from app.modules.m05_learning_materials.service import LearningPackageService
-        outdated_count = await LearningPackageService.on_syllabus_version_bump(
-            syllabus_id, db=db
-        )
-        if outdated_count > 0:
-            logger.info(
-                "m02.lock: %d M05 package(s) marked OUTDATED (syllabus=%s)",
-                outdated_count, syllabus_id,
-            )
-            await AuditService.log(
-                AuditEventType.LEARNING_PACKAGE_OUTDATED_BY_SYLLABUS_BUMP,
-                actor_user_id=current_user.user_id,
-                actor_role=current_user.role,
-                tenant_id=current_user.tenant_id,
-                schema_name=current_user.schema_name,
-                target_entity="Syllabus",
-                target_id=str(syllabus_id),
-                metadata={"outdated_packages": outdated_count, "syllabus_version": syllabus.version},
-            )
-    except Exception as exc:
-        logger.warning(
-            "m02.lock: M05 syllabus bump failed (non-blocking) syllabus=%s: %s",
-            syllabus_id, exc,
-        )
-
-    return SyllabusStatusResponse.model_validate(syllabus)
-
-
-@router.post("/{syllabus_id}/unlock", response_model=SyllabusStatusResponse)
-async def unlock_syllabus(
-    syllabus_id: UUID,
-    current_user: CurrentUser = Depends(require_roles(*_LOCK)),
-    db: AsyncSession = Depends(get_tenant_db_dep),
-) -> SyllabusStatusResponse:
-    try:
-        syllabus = await SyllabusService.unlock(syllabus_id, db=db)
-    except SyllabusServiceError as e:
-        raise _err(e)
-    await AuditService.log(
-        AuditEventType.SYLLABUS_UNLOCKED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Syllabus",
-        target_id=str(syllabus_id),
-        metadata={"syllabus_id": str(syllabus_id)},
+        metadata={
+            "version": syllabus.version,
+            "comment": payload.comment,
+            "program_id": str(await _program_id_for_syllabus(syllabus_id, db)),
+        },
     )
     return SyllabusStatusResponse.model_validate(syllabus)
 
@@ -791,9 +588,10 @@ async def unlock_syllabus(
 async def fork_syllabus(
     syllabus_id: UUID,
     payload: ForkRequest,
-    current_user: CurrentUser = Depends(require_roles(*_WRITE, TenantRole.DEAN)),
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusStatusResponse:
+    """Fork a syllabus version into a new DRAFT. Board only."""
     try:
         new_syllabus = await SyllabusService.fork(
             syllabus_id,
@@ -818,25 +616,6 @@ async def fork_syllabus(
             "change_note": payload.change_note,
         },
     )
-    # If Dean created this fork, notify the faculty who owns the course
-    if current_user.role == "DEAN":
-        try:
-            from app.core.notifications.service import NotificationService
-            from app.core.notifications.models import NotificationType
-            faculty = await _lookup_user(new_syllabus.created_by_user_id, db=db)
-            await NotificationService.send(
-                NotificationType.SYLLABUS_VERSION_CREATED,
-                recipient_user_id=new_syllabus.created_by_user_id,
-                recipient_email=faculty.get("email"),
-                title="New Syllabus Version Created",
-                body=f"The Dean created a new draft version (v{new_syllabus.version}) of your syllabus for revision."
-                     + (f" Note: {payload.change_note}" if payload.change_note else ""),
-                entity_type="Syllabus",
-                entity_id=str(new_syllabus.id),
-                db=db,
-            )
-        except Exception:
-            logger.warning("m02.fork: notification failed (non-blocking)", exc_info=True)
     return SyllabusStatusResponse.model_validate(new_syllabus)
 
 
@@ -889,7 +668,11 @@ async def add_outcome(
         schema_name=current_user.schema_name,
         target_entity="CourseOutcome",
         target_id=str(co.id),
-        metadata={"syllabus_id": str(syllabus_id), "code": co.code},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "code": co.code,
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return CourseOutcomeResponse.model_validate(co)
 
@@ -917,7 +700,11 @@ async def update_outcome(
         schema_name=current_user.schema_name,
         target_entity="CourseOutcome",
         target_id=str(co_id),
-        metadata={"syllabus_id": str(syllabus_id), "changes": payload.model_dump(exclude_none=True)},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "changes": payload.model_dump(exclude_none=True),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return CourseOutcomeResponse.model_validate(co)
 
@@ -941,7 +728,11 @@ async def delete_outcome(
         schema_name=current_user.schema_name,
         target_entity="CourseOutcome",
         target_id=str(co_id),
-        metadata={"syllabus_id": str(syllabus_id), "co_id": str(co_id)},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "co_id": str(co_id),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return {"status": "deleted"}
 
@@ -1027,7 +818,11 @@ async def add_unit(
         schema_name=current_user.schema_name,
         target_entity="SyllabusUnit",
         target_id=str(unit.id),
-        metadata={"syllabus_id": str(syllabus_id), "unit_number": unit.unit_number},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "unit_number": unit.unit_number,
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return SyllabusUnitResponse.model_validate(unit)
 
@@ -1052,7 +847,11 @@ async def update_unit(
         schema_name=current_user.schema_name,
         target_entity="SyllabusUnit",
         target_id=str(unit_id),
-        metadata={"syllabus_id": str(syllabus_id), "changes": payload.model_dump(exclude_none=True)},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "changes": payload.model_dump(exclude_none=True),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return SyllabusUnitResponse.model_validate(unit)
 
@@ -1076,7 +875,11 @@ async def delete_unit(
         schema_name=current_user.schema_name,
         target_entity="SyllabusUnit",
         target_id=str(unit_id),
-        metadata={"syllabus_id": str(syllabus_id), "unit_id": str(unit_id)},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "unit_id": str(unit_id),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return {"status": "deleted"}
 
@@ -1141,7 +944,11 @@ async def add_reference(
         schema_name=current_user.schema_name,
         target_entity="SyllabusReference",
         target_id=str(ref.id),
-        metadata={"syllabus_id": str(syllabus_id), "title": ref.title[:80]},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "title": ref.title[:80],
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return SyllabusReferenceResponse.model_validate(ref)
 
@@ -1166,7 +973,11 @@ async def update_reference(
         schema_name=current_user.schema_name,
         target_entity="SyllabusReference",
         target_id=str(ref_id),
-        metadata={"syllabus_id": str(syllabus_id), "changes": payload.model_dump(exclude_none=True)},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "changes": payload.model_dump(exclude_none=True),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return SyllabusReferenceResponse.model_validate(ref)
 
@@ -1190,7 +1001,11 @@ async def delete_reference(
         schema_name=current_user.schema_name,
         target_entity="SyllabusReference",
         target_id=str(ref_id),
-        metadata={"syllabus_id": str(syllabus_id), "ref_id": str(ref_id)},
+        metadata={
+            "syllabus_id": str(syllabus_id),
+            "ref_id": str(ref_id),
+            "program_id": await _program_id_for_syllabus(syllabus_id, db),
+        },
     )
     return {"status": "deleted"}
 

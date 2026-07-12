@@ -31,11 +31,25 @@ class NotificationType(str, enum.Enum):
     INTERNAL_MARKS_PUBLISHED = "INTERNAL_MARKS_PUBLISHED"
 
     # Syllabus lifecycle — M02
-    SYLLABUS_REJECTED           = "SYLLABUS_REJECTED"
-    SYLLABUS_REVISION_REQUESTED = "SYLLABUS_REVISION_REQUESTED"
+    #
+    # SYLLABUS_REJECTED / _REVISION_REQUESTED / _SUBMITTED belonged to the
+    # faculty-authors-syllabus workflow that Phase A removed. Nothing emits them
+    # any more; they are kept only so historical notification rows still
+    # deserialize. Do not add new emitters.
+    SYLLABUS_REJECTED           = "SYLLABUS_REJECTED"            # retired
+    SYLLABUS_REVISION_REQUESTED = "SYLLABUS_REVISION_REQUESTED"  # retired
+    SYLLABUS_SUBMITTED          = "SYLLABUS_SUBMITTED"           # retired
     SYLLABUS_APPROVED           = "SYLLABUS_APPROVED"
     SYLLABUS_VERSION_CREATED    = "SYLLABUS_VERSION_CREATED"
-    SYLLABUS_SUBMITTED          = "SYLLABUS_SUBMITTED"   # faculty submitted → dean
+
+    # Curriculum governance — Phase A. Two messages, one each way.
+    #
+    # SUBMITTED  Dean -> the Board ("there is a curriculum waiting for you") and
+    #            back to the Dean ("it has entered review; it is read-only now").
+    # FINALIZED  the Board -> the Dean, the one message that crosses back:
+    #            "your curriculum is finalized, here is what changed, publish it."
+    CURRICULUM_SUBMITTED        = "CURRICULUM_SUBMITTED"
+    CURRICULUM_FINALIZED        = "CURRICULUM_FINALIZED"
 
     # Academic ownership — Phase 1 Wave 1
     PROGRAM_ASSIGNED            = "PROGRAM_ASSIGNED"

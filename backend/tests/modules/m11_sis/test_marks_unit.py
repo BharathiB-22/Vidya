@@ -265,9 +265,31 @@ def test_lock_reopen_records_actor():
 # ---------------------------------------------------------------------------
 
 def test_create_component_verifies_assignment():
+    # Component creation resolves its class first; that resolution is what
+    # verifies the faculty actually teaches the course (in the section for a
+    # regular course, in the term for an elective group).
     from app.modules.m11_sis.marks_service import MarksService
     src = inspect.getsource(MarksService.create_component)
+    assert "_resolve_component_class" in src
+
+
+def test_resolve_component_class_verifies_faculty_on_both_paths():
+    from app.modules.m11_sis.marks_service import _resolve_component_class
+    src = inspect.getsource(_resolve_component_class)
+    # Elective: the class is the term, so the check is (course, semester).
+    assert "is_elective_course" in src
+    assert "_assert_faculty_teaches" in src
+    # Regular course: the class is the section, and the section still gates it.
     assert "_verify_faculty_assignment" in src
+
+
+def test_elective_component_rejects_a_section():
+    # An elective is taught to one combined class, never to a section. Passing a
+    # section would silently halve the roster, so the semester is required.
+    from app.modules.m11_sis.marks_service import _resolve_component_class
+    src = inspect.getsource(_resolve_component_class)
+    assert "SEMESTER_REQUIRED" in src
+    assert "return None, body.semester_id" in src
 
 
 def test_publish_component_checks_faculty_ownership():
@@ -283,17 +305,30 @@ def test_bulk_enter_checks_faculty_ownership():
 
 
 def test_verify_faculty_uses_subject_assignments():
-    from app.modules.m11_sis.marks_service import _verify_faculty_assignment
-    src = inspect.getsource(_verify_faculty_assignment)
+    # The subject_assignments lookup lives in _assert_faculty_teaches, keyed on
+    # (course, semester) so one faculty can own an elective spanning sections.
+    from app.modules.m11_sis.marks_service import _assert_faculty_teaches
+    src = inspect.getsource(_assert_faculty_teaches)
     assert "SubjectAssignment" in src
     assert "PRIMARY" in src
     assert "CO_FACULTY" in src
+    assert "semester_id" in src
 
 
 def test_verify_faculty_raises_not_assigned():
+    from app.modules.m11_sis.marks_service import _assert_faculty_teaches
+    src = inspect.getsource(_assert_faculty_teaches)
+    assert "NOT_ASSIGNED" in src
+
+
+def test_section_path_still_gates_on_the_section():
+    # A regular course must still resolve and validate its section before the
+    # assignment check — dropping that would let faculty mark any section.
     from app.modules.m11_sis.marks_service import _verify_faculty_assignment
     src = inspect.getsource(_verify_faculty_assignment)
-    assert "NOT_ASSIGNED" in src
+    assert "SECTION_NOT_FOUND" in src
+    assert "SECTION_INACTIVE" in src
+    assert "_assert_faculty_teaches" in src
 
 
 # ---------------------------------------------------------------------------

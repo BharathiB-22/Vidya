@@ -8,16 +8,15 @@ import type {
   CourseOutcome,
   CourseOutcomeCreate,
   CourseOutcomeUpdate,
+  DeanDocumentEditRequest,
   ExportSyllabusRequest,
   ForkRequest,
   GenerateSyllabusRequest,
   JobStatusResponse,
-  LockRequest,
   ReferenceCandidate,
   ReferenceSearchRequest,
-  RejectRequest,
-  RequestRevisionRequest,
   Syllabus,
+  RegenerateSectionRequest,
   SyllabusAIJobResponse,
   SyllabusCreate,
   SyllabusDetail,
@@ -100,8 +99,47 @@ export async function getJobStatus(
 // State transitions
 // ---------------------------------------------------------------------------
 
-export async function submitSyllabusForReview(id: string): Promise<SyllabusStatusResponse> {
-  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/submit-for-review`, {})
+// submitSyllabusForReview / rejectSyllabus / requestRevision / resubmitSyllabus /
+// lockSyllabus / unlockSyllabus are gone. The Board writes the official syllabus
+// and signs it off, so there is no handoff between two parties to model; and a
+// syllabus is locked by CURRICULUM approval, never on its own, and never unlocked.
+
+/**
+ * Rewrite ONE section of the document — a unit, the objectives, the outcomes, the
+ * text books, the practical components, or (for a lab manual, an internship, a
+ * project or a seminar) the whole type-specific body. Runs in the background; the
+ * rest of the document stays readable and editable while it does.
+ *
+ * Which sections are available depends on the course type: see
+ * `regenerableSections()` in types/syllabus. Asking for a section the document does
+ * not have is refused with 422.
+ */
+export async function regenerateSection(
+  id: string,
+  payload: RegenerateSectionRequest,
+): Promise<SyllabusAIJobResponse> {
+  const { data } = await api.post<SyllabusAIJobResponse>(`${BASE}/${id}/regenerate`, payload)
+  return data
+}
+
+/**
+ * The Dean adapting an APPROVED Internship / Mini Project / Major Project /
+ * Seminar document.
+ *
+ * Permitted because those documents depend on the company, the supervisor and
+ * institutional policy — things the Board cannot settle at approval time. A THEORY
+ * syllabus is refused with 403: the Board owns the taught curriculum, and the Dean
+ * publishes it without rewriting it.
+ *
+ * Unlike every other edit, this does NOT withdraw the Board's approval. The row is
+ * stamped instead (`dean_edited_at`), so the governance trail can always say which
+ * parts of the approved document the Board wrote and which the Dean did.
+ */
+export async function deanEditDocument(
+  id: string,
+  payload: DeanDocumentEditRequest,
+): Promise<Syllabus> {
+  const { data } = await api.patch<Syllabus>(`${BASE}/${id}/document/dean`, payload)
   return data
 }
 
@@ -113,45 +151,11 @@ export async function approveSyllabus(
   return data
 }
 
-export async function rejectSyllabus(
-  id: string,
-  payload: RejectRequest,
-): Promise<SyllabusStatusResponse> {
-  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/reject`, payload)
-  return data
-}
-
-export async function lockSyllabus(
-  id: string,
-  payload: LockRequest,
-): Promise<SyllabusStatusResponse> {
-  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/lock`, payload)
-  return data
-}
-
-export async function unlockSyllabus(id: string): Promise<SyllabusStatusResponse> {
-  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/unlock`, {})
-  return data
-}
-
 export async function forkSyllabus(
   id: string,
   payload: ForkRequest,
 ): Promise<SyllabusStatusResponse> {
   const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/fork`, payload)
-  return data
-}
-
-export async function requestRevision(
-  id: string,
-  payload: RequestRevisionRequest,
-): Promise<SyllabusStatusResponse> {
-  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/request-revision`, payload)
-  return data
-}
-
-export async function resubmitSyllabus(id: string): Promise<SyllabusStatusResponse> {
-  const { data } = await api.post<SyllabusStatusResponse>(`${BASE}/${id}/resubmit`, {})
   return data
 }
 

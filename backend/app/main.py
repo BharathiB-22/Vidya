@@ -27,6 +27,7 @@ from app.core.storage.router import router as storage_router
 from app.core.storage.provisioner import ensure_bucket_exists
 from app.core.calendar.router import router as calendar_router
 from app.core.timetable.router import router as timetable_router
+from app.core.governance.router import router as governance_router
 from app.modules.m01_program_advisor.router import router as program_router
 from app.modules.m02_syllabus.router import router as syllabus_router
 from app.modules.m03_course_kit.router import router as course_kit_router
@@ -181,6 +182,7 @@ app.include_router(labs_router, prefix="/labs")
 app.include_router(research_router, prefix="/research")
 app.include_router(calendar_router, prefix="/calendar")
 app.include_router(timetable_router, prefix="/timetable")
+app.include_router(governance_router, prefix="/governance")
 app.include_router(exam_router,        prefix="/exams")
 app.include_router(paper_admin_router, prefix="/scripts")
 app.include_router(evaluation_assignment_router, prefix="/evaluation-assignments")

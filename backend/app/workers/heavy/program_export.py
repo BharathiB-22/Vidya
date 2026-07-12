@@ -99,9 +99,14 @@ async def _run_export(
             program = await ProgramRepository.get_by_id(program_id, db=session)
             if program is None:
                 raise ValueError(f"Program {program_id} not found.")
-            if program.status != ProgramStatus.APPROVED:
+            # Exportable once the governance authority has locked it — and it stays
+            # exportable after the Dean publishes it. PUBLISHED is the same frozen
+            # content as APPROVED, one step later, so refusing to export it would
+            # mean the final, live curriculum is the one document nobody can print.
+            if program.status not in (ProgramStatus.APPROVED, ProgramStatus.PUBLISHED):
                 raise ValueError(
-                    f"Program {program_id} is not APPROVED; export rejected."
+                    f"Program {program_id} is {program.status.value}; only an "
+                    f"approved (locked) or published curriculum can be exported."
                 )
 
             outcomes = await ProgramOutcomeRepository.list_by_program(program_id, db=session)

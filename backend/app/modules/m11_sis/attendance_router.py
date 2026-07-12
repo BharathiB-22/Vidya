@@ -23,7 +23,7 @@ from app.core.auth.schemas import CurrentUser
 from app.modules.m11_sis.attendance_repository import DEFAULT_SHORTAGE_THRESHOLD
 from app.modules.m11_sis.attendance_schemas import (
     AttendanceDashboardOut, AttendanceMarkIn, AttendanceMarkResult, AttendanceRecordOut,
-    FacultyShortageReportOut, MyCourseAttendanceDetail, MyAttendanceSummary,
+    FacultyDayOut, FacultyShortageReportOut, MyCourseAttendanceDetail, MyAttendanceSummary,
     RecordEditIn, ReopenSessionIn,
     SectionAttendanceOut, SessionCreateIn, SessionOut, SessionUpdateIn,
     ShortageGroupedOut, ShortageReportOut,
@@ -35,9 +35,13 @@ attendance_router = APIRouter(tags=["M11 SIS Attendance"])
 _MANAGERS = (TenantRole.ADMIN, TenantRole.DEAN)
 _READERS  = (TenantRole.FACULTY, TenantRole.ADMIN, TenantRole.DEAN)
 _STUDENT  = (TenantRole.STUDENT,)
+# Write actions (create session, mark, edit, faculty dashboard) are faculty-only
+# — a base FACULTY role or a DEAN holding an active FACULTY responsibility grant.
+_FACULTY_WRITE = (TenantRole.FACULTY,)
 
-# DEAN users who hold an active FACULTY responsibility grant may also write.
-_faculty_write = require_responsibility(TenantRole.FACULTY)
+# The dependency derived from the tuple above, so the constant stays the single
+# source of truth for "who may take attendance".
+_faculty_write = require_responsibility(*_FACULTY_WRITE)
 
 
 def _err(e: AttendanceServiceError) -> HTTPException:
@@ -45,6 +49,23 @@ def _err(e: AttendanceServiceError) -> HTTPException:
         status_code=e.status_code,
         detail={"error": e.code, "message": e.message},
     )
+
+
+# ---------------------------------------------------------------------------
+# Faculty "today's classes" — redesigned dashboard
+# ---------------------------------------------------------------------------
+
+@attendance_router.get("/attendance/faculty/today", response_model=FacultyDayOut)
+async def faculty_today(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today"),
+    current_user: CurrentUser = Depends(_faculty_write),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> FacultyDayOut:
+    """The signed-in faculty's scheduled classes for a date, with class sizes and
+    whether attendance was already taken. Self-scoped to the caller."""
+    from datetime import date as _date
+    on_date = _date.fromisoformat(date) if date else _date.today()
+    return await AttendanceService.get_faculty_today(current_user.user_id, on_date, db)
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +353,10 @@ async def get_section_analytics(
     db: AsyncSession           = Depends(get_tenant_db_dep),
 ) -> SectionAttendanceOut:
     try:
-        return await AttendanceService.get_section_analytics(section_id, threshold, db)
+        return await AttendanceService.get_section_analytics(
+            section_id, threshold, db,
+            caller_role=current_user.role, caller_user_id=current_user.user_id,
+        )
     except AttendanceServiceError as e:
         raise _err(e)
 

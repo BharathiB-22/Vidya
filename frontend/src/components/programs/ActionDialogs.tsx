@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { CalendarRange } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -16,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { academicsApi } from '@/lib/api/academics'
 import type { Program, ProgramUpdate } from '@/types/program'
 
 // ---------------------------------------------------------------------------
@@ -43,6 +46,16 @@ export function EditProgramDialog({
   const [durationYears,   setDurationYears]   = useState(String(program.duration_years))
   const [totalCredits,    setTotalCredits]    = useState(String(program.total_credits))
   const [aiInstructions,  setAiInstructions]  = useState(program.ai_instructions ?? '')
+  const [academicYear,    setAcademicYear]    = useState(program.academic_year ?? '')
+  const [batchId,         setBatchId]         = useState(program.effective_from_batch_id ?? '')
+
+  // Batches belong to the linked academic programme, so we can only offer the
+  // ones that actually apply to this curriculum.
+  const { data: batches = [] } = useQuery({
+    queryKey: ['academics', 'batches', program.acad_program_id],
+    queryFn: () => academicsApi.listBatches(program.acad_program_id ?? undefined),
+    enabled: open,
+  })
 
   useEffect(() => {
     if (open) {
@@ -52,6 +65,8 @@ export function EditProgramDialog({
       setDurationYears(String(program.duration_years))
       setTotalCredits(String(program.total_credits))
       setAiInstructions(program.ai_instructions ?? '')
+      setAcademicYear(program.academic_year ?? '')
+      setBatchId(program.effective_from_batch_id ?? '')
     }
   }, [open, program])
 
@@ -65,6 +80,11 @@ export function EditProgramDialog({
     if (Number(totalCredits)  !== program.total_credits)       payload.total_credits  = Number(totalCredits)
     const instrNorm = aiInstructions.trim() || null
     if (instrNorm !== (program.ai_instructions ?? null))       payload.ai_instructions = instrNorm ?? undefined
+    const yearNorm = academicYear.trim() || null
+    if (yearNorm !== (program.academic_year ?? null))          payload.academic_year = yearNorm ?? undefined
+    if ((batchId || null) !== (program.effective_from_batch_id ?? null)) {
+      payload.effective_from_batch_id = batchId || undefined
+    }
     if (Object.keys(payload).length === 0) { onOpenChange(false); return }
     onSubmit(payload)
     onOpenChange(false)
@@ -111,6 +131,48 @@ export function EditProgramDialog({
               />
             </div>
           </div>
+          {/* Which batch this curriculum version governs.
+              Required before it can be submitted, and NOT changeable afterwards:
+              an approved curriculum is immutable, and students stay on the version
+              they were admitted under — so the question has to be answered before
+              it is frozen, not after. */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
+            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+              <CalendarRange className="h-3.5 w-3.5" />
+              Which batch does this curriculum govern?
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Academic Year</label>
+                <Input
+                  value={academicYear}
+                  onChange={e => setAcademicYear(e.target.value)}
+                  placeholder="2026-2028"
+                  maxLength={9}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Applicable Batch</label>
+                <Select value={batchId} onValueChange={setBatchId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={batches.length ? 'Select a batch' : 'No batches available'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {batches.map(b => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name} ({b.start_year}–{b.end_year})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              Earlier batches stay on the version they were admitted under. Both are required before
+              you can submit, and cannot be changed once the curriculum is approved.
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               AI Instructions
@@ -320,7 +382,7 @@ export function ApproveDialog({
           )}
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
             Approved programs stay editable. Use Publish when ready to lock the program and make
-            its elective courses available in Elective Offerings.
+            its courses count for Academic Ownership and faculty assignment.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -385,8 +447,8 @@ export function PublishDialog({
             />
           </div>
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-            Publishing permanently locks this program — no further edits or deletion. Its
-            elective-tagged courses become available in Elective Offerings.
+            Publishing permanently locks this program — no further edits or deletion. Its courses
+            become assignable and start counting toward Academic Ownership.
           </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

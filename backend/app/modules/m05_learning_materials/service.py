@@ -377,6 +377,20 @@ class LearningPackageService:
     # =========================================================================
 
     @staticmethod
+    async def _faculty_can_see_syllabus(
+        syllabus_id: UUID, faculty_user_id: UUID, *, db: AsyncSession
+    ) -> bool:
+        """A faculty may see a package only for a course they teach. Resolves the
+        package's syllabus to its course, then reuses the shared ownership guard."""
+        from app.modules.m02_syllabus.repository import SyllabusRepository
+        from app.modules.m_academics.faculty_scope import faculty_teaches_course
+
+        syllabus = await SyllabusRepository.get_by_id(syllabus_id, db=db)
+        if syllabus is None:
+            return False
+        return await faculty_teaches_course(faculty_user_id, syllabus.course_id, db)
+
+    @staticmethod
     async def get_package(
         package_id: UUID,
         *,
@@ -385,8 +399,17 @@ class LearningPackageService:
         db: AsyncSession,
     ) -> LearningPackage | None:
         pkg = await LearningPackageRepository.get_by_id(package_id, db=db)
-        if pkg is not None and caller_role == "DEAN" and caller_user_id is not None:
+        if pkg is None:
+            return None
+        if caller_role == "DEAN" and caller_user_id is not None:
             if not await LearningPackageService._dean_can_see_syllabus(
+                pkg.syllabus_id, caller_user_id, db=db
+            ):
+                return None
+        # A faculty sees a package only for a course they teach — without this,
+        # every colleague's materials are one guessable id away.
+        if caller_role == "FACULTY" and caller_user_id is not None:
+            if not await LearningPackageService._faculty_can_see_syllabus(
                 pkg.syllabus_id, caller_user_id, db=db
             ):
                 return None
@@ -465,6 +488,39 @@ class LearningPackageService:
                         db=db,
                     )
                     return total, items
+
+        # A faculty sees only packages for courses they teach. Mirrors the DEAN
+        # branch above, scoped by assignment instead of governed programme.
+        if caller_role == "FACULTY" and caller_user_id is not None:
+            from sqlalchemy import select
+            from app.modules.m02_syllabus.models import Syllabus
+            from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
+
+            if syllabus_id is not None:
+                if not await LearningPackageService._faculty_can_see_syllabus(
+                    syllabus_id, caller_user_id, db=db
+                ):
+                    return 0, []
+            else:
+                assignments = await SubjectAssignmentRepository.list_by_faculty(
+                    caller_user_id, db=db
+                )
+                course_ids = list({a.course_id for a in assignments})
+                if not course_ids:
+                    return 0, []
+                taught_syllabus_ids = list(
+                    (await db.execute(
+                        select(Syllabus.id).where(Syllabus.course_id.in_(course_ids))
+                    )).scalars().all()
+                )
+                total = await LearningPackageRepository.count_by_syllabus_ids(
+                    taught_syllabus_ids, status_filter=status_filter, db=db
+                )
+                items = await LearningPackageRepository.list_by_syllabus_ids(
+                    taught_syllabus_ids,
+                    status_filter=status_filter, offset=offset, limit=page_size, db=db,
+                )
+                return total, items
 
         if syllabus_id is not None:
             total = await LearningPackageRepository.count_by_syllabus(

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Crown, BookOpen, GraduationCap, ShieldCheck } from 'lucide-react'
+import { Crown, BookOpen, GraduationCap, ShieldCheck, Landmark } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth, effectiveRoles } from '@/lib/auth'
 
@@ -21,9 +21,15 @@ export interface WorkspaceDef {
 // "My Responsibilities" under Dean, "Evaluate"/"Research" under Faculty).
 // Add a new workspace here (and it needs nothing else) once its own
 // dedicated navigation exists (e.g. Board).
+// BOARD is a full workspace as of Phase A: the governance authority now owns the
+// curriculum and has its own navigation (Curriculum Review, Approved Curricula).
+// Its label is intentionally NOT hardcoded here — a tenant may call it "Board" or
+// "University Members" — so the switcher overrides `label` at render time from
+// `useGovernance()`. See WorkspaceSwitcher and Sidebar.
 export const WORKSPACES: WorkspaceDef[] = [
   { key: 'ADMIN',   label: 'Admin',   icon: ShieldCheck,   homeRoute: '/dashboard' },
   { key: 'DEAN',    label: 'Dean',    icon: Crown,          homeRoute: '/dashboard' },
+  { key: 'BOARD',   label: 'Board',   icon: Landmark,       homeRoute: '/governance/curriculum' },
   { key: 'FACULTY', label: 'Faculty', icon: BookOpen,       homeRoute: '/dashboard' },
   { key: 'STUDENT', label: 'Student', icon: GraduationCap,  homeRoute: '/dashboard' },
 ]

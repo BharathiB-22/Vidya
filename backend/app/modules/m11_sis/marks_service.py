@@ -39,6 +39,7 @@ from app.modules.m11_sis.marks_schemas import (
     StudentComponentView, StudentCourseMarks, StudentReadiness,
     SectionStudentMarks, FacultyCourseComponentSummary,
 )
+from app.modules.m_academics.class_roster import is_elective_course
 from app.modules.m_academics.models import AcadSection, SubjectAssignment
 
 logger = logging.getLogger("vidya.sis.marks")
@@ -112,6 +113,31 @@ def _entry_out(row: dict) -> MarkEntryOut:
     )
 
 
+async def _assert_faculty_teaches(
+    course_id: UUID,
+    semester_id: UUID,
+    faculty_id: UUID,
+    db: AsyncSession,
+) -> None:
+    assignment = (
+        await db.execute(
+            select(SubjectAssignment)
+            .where(SubjectAssignment.course_id       == course_id)
+            .where(SubjectAssignment.semester_id     == semester_id)
+            .where(SubjectAssignment.faculty_user_id == faculty_id)
+            .where(SubjectAssignment.is_active.is_(True))
+            .where(SubjectAssignment.role_in_course.in_(["PRIMARY", "CO_FACULTY"]))
+        )
+    ).scalar_one_or_none()
+
+    if assignment is None:
+        raise MarksServiceError(
+            "NOT_ASSIGNED",
+            "You must be an active PRIMARY or CO_FACULTY for this course to manage marks.",
+            403,
+        )
+
+
 async def _verify_faculty_assignment(
     course_id: UUID,
     section_id: UUID,
@@ -126,24 +152,38 @@ async def _verify_faculty_assignment(
     if not section.is_active:
         raise MarksServiceError("SECTION_INACTIVE", "Section is inactive.", 400)
 
-    assignment = (
-        await db.execute(
-            select(SubjectAssignment)
-            .where(SubjectAssignment.course_id       == course_id)
-            .where(SubjectAssignment.semester_id     == section.semester_id)
-            .where(SubjectAssignment.faculty_user_id == faculty_id)
-            .where(SubjectAssignment.is_active.is_(True))
-            .where(SubjectAssignment.role_in_course.in_(["PRIMARY", "CO_FACULTY"]))
-        )
-    ).scalar_one_or_none()
-
-    if assignment is None:
-        raise MarksServiceError(
-            "NOT_ASSIGNED",
-            "You must be an active PRIMARY or CO_FACULTY for this course to manage marks.",
-            403,
-        )
+    await _assert_faculty_teaches(course_id, section.semester_id, faculty_id, db)
     return section
+
+
+async def _resolve_component_class(
+    body: ComponentCreateIn,
+    faculty_id: UUID,
+    db: AsyncSession,
+) -> tuple[Optional[UUID], UUID]:
+    """Which class this component belongs to: `(section_id, semester_id)`.
+
+    `section_id is None` marks an elective group — one component covering every
+    student who chose the elective, not one per contributing section. Mirrors
+    `attendance_service._resolve_session_class` so the two rosters agree.
+    """
+    if await is_elective_course(body.course_id, db):
+        if body.semester_id is None:
+            raise MarksServiceError(
+                "SEMESTER_REQUIRED",
+                "This is an elective. Pass semester_id — its class is every student "
+                "who chose it this semester, not a section.",
+                422,
+            )
+        await _assert_faculty_teaches(body.course_id, body.semester_id, faculty_id, db)
+        return None, body.semester_id
+
+    if body.section_id is None:
+        raise MarksServiceError(
+            "SECTION_REQUIRED", "This course is taught per section. Pass section_id.", 422,
+        )
+    section = await _verify_faculty_assignment(body.course_id, body.section_id, faculty_id, db)
+    return body.section_id, section.semester_id
 
 
 async def _notify_safe(*, notification_type, recipient_user_id, recipient_email, title, body, entity_id, db):
@@ -182,13 +222,13 @@ class MarksService:
         schema_name: Optional[str],
         db: AsyncSession,
     ) -> ComponentOut:
-        await _verify_faculty_assignment(body.course_id, body.section_id, actor_id, db)
+        section_id, semester_id = await _resolve_component_class(body, actor_id, db)
 
         component = SisMarksComponent(
             id=uuid.uuid4(),
             course_id=body.course_id,
-            section_id=body.section_id,
-            semester_id=body.semester_id,
+            section_id=section_id,
+            semester_id=semester_id,
             created_by=actor_id,
             component_type=body.component_type,
             name=body.name,
@@ -214,12 +254,14 @@ class MarksService:
                 "component_type": body.component_type,
                 "max_marks": float(body.max_marks),
                 "course_id": str(body.course_id),
-                "section_id": str(body.section_id),
+                "section_id": str(section_id) if section_id else None,
+                "semester_id": str(semester_id),
+                "is_elective_group": section_id is None,
             },
         )
 
         rows = await MarksRepository.list_components_enriched(
-            course_id=body.course_id, section_id=body.section_id, db=db
+            course_id=body.course_id, section_id=section_id, db=db
         )
         row = next((r for r in rows if r["id"] == component.id), None)
         if row is None:
@@ -417,7 +459,7 @@ class MarksService:
     async def _notify_students_on_publish(component: SisMarksComponent, db: AsyncSession) -> None:
         try:
             from app.core.notifications.models import NotificationType
-            students = await MarksRepository.get_enrolled_students(component.section_id, db)
+            students = await MarksRepository.get_class_students(component, db)
             course_row = (await db.execute(
                 text("SELECT code, title FROM courses WHERE id = :id"),
                 {"id": str(component.course_id)},
@@ -747,7 +789,7 @@ class MarksService:
             )
 
         # Build email → student lookup
-        enrolled = await MarksRepository.get_enrolled_students(component.section_id, db)
+        enrolled = await MarksRepository.get_class_students(component, db)
         email_map = {s["email"].lower(): s for s in enrolled}
 
         rows: list[MarksImportRowResult] = []
@@ -887,7 +929,7 @@ class MarksService:
         if component is None:
             raise MarksServiceError("COMPONENT_NOT_FOUND", "Component not found.", 404)
 
-        rows = await MarksRepository.get_enrolled_with_entries(component_id, component.section_id, db)
+        rows = await MarksRepository.get_enrolled_with_entries(component, db)
 
         import openpyxl
         from openpyxl.styles import Font, PatternFill
