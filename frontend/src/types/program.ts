@@ -53,15 +53,49 @@ export type CourseType =
   | 'MAJOR_PROJECT'
   | 'SEMINAR'
 
-/** The types whose official document is NOT a syllabus, and which the Dean may
- *  therefore adapt after Board approval (they depend on the company, the
- *  supervisor and institutional policy). */
+/**
+ * A standard semester. Contact hours are (L + T + P) × this — the total taught hours
+ * across the semester, which is what a university syllabus prints, not the weekly load.
+ *
+ * Mirrors WEEKS_PER_SEMESTER in m02/formatting.py. The server is the source of truth and
+ * sends contact hours on the syllabus header; this exists only for the one screen that
+ * has a course but no syllabus yet, and therefore nothing to read them from.
+ */
+export const WEEKS_PER_SEMESTER = 15
+
+/** The types whose official document is NOT a syllabus — no units, ever. */
 export const NON_SYLLABUS_TYPES: readonly CourseType[] = [
   'INTERNSHIP',
   'MINI_PROJECT',
   'MAJOR_PROJECT',
   'SEMINAR',
 ]
+
+/**
+ * WHO OWNS WHAT. Mirrors the backend rule (m01/models.py) — and the backend is what
+ * enforces it; this only decides what the interface offers.
+ *
+ * The Board of Studies is an academic body. It owns the TAUGHT curriculum: theory
+ * subjects, laboratories, and the elective options a student chooses between. It
+ * writes their syllabi, approves them, and locks them.
+ *
+ * An internship, a mini project, a major project and a seminar are not taught. What
+ * those documents contain depends on the host company, the supervisor and the review
+ * calendar — none of which a Board can know. They belong to the DEAN, entirely: he
+ * creates them, drafts them, approves them and publishes them. The Board decides only
+ * THAT the curriculum has an internship, never what the internship is.
+ */
+export const EXECUTION_TYPES: readonly CourseType[] = NON_SYLLABUS_TYPES
+
+/** A Dean-owned execution document. The Board never touches one. */
+export function isExecutionDocument(courseType: CourseType | null | undefined): boolean {
+  return EXECUTION_TYPES.includes((courseType ?? 'THEORY') as CourseType)
+}
+
+/** A subject the Board teaches, examines, and owns the syllabus of. */
+export function isTeachingSubject(courseType: CourseType | null | undefined): boolean {
+  return !isExecutionDocument(courseType)
+}
 
 /** What the Board actually produces for each type — used wherever the UI would
  *  otherwise say "Syllabus" for a document that is not one. */

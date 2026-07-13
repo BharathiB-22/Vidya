@@ -15,6 +15,8 @@ import dataclasses
 import hashlib
 import json
 import logging
+import re
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger("vidya.m02.ai_provider")
@@ -22,6 +24,7 @@ logger = logging.getLogger("vidya.m02.ai_provider")
 from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
+from app.modules.m02_syllabus.formatting import roman
 from app.modules.m02_syllabus.models import BloomLevel, RefType
 
 
@@ -78,7 +81,7 @@ class SyllabusGenerationContext:
     # most consequential field in this context: it does not tune the syllabus, it
     # decides whether there is a syllabus at all.
     #
-    #   THEORY         a full syllabus, Unit I-V
+    #   THEORY         a full syllabus, Unit I-IV or I-V
     #   LAB            a lab manual and experiment list — NO theory units
     #   INTERNSHIP     no syllabus. Guidelines, rubric, weekly activities, viva
     #   MINI_PROJECT   no syllabus. Milestones, deliverables, reviews, rubrics
@@ -87,6 +90,69 @@ class SyllabusGenerationContext:
     #
     # Defaulting to THEORY is safe and is what every pre-V2.3 caller meant.
     course_type:         str = "THEORY"
+
+    # HOW MANY units the Board asked for — four or five, decided before generation.
+    #
+    # Five is not a universal format: plenty of AICTE / VTU / autonomous regulations
+    # run to four. It is the Board's call, so it is asked for exactly and validated
+    # exactly — a five-unit response to a four-unit curriculum is rejected, not
+    # trimmed, because trimming would silently drop a fifth of the subject.
+    #
+    # Ignored by every non-theory type: they have no units.
+    unit_count:          int = 5
+
+    # The hours ALREADY ALLOCATED to the unit being regenerated, if any. Section
+    # regeneration only (see _build_section_prompt).
+    #
+    # The Board's hour allocation survives a unit rewrite: the total across the units
+    # is the course's taught hours, and letting the model re-pick one unit's hours in
+    # isolation would quietly break that total. So the model is told what the unit is
+    # taught for and paces its topics to fit.
+    unit_hours:          int | None = None
+
+    # The Board's hours for EVERY unit — [10, 8, 12, 10] — chosen before generation.
+    #
+    # Hours are a teaching decision, not a drafting one: they come out of the
+    # timetable and the credit structure, and the model has no way of knowing that
+    # Unit III is the heavy one this year. So when the Board states them, the model is
+    # told what it is writing to and paces each unit's topics accordingly, and the
+    # hours it returns are overwritten with these (see the worker).
+    #
+    # Empty means "the Board did not say" — the model then paces the units against
+    # the contact hours on its own, which is what it has always done.
+    unit_hours_plan:     list[int] = dataclasses.field(default_factory=list)
+
+    # Every topic the EARLIER units of this syllabus already teach.
+    #
+    # A syllabus written unit by unit will, left alone, teach linked lists three times:
+    # each unit is a fresh request, and the model has no memory of the last one. So each
+    # unit is told what has already been taught and is REJECTED if it repeats any of it
+    # — the check is mechanical (ai_provider._validate_units), not a plea in the prompt.
+    used_topics:         list[str] = dataclasses.field(default_factory=list)
+
+    # WHERE this unit sits on the course's arc — "foundational", "intermediate",
+    # "advanced". Assigned by the outline, which divides the whole course at once and
+    # is therefore the only step that can see the progression. A unit told nothing
+    # about its level restates the basics, because the basics are what a model reaches
+    # for when asked about a subject in isolation.
+    unit_level:          str | None = None
+
+    # The units this syllabus ACTUALLY teaches, once they have been written —
+    # ["Unit I — Linear Data Structures: Abstract Data Types, ...", ...].
+    #
+    # Objectives, outcomes and reading are drafted AFTER the units, and this is what
+    # they are drafted against. A course outcome written before the syllabus exists is
+    # a guess about what the course will teach; written after it, it is a statement
+    # about what the course does teach, and the two are not the same document.
+    unit_summary:        list[str] = dataclasses.field(default_factory=list)
+
+    # What went wrong LAST time, fed back into the next attempt.
+    #
+    # A syllabus is regenerated until it is deep enough to publish, and a retry that
+    # says nothing about the failure is a retry that reproduces it. This carries the
+    # violations — "Unit III has 4 topics" — into the prompt of the next attempt, so
+    # the model is fixing a specific fault rather than rolling the dice again.
+    retry_feedback:      str | None = None
 
 
 @dataclasses.dataclass
@@ -140,12 +206,18 @@ _VALID_MAPPING_STRENGTHS = {"HIGH", "MEDIUM", "LOW"}
 class _TopicAI(BaseModel):
     """One line of a unit — an academic topic as it PRINTS in the regulation.
 
-    These are the bullets under a unit heading, and there are 12-20 of them per
-    unit. The 8-character floor is the crudest possible guard against the failure
-    this whole feature exists to stop: a model asked for topics will happily return
-    "Basics", "Overview", "Intro". `_FILLER_CONCEPTS` catches the rest by name.
+    These are the bullets under a unit heading, and there are 10-15 of them per unit.
+
+    The floor is THREE characters, not eight. Eight was a crude proxy for "not filler"
+    and it was wrong: 'B-Trees', 'Arrays', 'Stack', 'Queue', 'Trees' and 'Hashing' are
+    all real headings in a real Anna University syllabus, and every one of them was
+    being rejected — taking the whole unit, and eventually the whole syllabus, with it.
+    A length cannot tell a topic from a placeholder. `_FILLER_CONCEPTS` names the
+    placeholders ('Basics', 'Overview', 'Introduction'), `_is_explanation` catches the
+    other failure (a sentence pretending to be a heading), and both judge the words
+    rather than counting them.
     """
-    title:          str = Field(..., min_length=8)
+    title:          str = Field(..., min_length=3)
     description:    str | None = None
     hours_estimate: int | None = Field(default=None, ge=1)
     subtopics:      list[str]  = Field(default_factory=list)
@@ -154,9 +226,24 @@ class _TopicAI(BaseModel):
 
 
 class _COAI(BaseModel):
+    """One Course Outcome — and the accreditation data hanging off it.
+
+    NOTHING HERE IS DEFAULTED.
+
+    `bloom_level` and `po_mapping_strengths` are not decoration. They are the CO-PO
+    matrix, which is what NBA and NAAC actually read: the Bloom level is the cognitive
+    level the university claims to teach at, and the strength is how strongly it claims
+    this outcome drives that programme outcome. Both used to be filled in silently when
+    the model omitted them — APPLY, and MEDIUM — so a syllabus could reach an approved
+    regulation, be locked, and be submitted to an accreditation body carrying claims
+    that no academic ever made and no model ever wrote.
+
+    A missing Bloom level is now a FAILED generation, retried. So is a missing strength.
+    They are cheap to regenerate and impossible to un-submit.
+    """
     code:                  str = Field(..., min_length=1, max_length=20)
     description:           str = Field(..., min_length=15)
-    bloom_level:           str = "APPLY"
+    bloom_level:           str
     suggested_po_codes:    list[str] = Field(default_factory=list)
     po_mapping_strengths:  dict[str, str] = Field(default_factory=dict)
     # po_code -> "HIGH" | "MEDIUM" | "LOW" — how strongly this CO supports that PO.
@@ -164,7 +251,14 @@ class _COAI(BaseModel):
     @model_validator(mode="after")
     def _check_bloom(self) -> _COAI:
         up = (self.bloom_level or "").upper().strip()
-        self.bloom_level = up if up in _VALID_BLOOM else "APPLY"
+        if up not in _VALID_BLOOM:
+            raise ValueError(
+                f"'{self.code}' has no valid Bloom's level ({self.bloom_level!r}). It is "
+                f"the cognitive level this course claims to teach at, it is read by "
+                f"NBA and NAAC, and it is not ours to guess. One of: "
+                f"{', '.join(sorted(_VALID_BLOOM))}."
+            )
+        self.bloom_level = up
         return self
 
     @model_validator(mode="after")
@@ -172,7 +266,13 @@ class _COAI(BaseModel):
         normalized: dict[str, str] = {}
         for po_code in self.suggested_po_codes:
             raw = str(self.po_mapping_strengths.get(po_code, "")).upper().strip()
-            normalized[po_code] = raw if raw in _VALID_MAPPING_STRENGTHS else "MEDIUM"
+            if raw not in _VALID_MAPPING_STRENGTHS:
+                raise ValueError(
+                    f"'{self.code}' claims to support {po_code} but does not say how "
+                    f"strongly ({raw or 'nothing'!r}). That figure IS the CO-PO matrix "
+                    f"an accreditation body reads. One of: HIGH, MEDIUM, LOW."
+                )
+            normalized[po_code] = raw
         self.po_mapping_strengths = normalized
         return self
 
@@ -181,9 +281,9 @@ class _UnitAI(BaseModel):
     unit_number: int  = Field(..., ge=1)
     title:       str  = Field(..., min_length=3)
 
-    # The unit's syllabus lines — 12 to 20 of them. THIS is what prints:
+    # The unit's syllabus lines — 10 to 15 of them. THIS is what prints:
     #
-    #   UNIT I - INTRODUCTION TO COMPUTER SYSTEMS              (12 Hours)
+    #   UNIT I - INTRODUCTION TO COMPUTER SYSTEMS              (10 Hours)
     #     • Evolution of Computing
     #     • Characteristics of Computer Systems
     #     • Functional Units
@@ -193,11 +293,13 @@ class _UnitAI(BaseModel):
     #
     # The count floor is the single most important constraint in this file. A model
     # asked for "topics" returns four or five and stops; a real AICTE / Anna
-    # University / VTU unit runs to 12-15 lines, and a Board that has to write ten
+    # University / VTU unit runs to 10-15 lines, and a Board that has to write six
     # more per unit by hand is not being helped by the AI at all.
     #
-    # Eight, not twelve, because a dense unit on a narrow subject legitimately runs
-    # to eight — see MIN_TOPICS_PER_UNIT. Two, three or four never is.
+    # Eight here rather than the real floor of ten (MIN_TOPICS_PER_UNIT), on purpose:
+    # a nine-topic unit should fail the BUSINESS rule, which says exactly what is
+    # wrong with it and how deep a unit has to be, not the schema, which fails with
+    # an opaque parse error. Below eight there is nothing worth diagnosing.
     topics:      list[_TopicAI] = Field(..., min_length=8)
 
     # A prose rendering of the same material, for regulations that print units as a
@@ -499,6 +601,43 @@ class _PracticalsOnlyAI(BaseModel):
     practical_components: list[str] = Field(..., min_length=6)
 
 
+_LEVELS = ("foundational", "intermediate", "advanced")
+
+
+class _PlannedUnitAI(BaseModel):
+    """One unit of the OUTLINE: its title, what it covers, and how hard it is.
+
+    The outline is what stops a unit-at-a-time syllabus from becoming five essays on
+    the same subject. Written first and in one piece, it decides how the course is
+    divided; each unit is then drafted against its own slice of it, knowing what the
+    others hold.
+
+    It is an INTERNAL planning step and nothing else. It is never stored, never shown,
+    and never editable: the curriculum the Board wrote is the source of truth, and an
+    outline that could be edited would be a second one.
+    """
+    unit_number: int = Field(..., ge=1)
+    title:       str = Field(..., min_length=3)
+    scope:       str = Field(..., min_length=20)   # what this unit covers, in a line
+
+    # foundational -> intermediate -> advanced. A course is a progression, and the
+    # outline is the only step that sees the whole of it: a unit drafted in isolation
+    # reaches for the basics whatever number it carries.
+    level:       str = "intermediate"
+
+    @model_validator(mode="after")
+    def _check_level(self) -> _PlannedUnitAI:
+        if (self.level or "").lower().strip() not in _LEVELS:
+            self.level = "intermediate"   # never reject a syllabus over an adjective
+        else:
+            self.level = self.level.lower().strip()
+        return self
+
+
+class _OutlineAI(BaseModel):
+    units: list[_PlannedUnitAI]
+
+
 # What the caller may ask to be rewritten.
 SECTION_UNIT       = "UNIT"
 SECTION_OBJECTIVES = "OBJECTIVES"
@@ -508,6 +647,11 @@ SECTION_BOOKS      = "BOOKS"
 SECTION_PRACTICALS = "PRACTICALS"
 SECTION_DOCUMENT   = "DOCUMENT"
 
+# INTERNAL. The first step of a theory generation, never a Board-facing "regenerate
+# this" — there is nothing in the printed syllabus called an outline. It divides the
+# course into its units before any of them is written.
+SECTION_OUTLINE    = "OUTLINE"
+
 _SECTION_SCHEMAS = {
     SECTION_UNIT:       _UnitOnlyAI,
     SECTION_OBJECTIVES: _ObjectivesOnlyAI,
@@ -515,6 +659,7 @@ _SECTION_SCHEMAS = {
     SECTION_REFERENCES: _ReferencesOnlyAI,
     SECTION_BOOKS:      _BooksOnlyAI,
     SECTION_PRACTICALS: _PracticalsOnlyAI,
+    SECTION_OUTLINE:    _OutlineAI,
 }
 
 
@@ -537,6 +682,7 @@ class SectionGenerationResult:
     section:           str
     unit:              dict | None = None
     units:             list[dict] | None = None   # DOCUMENT regeneration of a THEORY syllabus
+    outline:           list[dict] | None = None   # OUTLINE — the planned units
     objectives:        list[str] | None = None
     outcomes:          list[dict] | None = None
     reference_queries: list[dict] | None = None
@@ -634,17 +780,21 @@ def _validate_reference_queries(queries) -> list[str]:
 
 
 def _validate_theory(parsed: _SyllabusAI, ctx: SyllabusGenerationContext) -> list[str]:
-    """The theory syllabus: five units, each with the depth of a real regulation."""
+    """The theory syllabus: the units the BOARD asked for, each with the depth of a
+    real regulation."""
     errors: list[str] = []
+    wanted = resolve_unit_count(ctx.unit_count)
 
-    # HARD, unlike the count checks in _validate_result: the official format is Unit
-    # I to Unit V, and a syllabus that prints only four of them is not the document
-    # the Board publishes. Phrased without the words "minimum required is" precisely
-    # so that `_is_soft_violation` does not wave it through.
-    if len(parsed.units) != 5:
+    # HARD, unlike the count checks in _validate_result: the Board decided this
+    # curriculum is taught in `wanted` units, and a syllabus with a different number
+    # is not the document it asked for. Nor can it be trimmed to fit — dropping the
+    # fifth unit of a five-unit response would drop a fifth of the subject with it.
+    # Phrased without the words "minimum required is" precisely so that
+    # `_is_soft_violation` does not wave it through.
+    if len(parsed.units) != wanted:
         errors.append(
-            f"AI returned {len(parsed.units)} units. The official university format "
-            "is EXACTLY five — Unit I to Unit V."
+            f"AI returned {len(parsed.units)} units. The Board asked for EXACTLY "
+            f"{wanted} — Unit I to Unit {roman(wanted)}."
         )
 
     # A theory course with no practical hours must not sprout laboratory work. HARD:
@@ -761,12 +911,63 @@ def _validate_guideline_document(parsed: BaseModel, course_type: str) -> list[st
     return errors
 
 
-def _validate_units(units) -> list[str]:
+def _normalize_topic(title: str) -> str:
+    """A topic reduced to what it MEANS, for comparing one unit's against another's.
+
+    'Doubly Linked Lists', 'Doubly-Linked List' and 'The Doubly Linked List' are one
+    topic taught three times, and a syllabus that does that has a hole in it somewhere
+    else. Punctuation, articles, case and a trailing plural all go.
+    """
+    text = re.sub(r"[^a-z0-9 ]+", " ", title.lower())
+    words = [w for w in text.split() if w not in _STOPWORDS]
+    return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words)
+
+
+_STOPWORDS = {"the", "a", "an", "of", "to", "and", "in", "for", "on", "its", "with"}
+
+
+def _cross_unit_duplicates(units, already_taught: list[str]) -> list[str]:
+    """Topics this unit repeats — from an earlier unit, or from another unit here.
+
+    The one failure a unit-at-a-time syllabus is prone to, and the one no amount of
+    prompting reliably prevents: each unit is a fresh request, and a model asked about
+    data structures will teach the linked list in Unit I, again in Unit II, and once
+    more in Unit IV. Caught mechanically, and the offending unit — only that unit — is
+    regenerated.
+    """
+    seen = {_normalize_topic(t): t for t in already_taught}
+    errors: list[str] = []
+
+    for unit in units:
+        repeats: list[str] = []
+        for topic in unit.topics:
+            key = _normalize_topic(topic.title)
+            if not key:
+                continue
+            if key in seen:
+                repeats.append(f"{topic.title!r} (already taught as {seen[key]!r})")
+            else:
+                seen[key] = topic.title
+
+        if repeats:
+            errors.append(
+                f"Unit {unit.unit_number} repeats material the syllabus already "
+                f"teaches: {repeats[:5]}. Each unit must carry its OWN ground — a "
+                "topic taught twice is a topic missing somewhere else."
+            )
+
+    return errors
+
+
+def _validate_units(units, already_taught: list[str] | None = None) -> list[str]:
     """Depth and substance checks on unit topic lists. Shared with per-unit
     regeneration, which must hold to exactly the same bar as a full generation —
     otherwise 'regenerate this one unit' becomes the back door through which a thin
     unit reaches the document."""
     errors: list[str] = []
+
+    # Nothing may be taught twice — not within a unit, and not across the syllabus.
+    errors.extend(_cross_unit_duplicates(units, already_taught or []))
 
     for unit in units:
         titles = [t.title.strip() for t in unit.topics]
@@ -775,9 +976,9 @@ def _validate_units(units) -> list[str]:
             errors.append(
                 f"Unit {unit.unit_number} lists only {len(titles)} topic(s). An "
                 f"AICTE / Anna University / VTU unit runs to "
-                f"{_TARGET_TOPICS_PER_UNIT}-{_MAX_TOPICS_PER_UNIT} academic topics "
-                f"and never fewer than {MIN_TOPICS_PER_UNIT}; this is an outline, "
-                "not a regulation, and the Board would have to write the rest by hand."
+                f"{MIN_TOPICS_PER_UNIT}-{_MAX_TOPICS_PER_UNIT} academic topics; this "
+                "is an outline, not a regulation, and the Board would have to write "
+                "the rest by hand."
             )
 
         filler = [t for t in titles if _is_filler(t)]
@@ -786,6 +987,18 @@ def _validate_units(units) -> list[str]:
                 f"Unit {unit.unit_number} contains placeholder topics {filler[:5]}. "
                 "Every line must be a specific, teachable topic — a reader has to be "
                 "able to tell what will be taught in the room."
+            )
+
+        # An EXPLANATION is not a syllabus point. A regulation prints 'Doubly Linked
+        # List', not a sentence about what one is — and a Board that has to cut every
+        # line down to size before printing has been handed an essay, not a syllabus.
+        essays = [t for t in titles if _is_explanation(t)]
+        if essays:
+            errors.append(
+                f"Unit {unit.unit_number} states topics as sentences rather than "
+                f"syllabus points: {[t[:60] + '…' for t in essays[:3]]}. A regulation "
+                "prints short noun phrases — 'Doubly Linked List', 'Time and Space "
+                "Complexity' — never explanations."
             )
 
         # A model that runs out of ideas repeats itself. Twelve lines that are
@@ -801,6 +1014,42 @@ def _validate_units(units) -> list[str]:
     return errors
 
 
+def _validate_outline(parsed: _OutlineAI, ctx: SyllabusGenerationContext) -> list[str]:
+    """The plan, before a single unit is written to it.
+
+    Everything wrong here is wrong five times over afterwards: a duplicated unit title
+    is two units teaching the same material, and a unit called 'Introduction' is a
+    unit whose topics will be filler however hard the next prompt tries.
+    """
+    errors: list[str] = []
+    wanted = resolve_unit_count(ctx.unit_count)
+
+    if len(parsed.units) != wanted:
+        errors.append(
+            f"The outline has {len(parsed.units)} units. The Board asked for EXACTLY "
+            f"{wanted} — Unit I to Unit {roman(wanted)}."
+        )
+
+    titles = [u.title.strip() for u in parsed.units]
+
+    filler = [t for t in titles if _is_filler(t)]
+    if filler:
+        errors.append(
+            f"The outline names units {filler[:3]}. A unit's title is what prints "
+            "above it in the regulation — 'Linear Data Structures', not "
+            "'Introduction'."
+        )
+
+    lowered = [t.lower() for t in titles]
+    if len(set(lowered)) < len(lowered):
+        errors.append(
+            "The outline repeats a unit title. Two units teaching the same material "
+            "is a syllabus with a hole in it somewhere else."
+        )
+
+    return errors
+
+
 def _is_filler(title: str) -> bool:
     """Is this line academically empty?
 
@@ -811,19 +1060,57 @@ def _is_filler(title: str) -> bool:
     return title.lower().strip(" .:-") in _FILLER_CONCEPTS
 
 
-# What a unit is ASKED for, and what it is REJECTED for. They are different numbers
-# on purpose.
+def _is_explanation(title: str) -> bool:
+    """Is this a sentence pretending to be a syllabus point?
+
+    Deliberately generous. A real point can be long — 'Applications of Stack and Queue
+    in Expression Evaluation' is eight words and perfectly legitimate — so this fires
+    only on lines nobody could mistake for a heading: a prose sentence, or one that
+    runs past what a printed handbook line holds.
+    """
+    text = title.strip()
+    if len(text) > _MAX_TOPIC_CHARS or len(text.split()) > _MAX_TOPIC_WORDS:
+        return True
+    # A full stop inside the line means a sentence ended and another began.
+    return "." in text.rstrip(".") and not _ABBREVIATION.search(text)
+
+
+# What a unit is ASKED for, and what it is REJECTED for.
 #
-# A real unit runs to 12-15 topics, so that is what the prompt requests. But a dense
-# 8-topic unit on a narrow subject is a legitimate university unit, and rejecting it
-# would be enforcing a word count rather than a standard — quality is the bar, not
-# quantity. What is never acceptable is 2, 3 or 4 topics: that is an outline
-# wearing a regulation's clothes, and the Board would have to write the rest.
+# A real AICTE / Anna University / VTU unit runs to 10-15 academic topics. That is
+# the shape of the printed regulation, so it is both what the prompt requests and
+# where the floor sits: a unit of six topics is an outline wearing a regulation's
+# clothes, and the Board would have to write the rest of it by hand — which is the
+# exact work the generator exists to do for them.
 #
-# So 8 is the floor, and below it the syllabus is regenerated.
-MIN_TOPICS_PER_UNIT    = 8
+# Below MIN_TOPICS_PER_UNIT the response is rejected and the next provider tried.
+# Above _MAX_TOPICS_PER_UNIT nothing is rejected: a broad unit that legitimately
+# runs long is a better problem than a thin one, and the Board can delete a line
+# far more easily than it can write six.
+MIN_TOPICS_PER_UNIT     = 10
 _TARGET_TOPICS_PER_UNIT = 12
-_MAX_TOPICS_PER_UNIT    = 20
+_MAX_TOPICS_PER_UNIT    = 15
+
+# What a syllabus POINT is, as opposed to an explanation of one. A regulation prints
+# 'Time and Space Complexity'; it does not print a sentence about what complexity is.
+# Both bounds are deliberately generous — 'Applications of Stack and Queue in
+# Expression Evaluation' must survive, and it is eight words and 58 characters.
+_MAX_TOPIC_CHARS = 90
+_MAX_TOPIC_WORDS = 14
+
+# 'B.Tech.', 'i.e.', 'Dr.' — a full stop that is not the end of a sentence. Without
+# this, an abbreviation inside a legitimate topic reads as prose.
+_ABBREVIATION = re.compile(r"\b(?:[A-Za-z]\.){2,}|\b[A-Z][a-z]{0,3}\.")
+
+# The unit counts a Board may choose between. Four and five are the formats real
+# regulations print; three is not a syllabus and nobody prints Unit VI.
+VALID_UNIT_COUNTS = (4, 5)
+DEFAULT_UNIT_COUNT = 5
+
+
+def resolve_unit_count(raw: int | None) -> int:
+    """The unit count to generate to. Anything outside 4-5 reads as the default."""
+    return raw if raw in VALID_UNIT_COUNTS else DEFAULT_UNIT_COUNT
 
 # A semester of laboratory work — roughly one experiment per teaching week, allowing
 # for the introductory session and the final examination.
@@ -881,16 +1168,21 @@ def _build_prompt(ctx: SyllabusGenerationContext) -> tuple[str, str]:
         TYPE_SEMINAR:       _build_seminar_user_prompt,
     }[course_type]
 
-    return _system_prompt(course_type), builder(ctx)
+    return _system_prompt(course_type, ctx.unit_count), builder(ctx)
 
 
 # What each type's document IS — the one line that tells the model what it is
 # writing, injected into the shared system prompt.
+#
+# THEORY's brief is a template rather than a string: how many units this syllabus
+# has is the Board's decision, not a property of theory courses.
+_THEORY_BRIEF = (
+    "an OFFICIAL COURSE SYLLABUS — Course Objectives, Course Outcomes, EXACTLY "
+    "{n} units (Unit I to Unit {r}), and a bibliography"
+)
+
 _DOCUMENT_BRIEF: dict[str, str] = {
-    TYPE_THEORY: (
-        "an OFFICIAL COURSE SYLLABUS — Course Objectives, Course Outcomes, EXACTLY "
-        "five units (Unit I to Unit V), and a bibliography"
-    ),
+    TYPE_THEORY: _THEORY_BRIEF,
     TYPE_LAB: (
         "an OFFICIAL LAB MANUAL — Course Objectives, Lab Outcomes, a numbered "
         "EXPERIMENT LIST, the equipment and software the laboratory requires, and "
@@ -948,15 +1240,20 @@ _DOCUMENT_BRIEF: dict[str, str] = {
 }
 
 
-def _system_prompt(course_type: str) -> str:
+def _system_prompt(course_type: str, unit_count: int = DEFAULT_UNIT_COUNT) -> str:
     """The register, the honesty and the prohibitions — shared by every type.
 
     Only the brief changes: what document the Board member sitting at this desk is
-    actually writing.
+    actually writing, and — for a theory syllabus — in how many units.
     """
+    n = resolve_unit_count(unit_count)
+    brief = _DOCUMENT_BRIEF[course_type]
+    if course_type == TYPE_THEORY:
+        brief = brief.format(n=n, r=roman(n))
+
     return (
         "You are a senior member of a university Board of Studies drafting "
-        f"{_DOCUMENT_BRIEF[course_type]}.\n"
+        f"{brief}.\n"
         "\n"
         "This is a formal published document. It will be printed in the "
         "regulations handbook, approved by the Board, and issued to faculty and "
@@ -1023,9 +1320,39 @@ def _course_header(ctx: SyllabusGenerationContext) -> str:
 
 
 def _custom_clause(ctx: SyllabusGenerationContext) -> str:
-    return (
+    board = (
         f"\nAdditional instructions from the Board: {ctx.custom_instructions}\n"
         if ctx.custom_instructions else ""
+    )
+    return board + _retry_clause(ctx)
+
+
+def _syllabus_clause(ctx: SyllabusGenerationContext) -> str:
+    """What this course actually teaches, unit by unit.
+
+    Given to every section drafted AFTER the units — the objectives, the outcomes, the
+    reading. Without it they are written about the course's TITLE, which is how a
+    syllabus ends up with a Course Outcome nothing in it teaches, and a textbook list
+    for a subject it does not cover.
+    """
+    if not ctx.unit_summary:
+        return ""
+    units = "\n".join(f"  {line}" for line in ctx.unit_summary)
+    return f"\nTHE SYLLABUS THIS COURSE TEACHES:\n{units}\n"
+
+
+def _retry_clause(ctx: SyllabusGenerationContext) -> str:
+    """What the LAST attempt got wrong.
+
+    A retry that says nothing about the failure is a retry that reproduces it: the
+    model is not lazy, it simply does not know that the unit it wrote was too thin to
+    print. Told exactly which unit and exactly how short, it fixes that unit.
+    """
+    if not ctx.retry_feedback:
+        return ""
+    return (
+        f"\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix these faults — do not repeat "
+        f"them:\n{ctx.retry_feedback}\n"
     )
 
 
@@ -1059,24 +1386,44 @@ def _objectives_clause() -> str:
 
 
 def _build_theory_user_prompt(ctx: SyllabusGenerationContext) -> str:
-    """The full official syllabus: five units, each of real regulation depth."""
-    po_lines = _po_lines(ctx)
-
+    """The full official syllabus: the units the Board asked for, each of real
+    regulation depth."""
     custom_clause = _custom_clause(ctx)
 
-    # The unit hours must add up to the course's actual taught hours, which are
-    # derived from its L-T-P. A syllabus whose units total 90 hours for a course
-    # taught for 45 is not a document a Board could approve.
-    hours_clause = (
-        f"- The five units together must account for approximately "
-        f"{ctx.contact_hours} contact hours (this course is taught for "
-        f"{ctx.contact_hours} hours across the semester, from its L-T-P of "
-        f"{ctx.ltp}). Distribute them across the units in proportion to each "
-        f"unit's weight — they need not be equal, but the total must be close to "
-        f"{ctx.contact_hours}.\n"
-        if ctx.contact_hours
-        else "- Assign each unit a realistic teaching-hour total.\n"
-    )
+    # How many units this syllabus is taught in — the Board's decision, taken before
+    # generation. Not a property of theory courses, and never assumed to be five.
+    n = resolve_unit_count(ctx.unit_count)
+    last = roman(n)
+
+    # The unit hours. When the Board has stated them they are a given, and the model
+    # writes each unit TO its hours — that is what a real syllabus does, because the
+    # hours come out of the timetable, not out of the drafting. When it has not, the
+    # model paces the units against the contact hours itself: a syllabus whose units
+    # total 90 hours for a course taught for 45 is not a document a Board could
+    # approve.
+    plan = _unit_hours_plan(ctx)
+    if plan:
+        allocation = "\n".join(
+            f"    Unit {roman(i + 1)} — {hours} Hours" for i, hours in enumerate(plan)
+        )
+        hours_clause = (
+            f"- HOURS ARE FIXED BY THE BOARD. Return total_hours EXACTLY as given "
+            f"below for each unit, and choose how much material each unit carries so "
+            f"that it can genuinely be taught in that time:\n"
+            f"{allocation}\n"
+            f"  (total {sum(plan)} Hours)\n"
+        )
+    elif ctx.contact_hours:
+        hours_clause = (
+            f"- The {n} units together must account for approximately "
+            f"{ctx.contact_hours} contact hours (this course is taught for "
+            f"{ctx.contact_hours} hours across the semester, from its L-T-P of "
+            f"{ctx.ltp}). Distribute them across the units in proportion to each "
+            f"unit's weight — they need not be equal, but the total must be close to "
+            f"{ctx.contact_hours}.\n"
+        )
+    else:
+        hours_clause = "- Assign each unit a realistic teaching-hour total.\n"
 
     if ctx.has_practical:
         practical_clause = (
@@ -1106,72 +1453,42 @@ def _build_theory_user_prompt(ctx: SyllabusGenerationContext) -> str:
         f"\n"
         f"{_outcomes_clause(ctx)}"
         f"\n"
-        f"- units: EXACTLY FIVE units, numbered 1 to 5 — they print as Unit I "
-        f"through Unit V. This is the university format and is not negotiable. "
-        f"Divide the course's FULL scope across them in a sensible teaching "
-        f"sequence, foundations first. Between them the five units must cover the "
+        f"- units: EXACTLY {n} units, numbered 1 to {n} — they print as Unit I "
+        f"through Unit {last}. The Board has decided this course is taught in {n} "
+        f"units, and that is not negotiable: do not return {n - 1}, and do not return "
+        f"{n + 1}. Divide the course's FULL scope across them in a sensible teaching "
+        f"sequence, foundations first. Between them the {n} units must cover the "
         f"whole subject to the depth a {ctx.course_credits}-credit course demands "
         f"— not a survey of it.\n"
         f"\n"
         f"  Each unit must have:\n"
         f"\n"
-        f"    * unit_number (1-5) and a concise academic title in the register of a "
+        f"    * unit_number (1-{n}) and a concise academic title in the register of a "
         f"regulation ('Introduction to Computer Systems', not 'Getting Started').\n"
         f"\n"
         f"    * topics — THE MOST IMPORTANT FIELD IN THIS RESPONSE.\n"
         f"\n"
-        f"      {_TARGET_TOPICS_PER_UNIT} to 15 academic topics — that is what a real "
-        f"AICTE / Anna University / VTU unit runs to, and these are the lines that "
-        f"will be PRINTED in the university's regulation handbook.\n"
+        f"      {MIN_TOPICS_PER_UNIT} to {_MAX_TOPICS_PER_UNIT} academic topics — that "
+        f"is what a real AICTE / Anna University / VTU unit runs to, and these are the "
+        f"lines that will be PRINTED in the university's regulation handbook, without "
+        f"being rewritten first.\n"
         f"\n"
-        f"      A dense unit on a narrow subject may legitimately have "
-        f"{MIN_TOPICS_PER_UNIT}; a broad one may run to {_MAX_TOPICS_PER_UNIT}. "
-        f"Quality matters more than the count. But {MIN_TOPICS_PER_UNIT} is the "
-        f"floor, and 2, 3 or 4 topics is NEVER acceptable — that is an outline, and "
-        f"the Board would have to write the rest by hand, which is the exact work you "
-        f"are here to do for them.\n"
+        f"      {MIN_TOPICS_PER_UNIT} is the FLOOR, not the target: aim for "
+        f"{_TARGET_TOPICS_PER_UNIT}. A unit of 2, 3 or 4 topics is NEVER acceptable — "
+        f"that is an outline, and the Board would have to write the rest by hand, "
+        f"which is the exact work you are here to do for them. A unit with fewer than "
+        f"{MIN_TOPICS_PER_UNIT} topics will be REJECTED and the syllabus regenerated.\n"
         f"\n"
-        f"      THIS is what a unit must look like:\n"
-        f"\n"
-        f"        UNIT I - INTRODUCTION TO COMPUTER SYSTEMS         (12 Hours)\n"
-        f"          Evolution of Computing\n"
-        f"          Characteristics of Computer Systems\n"
-        f"          Functional Units\n"
-        f"          Von Neumann Architecture\n"
-        f"          Harvard Architecture\n"
-        f"          CPU Organization\n"
-        f"          Instruction Cycle\n"
-        f"          Memory Hierarchy\n"
-        f"          Cache Memory\n"
-        f"          Secondary Storage\n"
-        f"          Input-Output Organization\n"
-        f"          Performance Evaluation\n"
-        f"          Benchmarking\n"
-        f"          Modern Applications\n"
-        f"\n"
-        f"      NEVER this:\n"
-        f"\n"
-        f"        UNIT I\n"
-        f"          Introduction\n"
-        f"          Components\n"
-        f"\n"
-        f"      Every line must be a specific, teachable topic that a lecturer could "
-        f"walk into a room and teach. A reader must be able to tell exactly what is "
-        f"covered. NEVER emit generic filler — 'Basics', 'Overview', 'Advanced "
-        f"Concepts', 'Introduction', 'Applications', 'Case Studies', 'Recent Trends' "
-        f"— such a topic will be REJECTED and the whole syllabus regenerated. Do not "
-        f"pad the list by repeating yourself either: twelve lines that are really six "
-        f"is the same hollowness in a longer coat.\n"
+        f"{_TOPIC_STYLE}"
         f"\n"
         f"      For each topic give:\n"
-        f"        - title: the topic exactly as it prints in the syllabus\n"
-        f"        - description: 2-3 sentences of academic explanation\n"
-        f"        - subtopics: 3-5 key sub-concepts\n"
-        f"        - examples: 2-3 applied or real-world examples\n"
-        f"        - lab_reference: a related practical exercise (null if none)\n"
+        f"        - title: the syllabus point, exactly as it prints — SHORT\n"
+        f"        - description: ONE short sentence, for the lecturer planning the "
+        f"lesson. It is NOT printed in the regulation.\n"
+        f"        - subtopics: up to 3 sub-concepts (omit if there are none)\n"
         f"        - hours_estimate: teaching hours for this topic\n"
         f"\n"
-        f"    * content: the same topics rendered as one comma-separated prose line, "
+        f"    * content: the same topic titles rendered as one comma-separated line, "
         f"for regulations that print units as a paragraph rather than as bullets. "
         f"Name the same topics, in the same order, and nothing else.\n"
         f"\n"
@@ -1181,19 +1498,80 @@ def _build_theory_user_prompt(ctx: SyllabusGenerationContext) -> str:
         f"\n"
         f"{practical_clause}"
         f"\n"
-        f"- internal_assessment: 3-5 lines suggesting how the course should be "
-        f"assessed internally — the CIE pattern, its components and their "
-        f"weightings. Write them as a regulation does: 'Two internal assessment "
-        f"tests of 50 marks each, averaged to 20 marks.', 'One assignment on "
-        f"unit III-IV carrying 5 marks.' Leave the list EMPTY if the course has no "
-        f"meaningful internal component.\n"
-        f"\n"
         f"{_bibliography_clause()}"
         f"\n"
         f"Return JSON matching the schema exactly."
     )
 
     return user
+
+
+# What a syllabus line LOOKS like — the single most copied part of this prompt, and
+# the reason the printed document does or does not resemble a university's.
+#
+# A real regulation prints noun phrases: 'Doubly Linked List', 'Time and Space
+# Complexity'. It does not print sentences, and it does not print explanations. A
+# model asked for "topics" without being shown this returns either two words of
+# nothing ('Introduction') or a paragraph — and a paragraph in a syllabus is as wrong
+# as a stub, because the Board would have to cut it down before printing.
+_TOPIC_STYLE = (
+    "      THIS is what a unit must look like — a real Anna University syllabus:\n"
+    "\n"
+    "        UNIT I - LINEAR DATA STRUCTURES                    (10 Hours)\n"
+    "          Abstract Data Types (ADT)\n"
+    "          Time and Space Complexity\n"
+    "          List ADT\n"
+    "          Array Implementation of Lists\n"
+    "          Linked List\n"
+    "          Doubly Linked List\n"
+    "          Circular Linked List\n"
+    "          Stack ADT\n"
+    "          Queue ADT\n"
+    "          Circular Queue\n"
+    "          Applications of Stack\n"
+    "          Applications of Queue\n"
+    "\n"
+    "      NEVER this — an outline, which is what the Board would have to finish "
+    "by hand:\n"
+    "\n"
+    "        UNIT I\n"
+    "          Introduction\n"
+    "          Components\n"
+    "\n"
+    "      And NEVER this — an explanation, which is not what a regulation prints:\n"
+    "\n"
+    "        UNIT I\n"
+    "          A linked list is a linear data structure in which elements are "
+    "stored in nodes, and each node points to the next one, which allows "
+    "insertion in constant time.\n"
+    "\n"
+    "      Every `title` is a SYLLABUS POINT: a noun phrase of roughly two to six "
+    "words, in the register of a regulation. No sentences. No verbs of instruction "
+    "('Learn about ...', 'Understand ...'). No explanations, no definitions, no "
+    "colons introducing a gloss. If a line would not fit on one printed line of a "
+    "handbook, it is too long.\n"
+    "\n"
+    "      Every line must also be SPECIFIC — something a lecturer could walk into a "
+    "room and teach, and a reader could tell apart from any other course in the "
+    "university. NEVER emit generic filler: 'Basics', 'Overview', 'Advanced "
+    "Concepts', 'Introduction', 'Applications', 'Case Studies', 'Recent Trends'. "
+    "Such a topic will be REJECTED and the unit regenerated. Do not pad by repeating "
+    "yourself either: twelve lines that are really six is the same hollowness in a "
+    "longer coat.\n"
+)
+
+
+def _unit_hours_plan(ctx: SyllabusGenerationContext) -> list[int]:
+    """The Board's hours per unit, if they stated them and the list still fits.
+
+    A plan of four hour-figures against a five-unit syllabus is a plan for a different
+    syllabus — the Board changed the unit count after setting the hours — and writing
+    to it would silently leave Unit V with no hours at all. Ignored rather than
+    patched: the model then paces the units against the contact hours, which is the
+    honest fallback.
+    """
+    plan = [h for h in (ctx.unit_hours_plan or []) if isinstance(h, int) and h > 0]
+    return plan if len(plan) == resolve_unit_count(ctx.unit_count) else []
 
 
 def _bibliography_clause(count: str = "8-12") -> str:
@@ -1535,6 +1913,7 @@ def _build_section_prompt(
     *,
     unit_number: int | None = None,
     unit_title: str | None = None,
+    unit_scope: str | None = None,
     sibling_units: list[str] | None = None,
     guidance: str | None = None,
 ) -> tuple[str, str]:
@@ -1549,41 +1928,149 @@ def _build_section_prompt(
     memory.
     """
     course_type = normalize_course_type(ctx.course_type)
-    system = _system_prompt(course_type)
+    system = _system_prompt(course_type, ctx.unit_count)
 
-    header = _course_header(ctx)
+    header = _course_header(ctx) + _syllabus_clause(ctx)
     extra = f"\nAdditional instructions from the Board: {guidance}\n" if guidance else ""
 
-    if section == SECTION_UNIT:
-        siblings = "\n".join(f"  - {t}" for t in (sibling_units or [])) or "  (none)"
+    if section == SECTION_OUTLINE:
+        # The plan, written before a single unit is. It is what keeps a syllabus
+        # drafted unit by unit from becoming N essays on the same subject: the course
+        # is divided ONCE, as a whole, and each unit is then written to its own share
+        # of it knowing what the others hold.
+        n = resolve_unit_count(ctx.unit_count)
+        plan = _unit_hours_plan(ctx)
+        hours_lines = (
+            "\n".join(
+                f"    Unit {roman(i + 1)} — {hours} Hours"
+                for i, hours in enumerate(plan)
+            )
+            if plan else "    (the Board has not fixed the hours)"
+        )
+
         user = (
-            f"Rewrite ONE unit of an existing official syllabus.\n\n{header}\n"
-            f"The other units of this syllabus already cover:\n{siblings}\n\n"
-            f"Rewrite UNIT {unit_number}"
-            + (f' — currently titled "{unit_title}"' if unit_title else "")
+            f"Divide a course into the {n} units it will be taught in. This is the "
+            f"PLAN, not the syllabus — no topics yet.\n\n"
+            f"{header}"
+            f"{_custom_clause(ctx)}\n"
+            f"The Board teaches this course in {n} units, with these hours:\n"
+            f"{hours_lines}\n\n"
+            f"Return EXACTLY {n} units, numbered 1 to {n}, in TEACHING ORDER — "
+            f"foundations first, and each unit resting on the ones before it. Between "
+            f"them they must cover the WHOLE subject to the depth a "
+            f"{ctx.course_credits}-credit course demands, with no overlap between any "
+            f"two and no gap left between them.\n\n"
+            f"For each unit give:\n"
+            f"  - unit_number\n"
+            f"  - title: the unit's academic title as it prints in the regulation "
+            f"('Linear Data Structures', 'Memory and I/O Organization'). Never "
+            f"'Introduction', never 'Advanced Topics', never 'Unit 3'.\n"
+            f"  - scope: ONE sentence naming the ground this unit covers, so that the "
+            f"unit written from it does not stray into another's. Be concrete — name "
+            f"the actual concepts, not 'the fundamentals of the subject'.\n"
+            f"  - level: foundational | intermediate | advanced.\n\n"
+            f"A COURSE IS A PROGRESSION, not {n} essays on the same subject. Unit I "
+            f"rests on nothing and is foundational; each unit after it rests on the "
+            f"ones before and reaches further; the last is advanced. A student who has "
+            f"finished Unit III must be READY for Unit IV — and must not be taught in "
+            f"Unit IV what they were already taught in Unit II. No two units may share "
+            f"ground.\n\n"
+            f"Weight the units by their hours: a unit taught for 12 hours carries more "
+            f"of the subject than one taught for 8.\n"
+            f"{_retry_clause(ctx)}\n"
+            f"Return JSON: {{\"units\": [ ... ]}}"
+        )
+
+    elif section == SECTION_UNIT:
+        siblings = "\n".join(f"  - {t}" for t in (sibling_units or [])) or "  (none)"
+
+        # The Board's hour allocation is not the model's to re-decide. The units
+        # together total the course's taught hours, and a unit that came back from a
+        # rewrite with 15 hours instead of the 10 the Board gave it would silently
+        # break that total — so the hours are stated as a constraint and the topics
+        # are paced to fit them.
+        hours_clause = (
+            f"This unit is taught for {ctx.unit_hours} hours, which the Board has "
+            f"already decided. Return total_hours = {ctx.unit_hours} and pitch the "
+            f"depth of the topics at what can genuinely be taught in that time.\n\n"
+            if ctx.unit_hours
+            else ""
+        )
+
+        # The unit's brief, when it is being written for the first time: its share of
+        # the course, decided by the outline. On a REWRITE there is no scope — the
+        # unit already exists, and its place in the syllabus is its title.
+        scope_clause = (
+            f"This unit covers: {unit_scope}\n\n" if unit_scope else ""
+        )
+
+        # Where the unit sits on the course's arc. Without it, a unit drafted on its
+        # own reaches for the basics whatever number it carries — which is how Unit IV
+        # comes back teaching what Unit I already taught.
+        level_clause = (
+            f"This is a {ctx.unit_level.upper()} unit. "
+            + {
+                "foundational": "It rests on nothing before it: begin the subject here.",
+                "intermediate": "It rests on the units before it. Do not re-teach their "
+                                "material — build on it.",
+                "advanced":     "It is near the end of the course. Assume everything the "
+                                "earlier units taught, and go further than they did.",
+            }.get(ctx.unit_level, "")
+            + "\n\n"
+            if ctx.unit_level else ""
+        )
+
+        # What the syllabus ALREADY teaches. The single most important line in this
+        # prompt for a unit-at-a-time syllabus: each unit is a fresh request, and a
+        # model asked about data structures will teach the linked list in Unit I, again
+        # in Unit II, and once more in Unit IV. It is also CHECKED — a unit that
+        # repeats any of these is rejected and redrafted.
+        taught_clause = ""
+        if ctx.used_topics:
+            already = "\n".join(f"  - {t}" for t in ctx.used_topics[:60])
+            taught_clause = (
+                f"ALREADY TAUGHT by the other units of this syllabus. Do NOT teach any "
+                f"of it again — a topic taught twice is a topic missing somewhere "
+                f"else, and a unit that repeats one will be REJECTED:\n{already}\n\n"
+            )
+
+        verb = "Write" if unit_scope else "Rewrite"
+        user = (
+            f"{verb} ONE unit of an official university syllabus.\n\n{header}\n"
+            f"The other units of this syllabus cover:\n{siblings}\n\n"
+            f"{verb.upper()} UNIT {unit_number}"
+            + (f' — "{unit_title}"' if unit_title else "")
             + ".\n\n"
+            f"{scope_clause}"
+            f"{level_clause}"
+            f"{hours_clause}"
+            f"{taught_clause}"
             f"Stay in this unit's lane: do NOT stray into material the other units "
-            f"above already teach, and do not leave a gap between them. The rewritten "
-            f"unit must slot into the same place in the teaching sequence.\n"
-            f"{extra}\n"
-            f"It must have {_TARGET_TOPICS_PER_UNIT}-15 specific, teachable academic "
-            f"topics — the standard of an AICTE / Anna University / VTU regulation. "
-            f"A dense unit on a narrow subject may have as few as "
-            f"{MIN_TOPICS_PER_UNIT}, but never fewer. No generic filler ('Basics', "
-            f"'Overview', 'Advanced Concepts'); every line must be something a "
-            f"lecturer could walk into a room and teach.\n\n"
+            f"above already teach, and do not leave a gap between them. This unit must "
+            f"sit in its own place in the teaching sequence.\n"
+            f"{extra}"
+            f"{_retry_clause(ctx)}\n"
+            f"It must have {MIN_TOPICS_PER_UNIT}-{_MAX_TOPICS_PER_UNIT} specific, "
+            f"teachable academic topics — the standard of an AICTE / Anna University / "
+            f"VTU regulation, and the lines that will be PRINTED in the handbook. Aim "
+            f"for {_TARGET_TOPICS_PER_UNIT}; fewer than {MIN_TOPICS_PER_UNIT} is an "
+            f"outline and will be rejected.\n\n"
+            f"{_TOPIC_STYLE}\n"
             f"Return JSON: {{\"unit\": {{ ...the unit... }}}}"
         )
 
     elif section == SECTION_OBJECTIVES:
         user = (
-            f"Rewrite the COURSE OBJECTIVES of an existing official syllabus.\n\n{header}"
-            f"{extra}\n"
+            f"Write the COURSE OBJECTIVES of an official university syllabus.\n\n{header}"
+            f"{extra}"
+            f"{_retry_clause(ctx)}\n"
             f"4-6 objectives. Each is one sentence written from the COURSE's "
             f"standpoint, conventionally opening with 'To ...' — 'To introduce the "
             f"principles of statistical learning theory.' They say what the course "
             f"sets out to impart, NOT what the student can do afterwards (that is a "
             f"Course Outcome, and is a different section).\n\n"
+            f"Write them TO the units above. An objective promising material that no "
+            f"unit of this syllabus teaches is a promise the course cannot keep.\n\n"
             f"Return JSON: {{\"objectives\": [\"...\"]}}"
         )
 
@@ -1592,15 +2079,19 @@ def _build_section_prompt(
             f"  {po.code}: {po.description}" for po in ctx.program_outcomes
         ) or "  (no programme outcomes provided)"
         user = (
-            f"Rewrite the COURSE OUTCOMES of an existing official syllabus.\n\n{header}\n"
+            f"Write the COURSE OUTCOMES of an official university syllabus.\n\n{header}\n"
             f"Programme Outcomes available for CO mapping:\n{po_lines}\n"
-            f"{extra}\n"
+            f"{extra}"
+            f"{_retry_clause(ctx)}\n"
             f"5-6 outcomes (CO1, CO2, ...). Each must begin with an action verb, be "
             f"written from the STUDENT's standpoint (what they can DO on completing "
             f"the course), carry a distinct Bloom's level, list suggested_po_codes "
             f"using only the codes above, and set po_mapping_strengths[code] to HIGH, "
             f"MEDIUM or LOW on the merits of each pair — a real CO-PO matrix is a "
             f"mixture, so do not default everything to MEDIUM.\n\n"
+            f"Write them TO the units above: between them the outcomes must account "
+            f"for what this syllabus actually teaches. An outcome about material no "
+            f"unit covers is one the examination cannot test.\n\n"
             f"Return JSON: {{\"outcomes\": [ ... ]}}"
         )
 
@@ -1686,8 +2177,15 @@ def _validate_section(parsed, section: str, ctx: SyllabusGenerationContext) -> l
     Otherwise "regenerate this one unit" becomes the back door through which a thin
     unit — or a hollow lab manual — reaches the approved document.
     """
+    if section == SECTION_OUTLINE:
+        return _validate_outline(parsed, ctx)
+
     if section == SECTION_UNIT:
-        return _validate_units([parsed.unit])
+        # Held to the same bar as a full generation, and to one more: it must not teach
+        # what the units around it already teach. `used_topics` carries them — the ones
+        # written before it during a fresh generation, or the ones in the other units
+        # of the syllabus when the Board asks for a single unit to be redrafted.
+        return _validate_units([parsed.unit], ctx.used_topics)
 
     if section in (SECTION_REFERENCES, SECTION_BOOKS):
         return _validate_reference_queries(parsed.reference_queries)
@@ -1877,7 +2375,12 @@ def _section_result(
         model_used=model_used,
         prompt_hash=prompt_hash,
     )
-    if section == SECTION_UNIT:
+    if section == SECTION_OUTLINE:
+        result.outline = [
+            {"unit_number": u.unit_number, "title": u.title, "scope": u.scope}
+            for u in sorted(parsed.units, key=lambda u: u.unit_number)
+        ]
+    elif section == SECTION_UNIT:
         u = parsed.unit
         result.unit = {
             "unit_number": u.unit_number,
@@ -1953,6 +2456,15 @@ def _normalize_section_response(raw: str, section: str) -> dict:
         raise SyllabusAIParseError(
             f"Section response is not valid JSON: {exc}\nRaw: {raw[:300]}"
         ) from exc
+
+    if section == SECTION_OUTLINE:
+        # The outline is plain — unit_number, title, scope — so it needs none of the
+        # unit normaliser's topic-shaping. Only the envelope may be wrong.
+        if isinstance(data, list):
+            return {"units": data}
+        if isinstance(data, dict) and isinstance(data.get("outline"), list):
+            return {"units": data["outline"]}
+        return data if isinstance(data, dict) else {"units": []}
 
     if section == SECTION_UNIT:
         unit = data.get("unit") if isinstance(data, dict) else None
@@ -2209,20 +2721,24 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
 
         # Map description aliases when the field is absent OR empty/whitespace.
         # Groq sometimes emits description:"" while the real text is in a co_* alias.
+        #
+        # And when there is NO alias — when the model simply did not write the outcome —
+        # nothing is put in its place. There used to be: a synthesized "CO3: demonstrate
+        # competency through Apply-level mastery of core concepts", manufactured here to
+        # satisfy the schema. It satisfied the schema. It also meant a Course Outcome
+        # that no model wrote and no academic chose could reach an approved syllabus, be
+        # locked into a regulation, and become the thing a student is examined against —
+        # and nobody would ever know it had been invented in a normaliser.
+        #
+        # An empty description now fails validation (the schema requires 15 characters),
+        # the response is rejected, and the outcomes are regenerated. A missing outcome
+        # is a failure to be retried, never a blank to be filled.
         if not str(co.get("description", "")).strip():
             for alias in ("co_statement", "co_description", "statement", "co"):
                 candidate = str(co.get(alias, "")).strip()
                 if candidate:
                     co["description"] = candidate
                     break
-            else:
-                # All aliases exhausted — synthesize a valid fallback description.
-                code_label = co.get("code") or f"CO{i + 1}"
-                bloom = str(co.get("bloom_level", "Apply")).capitalize()
-                co["description"] = (
-                    f"{code_label}: demonstrate competency through "
-                    f"{bloom}-level mastery of core concepts."
-                )
 
         # Always strip remaining alias keys so Pydantic sees no unexpected fields.
         for alias in ("co_statement", "co_description", "statement", "co", "bloom"):
@@ -2232,8 +2748,14 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
         if "suggested_po_codes" not in co:
             co["suggested_po_codes"] = []
 
-        # po_mapping_strengths aliases; Pydantic validator fills in any missing
-        # per-code entries with MEDIUM, so a partial or absent dict is fine here.
+        # po_mapping_strengths aliases. The ALIAS is mapped — a model that put the same
+        # answer under a different key gave the answer — but a missing answer is left
+        # missing, and the validator then rejects the outcome.
+        #
+        # It used to be filled with MEDIUM. That figure IS the CO-PO matrix an
+        # accreditation body reads: it is the university's claim about how strongly this
+        # outcome drives that programme outcome. Manufacturing it here meant NBA and NAAC
+        # could be shown a claim that no academic made and no model wrote.
         if "po_mapping_strengths" not in co:
             for alias in ("po_strengths", "mapping_strengths", "po_code_strengths"):
                 if alias in co:
@@ -2588,6 +3110,13 @@ class FallbackSyllabusProvider:
                 )
                 last_exc = exc
 
+        # A quality failure is re-raised WITH ITS TYPE, not flattened into a
+        # RuntimeError: the retry above this one only regenerates a document that was
+        # too thin to publish, and it cannot tell that apart from a dead API key if
+        # every failure arrives as the same exception.
+        if isinstance(last_exc, (SyllabusAIValidationError, SyllabusAIParseError)):
+            raise last_exc
+
         raise RuntimeError(
             "All syllabus AI providers failed. "
             f"Last error: {last_exc}"
@@ -2614,8 +3143,284 @@ class FallbackSyllabusProvider:
                     section, name, type(exc).__name__, exc,
                 )
                 last_exc = exc
+
+        if isinstance(last_exc, (SyllabusAIValidationError, SyllabusAIParseError)):
+            raise last_exc
+
         raise RuntimeError(
             f"All syllabus AI providers failed to regenerate {section}. Last error: {last_exc}"
+        ) from last_exc
+
+
+# ---------------------------------------------------------------------------
+# What the Board is watching
+#
+# A generation takes minutes and makes ten AI calls. A spinner for the whole of it is
+# what makes this feel like "a button that asks a machine for a syllabus" — the thing
+# the product must never feel like. So the job says what it is doing, in the words a
+# Board member would use, and never in ours: no sections, no schemas, no JSON, no
+# provider names, no retry counts.
+#
+# The phase is a machine-readable key; the message is what a human reads. The message
+# is written HERE, next to the work, rather than being reconstructed in the frontend
+# from a status code — the two would drift, and the one that would drift is the one the
+# Board reads.
+# ---------------------------------------------------------------------------
+
+PHASE_READING    = "READING"
+PHASE_OUTLINE    = "OUTLINE"
+PHASE_UNIT       = "UNIT"
+PHASE_OBJECTIVES = "OBJECTIVES"
+PHASE_OUTCOMES   = "OUTCOMES"
+PHASE_REFERENCES = "REFERENCES"
+PHASE_SAVING     = "SAVING"
+PHASE_READY      = "READY"
+
+
+# ---------------------------------------------------------------------------
+# The theory syllabus, written ONE UNIT AT A TIME
+#
+# A Board of Studies does not draft a syllabus in a single breath, and neither should
+# the generator. Asked for the whole thing at once, a model spends its attention on
+# the shape of the document — five units, some outcomes, a reading list — and Unit IV
+# comes back with three topics because by then it has run out of care. That is the
+# single failure this workflow exists to remove.
+#
+# So the course is written the way a Board writes it:
+#
+#     1. OUTLINE     divide the course into its units, once, as a whole
+#     2. UNIT I      write it, validate it, regenerate it if it is thin
+#     3. UNIT II     ... and so on, each told what the others hold
+#     4. OBJECTIVES  written to the units that now exist
+#     5. OUTCOMES    the same — an outcome must be about material a unit teaches
+#     6. READING     the same
+#
+# Each step is validated on its own, and a step that fails its bar is retried on its
+# own (RetryingSyllabusProvider) rather than costing the syllabus around it. Nothing
+# is written to the database until every step has passed: the caller assembles the
+# whole document in memory, and the worker persists it in one transaction. A Board
+# that opens a generated syllabus finds it finished, or finds that generation failed.
+# It never finds Unit IV half-written and its own name on the approval.
+# ---------------------------------------------------------------------------
+
+async def generate_theory_syllabus(
+    provider: SyllabusProvider,
+    ctx: SyllabusGenerationContext,
+    *,
+    on_progress: Callable[[str, str], Awaitable[None]] | None = None,
+    on_unit: Callable[[dict], Awaitable[None]] | None = None,
+) -> SyllabusGenerationResult:
+    """Draft one complete theory syllabus, a unit at a time.
+
+    Only THEORY. A lab manual, an internship's guidelines and a project handbook have
+    no units to write one at a time, and they keep the single-call path they have
+    always had — see `_build_prompt` and the course-type schemas.
+
+    `on_progress(phase, message)` is told what is happening, in the words the Board
+    reads: "Generating Unit II…". `on_unit(unit)` is handed each unit the moment it
+    passes validation, so the caller can SAVE it — a unit that has been written and
+    checked is work worth keeping, and a run that dies at Unit V should not throw away
+    the four good units before it. Neither callback may change what is generated; they
+    watch and they persist.
+    """
+    n = resolve_unit_count(ctx.unit_count)
+    plan = _unit_hours_plan(ctx)
+
+    async def progress(phase: str, message: str) -> None:
+        if on_progress:
+            await on_progress(phase, message)
+
+    # 1. THE OUTLINE — how the course divides.
+    #
+    # Internal, always. It is never stored, never shown and never editable: the
+    # curriculum the Board wrote is the source of truth, and an editable outline would
+    # be a second one. It exists so the units do not overlap.
+    await progress(PHASE_OUTLINE, "Preparing academic outline…")
+    outline_result = await provider.generate_section(ctx, SECTION_OUTLINE)
+    outline = outline_result.outline or []
+
+    # 2. THE UNITS — one at a time, each knowing what the ones before it taught.
+    units: list[dict] = []
+    taught: list[str] = []      # every topic the syllabus already carries
+
+    for index, planned in enumerate(outline[:n]):
+        number = planned["unit_number"]
+        await progress(PHASE_UNIT, f"Generating Unit {roman(number)}…")
+
+        unit_ctx = dataclasses.replace(
+            ctx,
+            # The Board's hours for THIS unit. The model writes the unit to them; it
+            # does not choose them, and the worker stamps them again afterwards.
+            unit_hours=plan[index] if index < len(plan) else None,
+            # Where it sits on the arc of the course, from the outline. Without this a
+            # unit drafted alone reaches for the basics whatever number it carries.
+            unit_level=planned.get("level"),
+            # And everything already taught. This is CHECKED, not merely asked: a unit
+            # that repeats an earlier topic is rejected and redrafted (see
+            # _cross_unit_duplicates), and only this unit is — the others are untouched.
+            used_topics=list(taught),
+        )
+
+        result = await provider.generate_section(
+            unit_ctx,
+            SECTION_UNIT,
+            unit_number=number,
+            unit_title=planned["title"],
+            unit_scope=planned["scope"],
+            sibling_units=[
+                f"Unit {roman(u['unit_number'])}: {u['title']} — {u['scope']}"
+                for u in outline
+                if u["unit_number"] != number
+            ],
+        )
+
+        unit = dict(result.unit or {})
+        # The unit's PLACE in the syllabus is the outline's, not the model's. Asked to
+        # write Unit III, a model will occasionally number it 1 — and a syllabus with
+        # two Unit Is fails to save at all (syllabus_units has a uniqueness
+        # constraint), which would throw away the four good units around it.
+        unit["unit_number"] = number
+
+        await progress(PHASE_UNIT, f"Validating Unit {roman(number)}…")
+        # It is ALREADY validated — the provider rejected and redrafted it until it
+        # passed. Saying so is not theatre: this is the step the Board most needs to
+        # believe happened, and it is the reason they will never be handed Unit III
+        # with three topics in it.
+
+        units.append(unit)
+        taught.extend(t["title"] for t in unit.get("topics", []))
+
+        if on_unit:
+            await on_unit(unit)      # written, checked, and now safe on disk
+
+    # What the syllabus now actually teaches — the brief for everything that follows.
+    written_ctx = dataclasses.replace(
+        ctx,
+        unit_summary=[
+            f"Unit {roman(u['unit_number'])} — {u['title']}: "
+            + ", ".join(t["title"] for t in u.get("topics", [])[:12])
+            for u in units
+        ],
+    )
+
+    # 3. OBJECTIVES, OUTCOMES and the READING — written to the units, not to the title.
+    await progress(PHASE_OBJECTIVES, "Creating Course Objectives…")
+    objectives_result = await provider.generate_section(written_ctx, SECTION_OBJECTIVES)
+
+    await progress(PHASE_OUTCOMES, "Creating Course Outcomes…")
+    outcomes_result   = await provider.generate_section(written_ctx, SECTION_OUTCOMES)
+
+    await progress(PHASE_REFERENCES, "Creating Reference Books…")
+
+    # Text Books and the wider reading are two printed sections and two requests, for
+    # the same reason the Board can regenerate them separately: they answer different
+    # questions, and one list of eight mixed queries is reliably four good textbooks
+    # and four vague web resources.
+    books_result = await provider.generate_section(written_ctx, SECTION_BOOKS)
+    refs_result  = await provider.generate_section(written_ctx, SECTION_REFERENCES)
+
+    practicals: list[str] = []
+    if ctx.has_practical:
+        practicals_result = await provider.generate_section(written_ctx, SECTION_PRACTICALS)
+        practicals = list(practicals_result.practical_components or [])
+
+    return SyllabusGenerationResult(
+        doc_type=TYPE_THEORY,
+        document={},
+        objectives=list(objectives_result.objectives or []),
+        outcomes=list(outcomes_result.outcomes or []),
+        units=units,
+        practical_components=practicals,
+        # No Internal Assessment. The CIE pattern is a regulation-wide rule, and a
+        # syllabus that states its own version of it is one more chance to contradict
+        # the university's own.
+        internal_assessment=[],
+        reference_queries=(
+            list(books_result.reference_queries or [])
+            + list(refs_result.reference_queries or [])
+        ),
+        model_used=outcomes_result.model_used,
+        provider_name=outcomes_result.provider_name,
+        # The outline's hash. Every other call in this syllabus descends from it, and
+        # one hash on the audit record has to stand for the document as a whole.
+        prompt_hash=outline_result.prompt_hash,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Retry — a thin syllabus is regenerated, not saved
+#
+# The Board must never be handed a unit with three topics and asked to write the
+# other nine. That is the work the generator exists to do, and a document that
+# arrives half-written is worse than one that failed outright: it looks finished.
+#
+# So a response that fails the depth bar is not a result, it is an attempt. The
+# violations are fed back into the next attempt — a retry that says nothing about the
+# failure is a retry that reproduces it — and only a response that passes is ever
+# returned to the worker, which is the only thing that writes to the database.
+#
+# When every attempt fails the job fails, loudly, and nothing is saved. The Board sees
+# "generation failed, try again", which is true, rather than a hollow syllabus, which
+# is a lie.
+# ---------------------------------------------------------------------------
+
+MAX_GENERATION_ATTEMPTS = 3
+
+
+class RetryingSyllabusProvider:
+    """Wraps any provider and retries it until the document is deep enough to print.
+
+    Only QUALITY failures are retried — a response that parsed but was too thin, too
+    generic, or the wrong shape. A missing API key or a blocked prompt is not going to
+    fix itself on the second attempt, so it is raised immediately rather than burning
+    two more calls to reach the same place.
+    """
+
+    def __init__(self, inner: SyllabusProvider) -> None:
+        self._inner = inner
+
+    async def generate_syllabus(
+        self,
+        ctx: SyllabusGenerationContext,
+    ) -> SyllabusGenerationResult:
+        return await self._attempt(
+            lambda c: self._inner.generate_syllabus(c), ctx, what="syllabus",
+        )
+
+    async def generate_section(
+        self,
+        ctx: SyllabusGenerationContext,
+        section: str,
+        **kwargs,
+    ) -> SectionGenerationResult:
+        return await self._attempt(
+            lambda c: self._inner.generate_section(c, section, **kwargs),
+            ctx,
+            what=f"section {section}",
+        )
+
+    async def _attempt(self, call, ctx: SyllabusGenerationContext, *, what: str):
+        # The feedback is written onto a COPY of the context. The caller's ctx is not
+        # ours to mutate, and a stale "your last attempt was rejected" leaking into an
+        # unrelated later call would be a genuinely baffling bug to find.
+        attempt_ctx = dataclasses.replace(ctx)
+        last_exc: SyllabusAIError | None = None
+
+        for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+            try:
+                return await call(attempt_ctx)
+            except (SyllabusAIValidationError, SyllabusAIParseError) as exc:
+                last_exc = exc
+                attempt_ctx.retry_feedback = str(exc)
+                logger.warning(
+                    "m02: %s failed the quality bar on attempt %d/%d — regenerating. %s",
+                    what, attempt, MAX_GENERATION_ATTEMPTS, exc,
+                )
+
+        raise SyllabusAIValidationError(
+            f"The {what} could not be generated to publishable depth after "
+            f"{MAX_GENERATION_ATTEMPTS} attempts, so nothing was saved. Last failure:\n"
+            f"{last_exc}"
         ) from last_exc
 
 
@@ -2638,4 +3443,6 @@ def get_syllabus_provider() -> SyllabusProvider:
             f"Unknown AI_PROVIDER '{settings.AI_PROVIDER}'. "
             f"Must be one of: {sorted(_PROVIDER_MAP)}"
         )
-    return provider_cls()
+    # Every provider is retried on a quality failure, including the fallback chain:
+    # three models each returning a four-topic unit is three failures, not a result.
+    return RetryingSyllabusProvider(provider_cls())

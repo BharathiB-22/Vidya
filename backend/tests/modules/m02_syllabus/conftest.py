@@ -186,7 +186,7 @@ async def build_compliant_syllabus(
                 bloom_level=bl,
                 display_order=i,
             ),
-            db=tenant_db,
+            caller_role="BOARD", db=tenant_db,
         )
 
     for i in range(1, 5):
@@ -198,5 +198,5 @@ async def build_compliant_syllabus(
                 total_hours=12,
                 topics=[UnitTopicItem(title=f"Topic {i}.1")],
             ),
-            db=tenant_db,
+            caller_role="BOARD", db=tenant_db,
         )

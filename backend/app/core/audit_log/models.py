@@ -406,6 +406,16 @@ class AuditEventType(str, enum.Enum):
     FACULTY_PROGRAM_ASSIGNED = "FACULTY_PROGRAM_ASSIGNED"
     FACULTY_PROGRAM_REVOKED  = "FACULTY_PROGRAM_REVOKED"
 
+    # Dean Program Governance — which programmes a Dean governs.
+    #
+    # The table (dean_program_assignments) and everything that READS it have existed
+    # since Phase B; what never existed was a way to WRITE it. The only rows in any
+    # tenant were put there by a one-off backfill migration, so a Dean created after
+    # that migration governed nothing, for ever, with no way to fix it. These events
+    # record the act that was missing.
+    DEAN_PROGRAM_ASSIGNED = "DEAN_PROGRAM_ASSIGNED"
+    DEAN_PROGRAM_REVOKED  = "DEAN_PROGRAM_REVOKED"
+
     # Faculty Responsibility Grants — ERP Onboarding Phase 1.5
     FACULTY_ROLE_GRANTED = "FACULTY_ROLE_GRANTED"
     FACULTY_ROLE_REVOKED = "FACULTY_ROLE_REVOKED"

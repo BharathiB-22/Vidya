@@ -114,6 +114,32 @@ export interface SubmissionChecklist {
 export type SyllabusState = 'DRAFT' | 'AI_GENERATING' | 'APPROVED' | 'LOCKED'
 
 /** One subject, and the state of its official syllabus. `null` = none at all. */
+/**
+ * One stage of a document's academic lifecycle.
+ *
+ * DONE        finished, and good enough to publish
+ * INCOMPLETE  it exists, but the AI did not finish it — one click repairs it
+ * PENDING     not there yet
+ *
+ * The label is written by the server and printed as-is. It is a STAGE of the workflow,
+ * never a rule of the machine: the topic floors, the duplicate detection, the retry
+ * counts and the validation thresholds stay in the backend where they belong.
+ */
+export interface ChecklistItem {
+  key: string
+  label: string
+  state: 'DONE' | 'INCOMPLETE' | 'PENDING'
+  /** Set on unit rows, so an incomplete unit can be regenerated from here. */
+  unit_number: number | null
+  /**
+   * Shown, but NOT enforced by the approval gate — and it must never be styled as
+   * though it were. Only the References are optional (they come from CrossRef, and a
+   * third-party outage must not block a curriculum). Everything else on every checklist
+   * is tested by the gate, and is excluded from neither the percentage nor the eye.
+   */
+  optional: boolean
+}
+
 export interface ReadinessItem {
   course_id: string
   course_code: string
@@ -127,6 +153,25 @@ export interface ReadinessItem {
   /** WHICH document this subject carries. The dashboard says "Lab Manual" or
    *  "Internship Guidelines" rather than "Syllabus" for the ones that are not one. */
   course_type: CourseType
+  /**
+   * WHO owns this document.
+   *
+   * BOARD — a taught subject: the Board writes the syllabus, approves it, and it is
+   *         locked with the curriculum. These are what the approve gate counts.
+   * DEAN  — an internship, project or seminar. Shown so the Board can see the
+   *         curriculum whole, and nothing more: no gaps, no actions, and no weight in
+   *         whether the curriculum can be approved.
+   */
+  owner: 'BOARD' | 'DEAN'
+  /**
+   * Where this document stands, stage by stage — computed on the server so that no
+   * internal rule can leak into the interface. The Board sees stages of an academic
+   * workflow ("Unit IV — AI generation incomplete"), never our validators talking out
+   * loud ("2 topics; a unit runs to 10–15").
+   */
+  checklist: ChecklistItem[]
+  /** How far along, against ITS OWN checklist (0–100). */
+  progress_percent: number
   /**
    * What is still WRONG with the document — "Missing: Reference Books",
    * "Unit IV weak". Empty when there is nothing to flag.
@@ -150,6 +195,22 @@ export interface ReadinessSummary {
   draft_count: number
   missing_count: number
   can_approve: boolean
+  /**
+   * Two figures, and neither waits on the other: the Board's taught curriculum, and the
+   * Dean's execution documents. One combined percentage would tell each body how much
+   * work the OTHER still had to do.
+   */
+  board_progress_percent: number
+  dean_progress_percent: number
+  dean_document_count: number
+  /**
+   * THE SECOND GATE. The Dean may publish when the Board has approved the taught
+   * curriculum AND every execution document of his own is approved. Computed from the
+   * same rows the publish endpoint tests, so this button and that endpoint cannot
+   * disagree.
+   */
+  can_publish: boolean
+  dean_approved_count: number
   items: ReadinessItem[]
 }
 
@@ -212,20 +273,20 @@ export interface ApproveCurriculumRequest {
   comment?: string
 }
 
-export interface GenerateSyllabiRequest {
-  /**
-   * Default false: only subjects with NO syllabus are generated, so re-running
-   * after a partial failure picks up exactly what failed and leaves the Board's
-   * edits alone. True discards unapproved drafts and regenerates everything.
-   */
-  regenerate_all?: boolean
-  custom_instructions?: string
+/**
+ * The DEAN's gate — his execution documents, and whether the curriculum may be released.
+ *
+ * Publishing is a second act by a second authority. The Board approving the taught
+ * curriculum publishes nothing; the Dean publishes, and only once every internship,
+ * project and seminar document is approved by him. A curriculum released with an
+ * internship nobody has written promises students a component that does not exist.
+ */
+export interface PublishReadiness {
+  program_id: string
+  program_status: string
+  can_publish: boolean
+  total_documents: number
+  approved_documents: number
+  documents: ReadinessItem[]
 }
 
-export interface GenerateSyllabiResponse {
-  program_id: string
-  batch_id: string
-  dispatched: number
-  skipped: number
-  job_ids: string[]
-}

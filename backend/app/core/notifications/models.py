@@ -51,6 +51,18 @@ class NotificationType(str, enum.Enum):
     CURRICULUM_SUBMITTED        = "CURRICULUM_SUBMITTED"
     CURRICULUM_FINALIZED        = "CURRICULUM_FINALIZED"
 
+    # The Dean's half of the workflow. Two more messages, and they are his.
+    #
+    # READY_TO_PUBLISH  the last of his execution documents has been approved — the
+    #                   curriculum can now be released. Nothing else is waiting on him,
+    #                   and nothing publishes itself.
+    #
+    # The message telling him that the Board has finished, and that his internship and
+    # project documents can now be prepared, is CURRICULUM_FINALIZED — it already
+    # crosses back to him at exactly that moment, and a second notification saying the
+    # same thing in different words is how people learn to ignore notifications.
+    CURRICULUM_READY_TO_PUBLISH = "CURRICULUM_READY_TO_PUBLISH"
+
     # Academic ownership — Phase 1 Wave 1
     PROGRAM_ASSIGNED            = "PROGRAM_ASSIGNED"
     PROGRAM_ASSIGNMENT_REVOKED  = "PROGRAM_ASSIGNMENT_REVOKED"

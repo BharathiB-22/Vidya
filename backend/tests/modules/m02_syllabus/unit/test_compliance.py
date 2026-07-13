@@ -19,8 +19,19 @@ def _co(bloom_level: BloomLevel = BloomLevel.APPLY):
     return SimpleNamespace(id=uuid.uuid4(), bloom_level=bloom_level)
 
 
-def _unit():
-    return SimpleNamespace(id=uuid.uuid4())
+def _unit(number: int = 1, topics: int = 12):
+    """A unit as compliance now sees it.
+
+    It carries its NUMBER and its TOPICS because compliance is now also the
+    completeness gate: a theory syllabus is written and saved one unit at a time, so a
+    unit may exist and still be half-written, and approval has to be able to tell.
+    Twelve topics is a real unit; the floor is MIN_TOPICS_PER_UNIT.
+    """
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        unit_number=number,
+        topics=[{"title": f"Topic {i}"} for i in range(topics)],
+    )
 
 
 def _mapping(co_id: uuid.UUID):
@@ -40,7 +51,7 @@ def _cos(n: int, levels: list[BloomLevel] | None = None) -> list:
 
 
 def _units(n: int) -> list:
-    return [_unit() for _ in range(n)]
+    return [_unit(number=i + 1) for i in range(n)]
 
 
 # ===========================================================================
@@ -74,7 +85,7 @@ def test_compliance_passes_with_only_warnings():
     codes = {v.code for v in result.violations}
     assert "COPO_COVERAGE_LOW" in codes
     assert "CO_MIN_NOT_MET" not in codes
-    assert "UNIT_MIN_NOT_MET" not in codes
+    assert "GENERATION_INCOMPLETE" not in codes
 
 
 # ===========================================================================
@@ -104,7 +115,7 @@ def test_compliance_fails_too_few_units():
     result = _run_compliance_check(cos, units, mappings=[])
     assert result.passed is False
     codes = {v.code for v in result.violations}
-    assert "UNIT_MIN_NOT_MET" in codes
+    assert "GENERATION_INCOMPLETE" in codes
 
 
 def test_compliance_fails_both_co_and_unit_min():
@@ -112,7 +123,7 @@ def test_compliance_fails_both_co_and_unit_min():
     assert result.passed is False
     codes = {v.code for v in result.violations}
     assert "CO_MIN_NOT_MET" in codes
-    assert "UNIT_MIN_NOT_MET" in codes
+    assert "GENERATION_INCOMPLETE" in codes
 
 
 # ===========================================================================
@@ -179,4 +190,4 @@ def test_compliance_empty_syllabus_fails_both_mins():
     assert result.passed is False
     codes = {v.code for v in result.violations}
     assert "CO_MIN_NOT_MET" in codes
-    assert "UNIT_MIN_NOT_MET" in codes
+    assert "GENERATION_INCOMPLETE" in codes

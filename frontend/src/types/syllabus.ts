@@ -26,12 +26,16 @@ export type SyllabusStatus =
  * typed in by anyone.
  */
 export interface CourseInformation {
-  course_code:   string
-  course_name:   string
-  credits:       number
-  ltp:           string    // "3-1-2"
-  contact_hours: number    // (L + T + P) x 15 weeks
-  category:      string    // Core | Elective | Lab | Project
+  course_code:     string
+  course_name:     string
+  credits:         number
+  ltp:             string    // "3-1-2"
+  contact_hours:   number    // (L + T + P) x 15 weeks
+  category:        string    // Core | Elective | Lab | Project
+  course_type:     CourseType
+  semester:        number
+  /** "Regulation 2026" — a property of the curriculum, not of one subject. */
+  regulation_year: number | null
 }
 
 export type BloomLevel =
@@ -175,6 +179,20 @@ export interface Syllabus {
   doc_type:            CourseType
   /** The type-specific body. Empty for THEORY. */
   document:            CourseDocument
+  /**
+   * How many units this theory syllabus is taught in — 4 or 5. The Board's decision,
+   * taken before generation: five is not a universal format, and a Board that wanted
+   * four used to generate five and delete one, which left the hours to redistribute
+   * by hand. Meaningless for a type that has no units.
+   */
+  unit_count:          number
+  /**
+   * The hours the Board allocated to each unit before generation — [10, 8, 12, 10].
+   * The PLAN the units were written to; the authoritative hours are the ones on the
+   * units themselves, which the Board edits freely afterwards. Empty when the Board
+   * let the AI pace the units against the course's contact hours.
+   */
+  unit_hours:          number[]
   custom_instructions: string | null
   change_note:         string | null
   board_comment:       string | null
@@ -419,6 +437,19 @@ export interface SyllabusUpdate {
   internal_assessment?:  string[]
   board_comment?:        string
   /**
+   * THE ACADEMIC STRUCTURE — the Board's, saved before any AI runs.
+   *
+   * How many units the subject is taught in (4 or 5), and the teaching hours of each.
+   * They record the Board's decision; they do not restructure units that already
+   * exist — the next generation writes to them.
+   *
+   * A theory syllabus cannot be generated without them. The system does not derive
+   * them from the contact hours, and the model never chooses them: how a subject is
+   * divided, and how long each part is taught, is an academic judgement.
+   */
+  unit_count?:           number
+  unit_hours?:           number[]
+  /**
    * The type-specific document body — the lab manual, the internship guidelines,
    * the project handbook. Validated server-side against the row's OWN doc_type, so
    * a client cannot turn one document into another by posting a different shape.
@@ -603,7 +634,43 @@ export function regenerateLabel(
 
 export interface GenerateSyllabusRequest {
   custom_instructions?: string
+  /** How many units to write the syllabus in — 4 or 5. Omitted keeps whatever the
+   *  syllabus already carries. Ignored by types that have no units. */
+  unit_count?: number
+  /** Teaching hours per unit, in order — [10, 8, 12, 10]. Must have exactly
+   *  `unit_count` entries. Each unit is WRITTEN TO its hours; omitted lets the AI
+   *  pace the units against the course's contact hours. */
+  unit_hours?: number[]
 }
+
+// ---------------------------------------------------------------------------
+// The shape of a unit, and of a syllabus
+//
+// These four numbers are the frontend's copy of the generator's own bar
+// (MIN_TOPICS_PER_UNIT / VALID_UNIT_COUNTS in m02/ai_provider.py). They must agree
+// with it: a document that warns about units the generator was perfectly happy to
+// produce — or accepts ones it would reject — teaches the Board to ignore it.
+// ---------------------------------------------------------------------------
+
+/** Below this a unit is an outline, not a regulation. */
+export const MIN_TOPICS_PER_UNIT = 10
+/** What a real AICTE / Anna University / VTU unit runs to. */
+export const TARGET_TOPICS_PER_UNIT = 12
+export const MAX_TOPICS_PER_UNIT = 15
+
+/** The unit counts a Board may choose between. Four and five are the formats real
+ *  regulations print; three is not a syllabus and nobody prints Unit VI. */
+export const UNIT_COUNT_OPTIONS = [4, 5] as const
+export const DEFAULT_UNIT_COUNT = 5
+
+/**
+ * What a unit is normally taught for. Advisory bounds, not rules: an intensive
+ * 18-hour unit is a decision a Board is entitled to make, and the place to notice it
+ * is the hour form, not the printed regulation. Below 4 hours it is a topic; above
+ * 15 it is usually two units.
+ */
+export const MIN_UNIT_HOURS = 4
+export const MAX_UNIT_HOURS = 15
 
 export interface ApproveRequest {
   comment?: string

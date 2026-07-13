@@ -39,7 +39,7 @@ from tests.modules.m02_syllabus.conftest import (
 async def _create_draft(tenant_db, course_id, user_id=None):
     payload = SyllabusCreate(**make_syllabus_payload(course_id))
     return await SyllabusService.create_syllabus(
-        payload, created_by=user_id or uuid.uuid4(), db=tenant_db
+        payload, created_by=user_id or uuid.uuid4(), caller_role="BOARD", db=tenant_db
     )
 
 
@@ -50,7 +50,7 @@ async def _do_approve(syllabus_id, user_id, tenant_db):
     no submit-for-review handoff — there is nobody to hand it to.
     """
     return await SyllabusService.approve(
-        syllabus_id, approved_by=user_id, db=tenant_db
+        syllabus_id, approved_by=user_id, caller_role="BOARD", db=tenant_db
     )
 
 
@@ -74,7 +74,7 @@ async def test_get_syllabus_returns_none_for_unknown(tenant_db_a, m01_setup):
 async def test_update_syllabus_allowed_in_draft(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     updated = await SyllabusService.update_syllabus(
-        s.id, SyllabusUpdate(custom_instructions="Focus on Python"), db=tenant_db_a
+        s.id, SyllabusUpdate(custom_instructions="Focus on Python"), caller_role="BOARD", db=tenant_db_a
     )
     assert updated.custom_instructions == "Focus on Python"
 
@@ -89,7 +89,7 @@ async def test_editing_an_approved_syllabus_returns_it_to_draft(tenant_db_a, m01
     await force_syllabus_status(s.id, SyllabusStatus.APPROVED, tenant_db_a)
 
     updated = await SyllabusService.update_syllabus(
-        s.id, SyllabusUpdate(custom_instructions="Changed"), db=tenant_db_a
+        s.id, SyllabusUpdate(custom_instructions="Changed"), caller_role="BOARD", db=tenant_db_a
     )
     assert updated.status == SyllabusStatus.DRAFT
     assert updated.approved_at is None
@@ -104,7 +104,7 @@ async def test_update_syllabus_blocked_when_locked(tenant_db_a, m01_setup):
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.update_syllabus(
-            s.id, SyllabusUpdate(custom_instructions="Changed"), db=tenant_db_a
+            s.id, SyllabusUpdate(custom_instructions="Changed"), caller_role="BOARD", db=tenant_db_a
         )
     assert exc.value.code == "CURRICULUM_LOCKED"
     assert exc.value.status_code == 409
@@ -112,7 +112,7 @@ async def test_update_syllabus_blocked_when_locked(tenant_db_a, m01_setup):
 
 async def test_delete_syllabus_allowed_in_draft(tenant_db_a, m01_setup):
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
-    await SyllabusService.delete_syllabus(s.id, db=tenant_db_a)
+    await SyllabusService.delete_syllabus(s.id, caller_role="BOARD", db=tenant_db_a)
     assert await SyllabusService.get_syllabus(s.id, db=tenant_db_a) is None
 
 
@@ -121,7 +121,7 @@ async def test_delete_syllabus_blocked_when_locked(tenant_db_a, m01_setup):
     await force_syllabus_status(s.id, SyllabusStatus.LOCKED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
-        await SyllabusService.delete_syllabus(s.id, db=tenant_db_a)
+        await SyllabusService.delete_syllabus(s.id, caller_role="BOARD", db=tenant_db_a)
     assert exc.value.code == "CURRICULUM_LOCKED"
 
 
@@ -156,7 +156,7 @@ async def test_approve_requires_draft(tenant_db_a, m01_setup, admin_user_a):
     await force_syllabus_status(s.id, SyllabusStatus.APPROVED, tenant_db_a)
 
     with pytest.raises(SyllabusServiceError) as exc:
-        await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], db=tenant_db_a)
+        await SyllabusService.approve(s.id, approved_by=admin_user_a["id"], caller_role="BOARD", db=tenant_db_a)
     assert exc.value.code == "INVALID_STATUS"
 
 
@@ -166,7 +166,7 @@ async def test_approve_blocked_by_compliance_error(tenant_db_a, m01_setup, admin
     s = await _create_draft(tenant_db_a, m01_setup["course_id"])
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.approve(
-            s.id, approved_by=admin_user_a["id"], db=tenant_db_a
+            s.id, approved_by=admin_user_a["id"], caller_role="BOARD", db=tenant_db_a
         )
     assert exc.value.code == "COMPLIANCE_FAILED"
     assert exc.value.status_code == 422
@@ -226,14 +226,14 @@ async def test_approve_passes_with_warnings_only(tenant_db_a, m01_setup, admin_u
                 bloom_level=BloomLevel.APPLY,  # intentionally all same level
                 display_order=i,
             ),
-            db=tenant_db_a,
+            caller_role="BOARD", db=tenant_db_a,
         )
     for i in range(1, 5):
         await SyllabusService.add_unit(
             s.id,
             SyllabusUnitCreate(unit_number=i, title=f"Unit {i}", total_hours=10,
                                topics=[UnitTopicItem(title="Topic")]),
-            db=tenant_db_a,
+            caller_role="BOARD", db=tenant_db_a,
         )
 
     approved = await _do_approve(s.id, admin_user_a["id"], tenant_db_a)
@@ -270,12 +270,12 @@ async def test_a_locked_syllabus_blocks_all_edits(tenant_db_a, m01_setup, admin_
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.update_syllabus(
-            s.id, SyllabusUpdate(custom_instructions="Changed"), db=tenant_db_a
+            s.id, SyllabusUpdate(custom_instructions="Changed"), caller_role="BOARD", db=tenant_db_a
         )
     assert exc.value.code == "CURRICULUM_LOCKED"
 
     with pytest.raises(SyllabusServiceError) as exc:
-        await SyllabusService.delete_syllabus(s.id, db=tenant_db_a)
+        await SyllabusService.delete_syllabus(s.id, caller_role="BOARD", db=tenant_db_a)
     assert exc.value.code == "CURRICULUM_LOCKED"
 
 
@@ -289,7 +289,7 @@ async def test_fork_creates_new_draft_with_parent_link(tenant_db_a, m01_setup, a
     await build_compliant_syllabus(s.id, tenant_db_a)
 
     forked = await SyllabusService.fork(
-        s.id, created_by=admin_user_a["id"], change_note="New approach", db=tenant_db_a
+        s.id, created_by=admin_user_a["id"], change_note="New approach", caller_role="BOARD", db=tenant_db_a
     )
     assert forked.status == SyllabusStatus.DRAFT
     assert forked.version == 2
@@ -302,7 +302,7 @@ async def test_fork_copies_cos_and_units(tenant_db_a, m01_setup, admin_user_a):
     await build_compliant_syllabus(s.id, tenant_db_a)
 
     forked = await SyllabusService.fork(
-        s.id, created_by=admin_user_a["id"], change_note=None, db=tenant_db_a
+        s.id, created_by=admin_user_a["id"], change_note=None, caller_role="BOARD", db=tenant_db_a
     )
     orig_cos   = await SyllabusService.list_cos(s.id, db=tenant_db_a)
     forked_cos = await SyllabusService.list_cos(forked.id, db=tenant_db_a)
@@ -320,7 +320,7 @@ async def test_fork_blocked_when_generating(tenant_db_a, m01_setup, admin_user_a
 
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.fork(
-            s.id, created_by=admin_user_a["id"], change_note=None, db=tenant_db_a
+            s.id, created_by=admin_user_a["id"], change_note=None, caller_role="BOARD", db=tenant_db_a
         )
     assert exc.value.code == "GENERATING"
 
@@ -339,7 +339,7 @@ async def test_add_co_succeeds_in_draft(tenant_db_a, m01_setup):
             bloom_level=BloomLevel.APPLY,
             display_order=1,
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     assert co.code == "CO1"
     assert co.bloom_level == BloomLevel.APPLY
@@ -364,7 +364,7 @@ async def test_adding_a_co_unapproves_the_syllabus(tenant_db_a, m01_setup):
             description="An outcome added after the board approved the syllabus",
             bloom_level=BloomLevel.APPLY,
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
 
     refreshed = await SyllabusService.get_syllabus(s.id, db=tenant_db_a)
@@ -381,7 +381,7 @@ async def test_add_co_duplicate_code_raises_error(tenant_db_a, m01_setup):
             description="First outcome with this code for test",
             bloom_level=BloomLevel.APPLY,
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     with pytest.raises(SyllabusServiceError) as exc:
         await SyllabusService.add_co(
@@ -391,7 +391,7 @@ async def test_add_co_duplicate_code_raises_error(tenant_db_a, m01_setup):
                 description="Duplicate code should raise error here",
                 bloom_level=BloomLevel.EVALUATE,
             ),
-            db=tenant_db_a,
+            caller_role="BOARD", db=tenant_db_a,
         )
     assert exc.value.code == "CODE_EXISTS"
 
@@ -404,11 +404,11 @@ async def test_deleting_a_co_unapproves_the_syllabus(tenant_db_a, m01_setup):
             code="CO1", description="Outcome to attempt deletion of when approved",
             bloom_level=BloomLevel.APPLY,
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     await force_syllabus_status(s.id, SyllabusStatus.APPROVED, tenant_db_a)
 
-    await SyllabusService.delete_co(co.id, s.id, db=tenant_db_a)
+    await SyllabusService.delete_co(co.id, s.id, caller_role="BOARD", db=tenant_db_a)
 
     refreshed = await SyllabusService.get_syllabus(s.id, db=tenant_db_a)
     assert refreshed.status == SyllabusStatus.DRAFT
@@ -426,7 +426,7 @@ async def test_add_unit_succeeds_in_draft(tenant_db_a, m01_setup):
             unit_number=1, title="Introduction to Computing",
             total_hours=12, topics=[UnitTopicItem(title="Basics")],
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     assert unit.unit_number == 1
     assert unit.title == "Introduction to Computing"
@@ -440,7 +440,7 @@ async def test_adding_a_unit_unapproves_the_syllabus(tenant_db_a, m01_setup):
         s.id,
         SyllabusUnitCreate(unit_number=1, title="New Unit", total_hours=10,
                            topics=[UnitTopicItem(title="T")]),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
 
     refreshed = await SyllabusService.get_syllabus(s.id, db=tenant_db_a)
@@ -459,7 +459,7 @@ async def test_update_copo_mappings_succeeds_in_draft(tenant_db_a, m01_setup):
             code="CO1", description="Apply algorithms to real problems and systems",
             bloom_level=BloomLevel.APPLY,
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     po_id = m01_setup["po_ids"][0]
     mappings = await SyllabusService.update_copo_mappings(
@@ -467,7 +467,7 @@ async def test_update_copo_mappings_succeeds_in_draft(tenant_db_a, m01_setup):
         COPOMappingBulkUpdate(mappings=[
             COPOMappingCreate(po_id=po_id, mapping_strength=MappingStrength.HIGH)
         ]),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     assert len(mappings) == 1
     assert mappings[0].po_id == po_id
@@ -482,7 +482,7 @@ async def test_updating_copo_mappings_unapproves_the_syllabus(tenant_db_a, m01_s
             code="CO1", description="Outcome for testing copo mapping when approved",
             bloom_level=BloomLevel.APPLY,
         ),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
     await force_syllabus_status(s.id, SyllabusStatus.APPROVED, tenant_db_a)
 
@@ -491,7 +491,7 @@ async def test_updating_copo_mappings_unapproves_the_syllabus(tenant_db_a, m01_s
         COPOMappingBulkUpdate(mappings=[
             COPOMappingCreate(po_id=m01_setup["po_ids"][0])
         ]),
-        db=tenant_db_a,
+        caller_role="BOARD", db=tenant_db_a,
     )
 
     refreshed = await SyllabusService.get_syllabus(s.id, db=tenant_db_a)
@@ -564,7 +564,7 @@ async def test_list_versions_returns_all_course_syllabi(
     await build_compliant_syllabus(s1.id, tenant_db_a)
     await _do_approve(s1.id, admin_user_a["id"], tenant_db_a)
     s2 = await SyllabusService.fork(
-        s1.id, created_by=admin_user_a["id"], change_note="Version 2", db=tenant_db_a
+        s1.id, created_by=admin_user_a["id"], change_note="Version 2", caller_role="BOARD", db=tenant_db_a
     )
 
     versions = await SyllabusService.list_versions(m01_setup["course_id"], db=tenant_db_a)

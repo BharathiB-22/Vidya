@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  Check, Lock, Pencil, Plus, Printer, Sparkles, Trash2, X,
+  AlertTriangle, Check, Lock, Pencil, Plus, Printer, Sparkles, Trash2, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -9,14 +9,21 @@ import {
   useAddUnit,
   useDeleteUnit,
   useRegenerateSection,
+  useUpdateCourseOutcome,
   useUpdateSyllabus,
   useUpdateUnit,
 } from '@/hooks/syllabuses'
 import { addToast } from '@/hooks/useToast'
 import { CourseDocumentSections } from '@/components/syllabus/CourseDocumentSections'
-import { regenerateLabel } from '@/types/syllabus'
+import {
+  MAX_UNIT_HOURS,
+  MIN_TOPICS_PER_UNIT,
+  regenerateLabel,
+} from '@/types/syllabus'
 import type {
+  BloomLevel,
   CourseDocument,
+  CourseInformation,
   CourseOutcome,
   RefType,
   RegenerateSection,
@@ -24,6 +31,26 @@ import type {
   SyllabusReference,
   SyllabusUnit,
 } from '@/types/syllabus'
+
+/** The six levels, in the order a taxonomy states them — not alphabetical. */
+const BLOOM_LEVELS: BloomLevel[] = [
+  'REMEMBER', 'UNDERSTAND', 'APPLY', 'ANALYSE', 'EVALUATE', 'CREATE',
+]
+
+/**
+ * The Course Information header of a regulation: four facts, stated once.
+ *
+ * The course code and name are the TITLE of the page, so they are not repeated in
+ * the table beneath it — that version of the header was a form pretending to be a
+ * document.
+ */
+const COURSE_FACTS = (info: CourseInformation) => [
+  { label: 'Semester',      value: String(info.semester) },
+  { label: 'Credits',       value: String(info.credits) },
+  { label: 'L-T-P',         value: info.ltp },
+  { label: 'Contact Hours', value: String(info.contact_hours) },
+  { label: 'Category',      value: info.category },
+]
 
 /**
  * The official university syllabus, as a document.
@@ -51,18 +78,6 @@ const BIBLIOGRAPHY: Array<{ heading: string; types: RefType[] }> = [
   { heading: 'Suggested Reading', types: ['SUGGESTED_READING'] },
   { heading: 'Web Resources',     types: ['WEB_RESOURCE', 'ONLINE'] },
 ]
-
-/**
- * Below this a unit is an outline, not a regulation. Mirrors the AI's own floor
- * (MIN_TOPICS_PER_UNIT in m02/ai_provider.py) — the two must agree, or the document
- * warns about units the generator was perfectly happy to produce.
- *
- * A real unit runs to 12–15 topics, and that is what the AI is asked for. But a
- * dense unit on a narrow subject legitimately runs to 8, so 8 is where the warning
- * starts rather than where the ideal sits: quality is the bar, not a word count.
- */
-const MIN_TOPICS = 8
-const TARGET_TOPICS = 12
 
 interface Props {
   syllabus: Syllabus
@@ -97,10 +112,32 @@ export function OfficialSyllabusDocument({
   // the course after the Board approved a lab manual, this is still a lab manual.
   const isTheory = syllabus.doc_type === 'THEORY'
 
+  /*
+   * The course's total hours are the SUM of its units, and nothing else.
+   *
+   * There is no stored total and no field to keep in step — the Board changes Unit
+   * III from 8 hours to 12 and the total moves, because the total was never anything
+   * but the units added up. `draftHours` carries the hours of the unit currently
+   * being edited so the figure moves as it is typed, rather than only after a save:
+   * a Board redistributing hours across five units is doing arithmetic, and it needs
+   * to see the running total while it does it, not afterwards.
+   */
+  const [draftHours, setDraftHours] = useState<Record<string, number>>({})
+
   const sortedUnits = [...units].sort((a, b) => a.unit_number - b.unit_number)
   const sortedOutcomes = [...outcomes].sort((a, b) => a.display_order - b.display_order)
-  const totalHours = sortedUnits.reduce((sum, u) => sum + (u.total_hours || 0), 0)
+  const totalHours = sortedUnits.reduce(
+    (sum, u) => sum + (draftHours[u.id] ?? u.total_hours ?? 0),
+    0,
+  )
   const confirmed = references.filter((r) => r.is_confirmed)
+
+  // What the curriculum says this course is taught for, from its L-T-P. The units
+  // should account for it; a syllabus totalling 90 hours for a course taught for 45
+  // is not a document a Board can approve. Advisory, never blocking — the Board may
+  // have a reason, and a printed regulation is not the place to discover we guessed.
+  const contactHours = info?.contact_hours ?? 0
+  const hoursOff = contactHours > 0 && Math.abs(totalHours - contactHours) > contactHours * 0.15
 
   function regen(section: RegenerateSection, unitId?: string) {
     regenerate.mutate(
@@ -132,24 +169,43 @@ export function OfficialSyllabusDocument({
           <h1 className="text-lg font-bold uppercase tracking-wide text-black">
             {info?.course_code} &nbsp;–&nbsp; {info?.course_name}
           </h1>
+          {info?.regulation_year && (
+            <p className="mt-1 text-xs font-medium uppercase tracking-widest text-gray-600">
+              Regulation {info.regulation_year}
+            </p>
+          )}
         </header>
 
-        {/* ── Course Information ────────────────────────────────────────── */}
+        {/*
+          ── Course Information ──────────────────────────────────────────
+
+          The facts of the course, one row, as a university regulation prints them.
+
+          The course code and name are NOT repeated here: they are the title of this
+          page, an inch above. A regulation states each fact once — the version of
+          this table that also carried Course Code and Course Name was a form
+          pretending to be a document.
+        */}
         {info && (
           <table className="mt-4 w-full border-collapse text-sm">
             <tbody>
-              {[
-                ['Course Code', info.course_code, 'Credits', String(info.credits)],
-                ['Course Name', info.course_name, 'L-T-P', info.ltp],
-                ['Category', info.category, 'Contact Hours', String(info.contact_hours)],
-              ].map(([l1, v1, l2, v2]) => (
-                <tr key={l1}>
-                  <th className="w-32 border border-gray-400 bg-gray-100 px-2 py-1 text-left font-semibold">{l1}</th>
-                  <td className="border border-gray-400 px-2 py-1">{v1}</td>
-                  <th className="w-32 border border-gray-400 bg-gray-100 px-2 py-1 text-left font-semibold">{l2}</th>
-                  <td className="w-28 border border-gray-400 px-2 py-1">{v2}</td>
-                </tr>
-              ))}
+              <tr>
+                {COURSE_FACTS(info).map(({ label }) => (
+                  <th
+                    key={label}
+                    className="border border-gray-400 bg-gray-100 px-2 py-1 text-left text-xs font-semibold uppercase tracking-wide"
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {COURSE_FACTS(info).map(({ label, value }) => (
+                  <td key={label} className="border border-gray-400 px-2 py-1">
+                    {value}
+                  </td>
+                ))}
+              </tr>
             </tbody>
           </table>
         )}
@@ -169,7 +225,12 @@ export function OfficialSyllabusDocument({
           isRegenerating={regenerate.isPending}
         />
 
-        {/* ── Course Outcomes ───────────────────────────────────────────── */}
+        {/* ── Course Outcomes ─────────────────────────────────────────────
+
+            Edited in place, one row at a time. Rewriting the outcomes with AI
+            replaces ALL of them and takes the CO-PO matrix with them — which is the
+            wrong instrument for fixing the wording of CO3, and it is the only one the
+            Board used to have on this page. */}
         {sortedOutcomes.length > 0 && (
           <section className="group mt-6">
             <div className="flex items-center gap-2">
@@ -197,20 +258,20 @@ export function OfficialSyllabusDocument({
               </thead>
               <tbody>
                 {sortedOutcomes.map((co) => (
-                  <tr key={co.id}>
-                    <td className="border border-gray-400 px-2 py-1 text-center font-semibold">{co.code}</td>
-                    <td className="border border-gray-400 px-2 py-1">{co.description}</td>
-                    <td className="border border-gray-400 px-2 py-1 text-center capitalize">
-                      {co.bloom_level?.toLowerCase() ?? '—'}
-                    </td>
-                  </tr>
+                  <OutcomeRow
+                    key={co.id}
+                    syllabusId={syllabus.id}
+                    outcome={co}
+                    canEdit={canEdit}
+                  />
                 ))}
               </tbody>
             </table>
             {canEdit && (
               <p className="mt-1 text-xs text-gray-500 print:hidden">
-                Individual outcomes and their CO-PO mappings are edited on the Outcomes tab.
-                Rewriting them here replaces all of them, and the mappings with them.
+                Click an outcome to rewrite it. Its CO-PO mappings are edited on the CO-PO
+                Matrix tab; rewriting the outcomes with AI replaces every one of them, and
+                the mappings with them.
               </p>
             )}
           </section>
@@ -240,17 +301,33 @@ export function OfficialSyllabusDocument({
                   canEdit={canEdit}
                   onRegenerate={() => regen('UNIT', unit.id)}
                   isRegenerating={regenerate.isPending}
+                  onDraftHours={(hours) =>
+                    setDraftHours((prev) => {
+                      const next = { ...prev }
+                      if (hours == null) delete next[unit.id]
+                      else next[unit.id] = hours
+                      return next
+                    })
+                  }
                 />
               ))}
 
+              {/* The total is the units added up — it moves the moment a unit's hours
+                  do, including while one is still being typed. */}
               {sortedUnits.length > 0 && (
-                <p className="mt-3 border-t-2 border-black pt-2 text-right text-sm font-bold uppercase">
-                  Total: {totalHours} Hours
-                </p>
+                <div className="mt-3 border-t-2 border-black pt-2 text-right">
+                  <p className="text-sm font-bold uppercase">Total: {totalHours} Hours</p>
+                  {hoursOff && canEdit && (
+                    <p className="mt-0.5 text-xs font-normal text-amber-700 print:hidden">
+                      The curriculum teaches this course for {contactHours} hours (L-T-P{' '}
+                      {info?.ltp}). The units add up to {totalHours}.
+                    </p>
+                  )}
+                </div>
               )}
 
               {canEdit && (
-                <div className="mt-3 print:hidden">
+                <div className="mt-3 flex flex-wrap items-center gap-2 print:hidden">
                   <Button
                     variant="outline"
                     size="sm"
@@ -267,37 +344,47 @@ export function OfficialSyllabusDocument({
                     <Plus className="mr-1 h-4 w-4" />
                     Add Unit
                   </Button>
-                  <span className="ml-2 text-xs text-gray-500">
+                  <span className="text-xs text-gray-500">
                     Splitting a unit is: add one, then move topics across. Merging is the reverse.
                   </span>
+                  {/* The Board chose the shape of this syllabus before it was generated.
+                      If the units no longer match that choice, say so — quietly, and
+                      without blocking anything: hand-editing to four units is a
+                      legitimate thing to do, and forgetting you did it is not. */}
+                  {sortedUnits.length !== syllabus.unit_count && (
+                    <span className="text-xs text-amber-700">
+                      Generated for {syllabus.unit_count} units; this syllabus now has{' '}
+                      {sortedUnits.length}.
+                    </span>
+                  )}
                 </div>
               )}
             </section>
 
-            {/* ── Practical Components ──────────────────────────────────── */}
+            {/*
+              ── Practical Components ────────────────────────────────────
+
+              Printed ONLY when the course actually has them. A real syllabus is
+              Course Information, Objectives, Outcomes, the units, and the books —
+              and nothing else. Every extra heading is one the reader has to skip.
+
+              The Internal Assessment block used to print here too, and it is gone:
+              the CIE pattern is a regulation-wide rule, not a per-course one, and
+              five subjects each stating their own version of it was five chances to
+              contradict the university's. The data is untouched — the field, the API
+              and any syllabus that already carries one are all still there. It simply
+              is not part of the printed document any more.
+            */}
             <EditableList
               heading="Practical Components"
               items={syllabus.practical_components}
               canEdit={canEdit}
               numbered
               hideWhenEmpty
-              placeholder="Implement a multi-layer perceptron and evaluate it on a benchmark dataset."
+              onlyWhenPresent
               onRegenerate={() => regen('PRACTICALS')}
               onSave={(practical_components) =>
                 updateSyllabus.mutate({ id: syllabus.id, payload: { practical_components } })
-              }
-              isPending={updateSyllabus.isPending}
-            />
-
-            {/* ── Internal Assessment ───────────────────────────────────── */}
-            <EditableList
-              heading="Internal Assessment"
-              items={syllabus.internal_assessment}
-              canEdit={canEdit}
-              hideWhenEmpty
-              placeholder="Two internal assessment tests of 50 marks each, averaged to 20 marks."
-              onSave={(internal_assessment) =>
-                updateSyllabus.mutate({ id: syllabus.id, payload: { internal_assessment } })
               }
               isPending={updateSyllabus.isPending}
             />
@@ -395,22 +482,28 @@ function RegenerateButton({
 }
 
 /**
- * One unit: heading, hours, and the 12–20 academic topics that print beneath it.
+ * One unit: heading, hours, and the 10–15 academic topics that print beneath it.
  *
  * The topics are edited one per line — the Board adds, removes and reorders them.
  * A textarea rather than N inputs, because a Board member rewriting a unit is
  * writing a list, not administering rows: they want to paste, reorder and delete
  * freely, and every keystroke landing in a separate controlled input makes that
  * miserable.
+ *
+ * The hours are reported UPWARD as they are typed (`onDraftHours`), because they are
+ * not this unit's business alone: they are one term of the course's total, and the
+ * Board redistributing hours across the units needs to watch that total move.
  */
 function UnitBlock({
-  syllabusId, unit, canEdit, onRegenerate, isRegenerating,
+  syllabusId, unit, canEdit, onRegenerate, isRegenerating, onDraftHours,
 }: {
   syllabusId: string
   unit: SyllabusUnit
   canEdit: boolean
   onRegenerate: () => void
   isRegenerating: boolean
+  /** Hours being typed right now, or null when this unit is not being edited. */
+  onDraftHours: (hours: number | null) => void
 }) {
   const update = useUpdateUnit(syllabusId)
   const remove = useDeleteUnit(syllabusId)
@@ -429,6 +522,20 @@ function UnitBlock({
       setTopicText(topicLines(unit).join('\n'))
     }
   }, [editing, unit])
+
+  // Feed the running total while this unit is open, and stop the moment it closes —
+  // a stale draft would keep the total wrong after the edit was abandoned.
+  useEffect(() => {
+    if (!editing) {
+      onDraftHours(null)
+      return
+    }
+    const parsed = Number(hours)
+    onDraftHours(Number.isFinite(parsed) && parsed > 0 ? parsed : 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, hours])
+
+  useEffect(() => () => onDraftHours(null), []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function save() {
     const lines = topicText.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -459,14 +566,18 @@ function UnitBlock({
             className="font-semibold"
             placeholder="Unit title"
           />
-          <Input
-            type="number"
-            min={1}
-            value={hours}
-            onChange={(e) => setHours(e.target.value)}
-            className="w-28"
-            placeholder="Hours"
-          />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Input
+              type="number"
+              min={1}
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              className="w-20"
+              placeholder="Hours"
+              aria-label={`Teaching hours for Unit ${roman(unit.unit_number)}`}
+            />
+            <span className="text-sm text-gray-600">Hours</span>
+          </div>
         </div>
         <Textarea
           rows={Math.max(12, count + 2)}
@@ -480,19 +591,24 @@ function UnitBlock({
           }
           className="font-mono text-sm"
         />
-        <p
-          className={`mt-1 text-xs ${
-            count < MIN_TOPICS ? 'font-semibold text-amber-700' : 'text-gray-600'
-          }`}
-        >
-          {count} topic{count === 1 ? '' : 's'}, one per line.
-          {count < MIN_TOPICS && (
-            <>
-              {' '}An official unit runs to {TARGET_TOPICS}–15, and never fewer than{' '}
-              {MIN_TOPICS} — below that it reads as an outline.
-            </>
-          )}
+        {/*
+          The count, and nothing else.
+
+          Not "10 of 10–15 topics", not a threshold, not a rule. Those are the
+          generator's business and they stay in the backend: a Board member reading our
+          validation limits learns only that we do not trust our own generator. If a unit
+          is too thin to publish, the document says so where it matters — "AI generation
+          incomplete", with the button that fixes it.
+        */}
+        <p className="mt-1 text-xs text-gray-600">
+          {count} topic{count === 1 ? '' : 's'}, one per line, in the order they print.
+          Add, delete and reorder them by editing the lines.
         </p>
+        {Number(hours) > MAX_UNIT_HOURS && (
+          <p className="mt-0.5 text-xs text-amber-700">
+            A unit taught for more than {MAX_UNIT_HOURS} hours is usually two units.
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" onClick={save} disabled={update.isPending}>
             <Check className="mr-1 h-4 w-4" />
@@ -517,7 +633,9 @@ function UnitBlock({
     )
   }
 
-  const thin = printed.length > 0 && printed.length < MIN_TOPICS
+  // Too thin to publish — no topics at all, or fewer than a regulation prints. Both
+  // are the same event to the Board: the AI did not finish, and the fix is one click.
+  const incomplete = printed.length < MIN_TOPICS_PER_UNIT
 
   return (
     <div className="group mb-5">
@@ -551,7 +669,7 @@ function UnitBlock({
         </div>
       </div>
 
-      {printed.length > 0 ? (
+      {printed.length > 0 && (
         <ul className="mt-2 space-y-0.5 text-sm text-gray-900">
           {printed.map((topic, i) => (
             <li key={`${i}-${topic.slice(0, 20)}`} className="flex gap-2">
@@ -560,19 +678,141 @@ function UnitBlock({
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="mt-2 text-sm italic text-red-600 print:hidden">
-          This unit has no topics. It cannot be published like this.
-        </p>
       )}
 
-      {thin && canEdit && (
-        <p className="mt-1 text-xs text-amber-700 print:hidden">
-          Only {printed.length} topics — an official unit runs to {TARGET_TOPICS}–15, and never
-          fewer than {MIN_TOPICS}. Rewrite it with AI, or add the rest by hand.
-        </p>
+      {/*
+        An incomplete unit, said as an INSTRUCTION rather than a diagnosis.
+
+        "Unit III has 2 topics; an official unit runs to 10–15" is accurate, and it
+        leaves the reader to work out that this is the AI's failure rather than
+        theirs, that a button exists, and which one it is. The Board should not be
+        filling in for a generator that came up short — it should be pressing
+        Regenerate. So the message says that, and brings the button with it.
+      */}
+      {incomplete && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 print:hidden">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+          <span className="text-sm text-amber-900">AI generation incomplete.</span>
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto border-amber-300 bg-white hover:bg-amber-100"
+              onClick={onRegenerate}
+              disabled={isRegenerating}
+            >
+              <Sparkles className="mr-1 h-3.5 w-3.5" />
+              {isRegenerating ? 'Regenerating…' : 'Regenerate Unit'}
+            </Button>
+          )}
+        </div>
       )}
     </div>
+  )
+}
+
+/**
+ * One Course Outcome, editable where it prints.
+ *
+ * The Board rewrites the wording of CO3 and picks its Bloom's level; the CO-PO
+ * mappings stay on the matrix tab, where there is room to show what a mapping
+ * actually means. The code (CO1, CO2) is not editable — it is the outcome's identity
+ * across the matrix, the question papers and the accreditation reports, and renaming
+ * it here would silently orphan all three.
+ */
+function OutcomeRow({
+  syllabusId, outcome, canEdit,
+}: {
+  syllabusId: string
+  outcome: CourseOutcome
+  canEdit: boolean
+}) {
+  const update = useUpdateCourseOutcome(syllabusId)
+
+  const [editing, setEditing] = useState(false)
+  const [description, setDescription] = useState(outcome.description)
+  const [bloom, setBloom] = useState<BloomLevel>(outcome.bloom_level)
+
+  useEffect(() => {
+    if (!editing) {
+      setDescription(outcome.description)
+      setBloom(outcome.bloom_level)
+    }
+  }, [editing, outcome])
+
+  function save() {
+    const text = description.trim()
+    if (!text) return
+    update.mutate(
+      { coId: outcome.id, payload: { description: text, bloom_level: bloom } },
+      { onSuccess: () => setEditing(false) },
+    )
+  }
+
+  if (editing) {
+    return (
+      <tr className="print:hidden">
+        <td className="border border-gray-400 px-2 py-1 text-center align-top font-semibold">
+          {outcome.code}
+        </td>
+        <td className="border border-gray-400 px-2 py-1">
+          <Textarea
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="text-sm"
+            placeholder="Apply supervised learning algorithms to real-world classification problems."
+          />
+          <div className="mt-1.5 flex gap-2">
+            <Button size="sm" onClick={save} disabled={update.isPending || !description.trim()}>
+              <Check className="mr-1 h-3.5 w-3.5" />
+              {update.isPending ? 'Saving…' : 'Save'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>
+              <X className="mr-1 h-3.5 w-3.5" />
+              Cancel
+            </Button>
+          </div>
+        </td>
+        <td className="border border-gray-400 px-2 py-1 align-top">
+          <select
+            value={bloom}
+            onChange={(e) => setBloom(e.target.value as BloomLevel)}
+            aria-label={`Bloom's level for ${outcome.code}`}
+            className="w-full rounded border border-gray-300 bg-white px-1 py-1 text-xs capitalize"
+          >
+            {BLOOM_LEVELS.map((level) => (
+              <option key={level} value={level} className="capitalize">
+                {level.toLowerCase()}
+              </option>
+            ))}
+          </select>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className="group/co">
+      <td className="border border-gray-400 px-2 py-1 text-center font-semibold">{outcome.code}</td>
+      <td className="border border-gray-400 px-2 py-1">
+        <span className="flex items-start gap-2">
+          <span className="flex-1">{outcome.description}</span>
+          {canEdit && (
+            <button
+              onClick={() => setEditing(true)}
+              title={`Edit ${outcome.code}`}
+              className="mt-0.5 shrink-0 text-gray-400 opacity-0 transition hover:text-black group-hover/co:opacity-100 print:hidden"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </span>
+      </td>
+      <td className="border border-gray-400 px-2 py-1 text-center capitalize">
+        {outcome.bloom_level?.toLowerCase() ?? '—'}
+      </td>
+    </tr>
   )
 }
 
@@ -597,7 +837,7 @@ function topicLines(unit: SyllabusUnit): string[] {
  */
 function EditableList({
   heading, items, canEdit, onSave, onRegenerate, isPending, isRegenerating,
-  numbered, hideWhenEmpty, placeholder,
+  numbered, hideWhenEmpty, onlyWhenPresent, placeholder,
 }: {
   heading: string
   items: string[]
@@ -608,6 +848,11 @@ function EditableList({
   isRegenerating?: boolean
   numbered?: boolean
   hideWhenEmpty?: boolean
+  /** No "Add this section" button when it is empty. For sections a real regulation
+   *  only carries when the course genuinely has them — a theory course with no
+   *  laboratory is not missing its Practical Components, it simply has none, and
+   *  offering to add them invites a syllabus that promises a lab nobody staffs. */
+  onlyWhenPresent?: boolean
   placeholder?: string
 }) {
   const [editing, setEditing] = useState(false)
@@ -617,6 +862,7 @@ function EditableList({
     if (!editing) setText(items.join('\n'))
   }, [editing, items])
 
+  if (items.length === 0 && onlyWhenPresent && !editing) return null
   if (items.length === 0 && hideWhenEmpty && !canEdit) return null
   if (items.length === 0 && hideWhenEmpty && canEdit && !editing) {
     return (

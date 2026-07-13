@@ -110,6 +110,7 @@ async def m02_setup(test_tenant_a, tenant_db_a):
     syllabus = await SyllabusService.create_syllabus(
         SyllabusCreate(course_id=course.id),
         created_by=uuid.uuid4(),
+        caller_role="BOARD",
         db=tenant_db_a,
     )
 
@@ -128,7 +129,7 @@ async def m02_setup(test_tenant_a, tenant_db_a):
                 bloom_level=bl,
                 display_order=i,
             ),
-            db=tenant_db_a,
+            caller_role="BOARD", db=tenant_db_a,
         )
 
     for i in range(1, 6):
@@ -140,15 +141,13 @@ async def m02_setup(test_tenant_a, tenant_db_a):
                 total_hours=12,
                 topics=[UnitTopicItem(title=f"Topic {i}.1")],
             ),
-            db=tenant_db_a,
+            caller_role="BOARD", db=tenant_db_a,
         )
 
-    # DRAFT → PENDING_REVIEW → DEAN_APPROVED (governance flow)
-    await SyllabusService.submit_for_review(
-        syllabus.id, submitted_by=uuid.uuid4(), db=tenant_db_a
-    )
+    # DRAFT -> APPROVED. The Board writes the syllabus and the Board signs it off,
+    # so there is no submit-for-review handoff — there is nobody to hand it to.
     approved = await SyllabusService.approve(
-        syllabus.id, approved_by=uuid.uuid4(), db=tenant_db_a
+        syllabus.id, approved_by=uuid.uuid4(), caller_role="BOARD", db=tenant_db_a
     )
 
     yield {

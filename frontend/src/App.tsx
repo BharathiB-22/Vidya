@@ -108,6 +108,7 @@ import GovernanceDirectoryPage from '@/pages/sis/GovernanceDirectoryPage'
 import DeanMyFacultyPage from '@/pages/dean/DeanMyFacultyPage'
 import DeanMyStudentsPage from '@/pages/dean/DeanMyStudentsPage'
 import AcademicOwnershipPage from '@/pages/dean/AcademicOwnershipPage'
+import ExecutionDocumentsPage from '@/pages/dean/ExecutionDocumentsPage'
 import FacultyResponsibilitiesPage from '@/pages/faculty/FacultyResponsibilitiesPage'
 import FacultyElectiveStudentsPage from '@/pages/faculty/ElectiveStudentsPage'
 import NotificationCenterPage from '@/pages/NotificationCenterPage'
@@ -218,6 +219,10 @@ export default function App() {
           {/* DEAN pages */}
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
             <Route path="/dean/academic-ownership" element={<AcademicOwnershipPage />} />
+            {/* The Dean's own documents: internship, mini/major project, seminar. The
+                Board never touches these — what they contain depends on the host
+                company, the supervisor and the review calendar. */}
+            <Route path="/dean/execution-documents" element={<ExecutionDocumentsPage />} />
             {/* Syllabus Review merged into the unified Syllabuses page (tabbed by
                 status). Old link redirects so bookmarks keep working. */}
             <Route path="/dean-review"             element={<Navigate to="/syllabuses" replace />} />

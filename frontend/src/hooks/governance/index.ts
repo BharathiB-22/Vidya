@@ -5,7 +5,6 @@ import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import type {
   ApproveCurriculumRequest,
-  GenerateSyllabiRequest,
   SubmitForApprovalRequest,
 } from '@/types/governance'
 
@@ -14,6 +13,8 @@ export const governanceKeys = {
   info: () => [...governanceKeys.all, 'info'] as const,
   queue: () => [...governanceKeys.all, 'queue'] as const,
   readiness: (programId: string) => [...governanceKeys.all, 'readiness', programId] as const,
+  publishReadiness: (programId: string) =>
+    [...governanceKeys.all, 'publish-readiness', programId] as const,
   changes: (programId: string) => [...governanceKeys.all, 'changes', programId] as const,
   trail: (programId: string) => [...governanceKeys.all, 'trail', programId] as const,
   submissionCheck: (programId: string) =>
@@ -57,6 +58,22 @@ export function useReadiness(programId: string, enabled = true) {
     enabled: enabled && Boolean(programId),
     refetchInterval: (query) =>
       query.state.data?.items.some((i) => i.syllabus_status === 'AI_GENERATING') ? 4000 : false,
+  })
+}
+
+/**
+ * The Dean's gate: may this curriculum be published, and what is left if not.
+ *
+ * NOT `useReadiness`. That is the Board's worksheet — it is gated to the governance
+ * authority, and opening it is recorded as an act of review. A Dean checking whether he
+ * can publish must not appear in the Board's accountability trail as having reviewed the
+ * curriculum he is waiting on.
+ */
+export function usePublishReadiness(programId: string) {
+  return useQuery({
+    queryKey: governanceKeys.publishReadiness(programId),
+    queryFn: () => governanceApi.getPublishReadiness(programId),
+    enabled: Boolean(programId),
   })
 }
 
@@ -133,31 +150,6 @@ export function useSubmitForApproval() {
       invalidate(id)
       addToast(
         'Curriculum submitted. It is now owned by the governance authority and read-only for you.',
-        'success',
-        9000,
-      )
-    },
-    onError: (err) => addToast(getErrorMessage(err), 'error', 9000),
-  })
-}
-
-/** Board → generate the official syllabus for every subject that lacks one. */
-export function useGenerateSyllabi() {
-  const invalidate = useInvalidateCurriculum()
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload?: GenerateSyllabiRequest }) =>
-      governanceApi.generateSyllabi(id, payload),
-    onSuccess: (data, { id }) => {
-      invalidate(id)
-      if (data.dispatched === 0) {
-        addToast('Every subject already has a syllabus. Nothing to generate.', 'info')
-        return
-      }
-      addToast(
-        `Generating the official syllabus for ${data.dispatched} subject${
-          data.dispatched === 1 ? '' : 's'
-        }${data.skipped ? ` (${data.skipped} already had one)` : ''}. ` +
-          'This runs in the background — you can leave this page.',
         'success',
         9000,
       )

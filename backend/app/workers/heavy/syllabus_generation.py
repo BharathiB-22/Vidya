@@ -45,6 +45,82 @@ def _get_async_engine():
 
 
 # ---------------------------------------------------------------------------
+# The Board's hours
+# ---------------------------------------------------------------------------
+
+def _apply_board_hours(units: list[dict], plan: list[int]) -> list[dict]:
+    """Stamp the Board's hours onto the generated units.
+
+    The model was TOLD these hours and asked to pace each unit to fit them, so it
+    normally returns them unchanged — this is what makes sure of it. The units'
+    hours add up to the course's taught hours, and a model that quietly returned 12
+    where the Board said 10 would leave a printed regulation that does not add up.
+
+    An empty plan means the Board did not state the hours, and the model's own pacing
+    stands. A plan that no longer matches the number of units is ignored rather than
+    stretched: it belongs to a syllabus of a different shape, and half-applying it
+    would leave the last unit with hours nobody chose.
+    """
+    if not plan or len(plan) != len(units):
+        return units
+
+    by_number = sorted(units, key=lambda u: u["unit_number"])
+    for unit, hours in zip(by_number, plan):
+        unit["total_hours"] = hours
+    return units
+
+
+def _hours_for(unit: dict, plan: list[int]) -> list[int]:
+    """The Board's hours for ONE unit, as a one-element plan.
+
+    Units are now saved one at a time, so the whole-syllabus plan has to be sliced to
+    the unit being saved. A unit whose number falls outside the plan (the Board changed
+    the unit count after setting the hours) gets no plan and keeps the hours the model
+    paced it to — the alternative is to give it somebody else's.
+    """
+    number = unit.get("unit_number") or 0
+    return [plan[number - 1]] if 1 <= number <= len(plan) else []
+
+
+async def _publish_progress(
+    job_id: UUID,
+    phase: str,
+    message: str,
+    *,
+    total_units: int,
+    engine,
+) -> None:
+    """Tell the Board what is happening, now, in their own words.
+
+    In its OWN session, deliberately. The generation holds a long transaction — it is
+    saving units as it writes them — and progress written inside that transaction would
+    be invisible until the whole thing committed, which is precisely when nobody needs
+    it any more. So this connects, writes, commits and leaves.
+
+    Best-effort by design: a syllabus that generated perfectly must not fail because a
+    progress line could not be written. A missed message costs a moment of silence; a
+    raised exception here would cost the syllabus.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.modules.m02_syllabus.repository import TaskJobPublicRepository
+
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            await TaskJobPublicRepository.set_progress(
+                job_id,
+                {"phase": phase, "message": message, "total_units": total_units},
+                db=session,
+            )
+            await session.commit()
+    except Exception:
+        logger.warning(
+            "m02.generate: could not publish progress '%s' (job=%s)", message, job_id,
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Celery task
 # ---------------------------------------------------------------------------
 
@@ -70,6 +146,9 @@ def generate_syllabus(
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     return asyncio.run(
         _run_generation(
+            # The job's own id, so the run can say what it is doing while it does it.
+            # The Board watches a syllabus being written; it must not watch a spinner.
+            job_id=UUID(job_id),
             syllabus_id=UUID(syllabus_id),
             tenant_id=UUID(tenant_id),
             schema_name=schema_name,
@@ -82,6 +161,7 @@ def generate_syllabus(
 # ---------------------------------------------------------------------------
 
 async def _run_generation(
+    job_id: UUID,
     syllabus_id: UUID,
     tenant_id: UUID,
     schema_name: str,
@@ -91,16 +171,21 @@ async def _run_generation(
 
     from app.core.audit_log.models import AuditEventType
     from app.core.audit_log.service import AuditService
-    from app.modules.m01_program_advisor.models import ProgramOutcome
+    from app.modules.m01_program_advisor.models import CourseType, ProgramOutcome
     from app.modules.m01_program_advisor.repository import (
         CourseRepository,
         ProgramOutcomeRepository,
     )
     from app.modules.m02_syllabus.ai_provider import (
+        PHASE_READING,
+        PHASE_READY,
+        PHASE_SAVING,
         POContext,
         SyllabusGenerationContext,
+        generate_theory_syllabus,
         get_syllabus_provider,
         normalize_course_type,
+        resolve_unit_count,
     )
     from app.modules.m02_syllabus.schemas import parse_document
     from app.modules.m02_syllabus.formatting import (
@@ -180,6 +265,22 @@ async def _run_generation(
             # error; it is a regulation promising teaching that will never happen.
             course_type = normalize_course_type(course.course_type)
 
+            # The hours each unit is taught for — the BOARD'S, and nobody else's.
+            #
+            # Not the model's, and not the system's either. Nothing here computes them:
+            # a theory syllabus whose hours the Board has not allocated does not reach
+            # this worker at all (the service refuses to dispatch it), because how a
+            # subject's taught hours are apportioned across its units is an academic
+            # judgement and not a gap for software to fill.
+            board_hours = list(syllabus.unit_hours or [])
+
+            if course_type == CourseType.THEORY.value and not board_hours:
+                raise ValueError(
+                    f"Syllabus {syllabus_id} has no unit hours. The Board must allocate "
+                    "them before its syllabus can be written — the system does not "
+                    "invent academic structure."
+                )
+
             ctx = SyllabusGenerationContext(
                 course_id=str(syllabus.course_id),
                 course_code=course.code,
@@ -192,16 +293,30 @@ async def _run_generation(
                 category=derive_category(course),
                 has_practical=has_practical(course),
                 course_type=course_type,
+                # Four units or five, and the hours of each. Not the generator's to
+                # pick — EVER.
+                #
+                # The Board states the hours when it generates one syllabus. When it
+                # generates forty in a batch it states nothing, because forty hour
+                # forms is not a workflow — and the old fallback there was to let the
+                # model distribute them, which is how a 24-hour Unit III happens. So
+                # the SYSTEM derives them from the contact hours the curriculum already
+                # records, and the model is told the answer in every path.
+                unit_count=resolve_unit_count(syllabus.unit_count),
+                unit_hours_plan=board_hours,
             )
 
             provider = get_syllabus_provider()
-            result = await provider.generate_syllabus(ctx)
 
             # ------------------------------------------------------------------
-            # Idempotent cleanup: remove all existing COs (CASCADE deletes
-            # co_po_mappings) and units before re-creating from AI output.
-            # Confirmed references are preserved; only unconfirmed ones are
-            # cleared during reference_enrichment.
+            # Clear what this run is replacing, BEFORE it starts.
+            #
+            # Units and COs go now rather than at the end, because the units of a
+            # theory syllabus are now saved AS THEY ARE WRITTEN (below), and a Unit III
+            # from the previous run sitting in the table while this run writes its own
+            # Unit III is a uniqueness violation that would kill the job at its most
+            # expensive moment. Confirmed references survive: they were fetched from
+            # CrossRef and somebody vouched for them.
             # ------------------------------------------------------------------
             deleted_cos   = await CourseOutcomeRepository.delete_all(syllabus_id, db=session)
             deleted_units = await SyllabusUnitRepository.delete_all(syllabus_id, db=session)
@@ -210,6 +325,64 @@ async def _run_generation(
                     "m02.generate: cleared %d COs, %d units (syllabus=%s)",
                     deleted_cos, deleted_units, syllabus_id,
                 )
+            await session.commit()
+
+            # ------------------------------------------------------------------
+            # THEORY: written one unit at a time, and SAVED one unit at a time.
+            #
+            # Outline first (so the units cannot overlap), then each unit written,
+            # validated, regenerated if it falls short — and committed the moment it
+            # passes. A run that dies at Unit V leaves four good units on disk and the
+            # Board regenerates the one that failed, instead of paying for all five
+            # again. The syllabus stays AI_GENERATING throughout, which is already a
+            # state nobody can edit or approve, and only becomes a DRAFT when the run
+            # completes. An incomplete syllabus is therefore visible and repairable,
+            # but never approvable — the approve gate tests completeness (see
+            # m02.service compliance), rather than trusting that a row exists.
+            #
+            # Every other type keeps the single call it has always had: a lab manual, an
+            # internship's guidelines and a project handbook have no units to write one
+            # at a time. Course-type intelligence is untouched.
+            # ------------------------------------------------------------------
+            async def save_unit(unit: dict) -> None:
+                """One validated unit, on disk, in its own transaction.
+
+                The unit's HOURS are the Board's, taken from the plan by unit number.
+                Not the model's — the response normaliser will happily invent six hours
+                for a unit whose hours the model omitted, and a fabricated teaching hour
+                that reached a locked regulation would be a number nobody chose
+                governing a timetable somebody has to run.
+                """
+                hours = _hours_for(unit, board_hours)
+                if not hours:
+                    raise ValueError(
+                        f"Unit {unit.get('unit_number')} has no hours in the Board's "
+                        f"plan {board_hours}. The system does not choose teaching hours."
+                    )
+
+                stamped = _apply_board_hours([unit], hours)
+                await SyllabusUnitRepository.bulk_create(syllabus_id, stamped, db=session)
+                await session.commit()
+                logger.info(
+                    "m02.generate: saved unit %s (%d topics, syllabus=%s)",
+                    unit.get("unit_number"), len(unit.get("topics", [])), syllabus_id,
+                )
+
+            async def say(phase: str, message: str) -> None:
+                await _publish_progress(
+                    job_id, phase, message,
+                    total_units=resolve_unit_count(syllabus.unit_count),
+                    engine=engine,
+                )
+
+            await say(PHASE_READING, "Reading curriculum…")
+
+            if course_type == CourseType.THEORY.value:
+                result = await generate_theory_syllabus(
+                    provider, ctx, on_progress=say, on_unit=save_unit,
+                )
+            else:
+                result = await provider.generate_syllabus(ctx)
 
             # ------------------------------------------------------------------
             # Bulk create Course Outcomes
@@ -254,23 +427,18 @@ async def _run_generation(
                 )
 
             # ------------------------------------------------------------------
-            # Bulk create Units — THEORY only.
+            # Units — already on disk.
             #
-            # result.units is empty for every other type, and that is the point: a
-            # laboratory has experiments, an internship has weekly activities, and
-            # neither has a Unit III. Their content lives in `document` instead.
+            # A theory syllabus saved each unit as it passed validation (`save_unit`
+            # above), which is what lets a run that dies at Unit V keep the four units
+            # before it. There is nothing left to write here, and writing it again
+            # would violate the (syllabus_id, unit_number) uniqueness constraint.
+            #
+            # Every other type has no units at all — a laboratory has experiments, an
+            # internship has weekly activities, and neither has a Unit III. Their
+            # content lives in `document`.
             # ------------------------------------------------------------------
-            new_units = await SyllabusUnitRepository.bulk_create(
-                syllabus_id,
-                result.units,
-                db=session,
-            ) if result.units else []
-
-            if new_units:
-                logger.info(
-                    "m02.generate: created %d units (syllabus=%s)",
-                    len(new_units), syllabus_id,
-                )
+            unit_count = len(result.units)
 
             # ------------------------------------------------------------------
             # Update syllabus: the document, official-format prose, AI metadata,
@@ -281,6 +449,11 @@ async def _run_generation(
             # never self-approving, and the curriculum's approve gate will not
             # pass until a Board member has looked at it.
             # ------------------------------------------------------------------
+            await _publish_progress(
+                job_id, PHASE_SAVING, "Preparing draft…",
+                total_units=resolve_unit_count(syllabus.unit_count), engine=engine,
+            )
+
             await SyllabusRepository.update(
                 syllabus_id,
                 {
@@ -306,6 +479,11 @@ async def _run_generation(
 
             await session.commit()
 
+        await _publish_progress(
+            job_id, PHASE_READY, "AI draft ready for Board review.",
+            total_units=unit_count, engine=engine,
+        )
+
         # ------------------------------------------------------------------
         # Dispatch reference enrichment (fire-and-forget after DB commit)
         # ------------------------------------------------------------------
@@ -330,7 +508,7 @@ async def _run_generation(
                 "doc_type":         result.doc_type,
                 "cos_created":      len(new_cos),
                 "mappings_created": len(mapping_items),
-                "units_created":    len(new_units),
+                "units_created":    unit_count,
                 "document_sections": sorted(result.document.keys()),
                 "model_used":       result.model_used,
                 "prompt_hash":      result.prompt_hash[:16],
@@ -339,7 +517,7 @@ async def _run_generation(
 
         logger.info(
             "m02.generate: complete (syllabus=%s type=%s cos=%d units=%d doc_sections=%d)",
-            syllabus_id, result.doc_type, len(new_cos), len(new_units),
+            syllabus_id, result.doc_type, len(new_cos), unit_count,
             len(result.document),
         )
 
@@ -348,14 +526,23 @@ async def _run_generation(
             "doc_type":         result.doc_type,
             "cos_created":      len(new_cos),
             "mappings_created": len(mapping_items),
-            "units_created":    len(new_units),
+            "units_created":    unit_count,
             "model_used":       result.model_used,
             "provider":         result.provider_name,
         }
 
     except Exception as exc:
-        # Reset syllabus to DRAFT so faculty can retry.
-        # Best-effort: swallow any nested DB failures.
+        # The run died. Whatever it had already written and validated STAYS — the units
+        # that passed are real work, they cost real AI calls, and they are exactly what
+        # lets the Board repair this with one click instead of paying for the whole
+        # syllabus again.
+        #
+        # The syllabus goes back to DRAFT, which is what makes those units visible and
+        # editable. It cannot be APPROVED in that state: approval tests completeness,
+        # not existence (m02.service._run_compliance_check), so a syllabus missing
+        # Unit V — or holding a Unit V with three topics in it — is refused at the gate.
+        # The Board sees "AI generation incomplete" against the unit that failed, and
+        # regenerates that unit alone.
         try:
             async with AsyncSession(engine, expire_on_commit=False) as reset_session:
                 await reset_session.execute(
@@ -370,6 +557,14 @@ async def _run_generation(
                 "m02.generate: failed to reset syllabus %s to DRAFT after error",
                 syllabus_id,
             )
+
+        await _publish_progress(
+            job_id,
+            "FAILED",
+            "AI generation did not finish. Regenerate the unfinished units.",
+            total_units=0,
+            engine=engine,
+        )
 
         try:
             await AuditService.log(
@@ -485,6 +680,7 @@ async def _run_section_regeneration(
 
     from app.core.audit_log.models import AuditEventType
     from app.core.audit_log.service import AuditService
+    from app.modules.m01_program_advisor.models import CourseType
     from app.modules.m01_program_advisor.repository import (
         CourseRepository,
         ProgramOutcomeRepository,
@@ -498,9 +694,12 @@ async def _run_section_regeneration(
         SECTION_REFERENCES,
         SECTION_UNIT,
         POContext,
+        SectionGenerationResult,
         SyllabusGenerationContext,
+        generate_theory_syllabus,
         get_syllabus_provider,
         normalize_course_type,
+        resolve_unit_count,
     )
     from app.modules.m02_syllabus.formatting import (
         derive_category,
@@ -555,13 +754,23 @@ async def _run_section_regeneration(
             # lab manual, and regenerating one of its sections must not quietly turn
             # it into a theory syllabus.
             course_type=normalize_course_type(syllabus.doc_type or course.course_type),
+            # A regenerated syllabus must come back the same SHAPE as the one it
+            # replaces — the Board decided how many units this course is taught in and
+            # for how long each, and a rewrite does not reopen either decision.
+            unit_count=resolve_unit_count(syllabus.unit_count),
+            unit_hours_plan=list(syllabus.unit_hours or []),
         )
 
         call_kwargs: dict = {"guidance": guidance}
+        target = None
         if section == SECTION_UNIT:
             target = next((u for u in syllabus.units if u.id == unit_id), None)
             if target is None:
                 raise ValueError(f"Unit {unit_id} does not belong to syllabus {syllabus_id}.")
+            # The unit's hours are the Board's allocation, not the model's — they are
+            # part of a total that has to keep adding up. Tell the model what it is
+            # writing to, so the topics are paced to hours it cannot change.
+            ctx.unit_hours = target.total_hours
             call_kwargs.update(
                 unit_number=target.unit_number,
                 unit_title=target.title,
@@ -577,18 +786,46 @@ async def _run_section_regeneration(
             )
 
         provider = get_syllabus_provider()
-        result = await provider.generate_section(ctx, section, **call_kwargs)
+
+        # "Regenerate the entire syllabus" on a THEORY course is a fresh generation of
+        # the whole document, so it goes through the same unit-at-a-time workflow a
+        # first generation does — outline, then each unit written and validated on its
+        # own. Doing it in one call here would make this the one door through which a
+        # thin Unit IV could still reach the Board.
+        #
+        # Every other type's DOCUMENT — a lab manual, an internship's guidelines — is
+        # regenerated in a single call, exactly as it is generated.
+        if section == SECTION_DOCUMENT and ctx.course_type == CourseType.THEORY.value:
+            full = await generate_theory_syllabus(provider, ctx)
+            result = SectionGenerationResult(
+                section=SECTION_DOCUMENT,
+                units=full.units,
+                objectives=full.objectives,
+                outcomes=full.outcomes,
+                reference_queries=full.reference_queries,
+                practical_components=full.practical_components,
+                document={},
+                model_used=full.model_used,
+                provider_name=full.provider_name,
+                prompt_hash=full.prompt_hash,
+            )
+        else:
+            result = await provider.generate_section(ctx, section, **call_kwargs)
 
         changed: dict = {}
 
         if section == SECTION_UNIT:
+            # The Board's hours survive the rewrite. The units together total the
+            # course's taught hours; letting a rewritten unit come back with hours of
+            # its own choosing would break that total silently, and the Board would
+            # find out by reading a printed regulation that no longer adds up.
             await SyllabusUnitRepository.update(
                 unit_id,
                 {
                     "title":       result.unit["title"],
                     "content":     result.unit.get("content"),
                     "topics":      result.unit.get("topics", []),
-                    "total_hours": result.unit["total_hours"],
+                    "total_hours": target.total_hours or result.unit["total_hours"],
                     "pedagogy":    result.unit.get("pedagogy"),
                     "updated_at":  datetime.now(timezone.utc),
                 },
@@ -661,10 +898,13 @@ async def _run_section_regeneration(
                 "updated_at": datetime.now(timezone.utc),
             }
 
-            # A THEORY document IS its units, so regenerating it replaces them.
+            # A THEORY document IS its units, so regenerating it replaces them — and
+            # the Board's hours survive the rewrite exactly as they survive a
+            # single-unit one.
             if result.units:
+                units_to_save = _apply_board_hours(result.units, list(syllabus.unit_hours or []))
                 await SyllabusUnitRepository.delete_all(syllabus_id, db=session)
-                await SyllabusUnitRepository.bulk_create(syllabus_id, result.units, db=session)
+                await SyllabusUnitRepository.bulk_create(syllabus_id, units_to_save, db=session)
 
             await SyllabusRepository.update(syllabus_id, updates, db=session)
 

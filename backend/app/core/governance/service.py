@@ -55,12 +55,13 @@ from __future__ import annotations
 import logging
 from uuid import UUID, uuid4
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.models import GovernanceType, TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.core.governance.schemas import (
+    ChecklistItem,
     ChangeSummary,
     ChangeSummaryLine,
     GovernanceInfo,
@@ -71,7 +72,13 @@ from app.core.governance.schemas import (
     SubmissionChecklist,
     TrailEntry,
 )
-from app.modules.m01_program_advisor.models import CourseType, Program, ProgramStatus
+from app.modules.m01_program_advisor.models import (
+    EXECUTION_TYPES,
+    CourseType,
+    Program,
+    ProgramStatus,
+    is_execution_document,
+)
 from app.modules.m02_syllabus.ai_provider import (
     MIN_TOPICS_PER_UNIT,
     normalize_course_type,
@@ -190,6 +197,16 @@ async def require_governance(user: CurrentUser, db: AsyncSession) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+async def get_program_status(program_id: UUID, db: AsyncSession) -> str:
+    """The curriculum's lifecycle state — DRAFT … APPROVED … PUBLISHED.
+
+    Public because the Dean's publish gate needs it and has no business reaching into a
+    private helper to get it.
+    """
+    program = await _get_program(program_id, db)
+    return str(program.status)
+
+
 async def _get_program(program_id: UUID, db: AsyncSession):
     row = (
         await db.execute(
@@ -251,10 +268,15 @@ SELECT c.id            AS course_id,
        s.objectives,
        s.practical_components,
        s.outcome_count,
+       s.expected_units,
+       s.unit_hours,
        s.unit_count,
+       s.present_units,
        s.weak_units,
+       s.reference_count,
        s.textbook_count,
-       s.refbook_count
+       s.refbook_count,
+       s.dean_edited_at
 FROM courses c
 LEFT JOIN elective_baskets eb ON eb.id = c.elective_basket_id
 LEFT JOIN LATERAL (
@@ -264,6 +286,22 @@ LEFT JOIN LATERAL (
            sy.document,
            sy.objectives,
            sy.practical_components,
+           sy.dean_edited_at,
+           -- WHICH units exist, so the checklist can tick them one by one. A theory
+           -- syllabus is now written and saved a unit at a time, so "four units" and
+           -- "units I, II, IV, V" are different facts, and the Board needs the second.
+           (SELECT coalesce(
+                     array_agg(u.unit_number ORDER BY u.unit_number), ARRAY[]::int[])
+              FROM syllabus_units u
+             WHERE u.syllabus_id = sy.id)                         AS present_units,
+           (SELECT count(*) FROM syllabus_references r
+             WHERE r.syllabus_id = sy.id)                         AS reference_count,
+           -- The Board's ACADEMIC STRUCTURE: how many units it asked for (4 or 5), and
+           -- the hours it allocated to each. Compared against how many units the
+           -- syllabus actually HAS — comparing that to a hardcoded five would flag
+           -- every four-unit syllabus the Board deliberately chose.
+           sy.unit_count                                         AS expected_units,
+           sy.unit_hours,
            (SELECT count(*) FROM course_outcomes co
              WHERE co.syllabus_id = sy.id)                       AS outcome_count,
            (SELECT count(*) FROM syllabus_units u
@@ -610,14 +648,180 @@ _THEORY_UNITS = 5
 _MIN_OUTCOMES = 4
 
 
+# ---------------------------------------------------------------------------
+# The readiness checklist — the academic lifecycle of ONE document
+#
+# What the Board sees is a stage of the workflow, never a rule of the machine. Not
+# "Unit III has 2 topics; a unit runs to 10-15", not "validation threshold", not
+# "attempt 2 of 3" — those are ours, they live in the backend, and a Board member who
+# reads them learns only that we do not trust our own generator. What they see is:
+#
+#     ✓ Unit III        it is written, and it is deep enough to print
+#     ⚠ Unit IV         AI generation incomplete — regenerate it
+#       Unit V          not written yet
+#
+# THREE shapes, because there are three kinds of document and forcing one shape on all
+# of them is what produced a lab manual asked for its Unit III:
+#
+#     THEORY      structure -> draft -> Unit I..N -> objectives -> outcomes ->
+#                 references -> Board approved -> published
+#     LAB         structure -> draft -> lab manual -> outcomes -> references ->
+#                 Board approved -> published      (a laboratory has no units)
+#     EXECUTION   created -> draft -> Dean reviewed -> Dean approved -> published
+#                 (the Board is not in this list at all — it does not own them)
+# ---------------------------------------------------------------------------
+
+_DONE       = "DONE"
+_PENDING    = "PENDING"
+_INCOMPLETE = "INCOMPLETE"    # exists, but the AI did not finish it
+
+
+def _item(key: str, label: str, state: str, **extra) -> ChecklistItem:
+    return ChecklistItem(key=key, label=label, state=state, **extra)
+
+
+def _tick(done: bool, key: str, label: str) -> ChecklistItem:
+    return _item(key, label, _DONE if done else _PENDING)
+
+
+def _build_checklist(row, published: bool) -> list[ChecklistItem]:
+    """The lifecycle of this document, as an academic would describe it."""
+    doc_type = normalize_course_type(row.doc_type or row.course_type)
+    status   = row.syllabus_status
+    exists   = row.syllabus_id is not None
+    approved = status in ("APPROVED", "LOCKED")
+
+    if is_execution_document(doc_type):
+        return _execution_checklist(row, exists, approved, published)
+
+    return _teaching_checklist(row, doc_type, exists, approved, published)
+
+
+def _teaching_checklist(row, doc_type, exists, approved, published) -> list[ChecklistItem]:
+    """A subject the Board teaches. Two shapes, because there are two kinds.
+
+    THEORY   Structure -> Unit I..N -> Objectives -> Outcomes -> References ->
+             Board Approval -> Published
+    LAB      Structure -> Lab Manual -> Experiments -> Outcomes -> References ->
+             Board Approval -> Published
+
+    A laboratory has no Unit III and never had. Asking it for one is the mistake course
+    types exist to prevent, and it would reappear here the moment one checklist was
+    made to serve both.
+    """
+    # THE ACADEMIC STRUCTURE — the Board's decisions, taken before any AI ran: how many
+    # units the subject is taught in, and for how long each. It is the FIRST stage
+    # because it is the first thing that has to happen, and because a syllabus cannot be
+    # generated without it — the system does not derive it and the model never picks it.
+    #
+    # A laboratory has no units, so its structure is the curriculum's own: the course,
+    # its credits, its practical hours. Nothing further is required of the Board.
+    if doc_type == CourseType.THEORY.value:
+        structure_set = bool(row.expected_units) and bool(exists) and (
+            len(row.unit_hours or []) == (row.expected_units or 0)
+        )
+        items = [_tick(structure_set, "structure", "Academic Structure")]
+
+        present  = set(row.present_units or [])
+        weak     = set(row.weak_units or [])
+        expected = row.expected_units or _THEORY_UNITS
+
+        for number in range(1, expected + 1):
+            if number not in present:
+                state = _PENDING
+            elif number in weak:
+                state = _INCOMPLETE      # written, but the AI did not finish it
+            else:
+                state = _DONE
+            items.append(_item(
+                f"unit_{number}", f"Unit {roman(number)}", state, unit_number=number,
+            ))
+    else:
+        document = row.document or {}
+        items = [_item("structure", "Academic Structure", _DONE)]
+        # The manual is the laboratory's document: what it is for, what it needs to run.
+        # The experiments are what the student actually performs in the room. A manual
+        # with no experiment list is a laboratory nobody can teach.
+        items.append(_tick(bool(document), "lab_manual", "Lab Manual"))
+        items.append(_tick(
+            len(document.get("experiments") or []) > 0, "experiments", "Experiments",
+        ))
+
+    # Objectives are theory's; a laboratory's document carries its own aims. Outcomes
+    # are BOTH — a lab has Lab Outcomes, they map to Programme Outcomes like any other,
+    # and approval will not pass without them. Showing a stage the gate tests is the
+    # entire point of a checklist.
+    if doc_type == CourseType.THEORY.value:
+        items.append(_tick(bool(row.objectives or []), "objectives", "Objectives"))
+
+    items.append(_tick((row.outcome_count or 0) >= _MIN_OUTCOMES, "outcomes", "Outcomes"))
+
+    # ADVISORY, and said so. The references come from CrossRef and OpenLibrary, and a
+    # third-party outage must never be able to block a university's curriculum. It is
+    # the ONE stage on any checklist that the approval gate does not test, and it is
+    # marked optional so the Board is never told something is required when it is not.
+    items.append(_item(
+        "references",
+        "References (optional)",
+        _DONE if (row.reference_count or 0) > 0 else _PENDING,
+        optional=True,
+    ))
+
+    items.append(_tick(approved, "approved", "Board Approval"))
+    items.append(_tick(published, "published", "Published"))
+
+    return items
+
+
+def _execution_checklist(row, exists, approved, published) -> list[ChecklistItem]:
+    """The Dean's document. The Board appears nowhere in it, because it owns none of it.
+
+    "Dean Reviewed" is DERIVED — he has either adapted the document to this institution
+    (dean_edited_at) or signed it off. It is not a button, and it should not be: a
+    review step that records nothing except that somebody clicked it is a ceremony, and
+    the approval below it already carries his name.
+    """
+    return [
+        _tick(exists, "created", "Document Created"),
+        _tick(exists and bool(row.document or {}), "draft", "AI Draft Generated"),
+        _tick(bool(row.dean_edited_at) or approved, "reviewed", "Dean Reviewed"),
+        _tick(approved, "approved", "Dean Approved"),
+        _tick(published, "published", "Published"),
+    ]
+
+
+def _percent(items: list[ChecklistItem]) -> int:
+    """How far along this document is, against ITS OWN checklist.
+
+    A theory syllabus is measured against units, objectives, outcomes and approval; an
+    internship against the Dean's four steps. Measuring both against one denominator
+    would make an internship look 40% finished the moment it was created.
+
+    OPTIONAL stages are excluded from the denominator. Only the References are optional,
+    and they are the one stage the approval gate does not test — so counting them would
+    mean a syllabus that is ready to approve could never read 100%, and the Board would
+    learn to distrust the number.
+    """
+    required = [i for i in items if not i.optional]
+    if not required:
+        return 0
+    done = sum(1 for i in required if i.state == _DONE)
+    return round(done * 100 / len(required))
+
+
 def _readiness_gaps(row) -> list[str]:
-    """What is still wrong with this subject's official document.
+    """What is still wrong with this subject's official document, and what to DO.
 
     The Board's real problem is not the subject with NO syllabus — that one is
     obvious, and the dashboard already shows it. It is the subject whose document
     exists, looks complete, and is quietly hollow: Unit IV has three topics, or the
     Reference Books never came back from CrossRef. Nobody re-opens an approved-
     looking document to count its topics, so this counts them.
+
+    Each line names the ACTION, not the diagnosis. "Unit IV has only 2 topics; an
+    official unit runs to 10-15" describes the defect accurately and leaves the reader
+    to work out that a button exists and which one it is. A Board member reading a
+    worksheet of forty subjects wants to know what to click.
 
     Returns [] when the document has nothing missing. What is CHECKED depends on the
     course's type: a lab manual is not missing its Unit III.
@@ -635,15 +839,23 @@ def _readiness_gaps(row) -> list[str]:
         gaps.append(f"Only {row.outcome_count or 0} Course Outcomes")
 
     if doc_type == CourseType.THEORY.value:
-        unit_count = row.unit_count or 0
-        if unit_count == 0:
-            gaps.append("Missing: Units")
-        elif unit_count != _THEORY_UNITS:
-            gaps.append(f"{unit_count} units (the official format is {_THEORY_UNITS})")
+        # What the Board ASKED for, not a hardcoded five. A four-unit syllabus is a
+        # four-unit syllabus, and flagging it as short of an "official format" it was
+        # never written to is how a dashboard teaches people to ignore it.
+        expected = row.expected_units or _THEORY_UNITS
+        actual = row.unit_count or 0
 
-        # "Unit IV weak" — the defect the Board cannot see without counting.
-        for number in (row.weak_units or []):
-            gaps.append(f"Unit {roman(number)} weak")
+        if actual == 0:
+            gaps.append("AI generation incomplete — regenerate this syllabus")
+        elif actual != expected:
+            gaps.append(f"{actual} units, but this syllabus was written for {expected}")
+
+        # The thin unit: the defect the Board cannot see without counting, because the
+        # document LOOKS finished. One line, naming the units and the button.
+        weak = list(row.weak_units or [])
+        if weak:
+            units = ", ".join(f"Unit {roman(n)}" for n in weak)
+            gaps.append(f"AI generation incomplete — regenerate {units}")
 
         if not (row.textbook_count or 0):
             gaps.append("Missing: Text Books")
@@ -686,13 +898,18 @@ async def get_readiness(program_id: UUID, db: AsyncSession) -> ReadinessSummary:
     what it has always tested: that every subject's document has been APPROVED by a
     human. The gaps tell that human what to look at first.
     """
-    await _get_program(program_id, db)
+    program = await _get_program(program_id, db)
     rows = (
         await db.execute(
             text(_ALL_SUBJECTS_SQL),
             {"p": str(program_id), "weak": MIN_TOPICS_PER_UNIT},
         )
     ).fetchall()
+
+    # The last stage of every checklist. A document is published when its CURRICULUM is
+    # — there is no per-document publish, and inventing one would be inventing a second
+    # answer to "is this official?".
+    published = program.status == ProgramStatus.PUBLISHED
 
     items = [
         ReadinessItem(
@@ -705,21 +922,65 @@ async def get_readiness(program_id: UUID, db: AsyncSession) -> ReadinessSummary:
             syllabus_id=r.syllabus_id,
             syllabus_status=r.syllabus_status,
             course_type=normalize_course_type(r.doc_type or r.course_type),
-            gaps=_readiness_gaps(r),
+            # WHO owns this document. The Board teaches, examines and owns the syllabus
+            # of theory subjects, laboratories and elective options. An internship, a
+            # project and a seminar are the Dean's: what they contain depends on the
+            # host company, the supervisor and the review calendar, none of which a
+            # Board of Studies can know. They are listed here so the Board can SEE the
+            # curriculum whole — and they carry no gaps, no actions and no weight in
+            # the gate below.
+            owner="DEAN" if is_execution_document(r.doc_type or r.course_type) else "BOARD",
+            gaps=[] if is_execution_document(r.doc_type or r.course_type) else _readiness_gaps(r),
+            checklist=_build_checklist(r, published),
+            progress_percent=_percent(_build_checklist(r, published)),
         )
         for r in rows
     ]
-    approved = sum(1 for i in items if i.syllabus_status in ("APPROVED", "LOCKED"))
-    drafted  = sum(1 for i in items if i.syllabus_status in ("DRAFT", "AI_GENERATING"))
-    missing  = [i for i in items if i.syllabus_status is None]
+
+    # The gate counts the subjects the Board OWNS. An internship document that the Dean
+    # has not written yet cannot block a curriculum the Board is finished with — that
+    # was the deadlock: a Board of Studies unable to approve its own curriculum until
+    # somebody signed off the evaluation rubric of an internship nobody had arranged.
+    taught = [i for i in items if i.owner == "BOARD"]
+    dean   = [i for i in items if i.owner == "DEAN"]
+
+    approved = sum(1 for i in taught if i.syllabus_status in ("APPROVED", "LOCKED"))
+    drafted  = sum(1 for i in taught if i.syllabus_status in ("DRAFT", "AI_GENERATING"))
+    missing  = [i for i in taught if i.syllabus_status is None]
+
+    # Two figures, and neither waits on the other. A Board at 95% and a Dean at 60% are
+    # two true statements about two bodies doing different work — one combined number
+    # would be a lie about both.
+    board_percent = (
+        round(sum(i.progress_percent for i in taught) / len(taught)) if taught else 0
+    )
+    dean_percent = (
+        round(sum(i.progress_percent for i in dean) / len(dean)) if dean else 100
+    )
+
+    # THE SECOND GATE — the Dean's. He publishes when the Board has finished its half
+    # AND every document of his own is approved. Publishing a curriculum whose internship
+    # nobody has written would release to students a programme with a component that does
+    # not exist, and they would find out in their final year.
+    #
+    # Read from the same rows m01.publish tests, so the button and the endpoint cannot
+    # disagree — the same discipline as `can_approve`.
+    dean_approved = sum(1 for i in dean if i.syllabus_status in ("APPROVED", "LOCKED"))
+    board_finished = program.status in (ProgramStatus.APPROVED, ProgramStatus.PUBLISHED)
+    can_publish = board_finished and dean_approved == len(dean)
 
     return ReadinessSummary(
         program_id=program_id,
-        total_subjects=len(items),
+        total_subjects=len(taught),
         approved_count=approved,
         draft_count=drafted,
+        board_progress_percent=board_percent,
+        dean_progress_percent=dean_percent,
+        dean_document_count=len(dean),
+        dean_approved_count=dean_approved,
+        can_publish=can_publish,
         missing_count=len(missing),
-        can_approve=bool(items) and approved == len(items),
+        can_approve=bool(taught) and approved == len(taught),
         items=items,
     )
 
@@ -775,22 +1036,28 @@ async def approve_and_lock(
     # The ONE person who can never approve is the Dean, and that rule lives in
     # `acts_as_governance`: the planner must not approve their own plan.
 
-    # The gate. Every subject — core and every elective option — needs an
+    # The gate. Every TEACHING subject — core and every elective option — needs an
     # approved official syllabus before the curriculum can be frozen.
+    #
+    # The Dean's execution documents are not in this gate, and must not be. An
+    # internship is arranged with a company months after a curriculum is approved; a
+    # Board of Studies that had to wait for its rubric would never approve anything.
+    # `get_readiness` already counts only what the Board owns — this reads the same
+    # rows, so the button and the gate can never disagree.
     readiness = await get_readiness(program_id, db)
     if not readiness.can_approve:
         unready = [
             f"{i.course_code} {i.course_title}"
             + ("" if i.syllabus_status is None else f" ({i.syllabus_status.lower()})")
             for i in readiness.items
-            if i.syllabus_status not in ("APPROVED", "LOCKED")
+            if i.owner == "BOARD" and i.syllabus_status not in ("APPROVED", "LOCKED")
         ]
         detail = "; ".join(unready[:10])
         if len(unready) > 10:
             detail += f"; and {len(unready) - 10} more"
         raise GovernanceServiceError(
             "SYLLABUS_INCOMPLETE",
-            "Every subject must have an approved official syllabus before the "
+            "Every teaching subject must have an approved official syllabus before the "
             "curriculum can be approved. Approval is permanent, so a subject "
             f"locked without a syllabus could never be given one. Outstanding: {detail}",
             422,
@@ -825,16 +1092,29 @@ async def approve_and_lock(
         },
     )
 
-    # Freeze the syllabi with the curriculum.
+    # Freeze the TAUGHT syllabi with the curriculum — the theory subjects, the
+    # laboratories, the elective options. Those are the Board's, the Board has approved
+    # them, and nothing inside a locked curriculum ever changes again.
+    #
+    # The Dean's execution documents are NOT frozen here. He has not written them yet:
+    # an internship is arranged with a company long after the curriculum is approved,
+    # and locking its empty guidelines at the moment of approval would leave a document
+    # that can never be written, for a student who must nevertheless be assessed against
+    # it. He owns them, he approves them, and he publishes them.
     locked = await db.execute(
         text(
             "UPDATE syllabi SET status = 'LOCKED', locked_by_user_id = :u, "
             "locked_at = now(), updated_at = now() "
             "WHERE course_id IN (SELECT id FROM courses WHERE program_id = :p) "
             "AND status <> 'LOCKED' "
+            "AND doc_type NOT IN :execution "
             "RETURNING id"
-        ),
-        {"u": str(decided_by), "p": str(program_id)},
+        ).bindparams(bindparam("execution", expanding=True)),
+        {
+            "u": str(decided_by),
+            "p": str(program_id),
+            "execution": sorted(EXECUTION_TYPES),
+        },
     )
     locked_count = len(locked.fetchall())
 
@@ -871,11 +1151,23 @@ SELECT p.id, p.title, p.department, p.degree_type, p.version, p.status,
        b.name AS batch_name,
        (SELECT count(*) FROM courses c WHERE c.program_id = p.id)                AS course_count,
        (SELECT count(*) FROM elective_baskets eb WHERE eb.program_id = p.id)     AS elective_slot_count,
+       -- The Board's counters count the Board's WORK: the taught curriculum.
+       --
+       -- An internship's guidelines belong to the Dean, and a queue that counted them
+       -- would show a Board of Studies "8 of 10 syllabi approved" when it had in fact
+       -- finished — the two it was still waiting on being documents it does not own,
+       -- cannot write, and must not be asked about.
        (SELECT count(*) FROM syllabi s
-          WHERE s.course_id IN (SELECT id FROM courses WHERE program_id = p.id)) AS syllabus_count,
+          JOIN courses c ON c.id = s.course_id
+         WHERE c.program_id = p.id
+           AND coalesce(s.doc_type, 'THEORY') NOT IN ('INTERNSHIP', 'MINI_PROJECT',
+                                                      'MAJOR_PROJECT', 'SEMINAR'))  AS syllabus_count,
        (SELECT count(*) FROM syllabi s
-          WHERE s.course_id IN (SELECT id FROM courses WHERE program_id = p.id)
-            AND s.status IN ('APPROVED', 'LOCKED'))                              AS approved_syllabus_count
+          JOIN courses c ON c.id = s.course_id
+         WHERE c.program_id = p.id
+           AND coalesce(s.doc_type, 'THEORY') NOT IN ('INTERNSHIP', 'MINI_PROJECT',
+                                                      'MAJOR_PROJECT', 'SEMINAR')
+           AND s.status IN ('APPROVED', 'LOCKED'))                                  AS approved_syllabus_count
 FROM programs p
 LEFT JOIN users su ON su.id = p.submitted_by_user_id
 LEFT JOIN acad_batches b ON b.id = p.effective_from_batch_id

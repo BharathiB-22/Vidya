@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.modules.m01_program_advisor.models import CourseType
 from app.modules.m02_syllabus.models import (
@@ -157,6 +157,20 @@ class UnitTopicItem(BaseModel):
     title:          str
     description:    Optional[str] = None
     hours_estimate: Optional[int] = Field(default=None, ge=1)
+
+
+# ---------------------------------------------------------------------------
+# How many units a theory syllabus is taught in
+#
+# The Board's decision, taken before generation. Four and five are the formats real
+# regulations print — three is not a syllabus, and nobody prints Unit VI. Mirrors
+# ai_provider.VALID_UNIT_COUNTS, which is what the generator and its validator hold
+# to; these are the bounds the API enforces on the way in.
+# ---------------------------------------------------------------------------
+
+MIN_UNITS = 4
+MAX_UNITS = 5
+DEFAULT_UNITS = 5
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +403,36 @@ class SyllabusUpdate(BaseModel):
     practical_components: Optional[list[str]] = None
     internal_assessment:  Optional[list[str]] = None
     board_comment:        Optional[str] = None
+    # THE ACADEMIC STRUCTURE — the Board's, saved before any AI runs.
+    #
+    # How many units the subject is taught in, and for how many hours each. Changing
+    # them does NOT restructure units that already exist: they record the Board's
+    # decision, and the next generation writes to it. Adding or removing a unit by hand
+    # is done on the units themselves.
+    #
+    # These are what a theory syllabus cannot be generated without. The system does not
+    # derive them, and the model never chooses them.
+    unit_count:           Optional[int] = Field(default=None, ge=MIN_UNITS, le=MAX_UNITS)
+    unit_hours:           Optional[list[int]] = Field(default=None)
+
+    @model_validator(mode="after")
+    def _hours_are_real(self) -> SyllabusUpdate:
+        """An hour plan that does not fit the units it is for is not a plan.
+
+        Refused rather than trimmed or padded: silently dropping the Board's fifth
+        figure, or inventing a fifth from nowhere, would be the system deciding the very
+        thing it is being told.
+        """
+        if self.unit_hours is None:
+            return self
+        if any(h < 1 for h in self.unit_hours):
+            raise ValueError("Every unit must be taught for at least one hour.")
+        if self.unit_count is not None and len(self.unit_hours) != self.unit_count:
+            raise ValueError(
+                f"unit_hours has {len(self.unit_hours)} entries but the syllabus is to "
+                f"be taught in {self.unit_count} units."
+            )
+        return self
     # The type-specific document body — the lab manual, the internship guidelines,
     # the project handbook. Validated against the row's own doc_type in the service,
     # never against a type the caller supplies: a client must not be able to turn a
@@ -406,6 +450,14 @@ class SyllabusResponse(BaseModel):
     status:              SyllabusStatus
     doc_type:            str = CourseType.THEORY.value
     document:            dict = {}
+    # How many units the Board asked this theory syllabus to be taught in, and the
+    # hours it allocated to each. Ignored by every other type — a lab manual has
+    # experiments, an internship has none.
+    #
+    # `unit_hours` is the PLAN the units were written to. The authoritative hours are
+    # the ones on the units themselves, which the Board edits freely afterwards.
+    unit_count:          int = DEFAULT_UNITS
+    unit_hours:          list[int] = []
     custom_instructions: Optional[str]
     change_note:         Optional[str]
     board_comment:       Optional[str]
@@ -434,12 +486,15 @@ class CourseInformation(BaseModel):
     would silently disagree with the curriculum the moment the Board adjusted the
     course during review.
     """
-    course_code:   str
-    course_name:   str
-    credits:       int
-    ltp:           str    # "3-1-2"
-    contact_hours: int    # (L + T + P) x 15 weeks
-    category:      str    # Core | Elective | Lab | Project
+    course_code:     str
+    course_name:     str
+    credits:         int
+    ltp:             str    # "3-1-2"
+    contact_hours:   int    # (L + T + P) x 15 weeks
+    category:        str    # Core | Elective | Lab | Project
+    course_type:     str = CourseType.THEORY.value
+    semester:        int = 1
+    regulation_year: Optional[int] = None   # "Regulation 2026" — from the programme
 
 
 class SyllabusDetail(SyllabusResponse):
@@ -502,6 +557,49 @@ class GenerateSyllabusRequest(BaseModel):
         default=None,
         description="Optional guidance for the AI generator.",
     )
+    unit_count: Optional[int] = Field(
+        default=None,
+        ge=MIN_UNITS,
+        le=MAX_UNITS,
+        description=(
+            "How many units to write the syllabus in — 4 or 5. The Board's decision, "
+            "made BEFORE generation: five is not a universal format, and a Board that "
+            "wanted four used to generate five and delete one, which left the hours "
+            "redistributed by hand and the AI's pacing wrong across the units that "
+            "survived. Omitted leaves whatever the syllabus already carries. Ignored "
+            "for course types that have no units."
+        ),
+    )
+    unit_hours: Optional[list[int]] = Field(
+        default=None,
+        description=(
+            "Teaching hours for each unit, in order — [10, 8, 12, 10]. The Board's "
+            "decision too: hours come out of the timetable and the credit structure, "
+            "and the AI cannot know that Unit III is the heavy one this year. Each "
+            "unit is then WRITTEN TO its hours rather than given hours after the fact. "
+            "Must have exactly `unit_count` entries. Omitted lets the AI pace the "
+            "units against the course's contact hours, as before."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _hours_match_the_units(self) -> GenerateSyllabusRequest:
+        """An hour plan for a different number of units is a plan for a different
+        syllabus. Refused rather than padded: silently giving Unit V zero hours
+        because the Board sent four figures is exactly the kind of quiet wrong answer
+        this whole feature exists to stop."""
+        if self.unit_hours is None:
+            return self
+
+        expected = self.unit_count or DEFAULT_UNITS
+        if len(self.unit_hours) != expected:
+            raise ValueError(
+                f"unit_hours has {len(self.unit_hours)} entries but the syllabus is "
+                f"to be written in {expected} units."
+            )
+        if any(h < 1 for h in self.unit_hours):
+            raise ValueError("Every unit must be taught for at least one hour.")
+        return self
 
 
 class SyllabusAIJobResponse(BaseModel):

@@ -85,6 +85,18 @@ export const academicsApi = {
   updateProgram: (id: string, body: Partial<{ name: string; code: string; degree_type: string; duration_years: number; is_active: boolean }>) =>
     api.put<AcadProgram>(`${B}/programs/${id}`, body).then(r => r.data),
 
+  // Dean governance — WHICH programmes a Dean governs.
+  //
+  // Reads of this scope have existed since Phase B (the Dean's curriculum, faculty,
+  // students and timetable all rest on it). The WRITE did not: the only rows any tenant
+  // had were put there by a one-off backfill migration, so a Dean created afterwards
+  // governed nothing and the Users page's "Programs" column could never be filled in.
+  // ADMIN only — a Dean must not be able to widen his own scope.
+  listDeanPrograms: (deanUserId: string) =>
+    api.get<string[]>(`${B}/deans/${deanUserId}/programs`).then(r => r.data),
+  setDeanPrograms: (deanUserId: string, programIds: string[]) =>
+    api.put<string[]>(`${B}/deans/${deanUserId}/programs`, { program_ids: programIds }).then(r => r.data),
+
   // Batches
   listBatches: (programId?: string, includeInactive = false) =>
     api.get<Batch[]>(`${B}/batches`, { params: { program_id: programId || undefined, include_inactive: includeInactive } }).then(r => r.data),

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Lock, Sparkles } from 'lucide-react'
+import { Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -17,85 +17,14 @@ interface BaseProps {
 }
 
 // ---------------------------------------------------------------------------
-// Board → Generate the official syllabus for every subject
+// GenerateSyllabiDialog is gone, with the bulk endpoint it drove.
+//
+// It asked the Board one question — "shall I draft all forty of these?" — and a Board of
+// Studies does not think that way. It decides subject by subject whether THIS syllabus
+// wants an AI draft or is better written by the professor who has taught it for fifteen
+// years. That choice now lives on each row of the curriculum workbench, and the AI runs
+// only when somebody asks it to. See PrepareSyllabusDialog.
 // ---------------------------------------------------------------------------
-
-export function GenerateSyllabiDialog({
-  open,
-  onOpenChange,
-  onConfirm,
-  isPending,
-  missingCount,
-  totalCount,
-}: BaseProps & {
-  onConfirm: (regenerateAll: boolean) => void
-  missingCount: number
-  totalCount: number
-}) {
-  const [regenerateAll, setRegenerateAll] = useState(false)
-  const count = regenerateAll ? totalCount : missingCount
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="text-black font-bold">Generate the Official Syllabus</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          <p className="text-sm text-gray-700">
-            One AI call per subject, run in the background. Each subject is generated
-            independently, so a failure on one costs you nothing on the others — and you can
-            leave this page while it runs.
-          </p>
-
-          {missingCount > 0 && (
-            <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={regenerateAll}
-                onChange={(e) => setRegenerateAll(e.target.checked)}
-              />
-              <span className="text-sm text-gray-800">
-                <span className="font-semibold text-black">Regenerate everything</span>
-                <span className="block text-gray-600">
-                  Also rewrite the {totalCount - missingCount} subject
-                  {totalCount - missingCount === 1 ? '' : 's'} that already have a syllabus,
-                  discarding any edits you have made to them. Leave this off to generate only
-                  the {missingCount} that are missing.
-                </span>
-              </span>
-            </label>
-          )}
-
-          <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-            <Sparkles className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
-            <p className="text-sm text-blue-900">
-              Every generated syllabus arrives as a <span className="font-semibold">draft</span>.
-              The AI advises; you decide. Each one has to be reviewed and approved by a member
-              of the board before the curriculum can be approved.
-            </p>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={isPending || count === 0}
-            onClick={() => onConfirm(regenerateAll)}
-          >
-            <Sparkles className="h-4 w-4 mr-1" />
-            {isPending ? 'Queueing…' : `Generate ${count} Syllab${count === 1 ? 'us' : 'i'}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Board → Approve + Lock. Permanent.

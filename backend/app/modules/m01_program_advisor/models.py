@@ -90,12 +90,60 @@ NON_SYLLABUS_TYPES: frozenset[str] = frozenset({
     CourseType.SEMINAR.value,
 })
 
-# The types the Dean may edit AFTER the Board has approved them. Identical to
-# NON_SYLLABUS_TYPES today, and deliberately a separate name: the reason a Dean may
-# touch these is that their content depends on industry and supervisor allocation,
-# not that they happen to lack units. If the two ever diverge, the call sites that
-# mean one must not silently get the other.
-DEAN_EDITABLE_TYPES: frozenset[str] = NON_SYLLABUS_TYPES
+# ---------------------------------------------------------------------------
+# WHO OWNS WHAT — the one place this is decided
+#
+# The Board of Studies is an ACADEMIC body. It owns the taught curriculum: the
+# subjects a lecturer stands up and teaches, and a student is examined in. That is a
+# theory subject, a laboratory, and every elective option (which is only a theory or
+# lab subject a student chooses between).
+#
+# An internship, a mini project, a major project and a seminar are not taught. Their
+# documents are about EXECUTION: which company hosts the student, which supervisor is
+# free, when the reviews are held, what the institution requires of the host. The
+# Board cannot know any of it, and pretending it can produced a workflow in which a
+# curriculum could not be approved until a Board of Studies had signed off a rubric
+# for an internship that had not been arranged yet.
+#
+# So they belong to the DEAN — entirely. He creates them, edits them, drafts them with
+# AI if he likes, approves them, and publishes them. The Board decides only THAT the
+# programme contains an internship; the Dean decides what the internship IS.
+#
+# Two consequences follow, and both are enforced rather than documented:
+#   - the Board's curriculum approve gate counts TEACHING_TYPES only (an unwritten
+#     internship document cannot block a curriculum the Board does not own it in);
+#   - the Dean's publish gate is what waits on the execution documents.
+# ---------------------------------------------------------------------------
+
+# The taught curriculum. The Board writes the syllabus, approves it, and locks it.
+TEACHING_TYPES: frozenset[str] = frozenset({
+    CourseType.THEORY.value,
+    CourseType.LAB.value,
+})
+
+# The Dean's documents. Nothing here is taught, and the Board never touches it.
+EXECUTION_TYPES: frozenset[str] = NON_SYLLABUS_TYPES
+
+# The types the Dean may edit. Identical to EXECUTION_TYPES today, and deliberately a
+# separate name: the reason a Dean may touch these is that their content depends on
+# industry and supervisor allocation, not that they happen to lack units. If the two
+# ever diverge, the call sites that mean one must not silently get the other.
+DEAN_EDITABLE_TYPES: frozenset[str] = EXECUTION_TYPES
+
+
+def is_execution_document(course_type: str | None) -> bool:
+    """Does this course carry a Dean-owned execution document?
+
+    An unset type reads as THEORY — that is what every course generated before course
+    types existed actually was, and calling those the Dean's would hand him half the
+    curriculum.
+    """
+    return (course_type or CourseType.THEORY.value).upper() in EXECUTION_TYPES
+
+
+def is_teaching_subject(course_type: str | None) -> bool:
+    """Is this a subject the Board teaches, examines and owns the syllabus of?"""
+    return not is_execution_document(course_type)
 
 
 class ElectiveSlotStatus(str, enum.Enum):

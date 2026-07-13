@@ -38,8 +38,7 @@ from app.core.governance.schemas import (
     ApprovalRequestOut,
     ApproveCurriculumRequest,
     ChangeSummary,
-    GenerateSyllabiRequest,
-    GenerateSyllabiResponse,
+    PublishReadiness,
     GovernanceInfo,
     GovernanceQueueResponse,
     ReadinessSummary,
@@ -134,68 +133,55 @@ async def curriculum_readiness(
 
 
 # ---------------------------------------------------------------------------
-# Bulk syllabus generation
+# Publish readiness — the DEAN's gate
 # ---------------------------------------------------------------------------
 
-@router.post("/programs/{program_id}/syllabus/generate", response_model=GenerateSyllabiResponse)
-async def generate_official_syllabi(
+@router.get("/programs/{program_id}/publish-readiness", response_model=PublishReadiness)
+async def publish_readiness(
     program_id: UUID,
-    payload: GenerateSyllabiRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_roles(TenantRole.DEAN, TenantRole.ADMIN)),
     db: AsyncSession = Depends(get_tenant_db_dep),
-) -> GenerateSyllabiResponse:
-    """Generate the official syllabus for every subject in the curriculum.
+) -> PublishReadiness:
+    """Whether the Dean may publish this curriculum yet, and what is left if not.
 
-    One AI call per subject — 40-odd for an MCA — dispatched as independent
-    background jobs, so one failure cannot cost the other thirty-nine. Re-running
-    picks up only what is still missing, so the Board retries the handful that
-    failed instead of regenerating everything and losing its edits.
+    The SAME computation as the Board's worksheet, projected to what is his: his
+    execution documents, and the gate. One source of truth, two audiences.
+
+    A separate route rather than the Board's, deliberately. Opening the Board's worksheet
+    is itself an act of review and is recorded as one — a Dean checking whether he can
+    publish must not appear in the Board's accountability trail as having reviewed the
+    curriculum. And he does not need to see which teaching subjects are still in draft:
+    that is the Board's work, and it is not waiting on him.
     """
-    from app.modules.m02_syllabus.service import SyllabusService, SyllabusServiceError
-
     try:
-        await gov.require_governance(current_user, db)
-        batch_id, job_ids, skipped = await SyllabusService.generate_for_program(
-            program_id,
-            tenant_id=current_user.tenant_id,
-            schema_name=current_user.schema_name,
-            requested_by=current_user.user_id,
-            regenerate_all=payload.regenerate_all,
-            custom_instructions=payload.custom_instructions,
-            db=db,
-        )
+        readiness = await gov.get_readiness(program_id, db)
+        status = await gov.get_program_status(program_id, db)
     except gov.GovernanceServiceError as e:
         raise _err(e)
-    except SyllabusServiceError as e:
-        raise HTTPException(
-            status_code=e.status_code,
-            detail={"error": e.code, "message": e.message},
-        )
 
-    await AuditService.log(
-        AuditEventType.SYLLABUS_GENERATION_QUEUED,
-        actor_user_id=current_user.user_id,
-        actor_role=current_user.role,
-        tenant_id=current_user.tenant_id,
-        schema_name=current_user.schema_name,
-        target_entity="Program",
-        target_id=str(program_id),
-        metadata={
-            "program_id": str(program_id),
-            "batch_id":   str(batch_id),
-            "dispatched": len(job_ids),
-            "skipped":    skipped,
-            "regenerate_all": payload.regenerate_all,
-        },
-    )
-    return GenerateSyllabiResponse(
+    return PublishReadiness(
         program_id=program_id,
-        batch_id=batch_id,
-        dispatched=len(job_ids),
-        skipped=skipped,
-        job_ids=job_ids,
+        program_status=status,
+        can_publish=readiness.can_publish,
+        total_documents=readiness.dean_document_count,
+        approved_documents=readiness.dean_approved_count,
+        documents=[i for i in readiness.items if i.owner == "DEAN"],
     )
 
+
+# ---------------------------------------------------------------------------
+# There is no bulk generation endpoint, and there must not be.
+#
+# POST /programs/{id}/syllabus/generate used to queue an AI job for every subject in the
+# curriculum at once — forty syllabi, three hundred model calls, on one click. A Board of
+# Studies does not decide to draft forty syllabi. It decides, subject by subject, whether
+# THIS one wants an AI draft or is better written by the professor who has taught it for
+# fifteen years, and the interface should ask it that question rather than assume the
+# answer.
+#
+# Generation is now requested per syllabus, by the Board, at POST /syllabuses/{id}/generate
+# — which is where it was always really decided.
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Approve + lock — the only freeze, and it is permanent
@@ -286,6 +272,22 @@ async def _notify_dean_finalized(
         info = await gov.get_governance_info(actor.tenant_id, db)
         summary = await gov.get_change_summary(program_id, actor.tenant_id, db)
 
+        # What the Dean must actually DO next, which depends on whether the curriculum
+        # contains work of his. A curriculum with an internship is not ready to publish
+        # the moment the Board finishes with it — it is ready for HIM to start.
+        readiness = await gov.get_readiness(program_id, db)
+        outstanding = readiness.dean_document_count - readiness.dean_approved_count
+
+        if outstanding > 0:
+            next_step = (
+                f" You can now prepare the {outstanding} execution document"
+                f"{'' if outstanding == 1 else 's'} this curriculum needs — its "
+                "internship, project and seminar guidelines. The curriculum can be "
+                "published once they are approved."
+            )
+        else:
+            next_step = " You can publish it when ready."
+
         if summary.total_changes:
             changes = "; ".join(
                 f"{line.label}" + (f" x{line.count}" if line.count > 1 else "")
@@ -293,13 +295,12 @@ async def _notify_dean_finalized(
             )
             body = (
                 f"The {info.body_label} has reviewed and finalized the curriculum "
-                f"for {row['title']}. Changes made: {changes}. "
-                "Review them and publish when ready."
+                f"for {row['title']}. Changes made: {changes}.{next_step}"
             )
         else:
             body = (
                 f"The {info.body_label} has reviewed and finalized the curriculum "
-                f"for {row['title']} with no changes. Publish when ready."
+                f"for {row['title']} with no changes.{next_step}"
             )
 
         await NotificationService.send(

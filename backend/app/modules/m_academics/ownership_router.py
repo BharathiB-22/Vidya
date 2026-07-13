@@ -24,6 +24,7 @@ from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m_academics.ownership_schemas import (
     DeanProgramOut,
+    DeanProgramsSet,
     DeptInfo,
     FacultyAcademicResponsibilities,
     FacultyAcademicSummary,
@@ -235,6 +236,65 @@ async def remove_faculty_from_program(
             assignment_id,
             revoked_by=current_user.user_id,
             actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
+            schema_name=current_user.schema_name,
+            db=db,
+        )
+    except OwnershipServiceError as e:
+        raise _err(e)
+
+
+# ---------------------------------------------------------------------------
+# Dean governance — WHICH programmes a Dean governs
+#
+# ADMIN only, and deliberately not _MANAGE (which includes DEAN). A Dean must not be
+# able to widen his own governance, or the scope that every other check in this system
+# rests on — his curriculum, his faculty, his students, his timetable — would be a scope
+# he grants himself.
+#
+# The table and every read of it have existed since Phase B. The WRITE did not: the only
+# rows in any tenant came from a one-off backfill migration, so a Dean created afterwards
+# governed nothing and no screen could give him anything. This is the missing act, and
+# nothing about the ownership model changes.
+# ---------------------------------------------------------------------------
+
+@ownership_router.get(
+    "/deans/{dean_user_id}/programs",
+    response_model=list[UUID],
+)
+async def list_programs_governed_by_dean(
+    dean_user_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession          = Depends(get_tenant_db_dep),
+) -> list[UUID]:
+    """The programmes this Dean governs — the ids the Admin's editor starts from."""
+    try:
+        return await OwnershipService.list_dean_programs(dean_user_id, db=db)
+    except OwnershipServiceError as e:
+        raise _err(e)
+
+
+@ownership_router.put(
+    "/deans/{dean_user_id}/programs",
+    response_model=list[UUID],
+)
+async def set_programs_governed_by_dean(
+    dean_user_id: UUID,
+    body: DeanProgramsSet,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.ADMIN)),
+    db: AsyncSession          = Depends(get_tenant_db_dep),
+) -> list[UUID]:
+    """Set the whole list of programmes a Dean governs.
+
+    Declarative: the Admin sends the list that should be true, and it becomes true.
+    Programmes removed are soft-revoked, never deleted — governance is a matter of
+    record, and somebody will eventually ask who oversaw what, and when.
+    """
+    try:
+        return await OwnershipService.set_dean_programs(
+            dean_user_id,
+            body.program_ids,
+            assigned_by=current_user.user_id,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,

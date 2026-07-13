@@ -3,10 +3,9 @@ import type {
   ApprovalRequest,
   ApproveCurriculumRequest,
   ChangeSummary,
-  GenerateSyllabiRequest,
-  GenerateSyllabiResponse,
   GovernanceInfo,
   GovernanceQueue,
+  PublishReadiness,
   ReadinessSummary,
   SubmissionChecklist,
   SubmitForApprovalRequest,
@@ -37,15 +36,18 @@ export async function getReadiness(programId: string): Promise<ReadinessSummary>
 }
 
 /**
- * Generate the official syllabus for every subject that lacks one — core courses
- * and every elective option alike. One AI call per subject, dispatched as
- * independent background jobs.
+ * The DEAN's gate: may this curriculum be published yet, and what is left if not.
+ *
+ * The same computation as the Board's readiness, projected to what is his — his
+ * execution documents, and the gate. A separate route because opening the Board's
+ * worksheet is itself an act of review and is recorded as one, and a Dean checking
+ * whether he can publish must not appear in the Board's trail as having reviewed the
+ * curriculum.
  */
-export async function generateSyllabi(
-  programId: string,
-  payload: GenerateSyllabiRequest = {},
-): Promise<GenerateSyllabiResponse> {
-  const { data } = await api.post(`${BASE}/programs/${programId}/syllabus/generate`, payload)
+export async function getPublishReadiness(programId: string): Promise<PublishReadiness> {
+  const { data } = await api.get<PublishReadiness>(
+    `${BASE}/programs/${programId}/publish-readiness`,
+  )
   return data
 }
 

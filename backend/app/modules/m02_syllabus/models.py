@@ -116,6 +116,29 @@ class Syllabus(Base):
     # Empty ({}) for THEORY, whose document IS its units, outcomes and references.
     document            = Column(JSONB, nullable=False, server_default="{}")
 
+    # HOW MANY units this theory syllabus is taught in — four or five. The Board's
+    # decision, made before generation, not the generator's.
+    #
+    # Stored rather than passed to the job, because a regeneration months later must
+    # produce the same shape as the original: the row has to remember what was asked
+    # for. The AI is asked for exactly this many units and a response with a
+    # different number is rejected (ai_provider._validate_theory).
+    #
+    # Meaningless for a lab manual, an internship or a project handbook — they have
+    # no units — and the generator never reads it for those types.
+    unit_count          = Column(Integer, nullable=False, default=5, server_default=text("5"))
+
+    # The Board's HOURS for each unit — [10, 8, 12, 10]. Same decision, same reason:
+    # hours come out of the timetable and the credit structure, not out of the
+    # drafting, so the generator writes each unit to its hours instead of inventing
+    # them and leaving the Board to redistribute afterwards.
+    #
+    # Empty means the Board did not say, and the model paces the units against the
+    # course's contact hours on its own. The AUTHORITATIVE hours after generation are
+    # the ones on the units themselves (syllabus_units.total_hours) — this is the
+    # plan the units were written to, not a second copy of them.
+    unit_hours          = Column(JSONB, nullable=False, default=list, server_default="[]")
+
     # Course Objectives — a list of strings. Distinct from Course Outcomes: the
     # objectives say what the course sets out to teach, the outcomes what the
     # student can do afterwards. Official university syllabi carry both.

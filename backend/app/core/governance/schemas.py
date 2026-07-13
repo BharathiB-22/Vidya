@@ -98,6 +98,36 @@ class SubmissionChecklist(BaseModel):
 # Readiness — what is left before the curriculum can be approved
 # ---------------------------------------------------------------------------
 
+class ChecklistItem(BaseModel):
+    """One stage of a document's academic lifecycle, as the Board reads it.
+
+    A STAGE, never a rule. "Unit IV — AI generation incomplete" is a stage; "Unit IV has
+    2 topics and a unit runs to 10-15" is our validator talking out loud, and a Board
+    member who reads it learns only that we do not trust our own generator. The
+    thresholds, the duplicate detection, the retry counts and the topic floors stay in
+    the backend, where they belong, and nothing here carries them.
+
+    DONE        finished, and good enough to publish
+    INCOMPLETE  it exists but the AI did not finish it — one click repairs it
+    PENDING     not there yet
+    """
+    key: str            # "unit_3", "objectives", "approved"
+    label: str          # "Unit III", "Objectives", "Board Approval"
+    state: str          # DONE | INCOMPLETE | PENDING
+    unit_number: Optional[int] = None   # set on unit rows, so the UI can regenerate one
+
+    # Shown, but NOT enforced by the approval gate.
+    #
+    # Exactly one stage is optional today: the References. They are fetched from CrossRef
+    # and OpenLibrary, and a third-party outage must never be able to block a
+    # university's curriculum. Everything else on every checklist is tested by the gate
+    # — that is the rule, and this flag exists so that the one exception has to be
+    # declared out loud rather than quietly tolerated. The UI marks it "(optional)" and
+    # it is excluded from the completion percentage, so 100% means "approvable", not
+    # "approvable, probably".
+    optional: bool = False
+
+
 class ReadinessItem(BaseModel):
     """One subject and the state of its official document.
 
@@ -118,6 +148,23 @@ class ReadinessItem(BaseModel):
     # "Internship Guidelines" rather than "Syllabus" for the ones that are not one.
     course_type: str = CourseType.THEORY.value
 
+    # WHO owns this document — "BOARD" or "DEAN".
+    #
+    # The Board teaches, examines and owns the syllabus of theory subjects,
+    # laboratories and elective options. An internship, a project and a seminar are the
+    # Dean's: what they contain depends on the host company, the supervisor and the
+    # review calendar, and no Board of Studies can know those at approval time.
+    #
+    # A DEAN item appears in the Board's worksheet so the curriculum can be SEEN whole,
+    # and does nothing else: no gaps, no actions, and no weight in `can_approve`.
+    owner: str = "BOARD"
+
+    # Where this document stands, stage by stage, and how far along it is (0-100).
+    # Measured against ITS OWN checklist — a theory syllabus against its units and
+    # outcomes, an internship against the Dean's four steps.
+    checklist: list[ChecklistItem] = []
+    progress_percent: int = 0
+
     # What is still WRONG with the document — "Missing: Reference Books",
     # "Unit IV weak". Empty when there is nothing to flag.
     #
@@ -135,6 +182,12 @@ class ReadinessSummary(BaseModel):
     `can_approve` is computed from the same rows the gate in
     `approve_and_lock` tests, so the button in the UI and the API can never
     disagree about whether a curriculum is ready.
+
+    TWO progress figures, because there are two bodies at work and they are not waiting
+    on each other. The Board's is the taught curriculum — the only thing its approval
+    gate tests. The Dean's is the execution documents, which he prepares and approves in
+    his own time and which gate his PUBLISH, not the Board's approval. One combined
+    percentage would tell each of them how much work the other still had to do.
     """
     program_id: UUID
     total_subjects: int
@@ -142,6 +195,22 @@ class ReadinessSummary(BaseModel):
     draft_count: int
     missing_count: int
     can_approve: bool
+
+    # How far the BOARD is, across the subjects it teaches (0-100).
+    board_progress_percent: int = 0
+    # How far the DEAN is, across his execution documents (0-100). 100 when the
+    # curriculum contains none — nothing outstanding is nothing outstanding.
+    dean_progress_percent: int = 100
+    dean_document_count: int = 0
+
+    # THE SECOND GATE. The Dean may publish when the Board has approved the taught
+    # curriculum AND every one of his own documents is approved.
+    #
+    # Computed from the same rows the publish endpoint tests, so the button and the API
+    # can never disagree — the same discipline as `can_approve`.
+    can_publish: bool = False
+    dean_approved_count: int = 0
+
     items: list[ReadinessItem]
 
 
@@ -218,25 +287,36 @@ class GovernanceQueueResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Bulk syllabus generation
+# Publishing — the Dean's gate
+#
+# (There is no bulk-generation schema here any more. The Board no longer generates
+# forty syllabi on one click; it decides subject by subject whether a syllabus wants an
+# AI draft or a human author. See governance/router.py.)
 # ---------------------------------------------------------------------------
 
-class GenerateSyllabiRequest(BaseModel):
-    regenerate_all: bool = Field(
-        default=False,
-        description=(
-            "By default only subjects with NO syllabus are generated, so a "
-            "re-run after a partial failure picks up exactly what failed and "
-            "leaves the Board's edits alone. Set true to regenerate every "
-            "subject from scratch, discarding Board edits to unapproved drafts."
-        ),
-    )
-    custom_instructions: Optional[str] = Field(default=None, max_length=4000)
+class PublishReadiness(BaseModel):
+    """The DEAN's gate, and only his.
 
+    A projection of the same readiness computation the Board's worksheet uses — the same
+    rows, the same rules, one source of truth — but showing only what is HIS: the
+    execution documents, and whether the curriculum may now be released.
 
-class GenerateSyllabiResponse(BaseModel):
+    It is a separate endpoint rather than the Board's, for two reasons. The Board's
+    worksheet is gated to the governance authority, and opening it is itself recorded as
+    an act of review — a Dean checking whether he can publish must not appear in the
+    Board's accountability trail as having reviewed the curriculum. And he has no
+    business seeing which teaching subjects are still in draft: that is the Board's work,
+    and it is not waiting on him.
+    """
     program_id: UUID
-    batch_id: UUID
-    dispatched: int          # how many subjects were queued for generation
-    skipped: int             # already had a syllabus (and regenerate_all was false)
-    job_ids: list[UUID]
+    program_status: str
+
+    # True when the Board has approved the taught curriculum AND every execution document
+    # is approved by the Dean. Computed from the rows m01.publish tests, so this and the
+    # endpoint cannot disagree.
+    can_publish: bool
+
+    total_documents: int
+    approved_documents: int
+    documents: list[ReadinessItem] = []
+

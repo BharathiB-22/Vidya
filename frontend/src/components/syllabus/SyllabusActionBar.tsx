@@ -19,25 +19,35 @@ import {
   useDeleteSyllabus,
 } from '@/hooks/syllabuses'
 import type { Syllabus } from '@/types/syllabus'
+import { isExecutionDocument } from '@/types/program'
 import { useWorkspace } from '@/lib/workspace'
 
 /**
- * What can be done to an official syllabus, and by whom.
+ * What can be done to an official document, and by whom.
  *
- * The syllabus is CURRICULUM, and the curriculum belongs to the Board. So this
- * bar is, for almost everyone, empty: Faculty get a read-only notice, the Dean
- * gets a read-only notice, and only a board member sees buttons.
+ * TWO academic authorities, and they own DIFFERENT documents.
  *
- * That is the point of Phase A. Faculty teach to the official syllabus and build
- * lesson plans, PPTs, course kits, assignments and question papers underneath it
- * — they never write it. The Dean reads it.
+ *   BOARD  the taught curriculum — theory syllabi, lab manuals, elective options.
+ *          It drafts them with AI, edits them, approves them, and they lock with
+ *          the curriculum.
+ *   DEAN   the execution documents — internship, mini project, major project,
+ *          seminar. What they contain depends on the host company, the supervisor
+ *          and the review calendar, which no Board of Studies can know at approval
+ *          time. He creates them, drafts them, approves them, publishes them.
  *
- *   DRAFT      board: generate with AI, approve, delete
- *   APPROVED   board: still editable (an edit returns it to draft), export, fork
+ * So this bar shows buttons to the document's OWNER, and a read-only notice to
+ * everybody else — including the other authority. Faculty never write any of it;
+ * they teach to the official document and build their lesson plans beneath it.
+ *
+ *   DRAFT      owner: generate an AI draft, approve, delete
+ *   APPROVED   owner: still editable (an edit returns it to draft), export, fork
  *   LOCKED     nobody edits. Export and fork only.
+ *
+ * The API enforces all of this independently (403). This only decides what is offered.
  */
 
 const BOARD_ROLES = ['ADMIN', 'BOARD']
+const DEAN_ROLES  = ['ADMIN', 'DEAN']
 
 interface Props {
   syllabus: Syllabus
@@ -46,7 +56,12 @@ interface Props {
 export function SyllabusActionBar({ syllabus }: Props) {
   const navigate = useNavigate()
   const { activeWorkspace: role } = useWorkspace()
-  const isBoard = BOARD_ROLES.includes(role)
+
+  // The document's OWN type decides who owns it — not the course's current type. A
+  // lab manual approved by the Board stays the Board's even if the course was later
+  // reclassified.
+  const deanOwned = isExecutionDocument(syllabus.doc_type)
+  const isOwner = deanOwned ? DEAN_ROLES.includes(role) : BOARD_ROLES.includes(role)
 
   const [generateOpen, setGenerateOpen] = useState(false)
   const [approveOpen,  setApproveOpen]  = useState(false)
@@ -73,13 +88,16 @@ export function SyllabusActionBar({ syllabus }: Props) {
   const isDraft   = syllabus.status === 'DRAFT'
   const canExport = syllabus.status === 'APPROVED' || isLocked
 
-  // Everyone who is not on the board reads this document; they do not act on it.
-  if (!isBoard) {
+  // Everyone who does not own this document reads it; they do not act on it.
+  if (!isOwner) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
         <Eye className="h-4 w-4 text-gray-400" />
         <span className="text-sm text-gray-600">
-          The official syllabus is owned by the governance authority. This is a read-only view.
+          {deanOwned
+            ? 'This document belongs to the Dean — what it contains depends on the host ' +
+              'company, the supervisor and the review calendar. This is a read-only view.'
+            : 'The official syllabus is owned by the governance authority. This is a read-only view.'}
         </span>
         {canExport && (
           <Button
@@ -180,7 +198,17 @@ export function SyllabusActionBar({ syllabus }: Props) {
       <GenerateSyllabusDialog
         open={generateOpen}
         onOpenChange={setGenerateOpen}
-        onSubmit={(hint) => generate.mutate({ custom_instructions: hint })}
+        docType={syllabus.doc_type}
+        unitCount={syllabus.unit_count}
+        unitHours={syllabus.unit_hours}
+        info={syllabus.course_information}
+        onSubmit={({ instructions, unitCount, unitHours }) =>
+          generate.mutate({
+            custom_instructions: instructions,
+            unit_count: unitCount,
+            unit_hours: unitHours,
+          })
+        }
         isPending={generate.isPending}
       />
       <ApproveSyllabusDialog

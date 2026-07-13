@@ -125,6 +125,41 @@ async def _fetch_faculty_user(user_id: UUID, db: AsyncSession) -> dict:
     return row
 
 
+async def _fetch_dean_user(user_id: UUID, db: AsyncSession) -> dict:
+    """The Dean whose governance is being set.
+
+    A DEAN by base role, or a FACULTY account holding a DEAN grant — which is how real
+    universities staff the job: a professor who is also the Dean, on one account. Both
+    are the same person to `dean_program_assignments`, and both must be settable here,
+    or the grant-holder governs nothing and nobody can see why.
+    """
+    row = (
+        await db.execute(
+            text(
+                "SELECT u.id, u.full_name, u.email, u.role, u.is_active, "
+                "  EXISTS (SELECT 1 FROM faculty_role_grants g "
+                "           WHERE g.faculty_user_id = u.id AND g.role_code = 'DEAN' "
+                "             AND g.is_active) AS has_dean_grant "
+                "FROM   users u WHERE u.id = :id"
+            ),
+            {"id": str(user_id)},
+        )
+    ).mappings().one_or_none()
+
+    if row is None:
+        raise OwnershipServiceError("USER_NOT_FOUND", "User not found.", 404)
+    if not row["is_active"]:
+        raise OwnershipServiceError("USER_INACTIVE", "User account is inactive.")
+    if row["role"] != "DEAN" and not row["has_dean_grant"]:
+        raise OwnershipServiceError(
+            "NOT_A_DEAN",
+            f"Only a DEAN may be given programmes to govern; this user has role "
+            f"'{row['role']}'. Faculty are assigned to programmes for TEACHING, which "
+            f"is a different thing and a different list.",
+        )
+    return row
+
+
 # ---------------------------------------------------------------------------
 # OwnershipService
 # ---------------------------------------------------------------------------
@@ -1321,3 +1356,137 @@ class OwnershipService:
             ],
             department_summary=department_summary,
         )
+
+    # ------------------------------------------------------------------
+    # Dean governance — WHICH programmes a Dean governs
+    #
+    # The table has existed since Phase B, and everything reads it: the Dean's
+    # curriculum scope, his faculty and student directories, his timetable, the
+    # notifications addressed to "the Dean of this programme". What never existed was a
+    # way to WRITE it.
+    #
+    # The only rows in any tenant were put there by a one-off backfill migration
+    # (0059ten), which gave each Dean who existed AT THAT MOMENT the programmes of their
+    # home department. Every Dean created afterwards governed nothing — in the demo
+    # tenant too, where six of the eight Deans have no programmes — and no screen in the
+    # product could give them any. The Users page shows a "Programs" column that nobody
+    # could fill in.
+    #
+    # These two methods are that missing act. Nothing about the ownership model changes:
+    # same table, same soft-revoke contract (rows are never deleted; a revocation stamps
+    # is_active=false, revoked_by, revoked_at), same reads.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def list_dean_programs(
+        dean_user_id: UUID,
+        *,
+        db: AsyncSession,
+    ) -> list[UUID]:
+        """The programmes this Dean governs right now. Ids only — the caller has names."""
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT program_id FROM dean_program_assignments "
+                    "WHERE dean_user_id = :u AND is_active = true"
+                ),
+                {"u": str(dean_user_id)},
+            )
+        ).scalars().all()
+        return [UUID(str(r)) for r in rows]
+
+    @staticmethod
+    async def set_dean_programs(
+        dean_user_id: UUID,
+        program_ids: list[UUID],
+        *,
+        assigned_by: UUID,
+        tenant_id: UUID,
+        schema_name: str,
+        db: AsyncSession,
+    ) -> list[UUID]:
+        """Set the whole list of programmes a Dean governs. ADMIN only (gated at the route).
+
+        Declarative on purpose: the caller sends the list it wants to be true, and this
+        makes it true. The alternative — an add call and a remove call per programme —
+        pushes the diffing into the browser, which is where a half-applied change becomes
+        a Dean who governs a programme nobody meant to give him.
+
+        Soft-revoke, as the table has always done: a programme removed here is stamped
+        `is_active = false, revoked_by, revoked_at` and kept. Governance is a matter of
+        record — who oversaw which programme, and when — and a deletion would erase the
+        answer to a question somebody will eventually ask.
+
+        Re-granting a previously revoked programme reactivates that row rather than
+        writing a second one, which is what the partial unique index on
+        (dean_user_id, program_id) WHERE is_active demands.
+        """
+        await _fetch_dean_user(dean_user_id, db)
+
+        wanted = {UUID(str(p)) for p in program_ids}
+
+        # Every programme must exist. A silent skip here would hand back a Dean who
+        # governs less than the screen said he did.
+        for program_id in wanted:
+            await _fetch_program_with_dept(program_id, db)
+
+        current = set(await OwnershipService.list_dean_programs(dean_user_id, db=db))
+
+        to_grant  = wanted - current
+        to_revoke = current - wanted
+
+        for program_id in to_revoke:
+            await db.execute(
+                text(
+                    "UPDATE dean_program_assignments "
+                    "SET is_active = false, revoked_by = :actor, revoked_at = now() "
+                    "WHERE dean_user_id = :dean AND program_id = :prog AND is_active = true"
+                ),
+                {"actor": str(assigned_by), "dean": str(dean_user_id), "prog": str(program_id)},
+            )
+
+        for program_id in to_grant:
+            # Reactivate the historical row if this programme was governed before, else
+            # insert. The unique index only covers ACTIVE rows, so a revoked row sits
+            # there waiting, and inserting a second one would be a lie about the history.
+            reactivated = (
+                await db.execute(
+                    text(
+                        "UPDATE dean_program_assignments "
+                        "SET is_active = true, assigned_by = :actor, assigned_at = now(), "
+                        "    revoked_by = NULL, revoked_at = NULL "
+                        "WHERE dean_user_id = :dean AND program_id = :prog AND is_active = false "
+                        "RETURNING id"
+                    ),
+                    {"actor": str(assigned_by), "dean": str(dean_user_id), "prog": str(program_id)},
+                )
+            ).first()
+
+            if reactivated is None:
+                await db.execute(
+                    text(
+                        "INSERT INTO dean_program_assignments "
+                        "  (id, dean_user_id, program_id, is_active, assigned_by, assigned_at) "
+                        "VALUES (gen_random_uuid(), :dean, :prog, true, :actor, now())"
+                    ),
+                    {"dean": str(dean_user_id), "prog": str(program_id), "actor": str(assigned_by)},
+                )
+
+        await db.commit()
+
+        for program_id, event in (
+            *[(p, AuditEventType.DEAN_PROGRAM_ASSIGNED) for p in to_grant],
+            *[(p, AuditEventType.DEAN_PROGRAM_REVOKED)  for p in to_revoke],
+        ):
+            await AuditService.log(
+                event,
+                actor_user_id=assigned_by,
+                actor_role="ADMIN",
+                tenant_id=tenant_id,
+                schema_name=schema_name,
+                target_entity="DeanProgramAssignment",
+                target_id=str(dean_user_id),
+                metadata={"dean_user_id": str(dean_user_id), "program_id": str(program_id)},
+            )
+
+        return sorted(wanted, key=str)

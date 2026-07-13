@@ -1046,6 +1046,30 @@ class TaskJobPublicRepository:
         await db.flush()
         return job_id
 
+    @staticmethod
+    async def set_progress(
+        job_id: UUID,
+        progress: dict,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """Say what the job is doing right now, where the UI can see it.
+
+        Written into `result`, the column the job already has and the endpoint already
+        returns — a generation that takes ten AI calls and four minutes must not be a
+        spinner, and it does not need a table of its own to stop being one.
+
+        The final result overwrites this when the task completes, which is right: the
+        progress of a finished job is that it finished.
+        """
+        await db.execute(
+            text(
+                "UPDATE public.task_jobs SET result = CAST(:progress AS jsonb) "
+                "WHERE id = CAST(:job_id AS uuid)"
+            ),
+            {"job_id": str(job_id), "progress": json.dumps(progress)},
+        )
+
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------

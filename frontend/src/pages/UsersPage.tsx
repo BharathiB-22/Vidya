@@ -124,6 +124,82 @@ function ProgramSelect({ value, onChange, programs, required }: ProgramSelectPro
 }
 
 // ---------------------------------------------------------------------------
+// Governed programmes (DEAN)
+//
+// WHICH programmes a Dean governs. Everything the Dean can see rests on this list — his
+// curricula, his faculty, his students, his timetable, the execution documents he must
+// publish — and until now nothing in the product could set it. The table has been read
+// since Phase B; the only rows any tenant ever had were written by a one-off backfill
+// migration, so a Dean created afterwards governed nothing, permanently, and the
+// "Programs" column on this very page could never be filled in for him.
+//
+// A Dean governs one or MORE programmes (Ishu → MCA; another dean may hold MCA and BCA),
+// so this is a checklist, not a dropdown.
+// ---------------------------------------------------------------------------
+
+interface GovernedProgramsProps {
+  value: string[]
+  onChange: (ids: string[]) => void
+  programs: AcadProgram[]
+  loading?: boolean
+}
+
+function GovernedPrograms({ value, onChange, programs, loading }: GovernedProgramsProps) {
+  function toggle(id: string) {
+    onChange(value.includes(id) ? value.filter((p) => p !== id) : [...value, id])
+  }
+
+  return (
+    <div className="space-y-1">
+      <label className="text-sm font-medium text-gray-700">
+        Governed programs{' '}
+        <span className="font-normal text-gray-400">
+          (the programs this dean oversees)
+        </span>
+      </label>
+
+      {loading ? (
+        <p className="text-xs text-gray-400">Loading…</p>
+      ) : programs.length === 0 ? (
+        <p className="rounded border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-500">
+          This tenant has no academic programs yet. Create one under Academics → Programs,
+          then come back and assign it.
+        </p>
+      ) : (
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded border border-gray-200 p-2">
+          {programs.map((p) => (
+            <label
+              key={p.id}
+              className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-gray-50"
+            >
+              <input
+                type="checkbox"
+                checked={value.includes(p.id)}
+                onChange={() => toggle(p.id)}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600"
+              />
+              <span className="text-sm text-gray-800">
+                {p.name} <span className="text-xs text-gray-400">({p.code})</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {/* An empty list is a real answer, and it must not look like a bug: it means this
+          dean governs nothing and will see an empty curriculum list until he is given
+          something. Silence here is what made the old behaviour so hard to spot. */}
+      {!loading && programs.length > 0 && value.length === 0 && (
+        <p className="text-xs text-amber-600">
+          No programs selected — this dean will govern nothing and see an empty
+          curriculum, faculty and student list.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Department dropdown (Faculty/Dean creation)
 // ---------------------------------------------------------------------------
 
@@ -374,6 +450,12 @@ function EditUserDialog({ user, onClose, onUpdated, programs, departments }: Edi
   const [error,        setError]        = useState('')
   const [loading,      setLoading]      = useState(false)
 
+  // WHICH programmes this dean governs. Read from the server rather than from the row's
+  // `program_names`, because the editor needs ids and because the list is the authority
+  // on its own state — the table column is a rendering of it.
+  const [deanPrograms,        setDeanPrograms]        = useState<string[]>([])
+  const [deanProgramsLoading, setDeanProgramsLoading] = useState(false)
+
   useEffect(() => {
     if (user) {
       setFullName(user.full_name)
@@ -384,7 +466,20 @@ function EditUserDialog({ user, onClose, onUpdated, programs, departments }: Edi
       setProgramId(user.acad_program_id ?? '')
       setDepartmentId('')
       setError('')
+      setDeanPrograms([])
     }
+  }, [user])
+
+  // Load the governed programmes only for a dean, and only when the dialog is open.
+  useEffect(() => {
+    if (!user || displayRole(user) !== 'DEAN') return
+    let cancelled = false
+    setDeanProgramsLoading(true)
+    academicsApi.listDeanPrograms(user.id)
+      .then((ids) => { if (!cancelled) setDeanPrograms(ids) })
+      .catch(() => { if (!cancelled) setDeanPrograms([]) })
+      .finally(() => { if (!cancelled) setDeanProgramsLoading(false) })
+    return () => { cancelled = true }
   }, [user])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -406,6 +501,14 @@ function EditUserDialog({ user, onClose, onUpdated, programs, departments }: Edi
       if (programId !== (user.acad_program_id ?? '')) payload.acad_program_id = programId || undefined
       if (departmentId) payload.department_id = departmentId
       const updated = await usersApi.update(user.id, payload)
+
+      // The programmes a dean governs live in their own table (dean_program_assignments)
+      // and are set declaratively: the list sent is the list that becomes true. Saved
+      // after the profile so a failure here cannot half-apply a name change.
+      if (role === 'DEAN') {
+        await academicsApi.setDeanPrograms(user.id, deanPrograms)
+      }
+
       addToast('User updated successfully.', 'success')
       onUpdated(updated)
       onClose()
@@ -480,6 +583,14 @@ function EditUserDialog({ user, onClose, onUpdated, programs, departments }: Edi
                 value={departmentId}
                 onChange={setDepartmentId}
                 departments={departments}
+              />
+            )}
+            {role === 'DEAN' && (
+              <GovernedPrograms
+                value={deanPrograms}
+                onChange={setDeanPrograms}
+                programs={programs}
+                loading={deanProgramsLoading}
               />
             )}
             <div className="space-y-1">

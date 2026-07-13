@@ -104,19 +104,53 @@ def has_practical(course: _CourseLike) -> bool:
     return (course.hours_practical or 0) > 0 or derive_category(course) == CATEGORY_LAB
 
 
-def course_information(course) -> dict:
+# ---------------------------------------------------------------------------
+# Unit hours — the Board's, and nobody else's
+#
+# There is deliberately NO function here that computes them.
+#
+# An earlier version had one: when the Board generated forty syllabi in a batch and
+# stated no hours, the system divided each course's contact hours evenly across its
+# units. The arithmetic was right and the decision was not ours to make. How a subject's
+# taught hours are apportioned across its units is an academic judgement — it says which
+# material matters and how long it is worth — and a system that makes it quietly has
+# taken curriculum design away from the Board while appearing to help.
+#
+# So nothing derives them. If the Board has not allocated the hours, generation STOPS
+# and asks for them (m02.service.dispatch_ai_generation). A syllabus that cannot be
+# generated until a human has decided how it is taught is the correct behaviour, not a
+# gap to be filled.
+#
+# The one number the system may suggest is the DEFAULT IN THE FORM the Board is filling
+# in — a suggestion a human looks at and accepts is not a decision a system made.
+# ---------------------------------------------------------------------------
+
+
+def course_information(course, *, regulation_year: int | None = None) -> dict:
     """The full Course Information header, ready to render.
 
-    Takes the ORM `Course` (needs `code`, `title` and `credits` on top of the
-    Protocol above) and returns the six header fields.
+    Takes the ORM `Course` (needs `code`, `title`, `credits`, `semester` and
+    `course_type` on top of the Protocol above) and returns the header a real
+    regulation prints — the course, what kind of course it is, when it is taught, and
+    under which regulation.
+
+    Still DERIVED, every field of it. The Board does not retype the course code into
+    the syllabus: the curriculum already says what this course is, and a syllabus that
+    kept its own copy would disagree with it the moment the Dean corrected a credit.
     """
     return {
-        "course_code":   course.code,
-        "course_name":   course.title,
-        "credits":       course.credits,
-        "ltp":           format_ltp(course),
-        "contact_hours": derive_contact_hours(course),
-        "category":      derive_category(course),
+        "course_code":     course.code,
+        "course_name":     course.title,
+        "credits":         course.credits,
+        "ltp":             format_ltp(course),
+        "contact_hours":   derive_contact_hours(course),
+        "category":        derive_category(course),
+        "course_type":     (course.course_type or "THEORY"),
+        "semester":        course.semester,
+        # The regulation the curriculum belongs to — "Regulation 2026". It lives on
+        # the programme, because a regulation is a property of the curriculum, not of
+        # one subject inside it.
+        "regulation_year": regulation_year,
     }
 
 

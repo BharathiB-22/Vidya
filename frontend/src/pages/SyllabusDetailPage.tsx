@@ -15,12 +15,13 @@ import { CourseInformationHeader } from '@/components/syllabus/CourseInformation
 import { OfficialSyllabusDocument } from '@/components/syllabus/OfficialSyllabusDocument'
 import {
   useDeanEditDocument,
+  useGenerationProgress,
   useSyllabus,
   useSyllabusOutcomes,
   useSyllabusUnits,
   useSyllabusReferences,
 } from '@/hooks/syllabuses'
-import { NON_SYLLABUS_TYPES } from '@/types/program'
+import { isExecutionDocument } from '@/types/program'
 import { syllabusKeys } from '@/hooks/syllabuses/useSyllabuses'
 import { AIGeneratingBanner } from '@/components/shared/AIGeneratingBanner'
 import { useWorkspace } from '@/lib/workspace'
@@ -91,29 +92,47 @@ export default function SyllabusDetailPage() {
   const { data: units      = [] } = useSyllabusUnits(syllabusId)
   const { data: references = [] } = useSyllabusReferences(syllabusId)
 
-  const isEditable   = syllabus ? EDITABLE_STATUSES.has(syllabus.status) : false
   const isGenerating = syllabus?.status === 'AI_GENERATING'
   const isLocked     = syllabus?.status === 'LOCKED'
   const isApproved   = syllabus?.status === 'APPROVED'
 
   /*
-   * The Dean's post-approval edit of a guideline document.
+   * WHO owns this document — and therefore who may edit it.
    *
-   * Four of the six course types produce documents whose content genuinely depends
-   * on things the Board cannot know when it approves them — which company hosts the
-   * student, which supervisors are free, the review calendar for this cohort. So the
-   * Dean may adapt those AFTER approval, and the Board's approval survives it.
+   * The Board owns the taught curriculum: theory syllabi and lab manuals. The Dean
+   * owns the execution documents: internship, mini project, major project, seminar,
+   * whose content depends on the host company, the supervisor and the review calendar.
+   * Each authority edits its own and reads the other's. The API enforces this with a
+   * 403 either way; this decides what the page offers.
+   */
+  const deanOwned = !!syllabus && isExecutionDocument(syllabus.doc_type)
+  const isOwner = deanOwned
+    ? role === 'DEAN' || role === 'ADMIN'
+    : role === 'BOARD' || role === 'ADMIN'
+
+  const isEditable =
+    !!syllabus && EDITABLE_STATUSES.has(syllabus.status) && isOwner
+
+  /*
+   * The Dean's edit of an execution document he has ALREADY approved.
    *
-   * A THEORY syllabus is different in kind: the Board owns the taught curriculum,
-   * and the Dean publishes it without rewriting it. The API refuses that with 403 —
-   * this flag only decides whether we offer it, and is not what enforces it.
+   * These documents change after they are signed off, and legitimately: the host
+   * company changes, a supervisor leaves, the review calendar moves. So the Dean may
+   * still adapt them, and his approval survives the edit — it is stamped against his
+   * name rather than withdrawn.
+   *
+   * Before approval he edits through the ordinary path, like any owner of a draft.
+   * A theory syllabus is never editable this way and the API refuses it with 403.
    */
   const deanEdit = useDeanEditDocument(syllabusId)
-  const canDeanEditGuidelines =
-    !!syllabus &&
-    role === 'DEAN' &&
-    NON_SYLLABUS_TYPES.includes(syllabus.doc_type) &&
+  const canDeanEditApproved =
+    deanOwned &&
+    (role === 'DEAN' || role === 'ADMIN') &&
     (isApproved || isLocked)
+
+  // What the AI is doing right now — "Generating Unit III…". The job writes it as it
+  // works; this only prints it.
+  const progressMessage = useGenerationProgress(syllabusId, isGenerating)
 
   // Track whether AI generation was running in this session so we can detect failure
   const [wasGenerating, setWasGenerating] = useState(false)
@@ -224,7 +243,7 @@ export default function SyllabusDetailPage() {
         </div>
       )}
 
-      {isApproved && !isFaculty && (
+      {isApproved && isOwner && !deanOwned && (
         <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
           <span>
@@ -239,13 +258,18 @@ export default function SyllabusDetailPage() {
         <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
           <span>
-            This syllabus is still being written by the governance authority and is not yet
-            official. It is <strong>read-only</strong> for you.
+            This document is still being written{deanOwned ? ' by the Dean' : ' by the governance authority'} and
+            is not yet official. It is <strong>read-only</strong> for you.
           </span>
         </div>
       )}
 
-      <AIGeneratingBanner isGenerating={isGenerating} failed={generationFailed} entity="syllabus" />
+      <AIGeneratingBanner
+        isGenerating={isGenerating}
+        failed={generationFailed}
+        entity="syllabus"
+        message={progressMessage}
+      />
 
       {/* ── Tab bar ── */}
       <div className="border-b border-gray-200">
@@ -284,17 +308,16 @@ export default function SyllabusDetailPage() {
 
         {tab === 'document' && (
           <>
-            {canDeanEditGuidelines && (
+            {canDeanEditApproved && (
               <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                 <p className="font-semibold">
-                  You may adapt these guidelines after Board approval.
+                  You may still adapt this document after approving it.
                 </p>
                 <p className="mt-0.5 text-blue-800">
                   Internship, project and seminar documents depend on the host company, the
-                  supervisor and institutional policy — things the Board could not settle when it
-                  approved them. Your edits do not withdraw that approval; they are recorded
-                  against your name in the governance trail. The academic substance — the outcomes
-                  and the rubric’s criteria — remains the Board’s.
+                  supervisor and the review calendar — and those change. Your edits do not
+                  withdraw your approval; they are recorded against your name in the governance
+                  trail.
                 </p>
               </div>
             )}
@@ -303,11 +326,12 @@ export default function SyllabusDetailPage() {
               outcomes={outcomes}
               units={units}
               references={references}
-              // The Board edits a DRAFT; the Dean edits an APPROVED guideline document.
-              // Both land here, and each is refused server-side if it is not theirs.
-              canEdit={(isEditable && !isFaculty) || canDeanEditGuidelines}
+              // The owner edits a DRAFT; the Dean may additionally edit an execution
+              // document he has already approved. Each is refused server-side if it is
+              // not theirs.
+              canEdit={isEditable || canDeanEditApproved}
               onSaveDocument={
-                canDeanEditGuidelines
+                canDeanEditApproved
                   ? (document) => deanEdit.mutate({ document })
                   : undefined
               }

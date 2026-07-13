@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import delete as sql_delete
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("vidya.service.m01")
@@ -19,6 +20,10 @@ from app.modules.m01_program_advisor.compliance import (
     run_compliance_check,
 )
 from app.modules.m01_program_advisor.course_codes import generate_course_code
+from app.modules.m01_program_advisor.electives import (
+    is_basket_placeholder,
+    placeholder_message,
+)
 from app.modules.m01_program_advisor.models import (
     Course,
     ElectiveBasket,
@@ -484,18 +489,100 @@ class ProgramService:
         *,
         db: AsyncSession,
     ) -> Program:
-        """APPROVED -> PUBLISHED. The Dean releases a curriculum the governance
-        authority has already approved and locked.
+        """APPROVED -> PUBLISHED. The Dean releases the curriculum.
 
-        Publishing changes no content — the curriculum was frozen at approval.
-        It makes the courses assignable and starts them counting toward Academic
-        Ownership (see m_academics.curriculum_scope)."""
+        TWO STAGES, TWO AUTHORITIES, AND THE SECOND ONE IS THIS.
+
+        The Board approves the TAUGHT curriculum — theory, laboratories, every elective
+        option — and the curriculum becomes APPROVED. That publishes nothing. What the
+        Board has said is "this is what we teach", and it is frozen.
+
+        The Dean then prepares what the Board does not own: the internship, the mini and
+        major projects, the seminar. Each has its own life — drafted, reviewed, approved
+        by him. Only when the Board's half is approved AND every one of his own documents
+        is approved may he publish. Publishing a curriculum whose internship nobody has
+        written yet would release to students a programme with a component that does not
+        exist, and they would find out in their final year.
+
+        PUBLISHING CHANGES NO CONTENT. It never regenerates, never edits, never rewrites.
+        It moves a state and freezes the Dean's documents so that what students were shown
+        stays what students were shown — the taught syllabi were already frozen at
+        approval. Everything published is immutable; a change after this is a new version,
+        never an edit to the record.
+        """
         await _require_status(program_id, ProgramStatus.APPROVED, db=db)
+
+        # THE PUBLISH GATE — every execution document approved by the Dean.
+        unready = await ProgramService._unready_execution_documents(program_id, db=db)
+        if unready:
+            listed = "; ".join(unready[:8])
+            if len(unready) > 8:
+                listed += f"; and {len(unready) - 8} more"
+            raise ProgramServiceError(
+                "EXECUTION_DOCUMENTS_INCOMPLETE",
+                "This curriculum cannot be published yet. Every internship, project and "
+                "seminar needs its document prepared and approved first — a published "
+                "curriculum promises students a programme, and a component nobody has "
+                f"written is a promise it cannot keep. Outstanding: {listed}",
+                422,
+            )
+
+        # Freeze the Dean's documents at publication. The Board's were frozen at
+        # approval; these are frozen now, because now is when they become the thing a
+        # student is assessed against. After this, a change is a new version — never an
+        # edit to a published record.
+        await db.execute(
+            sa_text(
+                "UPDATE syllabi SET status = 'LOCKED', locked_by_user_id = :u, "
+                "locked_at = now(), updated_at = now() "
+                "WHERE course_id IN (SELECT id FROM courses WHERE program_id = :p) "
+                "AND status = 'APPROVED' "
+                "AND doc_type IN ('INTERNSHIP', 'MINI_PROJECT', 'MAJOR_PROJECT', 'SEMINAR')"
+            ),
+            {"u": str(published_by), "p": str(program_id)},
+        )
+
         published = await ProgramRepository.set_published(program_id, published_by, db=db)
         if published is None:
             raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
         await db.commit()
         return published
+
+    @staticmethod
+    async def _unready_execution_documents(
+        program_id: UUID, *, db: AsyncSession,
+    ) -> list[str]:
+        """The Dean's documents that are not yet approved — his own publish gate.
+
+        Named, not counted: "3 documents outstanding" tells him there is work; "MCA451
+        Internship — no document" tells him what it is.
+        """
+        rows = (
+            await db.execute(
+                sa_text(
+                    "SELECT c.code, c.title, c.course_type, s.status "
+                    "  FROM courses c "
+                    "  LEFT JOIN LATERAL ("
+                    "       SELECT sy.status FROM syllabi sy "
+                    "        WHERE sy.course_id = c.id "
+                    "        ORDER BY sy.version DESC LIMIT 1"
+                    "  ) s ON true "
+                    " WHERE c.program_id = :p "
+                    "   AND c.course_type IN ('INTERNSHIP', 'MINI_PROJECT', "
+                    "                         'MAJOR_PROJECT', 'SEMINAR') "
+                    " ORDER BY c.semester, c.code"
+                ),
+                {"p": str(program_id)},
+            )
+        ).fetchall()
+
+        return [
+            f"{r.code} {r.title} ("
+            + ("no document yet" if r.status is None else f"{r.status.lower()}")
+            + ")"
+            for r in rows
+            if r.status not in ("APPROVED", "LOCKED")
+        ]
 
     @staticmethod
     async def fork_program(
@@ -745,6 +832,30 @@ class ProgramService:
             )
 
     @staticmethod
+    async def _reject_basket_placeholder(
+        title: str | None,
+        basket_id: UUID | None,
+        *,
+        db: AsyncSession,
+    ) -> None:
+        """A slot is not a subject, and it may not enter `courses` by any door.
+
+        Refused here rather than cleaned up later: a placeholder course takes a course
+        code, is handed an official syllabus to generate, and stands in the approve
+        gate blocking a curriculum until somebody approves a syllabus for a subject
+        that nobody teaches.
+        """
+        basket_name = None
+        if basket_id is not None:
+            basket = await ElectiveBasketRepository.get_by_id(basket_id, db=db)
+            basket_name = basket.name if basket else None
+
+        if is_basket_placeholder(title, basket_name):
+            raise ProgramServiceError(
+                "BASKET_IS_NOT_A_COURSE", placeholder_message(title), 422,
+            )
+
+    @staticmethod
     async def add_course(
         program_id: UUID,
         payload: CourseCreate,
@@ -752,6 +863,9 @@ class ProgramService:
         db: AsyncSession,
     ) -> Course:
         await _require_editable_status(program_id, db=db)
+        await ProgramService._reject_basket_placeholder(
+            payload.title, payload.elective_basket_id, db=db,
+        )
         existing = await CourseRepository.get_by_code(program_id, payload.code, db=db)
         if existing:
             raise ProgramServiceError(
@@ -812,6 +926,17 @@ class ProgramService:
                 program_id, updates.get("semester", course.semester), updates["elective_basket_id"], db=db,
             )
             updates["is_elective"] = True
+
+        # A rename is the other way a slot gets into `courses`: an ordinary subject,
+        # retitled "Elective 2" by someone tidying up the structure. Checked against
+        # the basket the course will be in AFTER this edit, not the one it is in now.
+        if "title" in updates or "elective_basket_id" in updates:
+            await ProgramService._reject_basket_placeholder(
+                updates.get("title", course.title),
+                updates.get("elective_basket_id", course.elective_basket_id),
+                db=db,
+            )
+
         updates["updated_at"] = datetime.now(timezone.utc)
         updated = await CourseRepository.update(course_id, updates, db=db)
 
@@ -997,6 +1122,10 @@ class ProgramService:
         program = await ProgramRepository.get_by_id(program_id, db=db)
         if program is None:
             raise ProgramServiceError("NOT_FOUND", "Program not found.", 404)
+
+        # The same rule, one level down. A choice called "Elective 1" inside the
+        # basket "Elective 1" is the slot listing itself as its own alternative.
+        await ProgramService._reject_basket_placeholder(payload.title, basket_id, db=db)
 
         code = await generate_course_code(program_id, program.degree_type, slot.semester, db)
         course = await CourseRepository.create(

@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as syllabusesApi from '@/lib/api/syllabuses'
 import type {
   ApproveRequest,
@@ -27,11 +27,42 @@ export function useGenerateSyllabus(syllabusId: string) {
   return useMutation({
     mutationFn: (payload: GenerateSyllabusRequest) =>
       syllabusesApi.generateSyllabus(syllabusId, payload),
-    onSuccess: () => {
+    onSuccess: (job) => {
+      // Remember WHICH job is writing this syllabus, so the page can say what it is
+      // doing — "Generating Unit III…" — instead of spinning. Cached rather than held
+      // in component state: the Board presses Generate in the action bar and reads the
+      // progress on the page, and the two must not have to pass it between them.
+      qc.setQueryData(syllabusKeys.runningJob(syllabusId), job.job_id)
       qc.invalidateQueries({ queryKey: syllabusKeys.status(syllabusId) })
       qc.invalidateQueries({ queryKey: syllabusKeys.detail(syllabusId) })
     },
   })
+}
+
+/**
+ * What the AI is doing to this syllabus, right now.
+ *
+ * A generation is ten AI calls and several minutes. A spinner for the whole of it is
+ * what makes this feel like a machine being asked for a document; a Board watching
+ * "Generating Unit III…" is watching a syllabus being written.
+ *
+ * The message comes from the job itself — the worker writes it as it works — so the
+ * words are the backend's and this only prints them. Polled while a generation is in
+ * flight, and not at all otherwise.
+ */
+export function useGenerationProgress(syllabusId: string, isGenerating: boolean) {
+  const qc = useQueryClient()
+  const jobId = qc.getQueryData<string>(syllabusKeys.runningJob(syllabusId))
+
+  const { data } = useQuery({
+    queryKey: syllabusKeys.job(syllabusId, jobId ?? ''),
+    queryFn: () => syllabusesApi.getJobStatus(syllabusId, jobId as string),
+    enabled: Boolean(jobId) && isGenerating,
+    refetchInterval: 2000,
+  })
+
+  const result = data?.result as { message?: string; phase?: string } | null | undefined
+  return result?.message ?? null
 }
 
 /**

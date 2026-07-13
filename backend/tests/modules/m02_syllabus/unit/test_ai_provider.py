@@ -7,9 +7,11 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from app.modules.m02_syllabus.ai_provider import (
     SyllabusAIParseError,
+    _COAI,
     _normalize_groq_response,
 )
 
@@ -84,8 +86,18 @@ def test_description_alias_priority_co_statement_before_co():
     assert co["description"] == "Analyse security vulnerabilities using penetration testing frameworks"
 
 
-def test_all_description_sources_empty_synthesizes_fallback():
-    """When all alias sources are empty, synthesize a valid (≥15 char) fallback."""
+def test_an_empty_outcome_is_never_invented():
+    """When every alias is empty, NOTHING is put in the outcome's place.
+
+    The normaliser used to manufacture one — "CO3: demonstrate competency through
+    Analyse-level mastery of core concepts" — so that the response would satisfy the
+    schema. It did satisfy the schema. It also meant a Course Outcome that no model
+    wrote and no academic chose could reach an approved syllabus, be locked into a
+    regulation, and become the thing a student is examined against, with nobody ever
+    knowing it had been invented in a normaliser.
+
+    An empty outcome is a FAILED generation, to be retried. It is not a blank to fill.
+    """
     raw = _raw([{
         "code": "CO3",
         "description": "",
@@ -96,12 +108,18 @@ def test_all_description_sources_empty_synthesizes_fallback():
     }])
     result = _normalize_groq_response(raw)
     co = result["outcomes"][0]
-    assert len(co["description"]) >= 15
+
+    assert not str(co.get("description", "")).strip()
     assert co["code"] == "CO3"
 
+    # And it does not survive validation: the schema wants a real outcome, so the whole
+    # response is rejected and regenerated rather than saved with a hollow one.
+    with pytest.raises(ValidationError):
+        _COAI.model_validate(co)
 
-def test_no_description_no_aliases_synthesizes_fallback():
-    """No description key and no alias keys → synthesized fallback."""
+
+def test_a_missing_outcome_is_never_invented():
+    """No description key and no alias keys → nothing is fabricated for it either."""
     raw = _raw([{
         "code": "CO4",
         "bloom_level": "EVALUATE",
@@ -109,7 +127,10 @@ def test_no_description_no_aliases_synthesizes_fallback():
     }])
     result = _normalize_groq_response(raw)
     co = result["outcomes"][0]
-    assert len(co["description"]) >= 15
+
+    assert not str(co.get("description", "")).strip()
+    with pytest.raises(ValidationError):
+        _COAI.model_validate(co)
 
 
 def test_valid_description_unchanged():

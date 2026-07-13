@@ -36,6 +36,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import text as _sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("vidya.router.m02")
@@ -78,7 +79,6 @@ from app.modules.m02_syllabus.schemas import (
     SyllabusUnitUpdate,
     SyllabusUpdate,
     SyllabusVersionResponse,
-    ReferenceSearchRequest,
 )
 from app.modules.m02_syllabus.formatting import course_information
 from app.modules.m02_syllabus.models import RefType, SyllabusStatus
@@ -86,13 +86,25 @@ from app.modules.m02_syllabus.service import SyllabusService, SyllabusServiceErr
 
 router = APIRouter(tags=["syllabi"])
 
-_WRITE  = (TenantRole.ADMIN, TenantRole.BOARD)
+# WHO may ask. WHAT they may touch is decided in the service, by the document's own
+# type — see SyllabusService._require_owner.
+#
+# Both academic authorities write official documents, and they write DIFFERENT ones:
+#
+#     BOARD   theory syllabi and lab manuals — the taught curriculum
+#     DEAN    internship, project and seminar documents — how the institution runs them
+#
+# The route cannot tell them apart, because a route knows a syllabus id and a role,
+# and the rule is about the KIND of document on the other end of that id. So the gate
+# here is deliberately the union of the two, and the service — which loads the row —
+# refuses the Board an internship (403 DEAN_OWNS_THIS_DOCUMENT) and the Dean a theory
+# syllabus (403 BOARD_OWNS_THIS_SYLLABUS). One rule, enforced once, where the facts are.
+_WRITE  = (TenantRole.ADMIN, TenantRole.BOARD, TenantRole.DEAN)
 _READ   = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD)
 _EXPORT = (TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY, TenantRole.BOARD)
 
-# The Dean's post-approval edit of a guideline document — Internship, Mini Project,
-# Major Project and Seminar only. The service refuses a theory syllabus outright
-# (SyllabusService.dean_edit_document); this gate is only about WHO may ask.
+# The Dean's edit of a guideline document he has already approved. Narrower than
+# _WRITE on purpose: this is the one write that lands on an APPROVED row.
 _DEAN_EDIT = (TenantRole.ADMIN, TenantRole.DEAN)
 
 
@@ -157,7 +169,7 @@ async def create_syllabus(
         syllabus = await SyllabusService.create_syllabus(
             payload,
             created_by=current_user.user_id,
-            creator_role=current_user.role,
+            caller_role=current_user.role,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -270,8 +282,15 @@ async def get_syllabus(
                 raise _404()
         detail = detail.model_copy(update={
             # The official syllabus header — code, name, credits, L-T-P, contact
-            # hours and category — all derived from the course, never stored.
-            "course_information": CourseInformation(**course_information(course)),
+            # hours, category, course type, semester and regulation year. All derived
+            # from the course and its programme, never stored on the syllabus and
+            # never retyped by the Board.
+            "course_information": CourseInformation(
+                **course_information(
+                    course,
+                    regulation_year=getattr(program, "regulation_year", None),
+                )
+            ),
             "course_title": course.title,
             "course_code":  course.code,
             "program_name": program.title if program else "Unknown Program",
@@ -393,6 +412,11 @@ async def generate_syllabus(
             schema_name=current_user.schema_name,
             caller_role=current_user.role,
             faculty_user_id=current_user.user_id,
+            # The SHAPE of the syllabus the Board asked for: how many units, and the
+            # hours of each. Persisted on the row before the job runs, so the worker
+            # and every later regeneration write to the same shape.
+            unit_count=payload.unit_count,
+            unit_hours=payload.unit_hours,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -405,7 +429,11 @@ async def generate_syllabus(
         schema_name=current_user.schema_name,
         target_entity="Syllabus",
         target_id=str(syllabus_id),
-        metadata={"job_id": job_id},
+        metadata={
+            "job_id":     job_id,
+            "unit_count": payload.unit_count,
+            "unit_hours": payload.unit_hours,
+        },
     )
     return SyllabusAIJobResponse(job_id=UUID(job_id), syllabus_id=syllabus_id)
 
@@ -438,6 +466,7 @@ async def regenerate_section(
             payload.section.value,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
+            caller_role=current_user.role,
             unit_id=payload.unit_id,
             guidance=payload.guidance,
             db=db,
@@ -489,7 +518,8 @@ async def dean_edit_document(
     """
     try:
         syllabus = await SyllabusService.dean_edit_document(
-            syllabus_id, payload, current_user.user_id, db=db,
+            syllabus_id, payload, current_user.user_id,
+            caller_role=current_user.role, db=db,
         )
     except SyllabusServiceError as e:
         raise _err(e)
@@ -563,10 +593,15 @@ async def approve_syllabus(
     """
     try:
         syllabus = await SyllabusService.approve(
-            syllabus_id, approved_by=current_user.user_id, db=db
+            syllabus_id,
+            approved_by=current_user.user_id,
+            caller_role=current_user.role,
+            db=db,
         )
     except SyllabusServiceError as e:
         raise _err(e)
+    program_id = await _program_id_for_syllabus(syllabus_id, db)
+
     await AuditService.log(
         AuditEventType.SYLLABUS_APPROVED,
         actor_user_id=current_user.user_id,
@@ -578,10 +613,70 @@ async def approve_syllabus(
         metadata={
             "version": syllabus.version,
             "comment": payload.comment,
-            "program_id": str(await _program_id_for_syllabus(syllabus_id, db)),
+            "program_id": str(program_id),
         },
     )
+
+    # The LAST execution document. When the Dean approves it, nothing is waiting on him
+    # any more and the curriculum can be released — so he is told, once, at the moment it
+    # becomes true. Nothing publishes itself: the release is still his to make.
+    await _notify_if_ready_to_publish(syllabus, program_id, current_user, db)
+
     return SyllabusStatusResponse.model_validate(syllabus)
+
+
+async def _notify_if_ready_to_publish(syllabus, program_id, actor, db) -> None:
+    """Tell the Dean when his last execution document lands, and only then.
+
+    Best-effort: a notification that fails must never undo an approval. And silent when
+    the curriculum has no execution documents at all — the Dean was already told he could
+    publish when the Board finished, and saying it twice teaches people to stop reading.
+    """
+    from app.core.governance import service as gov
+    from app.core.notifications.models import NotificationType
+    from app.core.notifications.service import NotificationService
+    from app.modules.m01_program_advisor.models import is_execution_document
+
+    if program_id is None or not is_execution_document(syllabus.doc_type):
+        return
+
+    try:
+        readiness = await gov.get_readiness(UUID(str(program_id)), db)
+        if not readiness.can_publish or readiness.dean_document_count == 0:
+            return
+
+        row = (
+            await db.execute(
+                _sql_text(
+                    "SELECT p.title, p.submitted_by_user_id, u.email "
+                    "FROM programs p LEFT JOIN users u ON u.id = p.submitted_by_user_id "
+                    "WHERE p.id = :p"
+                ),
+                {"p": str(program_id)},
+            )
+        ).mappings().first()
+        if not row or not row["submitted_by_user_id"]:
+            return
+
+        await NotificationService.send(
+            NotificationType.CURRICULUM_READY_TO_PUBLISH,
+            recipient_user_id=row["submitted_by_user_id"],
+            recipient_email=row["email"],
+            title="Curriculum ready to publish",
+            body=(
+                f"Every execution document for {row['title']} is approved, and the "
+                f"{readiness.total_subjects} teaching subjects were approved by the "
+                "board. The curriculum can now be published."
+            ),
+            entity_type="Program",
+            entity_id=str(program_id),
+            db=db,
+        )
+    except Exception:
+        logger.warning(
+            "m02.approve: ready-to-publish notification failed (non-blocking) "
+            "syllabus=%s", syllabus.id, exc_info=True,
+        )
 
 
 @router.post("/{syllabus_id}/fork", response_model=SyllabusStatusResponse, status_code=201)
@@ -597,6 +692,7 @@ async def fork_syllabus(
             syllabus_id,
             created_by=current_user.user_id,
             change_note=payload.change_note,
+            caller_role=current_user.role,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -657,7 +753,7 @@ async def add_outcome(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseOutcomeResponse:
     try:
-        co = await SyllabusService.add_co(syllabus_id, payload, db=db)
+        co = await SyllabusService.add_co(syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -689,7 +785,7 @@ async def update_outcome(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseOutcomeResponse:
     try:
-        co = await SyllabusService.update_co(co_id, syllabus_id, payload, db=db)
+        co = await SyllabusService.update_co(co_id, syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -717,7 +813,7 @@ async def delete_outcome(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_co(co_id, syllabus_id, db=db)
+        await SyllabusService.delete_co(co_id, syllabus_id, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -753,7 +849,7 @@ async def update_copo_mappings(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[COPOMappingResponse]:
     try:
-        mappings = await SyllabusService.update_copo_mappings(co_id, syllabus_id, payload, db=db)
+        mappings = await SyllabusService.update_copo_mappings(co_id, syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -807,7 +903,7 @@ async def add_unit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusUnitResponse:
     try:
-        unit = await SyllabusService.add_unit(syllabus_id, payload, db=db)
+        unit = await SyllabusService.add_unit(syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -836,7 +932,7 @@ async def update_unit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusUnitResponse:
     try:
-        unit = await SyllabusService.update_unit(unit_id, syllabus_id, payload, db=db)
+        unit = await SyllabusService.update_unit(unit_id, syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -864,7 +960,7 @@ async def delete_unit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_unit(unit_id, syllabus_id, db=db)
+        await SyllabusService.delete_unit(unit_id, syllabus_id, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -893,7 +989,7 @@ async def reorder_units(
 ) -> dict:
     order_map = {uid: num for uid, num in payload.order}
     try:
-        count = await SyllabusService.reorder_units(syllabus_id, order_map, db=db)
+        count = await SyllabusService.reorder_units(syllabus_id, order_map, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     return {"updated": count}
@@ -933,7 +1029,7 @@ async def add_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
-        ref = await SyllabusService.add_reference(syllabus_id, payload, db=db)
+        ref = await SyllabusService.add_reference(syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -962,7 +1058,7 @@ async def update_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
-        ref = await SyllabusService.update_reference(ref_id, syllabus_id, payload, db=db)
+        ref = await SyllabusService.update_reference(ref_id, syllabus_id, payload, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -990,7 +1086,7 @@ async def delete_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_reference(ref_id, syllabus_id, db=db)
+        await SyllabusService.delete_reference(ref_id, syllabus_id, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -1021,7 +1117,7 @@ async def confirm_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
-        ref = await SyllabusService.confirm_reference(ref_id, syllabus_id, db=db)
+        ref = await SyllabusService.confirm_reference(ref_id, syllabus_id, caller_role=current_user.role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(

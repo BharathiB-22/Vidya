@@ -21,6 +21,9 @@ export const syllabusKeys = {
   refSearch:  (id: string, req: ReferenceSearchRequest) =>
     [...syllabusKeys.all, id, 'references', 'search', req] as const,
   job:        (id: string, jobId: string) => [...syllabusKeys.all, id, 'jobs', jobId] as const,
+  /** The generation job currently writing this syllabus, if one is. Holds the job id
+   *  so the page can read what the AI is doing without the action bar handing it over. */
+  runningJob: (id: string) => [...syllabusKeys.all, id, 'running-job'] as const,
 }
 
 // ---------------------------------------------------------------------------

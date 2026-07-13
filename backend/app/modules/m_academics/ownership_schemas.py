@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -235,3 +235,17 @@ class OwnershipDashboardSummary(BaseModel):
     pending_course_allocation:  int = 0  # courses awaiting a PRIMARY faculty (== vacant_courses)
     faculty_workload:  list[DashboardFacultyWorkload]
     department_summary: list[DashboardDepartmentSummary] = []
+
+
+class DeanProgramsSet(BaseModel):
+    """The programmes a Dean governs, as a whole list.
+
+    Declarative rather than incremental: the Admin sends what should be true. An
+    add-one/remove-one API would push the diffing into the browser, and a half-applied
+    change there is a Dean who governs a programme nobody meant to give him.
+
+    An empty list is legitimate and means exactly what it says: this Dean governs
+    nothing. It is not the same as never having been asked, which is what every Dean
+    created after the backfill migration silently was.
+    """
+    program_ids: list[UUID] = Field(default_factory=list)

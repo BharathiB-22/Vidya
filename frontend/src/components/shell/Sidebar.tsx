@@ -8,7 +8,7 @@ import {
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
   Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
   Activity, Scale, ShieldCheck, ScanSearch, Crown, ListChecks,
-  Bell, Presentation, Library, PartyPopper, CalendarClock, TrendingUp,
+  Bell, Presentation, Library, PartyPopper, CalendarClock, TrendingUp, Briefcase,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
@@ -115,6 +115,10 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Academic Ownership', to: '/dean/academic-ownership',        icon: LayoutList,    roles: ['DEAN'] },
       { label: 'Programs',            to: '/programs',                       icon: BookMarked,    roles: ['DEAN'] },
       { label: 'Syllabuses',          to: '/syllabuses',                     icon: GraduationCap, roles: ['DEAN'] },
+      // Internship, projects, seminar. The Dean's documents, not the Board's — what
+      // they contain depends on the host company, the supervisor and the review
+      // calendar, none of which a Board of Studies can settle.
+      { label: 'Execution Documents', to: '/dean/execution-documents',      icon: Briefcase,     roles: ['DEAN'] },
       { label: 'Timetable',           to: '/timetable',                      icon: CalendarClock, roles: ['DEAN'] },
     ],
   },

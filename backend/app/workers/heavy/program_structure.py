@@ -210,6 +210,7 @@ async def _run_generation(
         CourseNode,
         detect_prerequisite_cycles,
     )
+    from app.modules.m01_program_advisor.electives import is_basket_placeholder
     from app.modules.m01_program_advisor.models import Course as CourseModel, ProgramStatus
     from app.modules.m01_program_advisor.repository import (
         CoursePrerequisiteRepository,
@@ -258,6 +259,36 @@ async def _run_generation(
 
         provider = get_structure_provider()
         result = await provider.generate_structure(ctx)
+
+        # ------------------------------------------------------------------
+        # An elective basket is a SLOT, not a subject — drop any "course" that is
+        # really the slot itself.
+        #
+        # Asked for an elective paper and its alternatives, a model will sometimes
+        # return both: "Elective 1" as a course, AND Artificial Intelligence, Data
+        # Mining, Cloud Computing as courses inside it. The slot then reaches the
+        # curriculum with a course code and a course type, is handed an official
+        # syllabus to generate, and stands in the approve gate blocking the whole
+        # curriculum until somebody approves a syllabus for a subject nobody teaches.
+        # Exactly this produced MCA305 "Elective 1" and MCA308 "Elective 2".
+        #
+        # Dropped HERE, before the credit rebalance and the prerequisite graph, so a
+        # slot never counts toward the programme's credits and nothing is left
+        # pointing at it. The basket itself is still created below, from
+        # elective_basket_name — which is where a slot belongs.
+        # ------------------------------------------------------------------
+        slots = [
+            c for c in result.courses
+            if is_basket_placeholder(c.get("title"), c.get("elective_basket_name"))
+        ]
+        if slots:
+            dropped = {id(c) for c in slots}
+            result.courses = [c for c in result.courses if id(c) not in dropped]
+            logger.info(
+                "m01.generate: dropped %d elective-slot placeholder course(s) %s — a "
+                "basket is not a subject (program=%s)",
+                len(slots), [c.get("title") for c in slots], program_id,
+            )
 
         # ------------------------------------------------------------------
         # Enforce exact total credits — rebalance the AI output so the program's

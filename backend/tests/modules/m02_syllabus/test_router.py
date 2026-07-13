@@ -108,7 +108,7 @@ async def _build_compliant_via_db(syllabus_id: uuid.UUID, schema_name: str) -> N
                     bloom_level=bl,
                     display_order=i,
                 ),
-                db=session,
+                caller_role="BOARD", db=session,
             )
 
         for i in range(1, 5):
@@ -118,7 +118,7 @@ async def _build_compliant_via_db(syllabus_id: uuid.UUID, schema_name: str) -> N
                     unit_number=i, title=f"Unit {i} topic area",
                     total_hours=12, topics=[UnitTopicItem(title="T")],
                 ),
-                db=session,
+                caller_role="BOARD", db=session,
             )
         await session.commit()
 
