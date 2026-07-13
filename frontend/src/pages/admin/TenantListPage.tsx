@@ -17,19 +17,20 @@ import { addToast } from '@/hooks/useToast'
 import { listTenants, updateTenant, deleteTenant } from '@/lib/api/tenants'
 import { getAdminErrorMessage } from '@/lib/adminApi'
 import type { Tenant, TenantStatus } from '@/lib/api/tenants'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Status badge
 // ---------------------------------------------------------------------------
 
 const STATUS_CFG: Record<TenantStatus, { bg: string; color: string; border: string }> = {
-  ACTIVE:               { bg: 'rgba(16,185,129,0.12)',  color: '#34d399', border: 'rgba(16,185,129,0.25)' },
-  PROVISIONING:         { bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24', border: 'rgba(245,158,11,0.25)' },
-  FAILED:               { bg: 'rgba(239,68,68,0.12)',   color: '#f87171', border: 'rgba(239,68,68,0.25)'  },
-  INACTIVE:             { bg: 'rgba(100,116,139,0.14)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
-  ARCHIVED:             { bg: 'rgba(120,113,108,0.14)', color: '#a8a29e', border: 'rgba(120,113,108,0.25)' },
-  DELETED:              { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)'  },
-  PERMANENTLY_DELETED:  { bg: 'rgba(100,116,139,0.06)', color: '#475569', border: 'rgba(100,116,139,0.12)' },
+  ACTIVE:               { bg: 'var(--pc-t-emerald-12)',  color: 'var(--pc-emerald-400)', border: 'var(--pc-t-emerald-25)' },
+  PROVISIONING:         { bg: 'var(--pc-t-amber-12)',  color: 'var(--pc-amber-400)', border: 'var(--pc-t-amber-25)' },
+  FAILED:               { bg: 'var(--pc-t-red-12)',   color: 'var(--pc-red-400)', border: 'var(--pc-t-red-25)'  },
+  INACTIVE:             { bg: 'var(--pc-t-slate-14)', color: 'var(--pc-slate-400)', border: 'var(--pc-t-slate-25)' },
+  ARCHIVED:             { bg: 'var(--pc-t-stone-14)', color: 'var(--pc-stone-400)', border: 'var(--pc-t-stone-25)' },
+  DELETED:              { bg: 'var(--pc-t-red-08)',   color: 'var(--pc-gray-400)', border: 'var(--pc-t-red-15)'  },
+  PERMANENTLY_DELETED:  { bg: 'var(--pc-t-slate-06)', color: 'var(--pc-slate-600)', border: 'var(--pc-t-slate-12)' },
 }
 
 function StatusBadge({ status }: { status: TenantStatus }) {
@@ -57,14 +58,14 @@ function StatCard({
     <div
       className="rounded-xl p-5 flex items-center gap-4"
       style={{
-        background: 'linear-gradient(135deg, rgba(15,26,48,0.95), rgba(10,18,35,0.95))',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'linear-gradient(135deg, var(--pc-t-surf3-95), var(--pc-t-surf4-95))',
+        border: '1px solid var(--pc-t-overlay-08)',
         boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
       }}
     >
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: accentColor + '1a', border: `1px solid ${accentColor}35` }}
+        style={{ background: tint(accentColor, 10.2), border: `1px solid ${tint(accentColor, 20.78)}` }}
       >
         <Icon className="h-5 w-5" style={{ color: accentColor }} />
       </div>
@@ -105,8 +106,8 @@ function TenantRow({
   return (
     <tr
       className={`cursor-pointer transition-colors ${isDeleted ? 'opacity-50' : ''}`}
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-      onMouseEnter={(e) => { if (!isDeleted) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.025)' }}
+      style={{ borderBottom: '1px solid var(--pc-t-overlay-05)' }}
+      onMouseEnter={(e) => { if (!isDeleted) (e.currentTarget as HTMLElement).style.background = 'var(--pc-t-overlay-2p5)' }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = '' }}
       onClick={() => !isDeleted && onSelect(tenant)}
     >
@@ -126,7 +127,7 @@ function TenantRow({
             <button
               onClick={() => onEdit(tenant)}
               className={btnBase}
-              style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.25)' }}
+              style={{ background: 'var(--pc-t-indigo-10)', color: 'var(--pc-indigo-300)', border: '1px solid var(--pc-t-indigo-25)' }}
             >
               <Pencil className="h-3 w-3" /> Edit
             </button>
@@ -137,7 +138,7 @@ function TenantRow({
             <button
               onClick={() => onLifecycle(tenant, 'deactivate')}
               className={btnBase}
-              style={{ background: 'rgba(239,68,68,0.08)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)' }}
+              style={{ background: 'var(--pc-t-red-08)', color: 'var(--pc-red-300)', border: '1px solid var(--pc-t-red-20)' }}
             >
               Deactivate
             </button>
@@ -148,7 +149,7 @@ function TenantRow({
             <button
               onClick={() => onLifecycle(tenant, 'archive')}
               className={btnBase}
-              style={{ background: 'rgba(245,158,11,0.08)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.2)' }}
+              style={{ background: 'var(--pc-t-amber-08)', color: 'var(--pc-amber-400)', border: '1px solid var(--pc-t-amber-20)' }}
             >
               <Archive className="h-3 w-3" /> Archive
             </button>
@@ -159,7 +160,7 @@ function TenantRow({
             <button
               onClick={() => onLifecycle(tenant, 'reactivate')}
               className={btnBase}
-              style={{ background: 'rgba(16,185,129,0.08)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
+              style={{ background: 'var(--pc-t-emerald-08)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-20)' }}
             >
               <RotateCcw className="h-3 w-3" /> Reactivate
             </button>
@@ -170,7 +171,7 @@ function TenantRow({
             <button
               onClick={() => onDelete(tenant)}
               className={btnBase}
-              style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+              style={{ background: 'var(--pc-t-red-10)', color: 'var(--pc-red-400)', border: '1px solid var(--pc-t-red-30)' }}
             >
               <Trash2 className="h-3 w-3" /> Delete
             </button>
@@ -213,7 +214,7 @@ function EditTenantDialog({
   })
 
   const inputCls = 'w-full px-3 py-2 text-sm text-slate-200 rounded-lg outline-none transition-all'
-  const inputStyle = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }
+  const inputStyle = { background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }
   const labelCls = 'block text-xs font-semibold text-slate-400 mb-1'
 
   function handleSave() {
@@ -236,7 +237,7 @@ function EditTenantDialog({
           <div>
             <label className={labelCls}>Slug (read-only)</label>
             <div className="px-3 py-2 text-sm font-mono text-slate-500 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-06)' }}>
               {tenant.slug}
             </div>
           </div>
@@ -332,8 +333,8 @@ function DeleteTenantDialog({
       <div
         className="w-full max-w-md rounded-xl"
         style={{
-          background: 'linear-gradient(180deg, #0f1a2e 0%, #0a1223 100%)',
-          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'linear-gradient(180deg, var(--pc-panel-from) 0%, var(--pc-panel-to) 100%)',
+          border: '1px solid var(--pc-t-overlay-10)',
           boxShadow: '0 30px 70px rgba(0,0,0,0.65)',
           zIndex: 10000,
         }}
@@ -342,7 +343,7 @@ function DeleteTenantDialog({
         {/* Header */}
         <div
           className="flex items-center gap-2 px-5 py-4"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+          style={{ borderBottom: '1px solid var(--pc-t-overlay-07)' }}
         >
           <TriangleAlert className="h-5 w-5 text-red-400 flex-shrink-0" />
           <h2 className="text-base font-semibold text-red-400 flex-1">Delete tenant permanently</h2>
@@ -360,7 +361,7 @@ function DeleteTenantDialog({
           {/* Warning banner */}
           <div
             className="rounded-lg px-4 py-3 space-y-2"
-            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+            style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
           >
             <p className="text-sm font-semibold text-red-300 flex items-center gap-1.5">
               <TriangleAlert className="h-4 w-4 flex-shrink-0" /> This action is permanent
@@ -378,7 +379,7 @@ function DeleteTenantDialog({
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Tenant</p>
             <div
               className="px-3 py-2.5 rounded-lg flex items-center justify-between gap-3"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+              style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-07)' }}
             >
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-200">{tenant.name}</p>
@@ -404,12 +405,12 @@ function DeleteTenantDialog({
               disabled={deleting}
               className="w-full px-3 py-2.5 text-sm font-mono text-slate-100 rounded-lg outline-none transition-all disabled:opacity-50"
               style={{
-                background: 'rgba(255,255,255,0.07)',
+                background: 'var(--pc-t-overlay-07)',
                 border: typed.length === 0
-                  ? '1px solid rgba(255,255,255,0.12)'
+                  ? '1px solid var(--pc-t-overlay-12)'
                   : match
-                    ? '1px solid rgba(239,68,68,0.5)'
-                    : '1px solid rgba(245,158,11,0.4)',
+                    ? '1px solid var(--pc-t-red-50)'
+                    : '1px solid var(--pc-t-amber-40)',
               }}
             />
             {typed.length > 0 && !match && (
@@ -421,7 +422,7 @@ function DeleteTenantDialog({
         {/* Footer */}
         <div
           className="flex justify-end gap-2 px-5 py-4"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
+          style={{ borderTop: '1px solid var(--pc-t-overlay-07)' }}
         >
           <Button variant="ghost" onClick={onClose} disabled={deleting}>
             Cancel
@@ -430,9 +431,9 @@ function DeleteTenantDialog({
             disabled={!match || deleting}
             onClick={() => onConfirm(typed)}
             style={match && !deleting ? {
-              background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+              background: 'linear-gradient(135deg, var(--pc-red-600), var(--pc-red-700))',
               color: 'white',
-              border: '1px solid rgba(239,68,68,0.4)',
+              border: '1px solid var(--pc-t-red-40)',
             } : {}}
           >
             {deleting ? 'Deleting…' : 'Delete tenant'}
@@ -564,9 +565,9 @@ export default function TenantListPage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or slug…"
           className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 rounded-xl outline-none transition-all"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(16,185,129,0.35)' }}
-          onBlur={(e)  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
+          style={{ background: 'var(--pc-t-overlay-04)', border: '1px solid var(--pc-t-overlay-08)' }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--pc-t-emerald-35)' }}
+          onBlur={(e)  => { e.currentTarget.style.borderColor = 'var(--pc-t-overlay-08)' }}
         />
       </div>
 
@@ -612,8 +613,9 @@ export default function TenantListPage() {
             onClick={() => navigate('/admin/tenants/new')}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition-all"
             style={{
-              background: 'linear-gradient(135deg, #10b981, #059669)',
-              boxShadow: '0 0 20px rgba(16,185,129,0.25)',
+              background: 'linear-gradient(135deg, var(--pc-accent), var(--pc-accent-hover))',
+              boxShadow: '0 0 20px color-mix(in srgb, var(--pc-accent) 25%, transparent)',
+              color: 'var(--pc-accent-fg)',
             }}
           >
             <PlusCircle className="h-4 w-4" />
@@ -625,20 +627,20 @@ export default function TenantListPage() {
       {/* Stat cards */}
       {!isLoading && (
         <div className={`grid grid-cols-2 gap-4 mb-7 ${showDeleted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
-          <StatCard label="Total Universities" value={allNonDeleted.length} icon={Building2}    accentColor="#6366f1" />
-          <StatCard label="Active Tenants"     value={activeCount}          icon={CheckCircle2} accentColor="#10b981" />
+          <StatCard label="Total Universities" value={allNonDeleted.length} icon={Building2}    accentColor="var(--pc-indigo-500)" />
+          <StatCard label="Active Tenants"     value={activeCount}          icon={CheckCircle2} accentColor="var(--pc-emerald-500)" />
           <StatCard
             label="Inactive / Archived"
             value={inactiveCount + archivedCount}
             icon={Archive}
-            accentColor="#94a3b8"
+            accentColor="var(--pc-slate-400)"
             sub={archivedCount > 0 ? `${archivedCount} archived` : 'None archived'}
           />
           <StatCard
             label="Platform Health"
             value={failedCount === 0 && pendingCount === 0 ? 'OK' : failedCount > 0 ? `${failedCount} Failed` : `${pendingCount} Pending`}
             icon={failedCount === 0 ? Shield : AlertTriangle}
-            accentColor={failedCount === 0 ? '#10b981' : '#ef4444'}
+            accentColor={failedCount === 0 ? 'var(--pc-emerald-500)' : 'var(--pc-red-500)'}
             sub={failedCount === 0 ? 'Operational' : 'Needs attention'}
           />
           {showDeleted && (
@@ -646,7 +648,7 @@ export default function TenantListPage() {
               label="Deleted Tenants"
               value={deletedCount}
               icon={Trash2}
-              accentColor="#ef4444"
+              accentColor="var(--pc-red-500)"
               sub="Soft-deleted, schema intact"
             />
           )}
@@ -663,8 +665,8 @@ export default function TenantListPage() {
       <div
         className="rounded-xl overflow-hidden"
         style={{
-          background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+          border: '1px solid var(--pc-t-overlay-08)',
           boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
         }}
       >
@@ -674,13 +676,13 @@ export default function TenantListPage() {
           <PageEmpty icon={Building2} message="No universities found. Create one to get started." />
         ) : (
           <table className="w-full">
-            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)' }}>
+            <thead style={{ borderBottom: '1px solid var(--pc-t-overlay-07)', background: 'var(--pc-t-overlay-2p5)' }}>
               <tr>
                 {['Institution', 'Status', 'Contact', 'Created', 'Actions'].map((h) => (
                   <th
                     key={h}
                     className="px-5 py-3.5 text-left text-[11px] font-bold uppercase tracking-widest"
-                    style={{ color: '#64748b' }}
+                    style={{ color: 'var(--pc-slate-500)' }}
                   >
                     {h}
                   </th>

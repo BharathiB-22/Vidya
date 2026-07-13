@@ -48,15 +48,15 @@ function PermanentDeleteDialog({
       <div
         className="w-full max-w-md rounded-xl"
         style={{
-          background: 'linear-gradient(180deg, #0f1a2e 0%, #0a1223 100%)',
-          border: '1px solid rgba(239,68,68,0.3)',
+          background: 'linear-gradient(180deg, var(--pc-panel-from) 0%, var(--pc-panel-to) 100%)',
+          border: '1px solid var(--pc-t-red-30)',
           boxShadow: '0 30px 70px rgba(0,0,0,0.65)',
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div
           className="flex items-center gap-2 px-5 py-4"
-          style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+          style={{ borderBottom: '1px solid var(--pc-t-overlay-07)' }}
         >
           <TriangleAlert className="h-5 w-5 text-red-400 flex-shrink-0" />
           <h2 className="text-base font-semibold text-red-400 flex-1">Permanently delete tenant</h2>
@@ -72,7 +72,7 @@ function PermanentDeleteDialog({
         <div className="px-5 py-4 space-y-4">
           <div
             className="rounded-lg px-4 py-3 space-y-1.5"
-            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+            style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
           >
             <p className="text-sm font-semibold text-red-300">⚠ This action cannot be undone</p>
             <ul className="text-sm text-slate-400 space-y-0.5 pl-1">
@@ -88,7 +88,7 @@ function PermanentDeleteDialog({
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Tenant being deleted</p>
             <div
               className="px-3 py-2.5 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+              style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-07)' }}
             >
               <p className="text-sm font-semibold text-slate-200">{tenant.name}</p>
               <p className="text-xs font-mono text-slate-500 mt-0.5">{tenant.slug}</p>
@@ -115,12 +115,12 @@ function PermanentDeleteDialog({
               disabled={deleting}
               className="w-full px-3 py-2.5 text-sm font-mono text-slate-100 rounded-lg outline-none transition-all disabled:opacity-50"
               style={{
-                background: 'rgba(255,255,255,0.07)',
+                background: 'var(--pc-t-overlay-07)',
                 border: typed.length === 0
-                  ? '1px solid rgba(255,255,255,0.12)'
+                  ? '1px solid var(--pc-t-overlay-12)'
                   : match
-                    ? '1px solid rgba(239,68,68,0.5)'
-                    : '1px solid rgba(245,158,11,0.4)',
+                    ? '1px solid var(--pc-t-red-50)'
+                    : '1px solid var(--pc-t-amber-40)',
               }}
             />
             {typed.length > 0 && !match && (
@@ -131,16 +131,16 @@ function PermanentDeleteDialog({
 
         <div
           className="flex justify-end gap-2 px-5 py-4"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}
+          style={{ borderTop: '1px solid var(--pc-t-overlay-07)' }}
         >
           <Button variant="ghost" onClick={onClose} disabled={deleting}>Cancel</Button>
           <Button
             disabled={!match || deleting}
             onClick={() => onConfirm(typed)}
             style={match && !deleting ? {
-              background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+              background: 'linear-gradient(135deg, var(--pc-red-600), var(--pc-red-700))',
               color: 'white',
-              border: '1px solid rgba(239,68,68,0.4)',
+              border: '1px solid var(--pc-t-red-40)',
             } : {}}
           >
             {deleting ? 'Deleting…' : 'Permanently delete'}
@@ -167,7 +167,7 @@ function DeletedTenantRow({
   const btnBase = 'text-[11px] px-2 py-1 rounded-md font-semibold transition-all flex items-center gap-1 whitespace-nowrap'
 
   return (
-    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+    <tr style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}>
       <td className="px-5 py-4">
         <div className="font-semibold text-slate-300">{tenant.name}</div>
         <div className="text-xs font-mono text-slate-600 mt-0.5">{tenant.slug}</div>
@@ -186,14 +186,14 @@ function DeletedTenantRow({
           <button
             onClick={() => onRestore(tenant)}
             className={btnBase}
-            style={{ background: 'rgba(16,185,129,0.08)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
+            style={{ background: 'var(--pc-t-emerald-08)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-20)' }}
           >
             <RotateCcw className="h-3 w-3" /> Restore
           </button>
           <button
             onClick={() => onPermanentDelete(tenant)}
             className={btnBase}
-            style={{ background: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+            style={{ background: 'var(--pc-t-red-10)', color: 'var(--pc-red-400)', border: '1px solid var(--pc-t-red-30)' }}
           >
             <Trash2 className="h-3 w-3" /> Permanent Delete
           </button>
@@ -268,14 +268,14 @@ export default function DeletedTenantsPage() {
           <button
             onClick={() => navigate('/admin/tenants')}
             className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-400 transition-all"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             ← Active Tenants
           </button>
           <button
             onClick={() => refetch()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-slate-400"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </button>
@@ -285,7 +285,7 @@ export default function DeletedTenantsPage() {
       {/* Warning banner */}
       <div
         className="rounded-xl px-5 py-4 mb-6 flex items-start gap-3"
-        style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}
+        style={{ background: 'var(--pc-t-red-06)', border: '1px solid var(--pc-t-red-15)' }}
       >
         <AlertTriangle className="h-4.5 w-4.5 text-red-400 flex-shrink-0 mt-0.5" style={{ width: 18, height: 18 }} />
         <div>
@@ -307,16 +307,16 @@ export default function DeletedTenantsPage() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search deleted tenants by name or slug…"
           className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 rounded-xl outline-none transition-all"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.35)' }}
-          onBlur={(e)  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}
+          style={{ background: 'var(--pc-t-overlay-04)', border: '1px solid var(--pc-t-overlay-08)' }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--pc-t-red-35)' }}
+          onBlur={(e)  => { e.currentTarget.style.borderColor = 'var(--pc-t-overlay-08)' }}
         />
       </div>
 
       {isError && (
         <div
           className="rounded-xl px-6 py-5 mb-4 flex items-center gap-3"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
         >
           <Shield className="h-5 w-5 text-red-400 flex-shrink-0" />
           <p className="text-sm font-semibold text-red-300">Failed to load tenants.</p>
@@ -328,8 +328,8 @@ export default function DeletedTenantsPage() {
       <div
         className="rounded-xl overflow-hidden"
         style={{
-          background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+          border: '1px solid var(--pc-t-overlay-08)',
           boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
         }}
       >
@@ -339,13 +339,13 @@ export default function DeletedTenantsPage() {
           <PageEmpty icon={Building2} message={search ? 'No deleted tenants match your search.' : 'No deleted tenants — great!'} />
         ) : (
           <table className="w-full">
-            <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.025)' }}>
+            <thead style={{ borderBottom: '1px solid var(--pc-t-overlay-07)', background: 'var(--pc-t-overlay-2p5)' }}>
               <tr>
                 {['Institution', 'Deleted Date', 'Deleted By', 'Schema', 'Actions'].map((h) => (
                   <th
                     key={h}
                     className="px-5 py-3.5 text-left text-[11px] font-bold uppercase tracking-widest"
-                    style={{ color: '#64748b' }}
+                    style={{ color: 'var(--pc-slate-500)' }}
                   >
                     {h}
                   </th>

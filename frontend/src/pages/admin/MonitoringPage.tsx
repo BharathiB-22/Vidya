@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { getPlatformStats } from '@/lib/api/platform'
 import type { ServiceHealthItem, AuditEventSummary } from '@/lib/api/platform'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,14 +37,14 @@ function eventLabel(type: string): string {
 }
 
 const EVENT_COLORS: Record<string, string> = {
-  TENANT_PROVISIONED:  '#34d399',
-  TENANT_UPDATED:      '#60a5fa',
-  TENANT_DEACTIVATED:  '#fbbf24',
-  TENANT_ARCHIVED:     '#a8a29e',
-  TENANT_REACTIVATED:  '#34d399',
-  TENANT_DELETED:      '#f87171',
-  PLATFORM_LOGIN_SUCCESS: '#818cf8',
-  PLATFORM_LOGIN_FAILURE: '#f87171',
+  TENANT_PROVISIONED:  'var(--pc-emerald-400)',
+  TENANT_UPDATED:      'var(--pc-blue-400)',
+  TENANT_DEACTIVATED:  'var(--pc-amber-400)',
+  TENANT_ARCHIVED:     'var(--pc-stone-400)',
+  TENANT_REACTIVATED:  'var(--pc-emerald-400)',
+  TENANT_DELETED:      'var(--pc-red-400)',
+  PLATFORM_LOGIN_SUCCESS: 'var(--pc-indigo-400)',
+  PLATFORM_LOGIN_FAILURE: 'var(--pc-red-400)',
 }
 
 const SERVICE_ICONS: Record<string, typeof Database> = {
@@ -62,7 +63,7 @@ function SectionHeader({ icon: Icon, title, sub }: { icon: typeof Database; titl
     <div className="flex items-center gap-3 mb-4">
       <div
         className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
+        style={{ background: 'var(--pc-t-emerald-10)', border: '1px solid var(--pc-t-emerald-20)' }}
       >
         <Icon className="h-4.5 w-4.5 text-emerald-400" style={{ width: 18, height: 18 }} />
       </div>
@@ -80,11 +81,11 @@ function HealthCard({ item }: { item: ServiceHealthItem }) {
   const skipped  = item.status === 'skipped'
   const unhealthy = item.status === 'unhealthy'
 
-  const statusColor  = healthy ? '#34d399' : skipped ? '#94a3b8' : '#f87171'
-  const statusBg     = healthy ? 'rgba(16,185,129,0.08)' : skipped ? 'rgba(100,116,139,0.08)' : 'rgba(239,68,68,0.08)'
-  const statusBorder = healthy ? 'rgba(16,185,129,0.2)'  : skipped ? 'rgba(100,116,139,0.15)' : 'rgba(239,68,68,0.3)'
-  const iconBg       = healthy ? 'rgba(16,185,129,0.12)' : skipped ? 'rgba(100,116,139,0.1)'  : 'rgba(239,68,68,0.12)'
-  const iconBorder   = healthy ? 'rgba(16,185,129,0.25)' : skipped ? 'rgba(100,116,139,0.2)'  : 'rgba(239,68,68,0.3)'
+  const statusColor  = healthy ? 'var(--pc-emerald-400)' : skipped ? 'var(--pc-slate-400)' : 'var(--pc-red-400)'
+  const statusBg     = healthy ? 'var(--pc-t-emerald-08)' : skipped ? 'var(--pc-t-slate-08)' : 'var(--pc-t-red-08)'
+  const statusBorder = healthy ? 'var(--pc-t-emerald-20)'  : skipped ? 'var(--pc-t-slate-15)' : 'var(--pc-t-red-30)'
+  const iconBg       = healthy ? 'var(--pc-t-emerald-12)' : skipped ? 'var(--pc-t-slate-10)'  : 'var(--pc-t-red-12)'
+  const iconBorder   = healthy ? 'var(--pc-t-emerald-25)' : skipped ? 'var(--pc-t-slate-20)'  : 'var(--pc-t-red-30)'
 
   return (
     <div
@@ -133,14 +134,14 @@ function KpiCard({
     <div
       className="rounded-xl p-4 flex items-center gap-4"
       style={{
-        background: 'linear-gradient(135deg, rgba(15,26,48,0.9), rgba(10,18,35,0.9))',
-        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'linear-gradient(135deg, var(--pc-t-surf3-90), var(--pc-t-surf4-90))',
+        border: '1px solid var(--pc-t-overlay-07)',
         boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
       }}
     >
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: color + '18', border: `1px solid ${color}30` }}
+        style={{ background: tint(color, 9.41), border: `1px solid ${tint(color, 18.82)}` }}
       >
         <Icon className="h-5 w-5" style={{ color }} />
       </div>
@@ -165,7 +166,7 @@ function JobBar({
         <span className="text-sm font-semibold text-slate-300">{label}</span>
         <span className="text-sm font-bold" style={{ color }}>{value.toLocaleString()}</span>
       </div>
-      <div className="h-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)' }}>
+      <div className="h-1.5 rounded-full" style={{ background: 'var(--pc-t-overlay-06)' }}>
         <div
           className="h-1.5 rounded-full transition-all"
           style={{ width: `${pct}%`, background: color }}
@@ -178,9 +179,9 @@ function JobBar({
 function AICard({ name, configured, model, active }: {
   name: string; configured: boolean; model: string; active: boolean
 }) {
-  const statusColor  = configured ? '#34d399' : '#f87171'
-  const statusBg     = configured ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.06)'
-  const statusBorder = configured ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'
+  const statusColor  = configured ? 'var(--pc-emerald-400)' : 'var(--pc-red-400)'
+  const statusBg     = configured ? 'var(--pc-t-emerald-08)' : 'var(--pc-t-red-06)'
+  const statusBorder = configured ? 'var(--pc-t-emerald-20)' : 'var(--pc-t-red-20)'
 
   return (
     <div
@@ -190,7 +191,7 @@ function AICard({ name, configured, model, active }: {
       <div className="flex items-start justify-between gap-2 mb-3">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: statusColor + '18', border: `1px solid ${statusColor}30` }}
+          style={{ background: tint(statusColor, 9.41), border: `1px solid ${tint(statusColor, 18.82)}` }}
         >
           <Bot className="h-5 w-5" style={{ color: statusColor }} />
         </div>
@@ -198,14 +199,14 @@ function AICard({ name, configured, model, active }: {
           {active && (
             <span
               className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-widest"
-              style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}
+              style={{ background: 'var(--pc-t-emerald-15)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-30)' }}
             >
               Active
             </span>
           )}
           <span
             className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-            style={{ background: statusColor + '18', color: statusColor, border: `1px solid ${statusColor}30` }}
+            style={{ background: tint(statusColor, 9.41), color: statusColor, border: `1px solid ${tint(statusColor, 18.82)}` }}
           >
             {configured ? 'Ready' : 'Not configured'}
           </span>
@@ -218,18 +219,18 @@ function AICard({ name, configured, model, active }: {
 }
 
 function EventRow({ event }: { event: AuditEventSummary }) {
-  const color = EVENT_COLORS[event.event_type] ?? '#94a3b8'
+  const color = EVENT_COLORS[event.event_type] ?? 'var(--pc-slate-400)'
   const isSuccess = event.event_type.endsWith('_SUCCESS') || event.event_type === 'TENANT_PROVISIONED' || event.event_type === 'TENANT_REACTIVATED'
   const isError = event.event_type.endsWith('_FAILURE') || event.event_type.endsWith('_FAILED') || event.event_type === 'TENANT_DELETED'
 
   return (
     <div
       className="flex items-center gap-3 py-2.5"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+      style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}
     >
       <div
         className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ background: color + '18', border: `1px solid ${color}25` }}
+        style={{ background: tint(color, 9.41), border: `1px solid ${tint(color, 14.51)}` }}
       >
         {isError ? (
           <AlertTriangle className="h-3.5 w-3.5" style={{ color }} />
@@ -292,7 +293,7 @@ export default function MonitoringPage() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-300 transition-all disabled:opacity-50"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             Refresh
@@ -312,7 +313,7 @@ export default function MonitoringPage() {
       {isError && !isLoading && (
         <div
           className="rounded-xl px-6 py-5 mb-6 flex items-center gap-3"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
         >
           <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
           <div>
@@ -322,7 +323,7 @@ export default function MonitoringPage() {
           <button
             onClick={() => refetch()}
             className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded-lg"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             Retry
           </button>
@@ -346,18 +347,18 @@ export default function MonitoringPage() {
               {/* API server itself is always reachable if this page loads */}
               <div
                 className="rounded-xl p-4"
-                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}
+                style={{ background: 'var(--pc-t-emerald-08)', border: '1px solid var(--pc-t-emerald-20)' }}
               >
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}
+                    style={{ background: 'var(--pc-t-emerald-12)', border: '1px solid var(--pc-t-emerald-25)' }}
                   >
                     <Wifi className="h-5 w-5 text-emerald-400" />
                   </div>
                   <span
                     className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-                    style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.25)' }}
+                    style={{ background: 'var(--pc-t-emerald-12)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-25)' }}
                   >
                     healthy
                   </span>
@@ -379,12 +380,12 @@ export default function MonitoringPage() {
               sub="Live tenant registry counts (excludes deleted)"
             />
             <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-              <KpiCard label="Total"        value={data.tenants.total}        icon={Building2}    color="#6366f1" />
-              <KpiCard label="Active"        value={data.tenants.active}       icon={CheckCircle2} color="#10b981" />
-              <KpiCard label="Inactive"      value={data.tenants.inactive}     icon={Circle}       color="#94a3b8" />
-              <KpiCard label="Archived"      value={data.tenants.archived}     icon={Archive}      color="#78716c" />
-              <KpiCard label="Provisioning"  value={data.tenants.provisioning} icon={RefreshCw}    color="#fbbf24" />
-              <KpiCard label="Failed"        value={data.tenants.failed}       icon={AlertTriangle} color="#ef4444" />
+              <KpiCard label="Total"        value={data.tenants.total}        icon={Building2}    color="var(--pc-indigo-500)" />
+              <KpiCard label="Active"        value={data.tenants.active}       icon={CheckCircle2} color="var(--pc-emerald-500)" />
+              <KpiCard label="Inactive"      value={data.tenants.inactive}     icon={Circle}       color="var(--pc-slate-400)" />
+              <KpiCard label="Archived"      value={data.tenants.archived}     icon={Archive}      color="var(--pc-stone-500)" />
+              <KpiCard label="Provisioning"  value={data.tenants.provisioning} icon={RefreshCw}    color="var(--pc-amber-400)" />
+              <KpiCard label="Failed"        value={data.tenants.failed}       icon={AlertTriangle} color="var(--pc-red-500)" />
             </div>
           </section>
 
@@ -401,17 +402,17 @@ export default function MonitoringPage() {
               <div
                 className="rounded-xl p-5 space-y-4"
                 style={{
-                  background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+                  border: '1px solid var(--pc-t-overlay-08)',
                 }}
               >
-                <JobBar label="Completed"  value={data.jobs.completed} total={jobTotal} color="#34d399" />
-                <JobBar label="Pending"    value={data.jobs.pending}   total={jobTotal} color="#fbbf24" />
-                <JobBar label="Running"    value={data.jobs.running}   total={jobTotal} color="#60a5fa" />
-                <JobBar label="Failed"     value={data.jobs.failed}    total={jobTotal} color="#f87171" />
+                <JobBar label="Completed"  value={data.jobs.completed} total={jobTotal} color="var(--pc-emerald-400)" />
+                <JobBar label="Pending"    value={data.jobs.pending}   total={jobTotal} color="var(--pc-amber-400)" />
+                <JobBar label="Running"    value={data.jobs.running}   total={jobTotal} color="var(--pc-blue-400)" />
+                <JobBar label="Failed"     value={data.jobs.failed}    total={jobTotal} color="var(--pc-red-400)" />
                 <div
                   className="pt-3 flex items-center justify-between"
-                  style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                  style={{ borderTop: '1px solid var(--pc-t-overlay-05)' }}
                 >
                   <span className="text-xs text-slate-500">All-time total</span>
                   <span className="text-xl font-bold text-white">{jobTotal.toLocaleString()}</span>
@@ -433,7 +434,7 @@ export default function MonitoringPage() {
                 {/* Placeholder for future providers */}
                 <div
                   className="rounded-xl p-4 flex flex-col items-center justify-center gap-2 col-span-full sm:col-span-1 lg:col-span-2"
-                  style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', minHeight: 80 }}
+                  style={{ background: 'var(--pc-t-overlay-02)', border: '1px dashed var(--pc-t-overlay-08)', minHeight: 80 }}
                 >
                   <Zap className="h-4 w-4 text-slate-700" />
                   <p className="text-xs text-slate-700">More providers coming soon</p>
@@ -452,8 +453,8 @@ export default function MonitoringPage() {
             <div
               className="rounded-xl"
               style={{
-                background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+                border: '1px solid var(--pc-t-overlay-08)',
               }}
             >
               {data.recent_events.length === 0 ? (

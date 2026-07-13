@@ -19,31 +19,31 @@ import type { Tenant, TenantStatus } from '@/lib/api/tenants'
 
 const STATUS_CFG: Record<TenantStatus, { bg: string; color: string; border: string; icon: React.ReactNode }> = {
   PROVISIONING: {
-    bg: 'rgba(245,158,11,0.1)', color: '#fbbf24', border: 'rgba(245,158,11,0.2)',
+    bg: 'var(--pc-t-amber-10)', color: 'var(--pc-amber-400)', border: 'var(--pc-t-amber-20)',
     icon: <RefreshCw className="h-3 w-3 animate-spin" />,
   },
   ACTIVE: {
-    bg: 'rgba(16,185,129,0.1)', color: '#34d399', border: 'rgba(16,185,129,0.2)',
+    bg: 'var(--pc-t-emerald-10)', color: 'var(--pc-emerald-400)', border: 'var(--pc-t-emerald-20)',
     icon: <CheckCircle2 className="h-3 w-3" />,
   },
   INACTIVE: {
-    bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.2)',
+    bg: 'var(--pc-t-slate-12)', color: 'var(--pc-slate-400)', border: 'var(--pc-t-slate-20)',
     icon: <AlertTriangle className="h-3 w-3" />,
   },
   ARCHIVED: {
-    bg: 'rgba(120,113,108,0.12)', color: '#a8a29e', border: 'rgba(120,113,108,0.2)',
+    bg: 'var(--pc-t-stone-12)', color: 'var(--pc-stone-400)', border: 'var(--pc-t-stone-20)',
     icon: <Archive className="h-3 w-3" />,
   },
   FAILED: {
-    bg: 'rgba(239,68,68,0.1)', color: '#f87171', border: 'rgba(239,68,68,0.2)',
+    bg: 'var(--pc-t-red-10)', color: 'var(--pc-red-400)', border: 'var(--pc-t-red-20)',
     icon: <AlertTriangle className="h-3 w-3" />,
   },
   DELETED: {
-    bg: 'rgba(239,68,68,0.08)', color: '#9ca3af', border: 'rgba(239,68,68,0.15)',
+    bg: 'var(--pc-t-red-08)', color: 'var(--pc-gray-400)', border: 'var(--pc-t-red-15)',
     icon: <AlertTriangle className="h-3 w-3" />,
   },
   PERMANENTLY_DELETED: {
-    bg: 'rgba(100,116,139,0.06)', color: '#475569', border: 'rgba(100,116,139,0.12)',
+    bg: 'var(--pc-t-slate-06)', color: 'var(--pc-slate-600)', border: 'var(--pc-t-slate-12)',
     icon: <AlertTriangle className="h-3 w-3" />,
   },
 }
@@ -65,7 +65,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div
       className="flex items-center justify-between py-3 last:border-0"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+      style={{ borderBottom: '1px solid var(--pc-t-overlay-05)' }}
     >
       <span className="text-sm text-slate-500">{label}</span>
       <span className="text-sm text-slate-200 font-medium">{value}</span>
@@ -89,7 +89,7 @@ function EditDialog({
   const [email, setEmail] = useState(tenant.contact_email ?? '')
 
   const inputCls   = 'w-full px-3 py-2 text-sm text-slate-200 rounded-lg outline-none'
-  const inputStyle = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }
+  const inputStyle = { background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
@@ -102,7 +102,7 @@ function EditDialog({
             <label className="block text-xs font-medium text-slate-400 mb-1">Slug (read-only)</label>
             <div
               className="px-3 py-2 text-sm font-mono text-slate-500 rounded-lg"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+              style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-06)' }}
             >
               {tenant.slug}
             </div>
@@ -226,7 +226,7 @@ export default function TenantDetailPage() {
   if (isLoading) return <PageLoading message="Loading tenant…" />
 
   if (!tenant) {
-    return <div className="text-center py-24 text-sm" style={{ color: '#f87171' }}>Tenant not found.</div>
+    return <div className="text-center py-24 text-sm" style={{ color: 'var(--pc-red-400)' }}>Tenant not found.</div>
   }
 
   const isArchived  = tenant.status === 'ARCHIVED'
@@ -244,7 +244,7 @@ export default function TenantDetailPage() {
         <button
           onClick={() => navigate('/admin/tenants')}
           className="p-1.5 rounded-lg text-slate-600 transition-colors"
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#cbd5e1' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--pc-t-overlay-06)'; e.currentTarget.style.color = 'var(--pc-slate-300)' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = '' }}
           aria-label="Back"
         >
@@ -255,7 +255,7 @@ export default function TenantDetailPage() {
         <button
           onClick={() => setShowEdit(true)}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-          style={{ background: 'rgba(99,102,241,0.08)', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.2)' }}
+          style={{ background: 'var(--pc-t-indigo-08)', color: 'var(--pc-indigo-300)', border: '1px solid var(--pc-t-indigo-20)' }}
         >
           <Pencil className="h-3 w-3" /> Edit
         </button>
@@ -264,7 +264,7 @@ export default function TenantDetailPage() {
       {/* Info card */}
       <div
         className="rounded-xl px-6 py-2"
-        style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
+        style={{ background: 'var(--pc-t-surf1-85)', border: '1px solid var(--pc-t-overlay-08)' }}
       >
         <InfoRow label="Institution name" value={tenant.name} />
         <InfoRow
@@ -272,7 +272,7 @@ export default function TenantDetailPage() {
           value={
             <code
               className="text-xs px-1.5 py-0.5 rounded font-mono"
-              style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8' }}
+              style={{ background: 'var(--pc-t-overlay-06)', color: 'var(--pc-slate-400)' }}
             >
               {tenant.slug}
             </code>
@@ -283,7 +283,7 @@ export default function TenantDetailPage() {
           value={
             <code
               className="text-xs px-1.5 py-0.5 rounded font-mono"
-              style={{ background: 'rgba(255,255,255,0.06)', color: '#94a3b8' }}
+              style={{ background: 'var(--pc-t-overlay-06)', color: 'var(--pc-slate-400)' }}
             >
               {tenant.schema_name}
             </code>
@@ -297,7 +297,7 @@ export default function TenantDetailPage() {
       {/* Actions card */}
       <div
         className="rounded-xl p-6 space-y-4"
-        style={{ background: 'rgba(12,22,41,0.85)', border: '1px solid rgba(255,255,255,0.08)' }}
+        style={{ background: 'var(--pc-t-surf1-85)', border: '1px solid var(--pc-t-overlay-08)' }}
       >
         <h3 className="text-sm font-semibold text-slate-400">Actions</h3>
 
@@ -305,13 +305,13 @@ export default function TenantDetailPage() {
         {tenant.status === 'FAILED' && (
           <div
             className="rounded-lg p-4 space-y-3"
-            style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}
+            style={{ background: 'var(--pc-t-red-06)', border: '1px solid var(--pc-t-red-20)' }}
           >
-            <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: '#fca5a5' }}>
+            <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--pc-red-300)' }}>
               <AlertTriangle className="h-4 w-4" />
               Provisioning failed
             </p>
-            <p className="text-xs" style={{ color: '#f87171' }}>
+            <p className="text-xs" style={{ color: 'var(--pc-red-400)' }}>
               The schema or admin seed step did not complete. Click Retry to attempt provisioning
               again without creating a new tenant record.
             </p>
@@ -319,7 +319,7 @@ export default function TenantDetailPage() {
               onClick={() => retryMut.mutate()}
               disabled={retryMut.isPending}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
-              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}
+              style={{ background: 'var(--pc-t-red-12)', border: '1px solid var(--pc-t-red-25)', color: 'var(--pc-red-300)' }}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${retryMut.isPending ? 'animate-spin' : ''}`} />
               {retryMut.isPending ? 'Retrying…' : 'Retry provisioning'}
@@ -338,7 +338,7 @@ export default function TenantDetailPage() {
               onClick={() => setShowToggleConfirm(true)}
               disabled={toggleMut.isPending}
               className="px-3.5 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}
+              style={{ background: 'var(--pc-t-red-10)', border: '1px solid var(--pc-t-red-25)', color: 'var(--pc-red-400)' }}
             >
               Deactivate
             </button>
@@ -356,7 +356,7 @@ export default function TenantDetailPage() {
               onClick={() => setShowToggleConfirm(true)}
               disabled={toggleMut.isPending}
               className="px-3.5 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-              style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#34d399' }}
+              style={{ background: 'var(--pc-t-emerald-10)', border: '1px solid var(--pc-t-emerald-25)', color: 'var(--pc-emerald-400)' }}
             >
               Activate
             </button>
@@ -376,7 +376,7 @@ export default function TenantDetailPage() {
               onClick={() => setShowArchiveConfirm(true)}
               disabled={archiveMut.isPending}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24' }}
+              style={{ background: 'var(--pc-t-amber-08)', border: '1px solid var(--pc-t-amber-25)', color: 'var(--pc-amber-400)' }}
             >
               <Archive className="h-3.5 w-3.5" />
               {archiveMut.isPending ? 'Archiving…' : 'Archive'}
@@ -397,7 +397,7 @@ export default function TenantDetailPage() {
               onClick={() => setShowReactivateConfirm(true)}
               disabled={reactivateMut.isPending}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
-              style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', color: '#34d399' }}
+              style={{ background: 'var(--pc-t-emerald-10)', border: '1px solid var(--pc-t-emerald-25)', color: 'var(--pc-emerald-400)' }}
             >
               <RotateCcw className="h-3.5 w-3.5" />
               {reactivateMut.isPending ? 'Reactivating…' : 'Reactivate'}

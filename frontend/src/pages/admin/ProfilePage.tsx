@@ -20,6 +20,7 @@ import {
   updatePlatformEmail,
   changePlatformPassword,
 } from '@/lib/api/platform'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Shared UI primitives
@@ -34,14 +35,14 @@ function SectionCard({
     <div
       className="rounded-xl p-6"
       style={{
-        background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+        border: '1px solid var(--pc-t-overlay-08)',
       }}
     >
       <div className="flex items-center gap-3 mb-5">
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: iconColor + '18', border: `1px solid ${iconColor}30` }}
+          style={{ background: tint(iconColor, 9.41), border: `1px solid ${tint(iconColor, 18.82)}` }}
         >
           <Icon className="h-[18px] w-[18px]" style={{ color: iconColor }} />
         </div>
@@ -53,7 +54,7 @@ function SectionCard({
 }
 
 const inputCls = 'w-full px-3 py-2.5 text-sm text-slate-200 rounded-lg outline-none transition-all'
-const inputStyle = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }
+const inputStyle = { background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }
 const labelCls = 'block text-xs font-semibold text-slate-400 mb-1.5'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -118,7 +119,8 @@ function ProfileView({ profile }: { profile: ReturnType<typeof getPlatformProfil
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white"
           style={{
-            background: photo ? undefined : 'linear-gradient(135deg, #10b981, #059669)',
+            background: photo ? undefined : 'linear-gradient(135deg, var(--pc-accent), var(--pc-accent-hover))',
+            color: 'var(--pc-accent-fg)',
             backgroundImage: photo ? `url(${photo})` : undefined,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
@@ -131,7 +133,7 @@ function ProfileView({ profile }: { profile: ReturnType<typeof getPlatformProfil
           onClick={() => fileRef.current?.click()}
           disabled={busy}
           className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full flex items-center justify-center text-slate-300 disabled:opacity-60"
-          style={{ background: '#0e182d', border: '1px solid rgba(255,255,255,0.15)' }}
+          style={{ background: 'var(--pc-elevated)', border: '1px solid var(--pc-t-overlay-15)' }}
           aria-label="Change profile picture"
           title="Change profile picture (JPG, JPEG, PNG, WEBP)"
         >
@@ -142,7 +144,7 @@ function ProfileView({ profile }: { profile: ReturnType<typeof getPlatformProfil
             type="button"
             onClick={onRemove}
             className="absolute -bottom-1 -left-1 h-6 w-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-400"
-            style={{ background: '#0e182d', border: '1px solid rgba(255,255,255,0.15)' }}
+            style={{ background: 'var(--pc-elevated)', border: '1px solid var(--pc-t-overlay-15)' }}
             aria-label="Remove profile picture"
             title="Remove profile picture"
           >
@@ -159,14 +161,14 @@ function ProfileView({ profile }: { profile: ReturnType<typeof getPlatformProfil
         <div className="flex items-center gap-2">
           <span
             className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-            style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}
+            style={{ background: 'var(--pc-t-emerald-12)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-30)' }}
           >
             Super Admin
           </span>
           {profile.is_active && (
             <span
               className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-              style={{ background: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}
+              style={{ background: 'var(--pc-t-bluelt-12)', color: 'var(--pc-blue-400)', border: '1px solid var(--pc-t-bluelt-30)' }}
             >
               Active
             </span>
@@ -294,7 +296,7 @@ function ChangeEmailForm() {
       </Field>
       <div
         className="rounded-lg px-3 py-2 text-xs text-slate-500"
-        style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}
+        style={{ background: 'var(--pc-t-amber-06)', border: '1px solid var(--pc-t-amber-15)' }}
       >
         Changing your email will update your login credentials. You'll need to use the new email for future logins.
       </div>
@@ -314,18 +316,18 @@ function ChangeEmailForm() {
 // ---------------------------------------------------------------------------
 
 function strength(pwd: string): { label: string; color: string; pct: number } {
-  if (!pwd) return { label: '', color: '#334155', pct: 0 }
+  if (!pwd) return { label: '', color: 'var(--pc-slate-700)', pct: 0 }
   let score = 0
   if (pwd.length >= 8) score++
   if (pwd.length >= 12) score++
   if (/[A-Z]/.test(pwd)) score++
   if (/[0-9]/.test(pwd)) score++
   if (/[^A-Za-z0-9]/.test(pwd)) score++
-  if (score <= 1) return { label: 'Weak', color: '#ef4444', pct: 20 }
-  if (score === 2) return { label: 'Fair', color: '#f59e0b', pct: 40 }
-  if (score === 3) return { label: 'Good', color: '#60a5fa', pct: 65 }
-  if (score === 4) return { label: 'Strong', color: '#10b981', pct: 85 }
-  return { label: 'Very Strong', color: '#34d399', pct: 100 }
+  if (score <= 1) return { label: 'Weak', color: 'var(--pc-red-500)', pct: 20 }
+  if (score === 2) return { label: 'Fair', color: 'var(--pc-amber-500)', pct: 40 }
+  if (score === 3) return { label: 'Good', color: 'var(--pc-blue-400)', pct: 65 }
+  if (score === 4) return { label: 'Strong', color: 'var(--pc-emerald-500)', pct: 85 }
+  return { label: 'Very Strong', color: 'var(--pc-emerald-400)', pct: 100 }
 }
 
 function ChangePasswordForm() {
@@ -358,7 +360,7 @@ function ChangePasswordForm() {
     return (
       <div
         className="rounded-lg px-4 py-5 flex items-center gap-3"
-        style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}
+        style={{ background: 'var(--pc-t-emerald-08)', border: '1px solid var(--pc-t-emerald-20)' }}
       >
         <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
         <div>
@@ -411,7 +413,7 @@ function ChangePasswordForm() {
 
       {next.length > 0 && (
         <div className="space-y-1">
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--pc-t-overlay-06)' }}>
             <div
               className="h-full rounded-full transition-all duration-300"
               style={{ width: `${str.pct}%`, background: str.color }}
@@ -451,13 +453,13 @@ function SecurityInfo() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid var(--pc-t-overlay-05)' }}>
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Active Sessions</span>
         <span className="text-sm font-bold text-slate-200">
           {isLoading ? '…' : data?.active_session_count ?? 0}
         </span>
       </div>
-      <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid var(--pc-t-overlay-05)' }}>
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Last Login</span>
         <span className="text-sm text-slate-300">
           {isLoading ? '…' : data?.last_login_at
@@ -469,14 +471,14 @@ function SecurityInfo() {
         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Role</span>
         <span
           className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-          style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}
+          style={{ background: 'var(--pc-t-emerald-12)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-30)' }}
         >
           Super Admin
         </span>
       </div>
       <div
         className="mt-3 rounded-lg px-3 py-2 text-[11px] text-slate-600"
-        style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)' }}
+        style={{ background: 'var(--pc-t-overlay-2p5)', border: '1px solid var(--pc-t-overlay-05)' }}
       >
         Changing your password will immediately terminate all other sessions.
       </div>
@@ -513,7 +515,7 @@ export default function ProfilePage() {
       {isError && (
         <div
           className="rounded-xl px-6 py-5 mb-6 flex items-center gap-3"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
         >
           <Shield className="h-5 w-5 text-red-400 flex-shrink-0" />
           <p className="text-sm font-semibold text-red-300">Failed to load profile</p>
@@ -530,9 +532,9 @@ export default function ProfilePage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Profile View + Edit */}
-          <SectionCard icon={User} title="Account Info" iconColor="#6366f1">
+          <SectionCard icon={User} title="Account Info" iconColor="var(--pc-indigo-500)">
             <ProfileView profile={profile} />
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 20, paddingTop: 16 }}>
+            <div style={{ borderTop: '1px solid var(--pc-t-overlay-06)', marginTop: 20, paddingTop: 16 }}>
               {editingProfile ? (
                 <EditProfileForm
                   profile={profile}
@@ -551,17 +553,17 @@ export default function ProfilePage() {
           </SectionCard>
 
           {/* Security info */}
-          <SectionCard icon={Shield} title="Security" iconColor="#10b981">
+          <SectionCard icon={Shield} title="Security" iconColor="var(--pc-emerald-500)">
             <SecurityInfo />
           </SectionCard>
 
           {/* Change Email */}
-          <SectionCard icon={Mail} title="Change Email" iconColor="#60a5fa">
+          <SectionCard icon={Mail} title="Change Email" iconColor="var(--pc-blue-400)">
             <ChangeEmailForm />
           </SectionCard>
 
           {/* Change Password */}
-          <SectionCard icon={Lock} title="Change Password" iconColor="#f59e0b">
+          <SectionCard icon={Lock} title="Change Password" iconColor="var(--pc-amber-500)">
             <ChangePasswordForm />
           </SectionCard>
 

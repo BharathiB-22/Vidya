@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button'
 import { addToast } from '@/hooks/useToast'
 import { getAdminErrorMessage } from '@/lib/adminApi'
 import { getPlatformBranding, updatePlatformBranding, type PlatformBranding } from '@/lib/api/platform'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const inputCls = 'w-full px-3 py-2.5 text-sm text-slate-200 rounded-lg outline-none transition-all'
-const inputStyle = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }
+const inputStyle = { background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }
 const labelCls = 'block text-xs font-semibold text-slate-400 mb-1.5'
 
 function SectionCard({
@@ -23,14 +24,14 @@ function SectionCard({
     <div
       className="rounded-xl p-6"
       style={{
-        background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+        border: '1px solid var(--pc-t-overlay-08)',
       }}
     >
       <div className="flex items-center gap-3 mb-5">
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: iconColor + '18', border: `1px solid ${iconColor}30` }}
+          style={{ background: tint(iconColor, 9.41), border: `1px solid ${tint(iconColor, 18.82)}` }}
         >
           <Icon className="h-[18px] w-[18px]" style={{ color: iconColor }} />
         </div>
@@ -76,9 +77,12 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 
 function BrandingPreview({ form }: { form: Partial<PlatformBranding> }) {
   return (
+    /* pc-brand-preview: the labels in here sit on the *tenant's* brand colour,
+       not on console chrome, so they stay white whatever theme the console is
+       wearing. See platform-theme.css. */
     <div
-      className="rounded-xl overflow-hidden"
-      style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+      className="pc-brand-preview rounded-xl overflow-hidden"
+      style={{ border: '1px solid var(--pc-t-overlay-08)' }}
     >
       {/* Mock login bar */}
       <div
@@ -102,11 +106,11 @@ function BrandingPreview({ form }: { form: Partial<PlatformBranding> }) {
       {/* Mock content */}
       <div
         className="px-4 py-4 space-y-2"
-        style={{ background: 'rgba(6,13,31,0.95)' }}
+        style={{ background: 'var(--pc-t-surf5-95)' }}
       >
-        <div className="h-2 rounded-full w-3/4" style={{ background: 'rgba(255,255,255,0.07)' }} />
-        <div className="h-2 rounded-full w-1/2" style={{ background: 'rgba(255,255,255,0.04)' }} />
-        <div className="h-2 rounded-full w-2/3" style={{ background: 'rgba(255,255,255,0.04)' }} />
+        <div className="h-2 rounded-full w-3/4" style={{ background: 'var(--pc-t-overlay-07)' }} />
+        <div className="h-2 rounded-full w-1/2" style={{ background: 'var(--pc-t-overlay-04)' }} />
+        <div className="h-2 rounded-full w-2/3" style={{ background: 'var(--pc-t-overlay-04)' }} />
         <div className="mt-3 flex gap-2">
           <div
             className="h-6 w-20 rounded text-[9px] flex items-center justify-center text-white font-bold"
@@ -233,7 +237,7 @@ export default function PlatformBrandingPage() {
           <button
             onClick={() => refetch()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-300 transition-all"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Refresh
@@ -251,7 +255,7 @@ export default function PlatformBrandingPage() {
       {isError && (
         <div
           className="rounded-xl px-6 py-5 mb-6 flex items-center gap-3"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
         >
           <Shield className="h-5 w-5 text-red-400 flex-shrink-0" />
           <p className="text-sm font-semibold text-red-300">Failed to load branding configuration</p>
@@ -266,7 +270,7 @@ export default function PlatformBrandingPage() {
           <div className="xl:col-span-2 space-y-6">
 
             {/* Identity */}
-            <SectionCard icon={Globe} title="Platform Identity" iconColor="#6366f1">
+            <SectionCard icon={Globe} title="Platform Identity" iconColor="var(--pc-indigo-500)">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Platform Name</label>
@@ -280,7 +284,7 @@ export default function PlatformBrandingPage() {
             </SectionCard>
 
             {/* Contact */}
-            <SectionCard icon={Mail} title="Support Contact" iconColor="#60a5fa">
+            <SectionCard icon={Mail} title="Support Contact" iconColor="var(--pc-blue-400)">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Support Email</label>
@@ -300,17 +304,17 @@ export default function PlatformBrandingPage() {
             </SectionCard>
 
             {/* Assets */}
-            <SectionCard icon={Image} title="Logo & Favicon" iconColor="#f59e0b">
+            <SectionCard icon={Image} title="Logo & Favicon" iconColor="var(--pc-amber-500)">
               <div className="space-y-4">
                 <div>
                   <label className={labelCls}>Logo URL</label>
                   <div className="flex items-center gap-3">
                     {form.logo_url ? (
                       <img src={form.logo_url} alt="logo" className="h-9 w-9 rounded-lg object-contain flex-shrink-0"
-                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} />
+                        style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }} />
                     ) : (
                       <div className="h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}>
                         <Image className="h-4 w-4 text-slate-600" />
                       </div>
                     )}
@@ -325,7 +329,7 @@ export default function PlatformBrandingPage() {
             </SectionCard>
 
             {/* Colors */}
-            <SectionCard icon={Palette} title="Brand Colors" iconColor="#a78bfa">
+            <SectionCard icon={Palette} title="Brand Colors" iconColor="var(--pc-violet-400)">
               <div className="grid grid-cols-2 gap-4">
                 <ColorField
                   label="Primary Color"
@@ -340,7 +344,7 @@ export default function PlatformBrandingPage() {
               </div>
               <div
                 className="mt-4 rounded-lg px-3 py-2 text-[11px] text-slate-500"
-                style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)' }}
+                style={{ background: 'var(--pc-t-overlay-2p5)', border: '1px solid var(--pc-t-overlay-05)' }}
               >
                 Colors affect the platform header, buttons, and accent elements across the Super Admin console and tenant portals.
               </div>
@@ -352,9 +356,13 @@ export default function PlatformBrandingPage() {
               disabled={mut.isPending}
               className="w-full py-3 text-base font-bold"
               style={{
+                /* Green means "saved", not "primary". The default state stays
+                   indigo — which --pc-indigo already renders as a readable blue
+                   in the light and dark themes. */
                 background: saved
-                  ? 'linear-gradient(135deg, #10b981, #059669)'
-                  : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  ? 'linear-gradient(135deg, var(--pc-emerald-500), var(--pc-emerald-600))'
+                  : 'linear-gradient(135deg, var(--pc-indigo-500), var(--pc-indigo-600))',
+                color: 'var(--pc-accent-fg)',
               }}
             >
               {mut.isPending ? (
@@ -376,8 +384,8 @@ export default function PlatformBrandingPage() {
             <div
               className="rounded-xl p-4"
               style={{
-                background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+                border: '1px solid var(--pc-t-overlay-08)',
               }}
             >
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-4">Live Preview</p>
@@ -385,7 +393,7 @@ export default function PlatformBrandingPage() {
             </div>
             <div
               className="rounded-xl px-4 py-3 text-[11px] text-slate-500 space-y-1"
-              style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.05)' }}
+              style={{ background: 'var(--pc-t-overlay-2p5)', border: '1px solid var(--pc-t-overlay-05)' }}
             >
               <p className="font-semibold text-slate-400">Where branding is applied</p>
               <ul className="space-y-0.5 pl-2">

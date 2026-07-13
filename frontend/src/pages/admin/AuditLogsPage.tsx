@@ -7,6 +7,7 @@ import {
 import { getAuditStats, listAuditLogs } from '@/lib/api/auditLogs'
 import type { AuditLogEntry } from '@/lib/api/auditLogs'
 import { listTenants } from '@/lib/api/tenants'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -194,10 +195,10 @@ function getEventStatus(type: string): EventStatus {
 }
 
 const STATUS_STYLES: Record<EventStatus, { label: string; bg: string; color: string; border: string }> = {
-  success: { label: 'SUCCESS', bg: 'rgba(16,185,129,0.12)', color: '#34d399', border: 'rgba(16,185,129,0.3)' },
-  failed:  { label: 'FAILED',  bg: 'rgba(239,68,68,0.12)',  color: '#f87171', border: 'rgba(239,68,68,0.3)'  },
-  warning: { label: 'WARNING', bg: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: 'rgba(251,191,36,0.3)' },
-  info:    { label: 'ACTION',  bg: 'rgba(96,165,250,0.12)', color: '#60a5fa', border: 'rgba(96,165,250,0.3)' },
+  success: { label: 'SUCCESS', bg: 'var(--pc-t-emerald-12)', color: 'var(--pc-emerald-400)', border: 'var(--pc-t-emerald-30)' },
+  failed:  { label: 'FAILED',  bg: 'var(--pc-t-red-12)',  color: 'var(--pc-red-400)', border: 'var(--pc-t-red-30)'  },
+  warning: { label: 'WARNING', bg: 'var(--pc-t-amberlt-12)', color: 'var(--pc-amber-400)', border: 'var(--pc-t-amberlt-30)' },
+  info:    { label: 'ACTION',  bg: 'var(--pc-t-bluelt-12)', color: 'var(--pc-blue-400)', border: 'var(--pc-t-bluelt-30)' },
 }
 
 // ---------------------------------------------------------------------------
@@ -213,14 +214,14 @@ function KpiCard({
     <div
       className="rounded-xl p-4 flex items-center gap-4"
       style={{
-        background: 'linear-gradient(135deg, rgba(15,26,48,0.9), rgba(10,18,35,0.9))',
-        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'linear-gradient(135deg, var(--pc-t-surf3-90), var(--pc-t-surf4-90))',
+        border: '1px solid var(--pc-t-overlay-07)',
         boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
       }}
     >
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: color + '18', border: `1px solid ${color}30` }}
+        style={{ background: tint(color, 9.41), border: `1px solid ${tint(color, 18.82)}` }}
       >
         <Icon className="h-5 w-5" style={{ color }} />
       </div>
@@ -257,7 +258,7 @@ function RecentEventRow({ entry, tenantMap }: { entry: AuditLogEntry; tenantMap:
   return (
     <div
       className="flex items-start gap-3 py-3"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+      style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}
     >
       <div
         className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
@@ -356,7 +357,7 @@ export default function AuditLogsPage() {
             onClick={() => { statsQuery.refetch(); logsQuery.refetch() }}
             disabled={statsQuery.isFetching || logsQuery.isFetching}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-300 transition-all disabled:opacity-50"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${(statsQuery.isFetching || logsQuery.isFetching) ? 'animate-spin' : ''}`} />
             Refresh
@@ -366,11 +367,11 @@ export default function AuditLogsPage() {
 
       {/* ── KPI Cards ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-        <KpiCard label="Total Events"    value={stats?.total_events   ?? '—'} icon={ScrollText}  color="#6366f1" />
-        <KpiCard label="Tenant Events"   value={stats?.tenant_events  ?? '—'} icon={Globe}        color="#10b981" />
-        <KpiCard label="Login Events"    value={stats?.login_events   ?? '—'} icon={LogIn}        color="#60a5fa" />
-        <KpiCard label="AI Events"       value={stats?.ai_events      ?? '—'} icon={Bot}          color="#a78bfa" />
-        <KpiCard label="Security Events" value={stats?.security_events ?? '—'} icon={ShieldAlert}  color="#f87171" />
+        <KpiCard label="Total Events"    value={stats?.total_events   ?? '—'} icon={ScrollText}  color="var(--pc-indigo-500)" />
+        <KpiCard label="Tenant Events"   value={stats?.tenant_events  ?? '—'} icon={Globe}        color="var(--pc-emerald-500)" />
+        <KpiCard label="Login Events"    value={stats?.login_events   ?? '—'} icon={LogIn}        color="var(--pc-blue-400)" />
+        <KpiCard label="AI Events"       value={stats?.ai_events      ?? '—'} icon={Bot}          color="var(--pc-violet-400)" />
+        <KpiCard label="Security Events" value={stats?.security_events ?? '—'} icon={ShieldAlert}  color="var(--pc-red-400)" />
       </div>
 
       {/* ── Two-column: Filters + Table | Recent Activity ────────── */}
@@ -382,7 +383,7 @@ export default function AuditLogsPage() {
           {/* Filter Bar */}
           <div
             className="rounded-xl p-5 mb-5"
-            style={{ background: 'rgba(14,24,45,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}
+            style={{ background: 'var(--pc-t-surf2-90)', border: '1px solid var(--pc-t-overlay-08)' }}
           >
             <div className="flex items-center gap-2 mb-4">
               <Filter className="h-4 w-4 text-slate-500" />
@@ -390,7 +391,7 @@ export default function AuditLogsPage() {
               {hasFilters && (
                 <span
                   className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide ml-1"
-                  style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}
+                  style={{ background: 'var(--pc-t-indigo-15)', color: 'var(--pc-indigo-400)', border: '1px solid var(--pc-t-indigo-30)' }}
                 >
                   Active
                 </span>
@@ -404,7 +405,7 @@ export default function AuditLogsPage() {
                   value={draft.tenant_id}
                   onChange={(e) => setDraft((d) => ({ ...d, tenant_id: e.target.value }))}
                   className="w-full rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                  style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
                 >
                   <option value="">All Tenants</option>
                   {(tenantsQuery.data ?? []).map((t) => (
@@ -420,7 +421,7 @@ export default function AuditLogsPage() {
                   value={draft.event_type}
                   onChange={(e) => setDraft((d) => ({ ...d, event_type: e.target.value }))}
                   className="w-full rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                  style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
                 >
                   <option value="">All Event Types</option>
                   {EVENT_TYPE_GROUPS.map((group) => (
@@ -441,7 +442,7 @@ export default function AuditLogsPage() {
                   value={draft.date_from}
                   onChange={(e) => setDraft((d) => ({ ...d, date_from: e.target.value }))}
                   className="w-full rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', colorScheme: 'dark' }}
+                  style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)', colorScheme: 'dark' }}
                 />
               </div>
 
@@ -453,7 +454,7 @@ export default function AuditLogsPage() {
                   value={draft.date_to}
                   onChange={(e) => setDraft((d) => ({ ...d, date_to: e.target.value }))}
                   className="w-full rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', colorScheme: 'dark' }}
+                  style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)', colorScheme: 'dark' }}
                 />
               </div>
             </div>
@@ -463,7 +464,7 @@ export default function AuditLogsPage() {
               <button
                 onClick={applyFilters}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all"
-                style={{ background: 'rgba(99,102,241,0.8)', border: '1px solid rgba(99,102,241,0.5)' }}
+                style={{ background: 'var(--pc-t-indigo-80)', border: '1px solid var(--pc-t-indigo-50)' }}
               >
                 Apply Filters
               </button>
@@ -471,7 +472,7 @@ export default function AuditLogsPage() {
                 <button
                   onClick={resetFilters}
                   className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-400 transition-all"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  style={{ background: 'var(--pc-t-overlay-04)', border: '1px solid var(--pc-t-overlay-08)' }}
                 >
                   Reset
                 </button>
@@ -482,12 +483,12 @@ export default function AuditLogsPage() {
           {/* Table */}
           <div
             className="rounded-xl overflow-hidden"
-            style={{ background: 'rgba(14,24,45,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}
+            style={{ background: 'var(--pc-t-surf2-90)', border: '1px solid var(--pc-t-overlay-08)' }}
           >
             {/* Table header */}
             <div
               className="grid grid-cols-[140px_1fr_1fr_1fr_1fr_90px] gap-3 px-4 py-3 text-[11px] font-bold text-slate-600 uppercase tracking-widest"
-              style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+              style={{ borderBottom: '1px solid var(--pc-t-overlay-06)' }}
             >
               <span>Timestamp</span>
               <span>Tenant</span>
@@ -531,7 +532,7 @@ export default function AuditLogsPage() {
                 <div
                   key={entry.id}
                   className="grid grid-cols-[140px_1fr_1fr_1fr_1fr_90px] gap-3 px-4 py-3 text-sm items-center"
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                  style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}
                 >
                   {/* Timestamp */}
                   <div className="min-w-0">
@@ -593,7 +594,7 @@ export default function AuditLogsPage() {
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
                   className="p-1.5 rounded-lg text-slate-500 disabled:opacity-30 transition-all"
-                  style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+                  style={{ border: '1px solid var(--pc-t-overlay-08)' }}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
@@ -604,7 +605,7 @@ export default function AuditLogsPage() {
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                   className="p-1.5 rounded-lg text-slate-500 disabled:opacity-30 transition-all"
-                  style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+                  style={{ border: '1px solid var(--pc-t-overlay-08)' }}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
@@ -616,17 +617,17 @@ export default function AuditLogsPage() {
         {/* Right: Recent Activity */}
         <div
           className="w-80 flex-shrink-0 rounded-xl overflow-hidden sticky top-4"
-          style={{ background: 'rgba(14,24,45,0.9)', border: '1px solid rgba(255,255,255,0.08)' }}
+          style={{ background: 'var(--pc-t-surf2-90)', border: '1px solid var(--pc-t-overlay-08)' }}
         >
           <div
             className="px-4 py-3 flex items-center gap-2"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ borderBottom: '1px solid var(--pc-t-overlay-06)' }}
           >
             <Activity className="h-4 w-4 text-emerald-400" />
             <span className="text-sm font-bold text-white">Recent Activity</span>
             <span
               className="ml-auto text-[10px] px-2 py-0.5 rounded-full font-bold"
-              style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
+              style={{ background: 'var(--pc-t-emerald-10)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-20)' }}
             >
               Live
             </span>

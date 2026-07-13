@@ -1,3 +1,7 @@
+/* Platform Console (Super Admin) theming. Scoped to [data-pc-theme] — set only
+   on the AdminShell root — so it cannot reach any tenant portal. */
+@import './styles/platform-theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

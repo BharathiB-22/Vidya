@@ -6,19 +6,20 @@ import {
 } from 'lucide-react'
 import { getPlatformSettings } from '@/lib/api/platform'
 import type { PlatformSettings } from '@/lib/api/platform'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const ENV_BADGE: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  production:  { label: 'Production',  color: '#34d399', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.3)'  },
-  staging:     { label: 'Staging',     color: '#60a5fa', bg: 'rgba(96,165,250,0.12)',  border: 'rgba(96,165,250,0.3)'  },
-  development: { label: 'Development', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)',  border: 'rgba(251,191,36,0.3)'  },
+  production:  { label: 'Production',  color: 'var(--pc-emerald-400)', bg: 'var(--pc-t-emerald-12)',  border: 'var(--pc-t-emerald-30)'  },
+  staging:     { label: 'Staging',     color: 'var(--pc-blue-400)', bg: 'var(--pc-t-bluelt-12)',  border: 'var(--pc-t-bluelt-30)'  },
+  development: { label: 'Development', color: 'var(--pc-amber-400)', bg: 'var(--pc-t-amberlt-12)',  border: 'var(--pc-t-amberlt-30)'  },
 }
 
 function envBadge(env: string) {
-  return ENV_BADGE[env] ?? { label: env, color: '#94a3b8', bg: 'rgba(148,163,184,0.1)', border: 'rgba(148,163,184,0.2)' }
+  return ENV_BADGE[env] ?? { label: env, color: 'var(--pc-slate-400)', bg: 'var(--pc-t-slatelt-10)', border: 'var(--pc-t-slatelt-20)' }
 }
 
 // ---------------------------------------------------------------------------
@@ -34,14 +35,14 @@ function SectionCard({
     <div
       className="rounded-xl p-5"
       style={{
-        background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+        border: '1px solid var(--pc-t-overlay-08)',
       }}
     >
       <div className="flex items-center gap-3 mb-5">
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: iconColor + '18', border: `1px solid ${iconColor}30` }}
+          style={{ background: tint(iconColor, 9.41), border: `1px solid ${tint(iconColor, 18.82)}` }}
         >
           <Icon className="h-4.5 w-4.5" style={{ color: iconColor, width: 18, height: 18 }} />
         </div>
@@ -54,7 +55,7 @@ function SectionCard({
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+    <div className="flex items-center justify-between gap-3 py-2" style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}>
       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{label}</span>
       <div className="flex items-center gap-2 min-w-0 justify-end">{children}</div>
     </div>
@@ -86,9 +87,9 @@ function EnabledBadge({ enabled, trueLabel = 'Enabled', falseLabel = 'Disabled' 
   enabled: boolean; trueLabel?: string; falseLabel?: string
 }) {
   return enabled ? (
-    <Badge label={trueLabel} color="#34d399" bg="rgba(16,185,129,0.12)" border="rgba(16,185,129,0.3)" />
+    <Badge label={trueLabel} color="var(--pc-emerald-400)" bg="var(--pc-t-emerald-12)" border="var(--pc-t-emerald-30)" />
   ) : (
-    <Badge label={falseLabel} color="#f87171" bg="rgba(239,68,68,0.1)" border="rgba(239,68,68,0.25)" />
+    <Badge label={falseLabel} color="var(--pc-red-400)" bg="var(--pc-t-red-10)" border="var(--pc-t-red-25)" />
   )
 }
 
@@ -99,13 +100,13 @@ function ActionButton({
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all"
-      style={{ background: color + '0c', border: `1px solid ${color}20` }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = color + '18'; e.currentTarget.style.borderColor = color + '40' }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = color + '0c'; e.currentTarget.style.borderColor = color + '20' }}
+      style={{ background: tint(color, 4.71), border: `1px solid ${tint(color, 12.55)}` }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = tint(color, 9.41); e.currentTarget.style.borderColor = tint(color, 25.1) }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = tint(color, 4.71); e.currentTarget.style.borderColor = tint(color, 12.55) }}
     >
       <div
         className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ background: color + '18', border: `1px solid ${color}30` }}
+        style={{ background: tint(color, 9.41), border: `1px solid ${tint(color, 18.82)}` }}
       >
         <Icon className="h-4 w-4" style={{ color }} />
       </div>
@@ -154,7 +155,7 @@ export default function SettingsPage() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-300 transition-all disabled:opacity-50"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             Refresh
@@ -174,7 +175,7 @@ export default function SettingsPage() {
       {isError && !isLoading && (
         <div
           className="rounded-xl px-6 py-5 mb-6 flex items-center gap-3"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
         >
           <Shield className="h-5 w-5 text-red-400 flex-shrink-0" />
           <div>
@@ -184,7 +185,7 @@ export default function SettingsPage() {
           <button
             onClick={() => refetch()}
             className="ml-auto text-xs text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded-lg"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             Retry
           </button>
@@ -195,10 +196,10 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* ── 1. Platform Profile ────────────────────────────────────── */}
-          <SectionCard icon={Globe} title="Platform Profile" iconColor="#6366f1">
+          <SectionCard icon={Globe} title="Platform Profile" iconColor="var(--pc-indigo-500)">
             <Row label="Platform Name">
               <Val>{s.platform_name}</Val>
-              <Badge label="Live" color="#34d399" bg="rgba(16,185,129,0.12)" border="rgba(16,185,129,0.3)" />
+              <Badge label="Live" color="var(--pc-emerald-400)" bg="var(--pc-t-emerald-12)" border="var(--pc-t-emerald-30)" />
             </Row>
             <Row label="Company">
               <Val>{s.company_name}</Val>
@@ -215,18 +216,21 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* ── 2. Branding ───────────────────────────────────────────── */}
-          <SectionCard icon={Palette} title="Platform Branding" iconColor="#a78bfa">
+          <SectionCard icon={Palette} title="Platform Branding" iconColor="var(--pc-violet-400)">
             <Row label="Logo">
               <div className="flex items-center gap-2">
                 <img
                   src="/branding/sherpavector-logo.png"
                   alt="SherpaVector"
                   className="h-7 w-7 rounded-lg object-contain"
-                  style={{ filter: 'drop-shadow(0 0 6px rgba(16,185,129,0.3))' }}
+                  style={{ filter: 'drop-shadow(0 0 6px var(--pc-t-emerald-30))' }}
                 />
                 <Val>SherpaVector</Val>
               </div>
             </Row>
+            {/* These swatches report the platform's brand colours, which do not
+                change with the console theme — they must keep matching the hex
+                printed beside them. */}
             <Row label="Primary Color">
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 rounded-full border border-white/10" style={{ background: '#10b981' }} />
@@ -241,7 +245,7 @@ export default function SettingsPage() {
             </Row>
             <div
               className="mt-3 rounded-lg px-3 py-2.5 text-[11px] text-slate-500 leading-relaxed"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+              style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-06)' }}
             >
               Each university can configure its own logo and brand colours from their{' '}
               <span className="text-slate-400 font-semibold">Institution Settings</span> panel.
@@ -249,13 +253,13 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* ── 3. AI Providers ───────────────────────────────────────── */}
-          <SectionCard icon={Bot} title="AI Providers" iconColor="#f59e0b">
+          <SectionCard icon={Bot} title="AI Providers" iconColor="var(--pc-amber-500)">
             <Row label="Strategy">
               <Badge
                 label={s.ai_provider.toUpperCase()}
-                color="#f59e0b"
-                bg="rgba(245,158,11,0.12)"
-                border="rgba(245,158,11,0.3)"
+                color="var(--pc-amber-500)"
+                bg="var(--pc-t-amber-12)"
+                border="var(--pc-t-amber-30)"
               />
             </Row>
             <Row label="Gemini">
@@ -281,7 +285,7 @@ export default function SettingsPage() {
             </Row>
             <div
               className="mt-3 rounded-lg px-3 py-2.5 text-[11px] text-slate-500 leading-relaxed"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+              style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-06)' }}
             >
               Fallback order: <span className="text-slate-400 font-semibold">Gemini → Groq → DeepSeek</span>.
               Disable a provider via <span className="font-mono">AI_*_ENABLED=false</span> in the environment.
@@ -290,7 +294,7 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* ── 4. Storage ────────────────────────────────────────────── */}
-          <SectionCard icon={HardDrive} title="Storage" iconColor="#06b6d4">
+          <SectionCard icon={HardDrive} title="Storage" iconColor="var(--pc-cyan-500)">
             <Row label="Provider">
               <Val>{s.storage_provider}</Val>
             </Row>
@@ -312,7 +316,7 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* ── 5. Security ───────────────────────────────────────────── */}
-          <SectionCard icon={Shield} title="Security" iconColor="#10b981">
+          <SectionCard icon={Shield} title="Security" iconColor="var(--pc-emerald-500)">
             <Row label="JWT Authentication">
               <EnabledBadge enabled={s.jwt_enabled} />
             </Row>
@@ -343,26 +347,26 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* ── 6. System Actions ─────────────────────────────────────── */}
-          <SectionCard icon={Zap} title="System Actions" iconColor="#34d399">
+          <SectionCard icon={Zap} title="System Actions" iconColor="var(--pc-emerald-400)">
             <ActionButton
               icon={RefreshCw}
               label="Refresh Configuration"
               sub="Reload settings from the backend"
-              color="#6366f1"
+              color="var(--pc-indigo-500)"
               onClick={() => refetch()}
             />
             <ActionButton
               icon={Building2}
               label="Platform Monitoring"
               sub="Service health, jobs, AI providers, recent events"
-              color="#10b981"
+              color="var(--pc-emerald-500)"
               onClick={() => navigate('/admin/monitoring')}
             />
             <ActionButton
               icon={Shield}
               label="Audit Logs"
               sub="Full event history across all tenants"
-              color="#60a5fa"
+              color="var(--pc-blue-400)"
               onClick={() => navigate('/admin/audit-logs')}
             />
           </SectionCard>

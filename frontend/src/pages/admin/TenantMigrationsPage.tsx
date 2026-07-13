@@ -30,10 +30,10 @@ type BadgeVariant = 'current' | 'pending' | 'failed' | 'unknown'
 
 function MigBadge({ variant }: { variant: BadgeVariant }) {
   const cfg: Record<BadgeVariant, { label: string; bg: string; color: string; border: string }> = {
-    current: { label: 'Up to date',  bg: 'rgba(16,185,129,0.12)',  color: '#34d399', border: 'rgba(16,185,129,0.3)' },
-    pending: { label: 'Pending',     bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24', border: 'rgba(245,158,11,0.3)' },
-    failed:  { label: 'Failed',      bg: 'rgba(239,68,68,0.12)',   color: '#f87171', border: 'rgba(239,68,68,0.3)'  },
-    unknown: { label: 'Unknown',     bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.25)' },
+    current: { label: 'Up to date',  bg: 'var(--pc-t-emerald-12)',  color: 'var(--pc-emerald-400)', border: 'var(--pc-t-emerald-30)' },
+    pending: { label: 'Pending',     bg: 'var(--pc-t-amber-12)',  color: 'var(--pc-amber-400)', border: 'var(--pc-t-amber-30)' },
+    failed:  { label: 'Failed',      bg: 'var(--pc-t-red-12)',   color: 'var(--pc-red-400)', border: 'var(--pc-t-red-30)'  },
+    unknown: { label: 'Unknown',     bg: 'var(--pc-t-slate-12)', color: 'var(--pc-slate-400)', border: 'var(--pc-t-slate-25)' },
   }
   const { label, bg, color, border } = cfg[variant]
   return (
@@ -74,7 +74,7 @@ function MigRow({
     <>
       <tr
         className="border-b transition-colors"
-        style={{ borderColor: 'rgba(255,255,255,0.04)' }}
+        style={{ borderColor: 'var(--pc-t-overlay-04)' }}
       >
         {/* Tenant */}
         <td className="py-3 px-4">
@@ -115,9 +115,9 @@ function MigRow({
                 disabled={retrying}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-all disabled:opacity-50"
                 style={{
-                  background: 'rgba(99,102,241,0.15)',
-                  color: '#818cf8',
-                  border: '1px solid rgba(99,102,241,0.3)',
+                  background: 'var(--pc-t-indigo-15)',
+                  color: 'var(--pc-indigo-400)',
+                  border: '1px solid var(--pc-t-indigo-30)',
                 }}
               >
                 {retrying
@@ -140,11 +140,11 @@ function MigRow({
 
       {/* Expandable error row */}
       {showError && row.last_error && (
-        <tr style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        <tr style={{ borderColor: 'var(--pc-t-overlay-04)' }}>
           <td colSpan={6} className="px-4 pb-3">
             <pre
               className="text-xs p-3 rounded-lg overflow-x-auto whitespace-pre-wrap"
-              style={{ background: 'rgba(239,68,68,0.08)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)' }}
+              style={{ background: 'var(--pc-t-red-08)', color: 'var(--pc-red-300)', border: '1px solid var(--pc-t-red-20)' }}
             >
               {row.last_error}
             </pre>
@@ -189,9 +189,9 @@ export default function TenantMigrationsPage() {
         <div className="flex items-center gap-3">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}
+            style={{ background: 'var(--pc-t-indigo-15)', border: '1px solid var(--pc-t-indigo-30)' }}
           >
-            <Database className="h-5 w-5" style={{ color: '#818cf8' }} />
+            <Database className="h-5 w-5" style={{ color: 'var(--pc-indigo-400)' }} />
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Tenant Migrations</h1>
@@ -201,7 +201,7 @@ export default function TenantMigrationsPage() {
         <button
           onClick={() => refetch()}
           className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg"
-          style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.08)' }}
+          style={{ background: 'var(--pc-t-overlay-05)', color: 'var(--pc-slate-400)', border: '1px solid var(--pc-t-overlay-08)' }}
         >
           <RefreshCw className="h-4 w-4" />
           Refresh
@@ -211,14 +211,14 @@ export default function TenantMigrationsPage() {
       {/* KPI strip */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Up to date',  value: totalCurrent, icon: CheckCircle2, color: '#34d399', bg: 'rgba(16,185,129,0.1)',  border: 'rgba(16,185,129,0.2)' },
-          { label: 'Pending',     value: totalPending,  icon: Clock,       color: '#fbbf24', bg: 'rgba(245,158,11,0.1)',  border: 'rgba(245,158,11,0.2)' },
-          { label: 'Failed',      value: totalFailed,   icon: AlertTriangle, color: '#f87171', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.2)'  },
+          { label: 'Up to date',  value: totalCurrent, icon: CheckCircle2, color: 'var(--pc-emerald-400)', bg: 'var(--pc-t-emerald-10)',  border: 'var(--pc-t-emerald-20)' },
+          { label: 'Pending',     value: totalPending,  icon: Clock,       color: 'var(--pc-amber-400)', bg: 'var(--pc-t-amber-10)',  border: 'var(--pc-t-amber-20)' },
+          { label: 'Failed',      value: totalFailed,   icon: AlertTriangle, color: 'var(--pc-red-400)', bg: 'var(--pc-t-red-10)', border: 'var(--pc-t-red-20)'  },
         ].map(({ label, value, icon: Icon, color, bg, border }) => (
           <div
             key={label}
             className="rounded-xl p-4 flex items-center gap-4"
-            style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ background: 'var(--pc-t-surf1-80)', border: '1px solid var(--pc-t-overlay-06)' }}
           >
             <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: bg, border: `1px solid ${border}` }}>
               <Icon className="h-4 w-4" style={{ color }} />
@@ -232,7 +232,7 @@ export default function TenantMigrationsPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--pc-t-surf1-80)', border: '1px solid var(--pc-t-overlay-06)' }}>
         {isLoading && (
           <div className="flex items-center justify-center py-16 text-gray-500 text-sm gap-2">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -254,7 +254,7 @@ export default function TenantMigrationsPage() {
         {!isLoading && !error && rows.length > 0 && (
           <table className="w-full">
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <tr style={{ borderBottom: '1px solid var(--pc-t-overlay-06)' }}>
                 {['Tenant', 'Current Version', 'Latest Version', 'Status', 'Last Migration', 'Actions'].map(h => (
                   <th key={h} className="py-3 px-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     {h}

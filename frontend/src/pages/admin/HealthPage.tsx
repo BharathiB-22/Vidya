@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { getPlatformHealth } from '@/lib/api/platform'
 import type { PlatformDiagnosticService, AIProviderDiagnostic, QueueDiagnostics } from '@/lib/api/platform'
+import { tint } from '@/lib/platformPalette'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,10 +15,10 @@ import type { PlatformDiagnosticService, AIProviderDiagnostic, QueueDiagnostics 
 type ServiceStatus = 'healthy' | 'unhealthy' | 'warning' | 'skipped'
 
 const STATUS_STYLE: Record<ServiceStatus, { color: string; bg: string; border: string; label: string }> = {
-  healthy:  { color: '#34d399', bg: 'rgba(16,185,129,0.08)',  border: 'rgba(16,185,129,0.2)',  label: 'HEALTHY'  },
-  unhealthy:{ color: '#f87171', bg: 'rgba(239,68,68,0.08)',   border: 'rgba(239,68,68,0.25)',   label: 'FAILED'   },
-  warning:  { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)',  border: 'rgba(251,191,36,0.2)',   label: 'WARNING'  },
-  skipped:  { color: '#94a3b8', bg: 'rgba(148,163,184,0.06)', border: 'rgba(148,163,184,0.15)', label: 'SKIPPED'  },
+  healthy:  { color: 'var(--pc-emerald-400)', bg: 'var(--pc-t-emerald-08)',  border: 'var(--pc-t-emerald-20)',  label: 'HEALTHY'  },
+  unhealthy:{ color: 'var(--pc-red-400)', bg: 'var(--pc-t-red-08)',   border: 'var(--pc-t-red-25)',   label: 'FAILED'   },
+  warning:  { color: 'var(--pc-amber-400)', bg: 'var(--pc-t-amberlt-08)',  border: 'var(--pc-t-amberlt-20)',   label: 'WARNING'  },
+  skipped:  { color: 'var(--pc-slate-400)', bg: 'var(--pc-t-slatelt-06)', border: 'var(--pc-t-slatelt-15)', label: 'SKIPPED'  },
 }
 
 const SERVICE_ICONS: Record<string, typeof Database> = {
@@ -37,10 +38,10 @@ function fmtLatency(ms: number): string {
 }
 
 function latencyColor(ms: number): string {
-  if (ms < 50)   return '#34d399'
-  if (ms < 200)  return '#60a5fa'
-  if (ms < 500)  return '#fbbf24'
-  return '#f87171'
+  if (ms < 50)   return 'var(--pc-emerald-400)'
+  if (ms < 200)  return 'var(--pc-blue-400)'
+  if (ms < 500)  return 'var(--pc-amber-400)'
+  return 'var(--pc-red-400)'
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ function SectionHeader({ icon: Icon, title, sub }: { icon: typeof Database; titl
     <div className="flex items-center gap-3 mb-4">
       <div
         className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
+        style={{ background: 'var(--pc-t-emerald-10)', border: '1px solid var(--pc-t-emerald-20)' }}
       >
         <Icon className="h-[18px] w-[18px] text-emerald-400" />
       </div>
@@ -78,13 +79,13 @@ function ServiceCard({ svc }: { svc: PlatformDiagnosticService }) {
       <div className="flex items-start justify-between gap-2 mb-3">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: s.color + '18', border: `1px solid ${s.color}30` }}
+          style={{ background: tint(s.color, 9.41), border: `1px solid ${tint(s.color, 18.82)}` }}
         >
           <Icon className="h-5 w-5" style={{ color: s.color }} />
         </div>
         <span
           className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-          style={{ background: s.color + '18', color: s.color, border: `1px solid ${s.color}30` }}
+          style={{ background: tint(s.color, 9.41), color: s.color, border: `1px solid ${tint(s.color, 18.82)}` }}
         >
           {s.label}
         </span>
@@ -119,13 +120,13 @@ function QueueKpi({ label, value, color }: { label: string; value: number; color
     <div
       className="rounded-xl p-4 flex items-center gap-4"
       style={{
-        background: 'linear-gradient(135deg, rgba(15,26,48,0.9), rgba(10,18,35,0.9))',
-        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'linear-gradient(135deg, var(--pc-t-surf3-90), var(--pc-t-surf4-90))',
+        border: '1px solid var(--pc-t-overlay-07)',
       }}
     >
       <div
         className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: color + '18', border: `1px solid ${color}30` }}
+        style={{ background: tint(color, 9.41), border: `1px solid ${tint(color, 18.82)}` }}
       >
         <div className="w-3 h-3 rounded-full" style={{ background: color }} />
       </div>
@@ -139,17 +140,17 @@ function QueueKpi({ label, value, color }: { label: string; value: number; color
 
 function QueueRow({ label, pending, running, color }: { label: string; pending: number; running: number; color: string }) {
   return (
-    <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+    <div className="flex items-center justify-between py-2.5" style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}>
       <div className="flex items-center gap-2">
         <div className="w-2 h-2 rounded-full" style={{ background: color }} />
         <span className="text-sm font-semibold text-slate-300">{label}</span>
       </div>
       <div className="flex items-center gap-4 text-sm">
         <span className="text-slate-500">
-          Pending: <span className="font-bold" style={{ color: pending > 0 ? '#fbbf24' : '#475569' }}>{pending}</span>
+          Pending: <span className="font-bold" style={{ color: pending > 0 ? 'var(--pc-amber-400)' : 'var(--pc-slate-600)' }}>{pending}</span>
         </span>
         <span className="text-slate-500">
-          Running: <span className="font-bold" style={{ color: running > 0 ? '#60a5fa' : '#475569' }}>{running}</span>
+          Running: <span className="font-bold" style={{ color: running > 0 ? 'var(--pc-blue-400)' : 'var(--pc-slate-600)' }}>{running}</span>
         </span>
       </div>
     </div>
@@ -159,16 +160,16 @@ function QueueRow({ label, pending, running, color }: { label: string; pending: 
 function AICard({ p }: { p: AIProviderDiagnostic }) {
   const ready = p.status === 'ready'
   const active = p.active
-  const color  = ready ? '#34d399' : '#f87171'
-  const bg     = ready ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.06)'
-  const border = ready ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'
+  const color  = ready ? 'var(--pc-emerald-400)' : 'var(--pc-red-400)'
+  const bg     = ready ? 'var(--pc-t-emerald-08)' : 'var(--pc-t-red-06)'
+  const border = ready ? 'var(--pc-t-emerald-20)' : 'var(--pc-t-red-20)'
 
   return (
     <div className="rounded-xl p-4" style={{ background: bg, border: `1px solid ${border}` }}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: color + '18', border: `1px solid ${color}30` }}
+          style={{ background: tint(color, 9.41), border: `1px solid ${tint(color, 18.82)}` }}
         >
           <Bot className="h-5 w-5" style={{ color }} />
         </div>
@@ -176,14 +177,14 @@ function AICard({ p }: { p: AIProviderDiagnostic }) {
           {active && (
             <span
               className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-widest"
-              style={{ background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}
+              style={{ background: 'var(--pc-t-emerald-15)', color: 'var(--pc-emerald-400)', border: '1px solid var(--pc-t-emerald-30)' }}
             >
               Active
             </span>
           )}
           <span
             className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wide"
-            style={{ background: color + '18', color, border: `1px solid ${color}30` }}
+            style={{ background: tint(color, 9.41), color, border: `1px solid ${tint(color, 18.82)}` }}
           >
             {ready ? 'Ready' : 'Not configured'}
           </span>
@@ -234,7 +235,7 @@ export default function HealthPage() {
             onClick={() => refetch()}
             disabled={isFetching}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-slate-300 disabled:opacity-50"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
             {isFetching ? 'Checking…' : 'Run Checks'}
@@ -247,14 +248,14 @@ export default function HealthPage() {
         <div
           className="rounded-xl px-5 py-4 mb-8 flex items-center gap-3"
           style={allHealthy
-            ? { background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }
-            : { background: 'rgba(239,68,68,0.08)',  border: '1px solid rgba(239,68,68,0.25)' }}
+            ? { background: 'var(--pc-t-emerald-08)', border: '1px solid var(--pc-t-emerald-20)' }
+            : { background: 'var(--pc-t-red-08)',  border: '1px solid var(--pc-t-red-25)' }}
         >
           {allHealthy
             ? <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
             : <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />}
           <div>
-            <p className="text-sm font-bold" style={{ color: allHealthy ? '#34d399' : '#f87171' }}>
+            <p className="text-sm font-bold" style={{ color: allHealthy ? 'var(--pc-emerald-400)' : 'var(--pc-red-400)' }}>
               {allHealthy ? 'All systems operational' : 'Degraded — one or more services need attention'}
             </p>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -277,14 +278,14 @@ export default function HealthPage() {
       {isError && !isLoading && (
         <div
           className="rounded-xl px-5 py-4 mb-6 flex items-center gap-3"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
+          style={{ background: 'var(--pc-t-red-08)', border: '1px solid var(--pc-t-red-20)' }}
         >
           <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
           <p className="text-sm text-red-300">Failed to run health checks. Is the backend running?</p>
           <button
             onClick={() => refetch()}
             className="ml-auto text-xs text-slate-400 px-3 py-1.5 rounded-lg"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{ background: 'var(--pc-t-overlay-05)', border: '1px solid var(--pc-t-overlay-10)' }}
           >
             Retry
           </button>
@@ -325,7 +326,7 @@ export default function HealthPage() {
               </div>
               <p
                 className="text-[11px] text-slate-600 px-3 py-2 rounded-lg"
-                style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}
+                style={{ background: 'var(--pc-t-overlay-02)', border: '1px solid var(--pc-t-overlay-05)' }}
               >
                 Workers checked by broadcast ping. In local dev, start workers with{' '}
                 <span className="font-mono text-slate-500">celery -A app.workers.celery_app worker --pool=solo</span>.
@@ -341,25 +342,25 @@ export default function HealthPage() {
                 sub={`${q?.workers_online ?? 0} worker(s) online · ${q?.total_24h ?? 0} tasks in last 24h`}
               />
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <QueueKpi label="Pending"    value={q?.pending ?? 0}    color="#fbbf24" />
-                <QueueKpi label="Running"    value={q?.running ?? 0}    color="#60a5fa" />
-                <QueueKpi label="Completed"  value={q?.completed ?? 0}  color="#34d399" />
-                <QueueKpi label="Failed"     value={q?.failed ?? 0}     color="#f87171" />
+                <QueueKpi label="Pending"    value={q?.pending ?? 0}    color="var(--pc-amber-400)" />
+                <QueueKpi label="Running"    value={q?.running ?? 0}    color="var(--pc-blue-400)" />
+                <QueueKpi label="Completed"  value={q?.completed ?? 0}  color="var(--pc-emerald-400)" />
+                <QueueKpi label="Failed"     value={q?.failed ?? 0}     color="var(--pc-red-400)" />
               </div>
               <div
                 className="rounded-xl px-4 py-1"
                 style={{
-                  background: 'linear-gradient(180deg, rgba(14,24,45,0.95) 0%, rgba(10,18,35,0.95) 100%)',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'linear-gradient(180deg, var(--pc-t-surf2-95) 0%, var(--pc-t-surf4-95) 100%)',
+                  border: '1px solid var(--pc-t-overlay-08)',
                 }}
               >
-                <QueueRow label="celery (light)"  pending={q?.celery_pending ?? 0} running={q?.celery_running ?? 0} color="#60a5fa" />
-                <QueueRow label="celery-heavy (AI)" pending={q?.heavy_pending ?? 0} running={q?.heavy_running ?? 0} color="#a78bfa" />
+                <QueueRow label="celery (light)"  pending={q?.celery_pending ?? 0} running={q?.celery_running ?? 0} color="var(--pc-blue-400)" />
+                <QueueRow label="celery-heavy (AI)" pending={q?.heavy_pending ?? 0} running={q?.heavy_running ?? 0} color="var(--pc-violet-400)" />
                 <div className="flex items-center justify-between py-2.5">
                   <span className="text-xs text-slate-600 uppercase tracking-wide font-semibold">Failed (24h)</span>
                   <span
                     className="text-sm font-bold"
-                    style={{ color: (q?.failed_24h ?? 0) > 0 ? '#f87171' : '#475569' }}
+                    style={{ color: (q?.failed_24h ?? 0) > 0 ? 'var(--pc-red-400)' : 'var(--pc-slate-600)' }}
                   >
                     {q?.failed_24h ?? 0}
                   </span>
@@ -382,7 +383,7 @@ export default function HealthPage() {
               ))}
               <div
                 className="rounded-xl p-4 flex flex-col items-center justify-center gap-2 col-span-1 sm:col-span-2 lg:col-span-2"
-                style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', minHeight: 80 }}
+                style={{ background: 'var(--pc-t-overlay-02)', border: '1px dashed var(--pc-t-overlay-08)', minHeight: 80 }}
               >
                 <Zap className="h-4 w-4 text-slate-700" />
                 <p className="text-xs text-slate-700">Additional providers coming soon</p>

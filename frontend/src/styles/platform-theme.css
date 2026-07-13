@@ -1,0 +1,435 @@
+/* ---------------------------------------------------------------------------
+ * Platform Console theming (SherpaVector Super Admin only).
+ *
+ * Everything here is scoped under [data-pc-theme], which is set on the
+ * AdminShell root and nowhere else. Student, Faculty, Dean and Admin portals
+ * render outside that subtree and cannot inherit any of it.
+ *
+ * THE CONSTRAINT: Blue must render exactly as the console does today. Two
+ * things follow from that.
+ *
+ *  1. Hues are tokenized; alphas are NOT. The console uses ~90 distinct
+ *     (hue, alpha) pairs — a 50% red border here, 30% there, an 8% fill. Folding
+ *     those onto a few "soft/border" tokens would visibly repaint the console.
+ *     So every translucent colour is `color-mix(var(--pc-h-HUE) A%, transparent)`
+ *     with A preserved exactly (see the tint table below), and only the hue
+ *     swaps per theme.
+ *
+ *  2. The Tailwind remaps restate Tailwind's own values in Blue. The console was
+ *     written against the fixed slate/emerald ramp (~300 class usages); rather
+ *     than rewrite every className, each utility is re-pointed at a token inside
+ *     the themed subtree. `[data-pc-theme] .text-slate-500` has specificity
+ *     (0,2,0) and so beats Tailwind's (0,1,0) regardless of source order — and
+ *     in Blue it resolves to #64748b, which is what the class already painted.
+ *
+ * Black (rgba(0,0,0,…)) is deliberately never tokenized: it is only ever a drop
+ * shadow or a modal scrim, and both stay black in a light theme too.
+ * ------------------------------------------------------------------------- */
+
+/* ===== BLUE — the console as it exists today. Every value below is the literal
+         already present in the source. This theme is a no-op by construction. */
+[data-pc-theme='blue'] {
+  color-scheme: dark;
+
+  /* Solid surfaces */
+  --pc-bg: #060d1f;
+  --pc-chrome: #080f1e;
+  --pc-chrome-border: #1a2a44;
+  --pc-elevated: #0e182d;
+  --pc-panel-from: #0f1a2e;
+  --pc-panel-to: #0a1223;
+
+  /* Hue bases for the tint table. `overlay` is the film laid over a surface to
+     lift it — white on a dark theme, and it must flip to near-black on a light
+     one or every raised element disappears. */
+  --pc-h-overlay: #ffffff;
+  --pc-h-surf1: #0c1629;
+  --pc-h-surf2: #0e182d;
+  --pc-h-surf3: #0f1a30;
+  --pc-h-surf4: #0a1223;
+  --pc-h-surf5: #060d1f;
+  --pc-h-emerald: #10b981;
+  --pc-h-red: #ef4444;
+  --pc-h-amber: #f59e0b;
+  --pc-h-amberlt: #fbbf24;
+  --pc-h-indigo: #6366f1;
+  --pc-h-blue: #3b82f6;
+  --pc-h-bluelt: #60a5fa;
+  --pc-h-violet: #a78bfa;
+  --pc-h-slate: #64748b;
+  --pc-h-slatelt: #94a3b8;
+  --pc-h-stone: #78716c;
+
+  /* Text + status ramps, restated verbatim from Tailwind. */
+  --pc-text: #ffffff;
+  --pc-slate-100: #f1f5f9;
+  --pc-slate-200: #e2e8f0;
+  --pc-slate-300: #cbd5e1;
+  --pc-slate-400: #94a3b8;
+  --pc-slate-500: #64748b;
+  --pc-slate-600: #475569;
+  --pc-slate-700: #334155;
+  --pc-gray-100: #f3f4f6;
+  --pc-gray-300: #d1d5db;
+  --pc-gray-400: #9ca3af;
+  --pc-gray-500: #6b7280;
+  --pc-gray-600: #4b5563;
+  --pc-emerald-300: #6ee7b7;
+  --pc-emerald-400: #34d399;
+  --pc-emerald-500: #10b981;
+  --pc-emerald-600: #059669;
+  --pc-red-300: #fca5a5;
+  --pc-red-400: #f87171;
+  --pc-red-500: #ef4444;
+  --pc-red-600: #dc2626;
+  --pc-red-700: #b91c1c;
+  --pc-amber-400: #fbbf24;
+  --pc-amber-500: #f59e0b;
+  --pc-blue-400: #60a5fa;
+  --pc-blue-500: #3b82f6;
+  --pc-blue-600: #2563eb;
+  --pc-indigo-300: #a5b4fc;
+  --pc-indigo-400: #818cf8;
+  --pc-indigo-500: #6366f1;
+  --pc-indigo-600: #4f46e5;
+  --pc-violet-400: #a78bfa;
+  --pc-cyan-500: #06b6d4;
+  --pc-stone-400: #a8a29e;
+  --pc-stone-500: #78716c;
+  --pc-white-60: rgba(255, 255, 255, 0.6);
+
+  /* Accent — emerald today: active nav, primary buttons, the Super Admin chip. */
+  --pc-accent: #10b981;
+  --pc-accent-hover: #059669;
+  --pc-accent-fg: #ffffff;
+  --pc-accent-text: #6ee7b7;
+  --pc-accent-icon: #34d399;
+  --pc-accent-soft: color-mix(in srgb, var(--pc-accent) 10%, transparent);
+  --pc-accent-border: color-mix(in srgb, var(--pc-accent) 20%, transparent);
+  --pc-accent-glow: color-mix(in srgb, var(--pc-accent) 35%, transparent);
+  --pc-brand-glow: color-mix(in srgb, var(--pc-accent) 12%, transparent);
+}
+
+/* ===== WHITE — light surfaces, near-black text, blue primary. ============= */
+[data-pc-theme='white'] {
+  color-scheme: light;
+
+  --pc-bg: #eef1f6;
+  --pc-chrome: #ffffff;
+  --pc-chrome-border: #dde3ea;
+  --pc-elevated: #ffffff;
+  --pc-panel-from: #ffffff;
+  --pc-panel-to: #ffffff;
+
+  /* The overlay flips: films that lifted an element off a dark surface must
+     now darken it against a light one. Panels go flat white. */
+  --pc-h-overlay: #0f172a;
+  --pc-h-surf1: #ffffff;
+  --pc-h-surf2: #ffffff;
+  --pc-h-surf3: #ffffff;
+  --pc-h-surf4: #ffffff;
+  --pc-h-surf5: #eef1f6;
+  /* Status hues darken so their 8–30% washes still read as colour on white. */
+  --pc-h-emerald: #059669;
+  --pc-h-red: #dc2626;
+  --pc-h-amber: #d97706;
+  --pc-h-amberlt: #d97706;
+  --pc-h-indigo: #4f46e5;
+  --pc-h-blue: #2563eb;
+  --pc-h-bluelt: #2563eb;
+  --pc-h-violet: #7c3aed;
+  --pc-h-slate: #64748b;
+  --pc-h-slatelt: #64748b;
+  --pc-h-stone: #78716c;
+
+  /* The text ramp inverts: what was brightest on navy is darkest on white, and
+     the faint greys the dark theme used to de-emphasise stay faint. */
+  --pc-text: #0f172a;
+  --pc-slate-100: #0f172a;
+  --pc-slate-200: #1e293b;
+  --pc-slate-300: #334155;
+  --pc-slate-400: #475569;
+  --pc-slate-500: #5b6b80;
+  --pc-slate-600: #7c8ca1;
+  --pc-slate-700: #a3b0bf;
+  --pc-gray-100: #111827;
+  --pc-gray-300: #374151;
+  --pc-gray-400: #4b5563;
+  --pc-gray-500: #6b7280;
+  --pc-gray-600: #9ca3af;
+  --pc-emerald-300: #047857;
+  --pc-emerald-400: #047857;
+  --pc-emerald-500: #059669;
+  --pc-emerald-600: #065f46;
+  --pc-red-300: #dc2626;
+  --pc-red-400: #b91c1c;
+  --pc-red-500: #dc2626;
+  --pc-red-600: #b91c1c;
+  --pc-red-700: #991b1b;
+  --pc-amber-400: #b45309;
+  --pc-amber-500: #d97706;
+  --pc-blue-400: #1d4ed8;
+  --pc-blue-500: #2563eb;
+  --pc-blue-600: #1d4ed8;
+  --pc-indigo-300: #4338ca;
+  --pc-indigo-400: #4338ca;
+  --pc-indigo-500: #4f46e5;
+  --pc-indigo-600: #4338ca;
+  --pc-violet-400: #7c3aed;
+  --pc-cyan-500: #0e7490;
+  --pc-stone-400: #78716c;
+  --pc-stone-500: #57534e;
+  --pc-white-60: rgba(15, 23, 42, 0.55);
+
+  --pc-accent: #2563eb;
+  --pc-accent-hover: #1d4ed8;
+  --pc-accent-fg: #ffffff;
+  --pc-accent-text: #1d4ed8;
+  --pc-accent-icon: #2563eb;
+  --pc-accent-soft: color-mix(in srgb, var(--pc-accent) 9%, transparent);
+  --pc-accent-border: color-mix(in srgb, var(--pc-accent) 28%, transparent);
+  --pc-accent-glow: color-mix(in srgb, var(--pc-accent) 28%, transparent);
+  /* A coloured aura behind the logo reads as grime on a white sidebar. */
+  --pc-brand-glow: transparent;
+}
+
+/* ===== BLACK — charcoal surfaces, white text, blue primary. =============== */
+[data-pc-theme='black'] {
+  color-scheme: dark;
+
+  --pc-bg: #0a0a0c;
+  --pc-chrome: #121215;
+  --pc-chrome-border: #2b2b32;
+  --pc-elevated: #1c1c21;
+  --pc-panel-from: #18181c;
+  --pc-panel-to: #131316;
+
+  --pc-h-overlay: #ffffff;
+  --pc-h-surf1: #17171b;
+  --pc-h-surf2: #18181c;
+  --pc-h-surf3: #1a1a1f;
+  --pc-h-surf4: #131316;
+  --pc-h-surf5: #0a0a0c;
+  --pc-h-emerald: #10b981;
+  --pc-h-red: #ef4444;
+  --pc-h-amber: #f59e0b;
+  --pc-h-amberlt: #fbbf24;
+  --pc-h-indigo: #818cf8;
+  --pc-h-blue: #3b82f6;
+  --pc-h-bluelt: #60a5fa;
+  --pc-h-violet: #a78bfa;
+  --pc-h-slate: #8e8e97;
+  --pc-h-slatelt: #a1a1aa;
+  --pc-h-stone: #a8a29e;
+
+  /* Neutrals shed their blue tint for true charcoal; the status hues already
+     read well on black and keep Tailwind's values. */
+  --pc-text: #ffffff;
+  --pc-slate-100: #f4f4f5;
+  --pc-slate-200: #e4e4e7;
+  --pc-slate-300: #d4d4d8;
+  --pc-slate-400: #a1a1aa;
+  --pc-slate-500: #8e8e97;
+  --pc-slate-600: #71717a;
+  --pc-slate-700: #5c5c65;
+  --pc-gray-100: #f4f4f5;
+  --pc-gray-300: #d4d4d8;
+  --pc-gray-400: #a1a1aa;
+  --pc-gray-500: #8e8e97;
+  --pc-gray-600: #71717a;
+  --pc-emerald-300: #6ee7b7;
+  --pc-emerald-400: #34d399;
+  --pc-emerald-500: #10b981;
+  --pc-emerald-600: #34d399;
+  --pc-red-300: #fca5a5;
+  --pc-red-400: #f87171;
+  --pc-red-500: #ef4444;
+  --pc-red-600: #ef4444;
+  --pc-red-700: #dc2626;
+  --pc-amber-400: #fbbf24;
+  --pc-amber-500: #f59e0b;
+  --pc-blue-400: #60a5fa;
+  --pc-blue-500: #3b82f6;
+  --pc-blue-600: #3b82f6;
+  --pc-indigo-300: #a5b4fc;
+  --pc-indigo-400: #a5b4fc;
+  --pc-indigo-500: #818cf8;
+  --pc-indigo-600: #818cf8;
+  --pc-violet-400: #a78bfa;
+  --pc-cyan-500: #22d3ee;
+  --pc-stone-400: #d6d3d1;
+  --pc-stone-500: #a8a29e;
+  --pc-white-60: rgba(255, 255, 255, 0.6);
+
+  --pc-accent: #3b82f6;
+  --pc-accent-hover: #2563eb;
+  --pc-accent-fg: #ffffff;
+  --pc-accent-text: #93c5fd;
+  --pc-accent-icon: #60a5fa;
+  --pc-accent-soft: color-mix(in srgb, var(--pc-accent) 16%, transparent);
+  --pc-accent-border: color-mix(in srgb, var(--pc-accent) 32%, transparent);
+  --pc-accent-glow: color-mix(in srgb, var(--pc-accent) 38%, transparent);
+  --pc-brand-glow: color-mix(in srgb, var(--pc-accent) 16%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+ * Tint table — generated from the exact (hue, alpha) pairs the console uses.
+ * Written against the hue vars, so it needs no per-theme duplication: swapping
+ * --pc-h-* re-tints every surface at once, with the original alpha intact.
+ * ------------------------------------------------------------------------- */
+[data-pc-theme] {
+  --pc-t-amber-06: color-mix(in srgb, var(--pc-h-amber) 6%, transparent);
+  --pc-t-amber-08: color-mix(in srgb, var(--pc-h-amber) 8%, transparent);
+  --pc-t-amber-10: color-mix(in srgb, var(--pc-h-amber) 10%, transparent);
+  --pc-t-amber-12: color-mix(in srgb, var(--pc-h-amber) 12%, transparent);
+  --pc-t-amber-15: color-mix(in srgb, var(--pc-h-amber) 15%, transparent);
+  --pc-t-amber-20: color-mix(in srgb, var(--pc-h-amber) 20%, transparent);
+  --pc-t-amber-25: color-mix(in srgb, var(--pc-h-amber) 25%, transparent);
+  --pc-t-amber-30: color-mix(in srgb, var(--pc-h-amber) 30%, transparent);
+  --pc-t-amber-40: color-mix(in srgb, var(--pc-h-amber) 40%, transparent);
+  --pc-t-amberlt-08: color-mix(in srgb, var(--pc-h-amberlt) 8%, transparent);
+  --pc-t-amberlt-12: color-mix(in srgb, var(--pc-h-amberlt) 12%, transparent);
+  --pc-t-amberlt-20: color-mix(in srgb, var(--pc-h-amberlt) 20%, transparent);
+  --pc-t-amberlt-30: color-mix(in srgb, var(--pc-h-amberlt) 30%, transparent);
+  --pc-t-blue-10: color-mix(in srgb, var(--pc-h-blue) 10%, transparent);
+  --pc-t-blue-55: color-mix(in srgb, var(--pc-h-blue) 55%, transparent);
+  --pc-t-bluelt-12: color-mix(in srgb, var(--pc-h-bluelt) 12%, transparent);
+  --pc-t-bluelt-30: color-mix(in srgb, var(--pc-h-bluelt) 30%, transparent);
+  --pc-t-emerald-04: color-mix(in srgb, var(--pc-h-emerald) 4%, transparent);
+  --pc-t-emerald-05: color-mix(in srgb, var(--pc-h-emerald) 5%, transparent);
+  --pc-t-emerald-06: color-mix(in srgb, var(--pc-h-emerald) 6%, transparent);
+  --pc-t-emerald-08: color-mix(in srgb, var(--pc-h-emerald) 8%, transparent);
+  --pc-t-emerald-10: color-mix(in srgb, var(--pc-h-emerald) 10%, transparent);
+  --pc-t-emerald-12: color-mix(in srgb, var(--pc-h-emerald) 12%, transparent);
+  --pc-t-emerald-15: color-mix(in srgb, var(--pc-h-emerald) 15%, transparent);
+  --pc-t-emerald-20: color-mix(in srgb, var(--pc-h-emerald) 20%, transparent);
+  --pc-t-emerald-25: color-mix(in srgb, var(--pc-h-emerald) 25%, transparent);
+  --pc-t-emerald-30: color-mix(in srgb, var(--pc-h-emerald) 30%, transparent);
+  --pc-t-emerald-35: color-mix(in srgb, var(--pc-h-emerald) 35%, transparent);
+  --pc-t-emerald-40: color-mix(in srgb, var(--pc-h-emerald) 40%, transparent);
+  --pc-t-indigo-08: color-mix(in srgb, var(--pc-h-indigo) 8%, transparent);
+  --pc-t-indigo-10: color-mix(in srgb, var(--pc-h-indigo) 10%, transparent);
+  --pc-t-indigo-15: color-mix(in srgb, var(--pc-h-indigo) 15%, transparent);
+  --pc-t-indigo-20: color-mix(in srgb, var(--pc-h-indigo) 20%, transparent);
+  --pc-t-indigo-25: color-mix(in srgb, var(--pc-h-indigo) 25%, transparent);
+  --pc-t-indigo-30: color-mix(in srgb, var(--pc-h-indigo) 30%, transparent);
+  --pc-t-indigo-50: color-mix(in srgb, var(--pc-h-indigo) 50%, transparent);
+  --pc-t-indigo-80: color-mix(in srgb, var(--pc-h-indigo) 80%, transparent);
+  --pc-t-overlay-02: color-mix(in srgb, var(--pc-h-overlay) 2%, transparent);
+  --pc-t-overlay-03: color-mix(in srgb, var(--pc-h-overlay) 3%, transparent);
+  --pc-t-overlay-04: color-mix(in srgb, var(--pc-h-overlay) 4%, transparent);
+  --pc-t-overlay-05: color-mix(in srgb, var(--pc-h-overlay) 5%, transparent);
+  --pc-t-overlay-06: color-mix(in srgb, var(--pc-h-overlay) 6%, transparent);
+  --pc-t-overlay-07: color-mix(in srgb, var(--pc-h-overlay) 7%, transparent);
+  --pc-t-overlay-08: color-mix(in srgb, var(--pc-h-overlay) 8%, transparent);
+  --pc-t-overlay-10: color-mix(in srgb, var(--pc-h-overlay) 10%, transparent);
+  --pc-t-overlay-12: color-mix(in srgb, var(--pc-h-overlay) 12%, transparent);
+  --pc-t-overlay-15: color-mix(in srgb, var(--pc-h-overlay) 15%, transparent);
+  --pc-t-overlay-2p5: color-mix(in srgb, var(--pc-h-overlay) 2.5%, transparent);
+  --pc-t-red-05: color-mix(in srgb, var(--pc-h-red) 5%, transparent);
+  --pc-t-red-06: color-mix(in srgb, var(--pc-h-red) 6%, transparent);
+  --pc-t-red-08: color-mix(in srgb, var(--pc-h-red) 8%, transparent);
+  --pc-t-red-10: color-mix(in srgb, var(--pc-h-red) 10%, transparent);
+  --pc-t-red-12: color-mix(in srgb, var(--pc-h-red) 12%, transparent);
+  --pc-t-red-15: color-mix(in srgb, var(--pc-h-red) 15%, transparent);
+  --pc-t-red-20: color-mix(in srgb, var(--pc-h-red) 20%, transparent);
+  --pc-t-red-25: color-mix(in srgb, var(--pc-h-red) 25%, transparent);
+  --pc-t-red-30: color-mix(in srgb, var(--pc-h-red) 30%, transparent);
+  --pc-t-red-35: color-mix(in srgb, var(--pc-h-red) 35%, transparent);
+  --pc-t-red-40: color-mix(in srgb, var(--pc-h-red) 40%, transparent);
+  --pc-t-red-50: color-mix(in srgb, var(--pc-h-red) 50%, transparent);
+  --pc-t-slate-06: color-mix(in srgb, var(--pc-h-slate) 6%, transparent);
+  --pc-t-slate-08: color-mix(in srgb, var(--pc-h-slate) 8%, transparent);
+  --pc-t-slate-10: color-mix(in srgb, var(--pc-h-slate) 10%, transparent);
+  --pc-t-slate-12: color-mix(in srgb, var(--pc-h-slate) 12%, transparent);
+  --pc-t-slate-14: color-mix(in srgb, var(--pc-h-slate) 14%, transparent);
+  --pc-t-slate-15: color-mix(in srgb, var(--pc-h-slate) 15%, transparent);
+  --pc-t-slate-20: color-mix(in srgb, var(--pc-h-slate) 20%, transparent);
+  --pc-t-slate-25: color-mix(in srgb, var(--pc-h-slate) 25%, transparent);
+  --pc-t-slatelt-06: color-mix(in srgb, var(--pc-h-slatelt) 6%, transparent);
+  --pc-t-slatelt-10: color-mix(in srgb, var(--pc-h-slatelt) 10%, transparent);
+  --pc-t-slatelt-15: color-mix(in srgb, var(--pc-h-slatelt) 15%, transparent);
+  --pc-t-slatelt-20: color-mix(in srgb, var(--pc-h-slatelt) 20%, transparent);
+  --pc-t-stone-12: color-mix(in srgb, var(--pc-h-stone) 12%, transparent);
+  --pc-t-stone-14: color-mix(in srgb, var(--pc-h-stone) 14%, transparent);
+  --pc-t-stone-20: color-mix(in srgb, var(--pc-h-stone) 20%, transparent);
+  --pc-t-stone-25: color-mix(in srgb, var(--pc-h-stone) 25%, transparent);
+  --pc-t-surf1-80: color-mix(in srgb, var(--pc-h-surf1) 80%, transparent);
+  --pc-t-surf1-85: color-mix(in srgb, var(--pc-h-surf1) 85%, transparent);
+  --pc-t-surf1-90: color-mix(in srgb, var(--pc-h-surf1) 90%, transparent);
+  --pc-t-surf2-90: color-mix(in srgb, var(--pc-h-surf2) 90%, transparent);
+  --pc-t-surf2-95: color-mix(in srgb, var(--pc-h-surf2) 95%, transparent);
+  --pc-t-surf3-90: color-mix(in srgb, var(--pc-h-surf3) 90%, transparent);
+  --pc-t-surf3-95: color-mix(in srgb, var(--pc-h-surf3) 95%, transparent);
+  --pc-t-surf4-90: color-mix(in srgb, var(--pc-h-surf4) 90%, transparent);
+  --pc-t-surf4-95: color-mix(in srgb, var(--pc-h-surf4) 95%, transparent);
+  --pc-t-surf5-95: color-mix(in srgb, var(--pc-h-surf5) 95%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+ * Utility remaps. Scoped to the console, so the same class keeps its stock
+ * Tailwind meaning everywhere else in the app.
+ * ------------------------------------------------------------------------- */
+
+/* Neutral ramp. Tailwind's gray and slate are different families (neutral vs
+   blue-tinted) and the console mixes both — aliasing them would tint Blue. */
+[data-pc-theme] .text-white { color: var(--pc-text); }
+[data-pc-theme] .text-slate-100 { color: var(--pc-slate-100); }
+[data-pc-theme] .text-slate-200 { color: var(--pc-slate-200); }
+[data-pc-theme] .text-slate-300 { color: var(--pc-slate-300); }
+[data-pc-theme] .text-slate-400 { color: var(--pc-slate-400); }
+[data-pc-theme] .text-slate-500 { color: var(--pc-slate-500); }
+[data-pc-theme] .text-slate-600 { color: var(--pc-slate-600); }
+[data-pc-theme] .text-slate-700 { color: var(--pc-slate-700); }
+[data-pc-theme] .text-gray-100 { color: var(--pc-gray-100); }
+[data-pc-theme] .text-gray-300 { color: var(--pc-gray-300); }
+[data-pc-theme] .text-gray-400 { color: var(--pc-gray-400); }
+[data-pc-theme] .text-gray-500 { color: var(--pc-gray-500); }
+[data-pc-theme] .text-gray-600 { color: var(--pc-gray-600); }
+[data-pc-theme] .text-white\/60 { color: var(--pc-white-60); }
+
+/* Status text. Emerald here means "healthy / provisioned", not "accent" — it
+   stays green in every theme and only shifts lightness. Each Tailwind step keeps
+   its own token: emerald-500 is a full step darker than emerald-400, and folding
+   them together would repaint Blue. */
+[data-pc-theme] .text-emerald-300 { color: var(--pc-emerald-300); }
+[data-pc-theme] .text-emerald-400 { color: var(--pc-emerald-400); }
+[data-pc-theme] .text-emerald-500 { color: var(--pc-emerald-500); }
+[data-pc-theme] .text-emerald-600 { color: var(--pc-emerald-600); }
+[data-pc-theme] .text-red-300 { color: var(--pc-red-300); }
+[data-pc-theme] .text-red-400 { color: var(--pc-red-400); }
+[data-pc-theme] .text-red-500 { color: var(--pc-red-500); }
+[data-pc-theme] .text-amber-400 { color: var(--pc-amber-400); }
+[data-pc-theme] .text-blue-400 { color: var(--pc-blue-400); }
+
+/* Hover variants of the same ramp */
+[data-pc-theme] .hover\:text-slate-200:hover { color: var(--pc-slate-200); }
+[data-pc-theme] .hover\:text-slate-300:hover { color: var(--pc-slate-300); }
+[data-pc-theme] .hover\:text-emerald-400:hover { color: var(--pc-emerald-400); }
+[data-pc-theme] .group:hover .group-hover\:text-emerald-400 { color: var(--pc-emerald-400); }
+
+/* Fills and borders */
+[data-pc-theme] .bg-white\/10 { background-color: var(--pc-t-overlay-10); }
+[data-pc-theme] .hover\:bg-white\/10:hover { background-color: var(--pc-t-overlay-10); }
+[data-pc-theme] .border-white\/10 { border-color: var(--pc-t-overlay-10); }
+[data-pc-theme] .bg-emerald-400 { background-color: var(--pc-emerald-400); }
+[data-pc-theme] .bg-emerald-500\/10 { background-color: var(--pc-t-emerald-10); }
+[data-pc-theme] .accent-emerald-500 { accent-color: var(--pc-accent); }
+
+/* The branding preview renders the platform header as a *tenant* will see it —
+   a picture of another surface, not console chrome. Its labels sit on the brand
+   colour, so the console theme must not repaint them. (0,3,0) beats the remaps
+   above. */
+[data-pc-theme] .pc-brand-preview .text-white { color: #ffffff; }
+[data-pc-theme] .pc-brand-preview .text-white\/60 { color: rgba(255, 255, 255, 0.6); }
+
+/* Form controls. Inputs are styled inline, but placeholders and native pickers
+   need help — an unstyled placeholder is invisible on white. */
+[data-pc-theme] input::placeholder,
+[data-pc-theme] textarea::placeholder { color: var(--pc-slate-600); }
+[data-pc-theme] select option {
+  background: var(--pc-elevated);
+  color: var(--pc-slate-200);
+}
+[data-pc-theme='white'] input[type='checkbox'],
+[data-pc-theme='white'] input[type='radio'] { accent-color: var(--pc-accent); }

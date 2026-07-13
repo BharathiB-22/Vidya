@@ -6,6 +6,8 @@ import {
   User, Palette, Trash2, Database,
 } from 'lucide-react'
 import { useAdminAuth } from '@/lib/adminAuth'
+import { PlatformThemeProvider, usePlatformTheme } from '@/lib/platformTheme'
+import { PlatformThemeSwitcher } from '@/components/admin/PlatformThemeSwitcher'
 
 interface NavItem {
   label: string
@@ -79,23 +81,23 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
   const { logout } = useAdminAuth()
 
   return (
-    <div className="flex flex-col h-full" style={{ background: '#080f1e', borderRight: '1px solid #1a2a44' }}>
+    <div className="flex flex-col h-full" style={{ background: 'var(--pc-chrome)', borderRight: '1px solid var(--pc-chrome-border)' }}>
 
       {/* Brand header */}
       <div
         className="relative px-4 py-4 flex items-center justify-between gap-2 overflow-hidden"
-        style={{ borderBottom: '1px solid #1a2a44' }}
+        style={{ borderBottom: '1px solid var(--pc-chrome-border)' }}
       >
         <div
           className="absolute top-0 left-0 w-28 h-full pointer-events-none"
-          style={{ background: 'radial-gradient(ellipse at left, rgba(16,185,129,0.12) 0%, transparent 70%)' }}
+          style={{ background: 'radial-gradient(ellipse at left, var(--pc-brand-glow) 0%, transparent 70%)' }}
         />
         <div className="relative flex items-center gap-2.5 min-w-0">
           <img
             src="/branding/sherpavector-logo.png"
             alt="SherpaVector"
             className="w-8 h-8 rounded-full object-contain flex-shrink-0"
-            style={{ filter: 'drop-shadow(0 0 6px rgba(16,185,129,0.35))' }}
+            style={{ filter: 'drop-shadow(0 0 6px var(--pc-accent-glow))' }}
           />
           <div className="min-w-0">
             <p className="text-[12px] font-bold text-white leading-none tracking-wide">SherpaVector</p>
@@ -119,7 +121,7 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
               <span className="text-[9px] font-bold text-slate-700 uppercase tracking-[0.14em] whitespace-nowrap">
                 {section.heading}
               </span>
-              <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.04)' }} />
+              <div className="flex-1 h-px" style={{ background: 'var(--pc-t-overlay-04)' }} />
             </div>
             <ul className="space-y-0.5">
               {section.items.map((item) => {
@@ -131,7 +133,7 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
                         <span className="truncate text-slate-600">{item.label}</span>
                         <span
                           className="ml-auto text-[8px] px-1.5 py-0.5 rounded-sm font-semibold uppercase tracking-wider"
-                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', color: '#334155' }}
+                          style={{ background: 'var(--pc-t-overlay-03)', border: '1px solid var(--pc-t-overlay-07)', color: 'var(--pc-slate-700)' }}
                         >
                           soon
                         </span>
@@ -142,24 +144,31 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
 
                 const active = isNavActive(item.to, location.pathname, item.end)
                 return (
+                  /* Active nav is the accent, not a status colour — it follows
+                     --pc-accent, which is this same emerald in Blue and blue in
+                     the White/Black themes. */
                   <li key={item.label} className="relative">
                     {active && (
-                      <div className="absolute left-0 top-1 bottom-1 w-[3px] bg-emerald-400 rounded-r-full" />
+                      <div
+                        className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full"
+                        style={{ background: 'var(--pc-accent-icon)' }}
+                      />
                     )}
                     <Link
                       to={item.to}
                       onClick={onClose}
                       className={`flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-sm font-medium transition-all duration-150 ${
-                        active
-                          ? 'bg-emerald-500/10 text-emerald-300'
-                          : 'text-slate-500 hover:text-slate-200'
+                        active ? '' : 'text-slate-500 hover:text-slate-200'
                       }`}
-                      style={active ? {} : {}}
-                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                      style={active
+                        ? { background: 'var(--pc-accent-soft)', color: 'var(--pc-accent-text)' }
+                        : {}}
+                      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'var(--pc-t-overlay-04)' }}
                       onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = '' }}
                     >
                       <item.icon
-                        className={`h-[15px] w-[15px] flex-shrink-0 ${active ? 'text-emerald-400' : 'text-slate-600'}`}
+                        className={`h-[15px] w-[15px] flex-shrink-0 ${active ? '' : 'text-slate-600'}`}
+                        style={active ? { color: 'var(--pc-accent-icon)' } : {}}
                       />
                       <span className="truncate">{item.label}</span>
                     </Link>
@@ -178,8 +187,8 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
                 onClick={logout}
                 className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-sm font-medium text-slate-600 transition-all duration-150"
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-                  e.currentTarget.style.color = '#f87171'
+                  e.currentTarget.style.background = 'var(--pc-t-overlay-04)'
+                  e.currentTarget.style.color = 'var(--pc-red-400)'
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = ''
@@ -195,13 +204,13 @@ function AdminSidebar({ onClose }: { onClose: () => void }) {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-3" style={{ borderTop: '1px solid #1a2a44' }}>
+      <div className="px-3 py-3" style={{ borderTop: '1px solid var(--pc-chrome-border)' }}>
         <div className="flex items-center gap-2">
           <div
             className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
+            style={{ background: 'var(--pc-accent-soft)', border: '1px solid var(--pc-accent-border)' }}
           >
-            <Shield className="h-3.5 w-3.5 text-emerald-500" />
+            <Shield className="h-3.5 w-3.5" style={{ color: 'var(--pc-accent)' }} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-semibold text-slate-300 leading-tight">Super Admin</p>
@@ -226,7 +235,7 @@ function AdminTopbar({ onMenuClick }: { onMenuClick: () => void }) {
   return (
     <header
       className="h-12 flex items-center px-4 gap-3 flex-shrink-0 sticky top-0 z-10"
-      style={{ background: '#080f1e', borderBottom: '1px solid #1a2a44' }}
+      style={{ background: 'var(--pc-chrome)', borderBottom: '1px solid var(--pc-chrome-border)' }}
     >
       {/* Mobile hamburger */}
       <button
@@ -235,8 +244,8 @@ function AdminTopbar({ onMenuClick }: { onMenuClick: () => void }) {
         onClick={onMenuClick}
         aria-label="Open navigation"
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
-          e.currentTarget.style.color = '#cbd5e1'
+          e.currentTarget.style.background = 'var(--pc-t-overlay-06)'
+          e.currentTarget.style.color = 'var(--pc-slate-300)'
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = ''
@@ -248,7 +257,7 @@ function AdminTopbar({ onMenuClick }: { onMenuClick: () => void }) {
         </svg>
       </button>
 
-      <div className="hidden lg:block w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />
+      <div className="hidden lg:block w-px h-4 flex-shrink-0" style={{ background: 'var(--pc-t-overlay-08)' }} />
 
       {/* Breadcrumb */}
       <div className="hidden sm:flex items-center gap-2 flex-1 min-w-0">
@@ -262,18 +271,21 @@ function AdminTopbar({ onMenuClick }: { onMenuClick: () => void }) {
       {/* Search */}
       <button
         className="hidden md:flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors w-48 flex-shrink-0"
-        style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+        style={{ background: 'var(--pc-t-overlay-04)', border: '1px solid var(--pc-t-overlay-08)' }}
       >
         <Search className="h-3.5 w-3.5 text-slate-600 flex-shrink-0" />
         <span className="flex-1 text-left text-[12px] text-slate-600">Search…</span>
       </button>
 
+      {/* Theme */}
+      <PlatformThemeSwitcher />
+
       {/* Bell */}
       <button
         className="p-2 rounded-lg text-slate-600 transition-colors flex-shrink-0"
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
-          e.currentTarget.style.color = '#cbd5e1'
+          e.currentTarget.style.background = 'var(--pc-t-overlay-06)'
+          e.currentTarget.style.color = 'var(--pc-slate-300)'
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = ''
@@ -283,19 +295,28 @@ function AdminTopbar({ onMenuClick }: { onMenuClick: () => void }) {
         <Bell className="h-[17px] w-[17px]" />
       </button>
 
-      <div className="w-px h-4 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.08)' }} />
+      <div className="w-px h-4 flex-shrink-0" style={{ background: 'var(--pc-t-overlay-08)' }} />
 
       {/* SA chip */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <div
           className="h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #10b981, #059669)', boxShadow: '0 0 8px rgba(16,185,129,0.3)' }}
+          style={{
+            background: 'linear-gradient(135deg, var(--pc-accent), var(--pc-accent-hover))',
+            boxShadow: '0 0 8px color-mix(in srgb, var(--pc-accent) 30%, transparent)',
+          }}
         >
-          <Shield className="h-3.5 w-3.5 text-white" />
+          {/* Sits on a saturated fill, so it stays white in every theme — the
+              .text-white remap is for text on panels. */}
+          <Shield className="h-3.5 w-3.5" style={{ color: 'var(--pc-accent-fg)' }} />
         </div>
         <span
           className="hidden sm:inline-flex text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide"
-          style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', border: '1px solid rgba(16,185,129,0.2)' }}
+          style={{
+            background: 'var(--pc-accent-soft)',
+            color: 'var(--pc-accent-icon)',
+            border: '1px solid var(--pc-accent-border)',
+          }}
         >
           Super Admin
         </span>
@@ -304,11 +325,15 @@ function AdminTopbar({ onMenuClick }: { onMenuClick: () => void }) {
   )
 }
 
-export function AdminShell() {
+/* The themed root. Everything the console renders — including page content via
+   <Outlet /> — lives inside this element, and the [data-pc-theme] rules in
+   platform-theme.css apply to exactly this subtree and nothing else. */
+function AdminShellInner() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { theme } = usePlatformTheme()
 
   return (
-    <div className="flex h-screen" style={{ background: '#060d1f' }}>
+    <div data-pc-theme={theme} className="flex h-screen" style={{ background: 'var(--pc-bg)' }}>
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -330,10 +355,18 @@ export function AdminShell() {
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <AdminTopbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto" style={{ background: '#060d1f' }}>
+        <main className="flex-1 overflow-y-auto" style={{ background: 'var(--pc-bg)' }}>
           <Outlet />
         </main>
       </div>
     </div>
+  )
+}
+
+export function AdminShell() {
+  return (
+    <PlatformThemeProvider>
+      <AdminShellInner />
+    </PlatformThemeProvider>
   )
 }

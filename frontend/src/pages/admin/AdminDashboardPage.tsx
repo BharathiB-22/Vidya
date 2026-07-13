@@ -6,16 +6,17 @@ import {
 } from 'lucide-react'
 import { listTenants } from '@/lib/api/tenants'
 import type { Tenant, TenantStatus } from '@/lib/api/tenants'
+import { tint } from '@/lib/platformPalette'
 
 function StatusBadge({ status }: { status: TenantStatus }) {
   const cfg: Record<TenantStatus, { bg: string; color: string; border: string }> = {
-    ACTIVE:       { bg: 'rgba(16,185,129,0.1)',   color: '#34d399', border: 'rgba(16,185,129,0.2)' },
-    PROVISIONING: { bg: 'rgba(245,158,11,0.1)',   color: '#fbbf24', border: 'rgba(245,158,11,0.2)' },
-    FAILED:       { bg: 'rgba(239,68,68,0.1)',    color: '#f87171', border: 'rgba(239,68,68,0.2)'  },
-    INACTIVE:     { bg: 'rgba(100,116,139,0.12)', color: '#94a3b8', border: 'rgba(100,116,139,0.2)' },
-    ARCHIVED:     { bg: 'rgba(120,113,108,0.12)', color: '#a8a29e', border: 'rgba(120,113,108,0.2)' },
-    DELETED:              { bg: 'rgba(239,68,68,0.08)',   color: '#9ca3af', border: 'rgba(239,68,68,0.15)' },
-    PERMANENTLY_DELETED:  { bg: 'rgba(100,116,139,0.06)', color: '#475569', border: 'rgba(100,116,139,0.12)' },
+    ACTIVE:       { bg: 'var(--pc-t-emerald-10)',   color: 'var(--pc-emerald-400)', border: 'var(--pc-t-emerald-20)' },
+    PROVISIONING: { bg: 'var(--pc-t-amber-10)',   color: 'var(--pc-amber-400)', border: 'var(--pc-t-amber-20)' },
+    FAILED:       { bg: 'var(--pc-t-red-10)',    color: 'var(--pc-red-400)', border: 'var(--pc-t-red-20)'  },
+    INACTIVE:     { bg: 'var(--pc-t-slate-12)', color: 'var(--pc-slate-400)', border: 'var(--pc-t-slate-20)' },
+    ARCHIVED:     { bg: 'var(--pc-t-stone-12)', color: 'var(--pc-stone-400)', border: 'var(--pc-t-stone-20)' },
+    DELETED:              { bg: 'var(--pc-t-red-08)',   color: 'var(--pc-gray-400)', border: 'var(--pc-t-red-15)' },
+    PERMANENTLY_DELETED:  { bg: 'var(--pc-t-slate-06)', color: 'var(--pc-slate-600)', border: 'var(--pc-t-slate-12)' },
   }
   const { bg, color, border } = cfg[status] ?? cfg.INACTIVE
   return (
@@ -36,11 +37,11 @@ function KpiCard({
   return (
     <div
       className="rounded-xl p-5 flex items-center gap-4"
-      style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+      style={{ background: 'var(--pc-t-surf1-80)', border: '1px solid var(--pc-t-overlay-06)' }}
     >
       <div
         className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: accentColor + '18', border: `1px solid ${accentColor}30` }}
+        style={{ background: tint(accentColor, 9.41), border: `1px solid ${tint(accentColor, 18.82)}` }}
       >
         <Icon className="h-5 w-5" style={{ color: accentColor }} />
       </div>
@@ -63,23 +64,23 @@ function QuickAction({
       onClick={soon ? undefined : onClick}
       disabled={soon}
       className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 group w-full disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: '#cbd5e1' }}
+      style={{ background: 'var(--pc-t-overlay-02)', border: '1px solid var(--pc-t-overlay-06)', color: 'var(--pc-slate-300)' }}
       onMouseEnter={(e) => {
         if (!soon) {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(16,185,129,0.2)'
-          ;(e.currentTarget as HTMLButtonElement).style.background = 'rgba(16,185,129,0.04)'
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--pc-t-emerald-20)'
+          ;(e.currentTarget as HTMLButtonElement).style.background = 'var(--pc-t-emerald-04)'
         }
       }}
       onMouseLeave={(e) => {
         if (!soon) {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.06)'
-          ;(e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.02)'
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--pc-t-overlay-06)'
+          ;(e.currentTarget as HTMLButtonElement).style.background = 'var(--pc-t-overlay-02)'
         }
       }}
     >
       <div
         className="p-1.5 rounded-lg flex-shrink-0"
-        style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
+        style={{ background: 'var(--pc-t-emerald-10)', border: '1px solid var(--pc-t-emerald-20)' }}
       >
         <Icon className={`h-4 w-4 ${soon ? 'text-slate-600' : 'text-emerald-400'}`} />
       </div>
@@ -87,7 +88,7 @@ function QuickAction({
       {soon ? (
         <span
           className="text-[8px] px-1.5 py-0.5 rounded font-bold uppercase"
-          style={{ background: 'rgba(255,255,255,0.04)', color: '#475569', border: '1px solid rgba(255,255,255,0.06)' }}
+          style={{ background: 'var(--pc-t-overlay-04)', color: 'var(--pc-slate-600)', border: '1px solid var(--pc-t-overlay-06)' }}
         >
           soon
         </span>
@@ -102,8 +103,8 @@ function RecentTenantRow({ tenant, onView }: { tenant: Tenant; onView: () => voi
   return (
     <tr
       className="cursor-pointer transition-colors"
-      style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)' }}
+      style={{ borderBottom: '1px solid var(--pc-t-overlay-04)' }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--pc-t-overlay-02)' }}
       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = '' }}
       onClick={onView}
     >
@@ -118,7 +119,7 @@ function RecentTenantRow({ tenant, onView }: { tenant: Tenant; onView: () => voi
       <td className="px-4 py-3">
         <span
           className="text-[10px] px-1.5 py-0.5 rounded font-medium"
-          style={{ color: tenant.is_active ? '#34d399' : '#475569' }}
+          style={{ color: tenant.is_active ? 'var(--pc-emerald-400)' : 'var(--pc-slate-600)' }}
         >
           {tenant.is_active ? 'Active' : 'Inactive'}
         </span>
@@ -167,7 +168,7 @@ export default function AdminDashboardPage() {
             <span className="text-xs font-bold text-slate-200">VIDYA <span className="text-emerald-400">AI</span></span>
             <span
               className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide"
-              style={{ background: 'rgba(16,185,129,0.08)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.15)' }}
+              style={{ background: 'var(--pc-t-emerald-08)', color: 'var(--pc-emerald-300)', border: '1px solid var(--pc-t-emerald-15)' }}
             >
               Platform Console
             </span>
@@ -181,7 +182,7 @@ export default function AdminDashboardPage() {
         </div>
         <div
           className="hidden sm:flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold px-3 py-1.5 rounded-full whitespace-nowrap flex-shrink-0"
-          style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
+          style={{ background: 'var(--pc-t-emerald-10)', border: '1px solid var(--pc-t-emerald-20)' }}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           Platform Active
@@ -194,26 +195,26 @@ export default function AdminDashboardPage() {
           label="Total Universities"
           value={isLoading ? '—' : all.length}
           icon={Building2}
-          accentColor="#6366f1"
+          accentColor="var(--pc-indigo-500)"
         />
         <KpiCard
           label="Active Tenants"
           value={isLoading ? '—' : activeCount}
           icon={CheckCircle2}
-          accentColor="#10b981"
+          accentColor="var(--pc-emerald-500)"
         />
         <KpiCard
           label="Pending Setup"
           value={isLoading ? '—' : pendingCount}
           icon={Clock}
-          accentColor="#f59e0b"
+          accentColor="var(--pc-amber-500)"
           sub={pendingCount > 0 ? 'Provisioning…' : 'All clear'}
         />
         <KpiCard
           label="Platform Health"
           value={isLoading ? '—' : failedCount === 0 ? 'OK' : `${failedCount} Failed`}
           icon={failedCount === 0 ? Shield : AlertTriangle}
-          accentColor={failedCount === 0 ? '#10b981' : '#ef4444'}
+          accentColor={failedCount === 0 ? 'var(--pc-emerald-500)' : 'var(--pc-red-500)'}
           sub={failedCount === 0 ? 'Operational' : 'Needs attention'}
         />
       </div>
@@ -223,11 +224,11 @@ export default function AdminDashboardPage() {
         {/* Recent tenants */}
         <div
           className="rounded-xl overflow-hidden"
-          style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+          style={{ background: 'var(--pc-t-surf1-80)', border: '1px solid var(--pc-t-overlay-06)' }}
         >
           <div
             className="px-5 py-4 flex items-center justify-between"
-            style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ borderBottom: '1px solid var(--pc-t-overlay-06)' }}
           >
             <h2 className="text-sm font-semibold text-slate-200">Recent Universities</h2>
             <button
@@ -252,13 +253,13 @@ export default function AdminDashboardPage() {
             </div>
           ) : (
             <table className="w-full text-sm">
-              <thead style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+              <thead style={{ borderBottom: '1px solid var(--pc-t-overlay-06)', background: 'var(--pc-t-overlay-02)' }}>
                 <tr>
                   {['Institution', 'Status', 'Created', 'Active'].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide"
-                      style={{ color: '#475569' }}
+                      style={{ color: 'var(--pc-slate-600)' }}
                     >
                       {h}
                     </th>
@@ -282,7 +283,7 @@ export default function AdminDashboardPage() {
         <div className="space-y-4">
           <div
             className="rounded-xl p-5"
-            style={{ background: 'rgba(12,22,41,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ background: 'var(--pc-t-surf1-80)', border: '1px solid var(--pc-t-overlay-06)' }}
           >
             <h2 className="text-sm font-semibold text-slate-300 mb-4">Quick Actions</h2>
             <div className="space-y-2">
@@ -297,8 +298,8 @@ export default function AdminDashboardPage() {
           <div
             className="rounded-xl p-4"
             style={{
-              background: failedCount === 0 ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)',
-              border: `1px solid ${failedCount === 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
+              background: failedCount === 0 ? 'var(--pc-t-emerald-05)' : 'var(--pc-t-red-05)',
+              border: `1px solid ${failedCount === 0 ? 'var(--pc-t-emerald-20)' : 'var(--pc-t-red-20)'}`,
             }}
           >
             <div className="flex items-center gap-2 mb-1.5">
@@ -308,14 +309,14 @@ export default function AdminDashboardPage() {
               }
               <p
                 className="text-sm font-semibold"
-                style={{ color: failedCount === 0 ? '#6ee7b7' : '#fca5a5' }}
+                style={{ color: failedCount === 0 ? 'var(--pc-emerald-300)' : 'var(--pc-red-300)' }}
               >
                 {failedCount === 0 ? 'All systems operational' : 'Provisioning errors'}
               </p>
             </div>
             <p
               className="text-xs"
-              style={{ color: failedCount === 0 ? '#059669' : '#f87171' }}
+              style={{ color: failedCount === 0 ? 'var(--pc-emerald-600)' : 'var(--pc-red-400)' }}
             >
               {failedCount === 0
                 ? `${activeCount} of ${all.length} tenants active.`
@@ -325,7 +326,7 @@ export default function AdminDashboardPage() {
             {failedCount > 0 && (
               <button
                 className="mt-3 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors"
-                style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.2)' }}
+                style={{ background: 'var(--pc-t-red-10)', color: 'var(--pc-red-300)', border: '1px solid var(--pc-t-red-20)' }}
                 onClick={() => navigate('/admin/tenants')}
               >
                 View failed tenants
