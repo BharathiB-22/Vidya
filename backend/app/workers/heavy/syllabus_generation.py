@@ -129,6 +129,40 @@ async def _publish_progress(
         )
 
 
+async def _audit(engine, event_type, **fields) -> None:
+    """An audit record, on a session of THIS worker's own — and always a fresh one.
+
+    Two reasons, and the second is the one that cost us an afternoon of misleading logs.
+
+    1. `AuditService.log` otherwise opens `AsyncSessionLocal`, which is bound to the
+       API's engine. Its pooled asyncpg connections belong to whichever event loop
+       created them, and a Celery task gets a brand-new loop every time (`asyncio.run`).
+       Reaching for one from the next task finds a connection attached to a closed loop:
+       "cannot perform operation: another operation is in progress".
+
+    2. The audit record for a FAILURE must never be written through the transaction that
+       failed. That session is poisoned — the next statement on it raises about
+       connection state, not about the syllabus — and the real error, the one naming the
+       unit that could not be generated, gets buried under a database error that is
+       merely its echo. So this opens its own session, and the caller keeps its exception.
+
+    Best-effort, like the progress channel: a missing audit line must never be the reason
+    a Board is told a syllabus failed. `AuditService.log` swallows its own errors; this
+    swallows the rest.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.core.audit_log.service import AuditService
+
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as audit_session:
+            await AuditService.log(event_type, db=audit_session, **fields)
+    except Exception:
+        logger.warning(
+            "m02.generate: could not write audit record %s", event_type, exc_info=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Celery task
 # ---------------------------------------------------------------------------
@@ -526,7 +560,8 @@ async def _run_generation(
         # ------------------------------------------------------------------
         # Audit: SYLLABUS_GENERATION_COMPLETED
         # ------------------------------------------------------------------
-        await AuditService.log(
+        await _audit(
+            engine,
             AuditEventType.SYLLABUS_GENERATION_COMPLETED,
             actor_role="SYSTEM",
             tenant_id=tenant_id,
@@ -587,26 +622,32 @@ async def _run_generation(
                 syllabus_id,
             )
 
+        # What the Board is told, and it must not be a dead end. The AI stopped; the
+        # syllabus did not. Everything that was written is on disk, the document is back
+        # in DRAFT, every section is open, and the Board can finish it by hand or ask
+        # for the missing part again. Compliance names what is still pending.
         await _publish_progress(
             job_id,
             "FAILED",
-            "AI generation did not finish. Regenerate the unfinished units.",
+            "AI generation did not finish. What it wrote is saved — complete the "
+            "remaining sections yourself, or regenerate them.",
             total_units=0,
             engine=engine,
         )
 
-        try:
-            await AuditService.log(
-                AuditEventType.SYLLABUS_GENERATION_FAILED,
-                actor_role="SYSTEM",
-                tenant_id=tenant_id,
-                schema_name=schema_name,
-                target_entity="Syllabus",
-                target_id=str(syllabus_id),
-                metadata={"error": str(exc)[:500]},
-            )
-        except Exception:
-            logger.exception("m02.generate: failed to log SYLLABUS_GENERATION_FAILED audit")
+        # On a FRESH session, never the one that just failed — see `_audit`. The audit
+        # record reports the error; it must not become one, and it must not replace the
+        # exception the Board actually needs to see.
+        await _audit(
+            engine,
+            AuditEventType.SYLLABUS_GENERATION_FAILED,
+            actor_role="SYSTEM",
+            tenant_id=tenant_id,
+            schema_name=schema_name,
+            target_entity="Syllabus",
+            target_id=str(syllabus_id),
+            metadata={"error": str(exc)[:500]},
+        )
 
         raise
 
@@ -1005,7 +1046,8 @@ async def _run_section_regeneration(
             replace_types=replace_types,
         )
 
-    await AuditService.log(
+    await _audit(
+        engine,
         AuditEventType.SYLLABUS_SECTION_REGENERATED,
         actor_role="SYSTEM",
         tenant_id=tenant_id,

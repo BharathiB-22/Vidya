@@ -921,6 +921,72 @@ def _validate_guideline_document(parsed: BaseModel, course_type: str) -> list[st
     return errors
 
 
+def _split_topic_line(title: str) -> list[str]:
+    """One compound line from a model, as the several syllabus points it actually is.
+
+        'IoT Network Protocols: IEEE 802.15.4, Zigbee, Bluetooth Low Energy'
+            -> ['IoT Network Protocols', 'IEEE 802.15.4', 'Zigbee',
+                'Bluetooth Low Energy']
+
+    NORMALISE FIRST, VALIDATE SECOND — and this is the normaliser the validator was
+    missing. A regulation prints short noun phrases, and the depth checks enforce that,
+    correctly. But a model listing four protocols under a heading has WRITTEN four
+    syllabus points; it has merely punctuated them as one. Rejecting that line as "a
+    sentence pretending to be a heading" was rejecting the right answer for its comma —
+    three times over, and then failing the whole syllabus.
+
+    So the line is taken apart into the points it contains, and the quality bar then
+    judges those points. Nothing is softened: a piece that is still filler is still
+    filler, a piece that is still prose is still prose, and a unit that is still thin is
+    still regenerated. The bar is unchanged; what reaches it is now the model's actual
+    answer rather than its punctuation.
+
+    Splitting is on colons, commas and semicolons at the TOP level only — 'Sorting
+    (Quick, Merge)' is one topic, not two, and a split inside its brackets would produce
+    two fragments that are neither.
+    """
+    text = " ".join(str(title or "").split())
+    if not text:
+        return []
+
+    head, colon, tail = text.partition(":")
+    if colon and tail.strip():
+        pieces = [head, *_split_top_level(tail)]
+    else:
+        pieces = _split_top_level(text)
+
+    points: list[str] = []
+    for piece in pieces:
+        point = " ".join(piece.split()).strip(" .,;:-–—")
+        # The schema's own floor. A one- or two-character fragment is punctuation
+        # damage, not a topic, and dropping it is not losing anything a Board wanted.
+        if len(point) >= 3 and point.lower() not in {p.lower() for p in points}:
+            points.append(point)
+
+    # A line that survives with nothing in it was never a topic. Hand back what the
+    # model said and let the quality bar judge it, rather than silently deleting it.
+    return points or [text]
+
+
+def _split_top_level(text: str) -> list[str]:
+    """Split on commas and semicolons, but never inside brackets."""
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for char in text:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        if char in ",;" and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(char)
+    parts.append("".join(buf))
+    return parts
+
+
 def _normalize_topic(title: str) -> str:
     """A topic reduced to what it MEANS, for comparing one unit's against another's.
 
@@ -1077,12 +1143,21 @@ def _is_explanation(title: str) -> bool:
     in Expression Evaluation' is eight words and perfectly legitimate — so this fires
     only on lines nobody could mistake for a heading: a prose sentence, or one that
     runs past what a printed handbook line holds.
+
+    THE DOTS IN A STANDARD ARE NOT FULL STOPS. 'IEEE 802.15.4' is a protocol, 'IPv4',
+    'HTTP/1.1' and 'Python 3.12' are the things a syllabus teaches, and reading their
+    decimal points as the end of a sentence rejected a perfectly good topic — which
+    then failed the unit, the retries, and the whole generation. Numeric dots are
+    removed before the sentence test; the test itself is unchanged, and a real prose
+    sentence still fails it.
     """
     text = title.strip()
     if len(text) > _MAX_TOPIC_CHARS or len(text.split()) > _MAX_TOPIC_WORDS:
         return True
-    # A full stop inside the line means a sentence ended and another began.
-    return "." in text.rstrip(".") and not _ABBREVIATION.search(text)
+    # A full stop inside the line means a sentence ended and another began — unless it
+    # sits between digits (802.15.4) or is an abbreviation (i.e., B.Tech., Dr.).
+    prose = _NUMERIC_DOT.sub("", text)
+    return "." in prose.rstrip(".") and not _ABBREVIATION.search(text)
 
 
 # What a unit is ASKED for, and what it is REJECTED for.
@@ -1111,6 +1186,11 @@ _MAX_TOPIC_WORDS = 14
 # 'B.Tech.', 'i.e.', 'Dr.' — a full stop that is not the end of a sentence. Without
 # this, an abbreviation inside a legitimate topic reads as prose.
 _ABBREVIATION = re.compile(r"\b(?:[A-Za-z]\.){2,}|\b[A-Z][a-z]{0,3}\.")
+
+# '802.15.4', '3.12', 'HTTP/1.1' — a dot between digits is a version or a standard, not
+# the end of a sentence. Stripped before the prose test so that the protocols a syllabus
+# actually teaches are not mistaken for paragraphs.
+_NUMERIC_DOT = re.compile(r"\d+(?:\.\d+)+")
 
 # The unit counts a Board may choose between. Four and five are the formats real
 # regulations print; three is not a syllabus and nobody prints Unit VI.
@@ -2611,6 +2691,120 @@ class GeminiSyllabusProvider:
 
 
 # ---------------------------------------------------------------------------
+# The CO-PO matrix, in whatever words the model used
+# ---------------------------------------------------------------------------
+
+# Every key a provider has been seen to hand the CO-PO answer back under. All of them
+# are stripped from the outcome after `_co_po_from` has read them, so Pydantic sees the
+# canonical pair and nothing else.
+_CO_PO_ALIAS_KEYS = (
+    "po_codes", "mapped_po_codes", "mapped_pos", "pos", "program_outcomes",
+    "programme_outcomes", "related_pos", "po_mapping", "po_mappings",
+    "co_po_mapping", "co_po_map", "po_strengths", "mapping_strengths",
+    "po_code_strengths", "strengths", "mapping_strength", "po_strength",
+)
+
+# 3-2-1 is how an Indian CO-PO matrix is written on paper, and "strong / moderate /
+# weak" is how it is spoken. These are TRANSLATIONS of an answer the model gave, not
+# defaults for an answer it withheld — a CO that names a PO and says nothing about the
+# strength still fails validation and is regenerated.
+_STRENGTH_WORDS: dict[str, str] = {
+    "3": "HIGH",   "H": "HIGH",   "HIGH": "HIGH",   "STRONG": "HIGH",   "SUBSTANTIAL": "HIGH",
+    "2": "MEDIUM", "M": "MEDIUM", "MEDIUM": "MEDIUM", "MODERATE": "MEDIUM", "PARTIAL": "MEDIUM",
+    "1": "LOW",    "L": "LOW",    "LOW": "LOW",     "WEAK": "LOW",      "SLIGHT": "LOW",
+}
+
+
+def _po_code(raw: Any) -> str:
+    """'po 1' / 'po1' / 'PO-1' all name PO1. The code is matched against the programme's
+    own PO codes in the worker, so it has to arrive in the shape the database holds."""
+    return str(raw).upper().replace(" ", "").replace("-", "").replace("_", "").strip()
+
+
+def _strength(raw: Any) -> str:
+    """A strength the model stated, in the vocabulary the schema speaks. Unrecognised
+    input is returned as-is so the validator rejects it — never silently MEDIUM."""
+    key = str(raw).upper().strip()
+    return _STRENGTH_WORDS.get(key, key)
+
+
+def _co_po_from(co: dict) -> tuple[list[str], dict[str, str]]:
+    """The PO codes this outcome claims, and how strongly it claims each.
+
+    Reads whichever of the shapes below the model used, and NEVER invents either half:
+    a code with no strength stays a code with no strength, and `_COAI` then refuses the
+    outcome and regenerates it. That refusal is the point — the strength IS the CO-PO
+    matrix an accreditation body reads.
+    """
+    codes: list[str] = []
+    strengths: dict[str, str] = {}
+
+    def add(code_raw: Any, strength_raw: Any = None) -> None:
+        code = _po_code(code_raw)
+        if not code:
+            return
+        if code not in codes:
+            codes.append(code)
+        if strength_raw is not None and str(strength_raw).strip():
+            strengths[code] = _strength(strength_raw)
+
+    # 1. The canonical pair, and its aliases: a list of codes + a {code: strength} map.
+    listed = co.get("suggested_po_codes")
+    if not isinstance(listed, list):
+        for alias in ("po_codes", "mapped_po_codes", "mapped_pos", "pos",
+                      "program_outcomes", "programme_outcomes", "related_pos"):
+            if isinstance(co.get(alias), list):
+                listed = co[alias]
+                break
+
+    stated = co.get("po_mapping_strengths")
+    if not isinstance(stated, dict):
+        for alias in ("po_strengths", "mapping_strengths", "po_code_strengths",
+                      "strengths", "mapping_strength", "po_strength"):
+            if isinstance(co.get(alias), dict):
+                stated = co[alias]
+                break
+
+    # 2. A single map carrying BOTH — {"po_mapping": {"PO1": "HIGH", "PO2": 2}}. The
+    #    keys are the codes and the values are the strengths, so it answers both halves.
+    if not isinstance(stated, dict):
+        for alias in ("po_mapping", "po_mappings", "co_po_mapping", "co_po_map"):
+            if isinstance(co.get(alias), dict):
+                stated = co[alias]
+                if not isinstance(listed, list):
+                    listed = list(stated.keys())
+                break
+
+    if isinstance(listed, list):
+        for entry in listed:
+            # 3. A list of objects — [{"po": "PO1", "strength": "strong"}] — which is
+            #    both halves again, in a third shape.
+            if isinstance(entry, dict):
+                code_raw = next(
+                    (entry[k] for k in ("po", "po_code", "code", "po_id", "outcome")
+                     if entry.get(k)),
+                    None,
+                )
+                strength_raw = next(
+                    (entry[k] for k in ("strength", "level", "mapping_strength",
+                                        "correlation", "value", "weight")
+                     if entry.get(k) is not None),
+                    None,
+                )
+                add(code_raw, strength_raw)
+            else:
+                add(entry)
+
+    if isinstance(stated, dict):
+        for code_raw, strength_raw in stated.items():
+            add(code_raw, strength_raw)
+
+    # Only the strengths of codes actually claimed — a stray strength for a PO the
+    # outcome does not claim is noise, and the validator ignores it anyway.
+    return codes, {c: s for c, s in strengths.items() if c in codes}
+
+
+# ---------------------------------------------------------------------------
 # Groq response normalizer
 # ---------------------------------------------------------------------------
 
@@ -2627,14 +2821,20 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
       course_outcomes  -> outcomes
 
     Per CO:
-      bloom            -> bloom_level  (Groq sometimes omits the _level suffix)
+      blooms_level     -> bloom_level  (DeepSeek; also blooms, bloom, cognitive_level)
       co_statement     -> description  (primary observed alias)
       co_description   -> description  (fallback alias)
       statement        -> description  (fallback alias)
       co               -> description  (fallback alias; also used when description is empty string)
-      (empty/missing description) -> synthesized from code + bloom_level as last resort
       (missing code)   -> CO1, CO2, …  (stable sequential codes)
-      (missing suggested_po_codes) -> []
+      the CO-PO matrix -> suggested_po_codes + po_mapping_strengths, out of whichever
+                          shape the model used (see _co_po_from)
+
+    NOTHING IS INVENTED HERE. A missing Bloom level, a missing description or a PO
+    claimed without a strength all still FAIL validation and are regenerated — this maps
+    an answer the model gave onto the key the schema expects, and does not supply an
+    answer it withheld. The difference matters: those fields are the CO-PO matrix an
+    accreditation body reads.
 
     Per unit:
       display_order    -> unit_number  (when unit_number absent)
@@ -2712,14 +2912,50 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
             data["units"] = data.pop(_unit_alias)
             break
 
-    # reference_queries: Groq sometimes uses references, online_learning_resources, etc.
+    # reference_queries — the envelope, whatever the model called it.
+    #
+    # The TEXT BOOKS section is the one that exposed this: asked to "rewrite the TEXT
+    # BOOKS", DeepSeek answers with `text_books`, which was in none of these aliases, so
+    # the list normalised to empty, failed min_length=3, retried three times and took a
+    # finished syllabus — units, objectives and Course Outcomes all already generated —
+    # down with it. A model that answers the question in its own words has still
+    # answered the question.
     for _ref_alias in (
         "online_learning_resources", "references", "bibliography",
         "reading_list", "suggested_references", "resource_list",
+        "text_books", "textbooks", "books", "primary_text_books",
+        "text_book_queries", "textbook_queries", "reference_query",
+        "queries", "search_queries",
     ):
         if _ref_alias in data and "reference_queries" not in data:
             data["reference_queries"] = data.pop(_ref_alias)
             break
+
+    # reference_queries — the ITEMS, whatever shape they arrived in.
+    #
+    # A query is one string. Asked for objects, a model will hand back bare strings
+    # ("operating system concepts undergraduate textbook"); asked for `query_str` it
+    # will use `query`, or `q`, or `title`. All of them are the same search terms, and
+    # rejecting them over the container is how a reading list kills a syllabus.
+    _raw_queries = data.get("reference_queries")
+    if isinstance(_raw_queries, list):
+        _queries: list[Any] = []
+        for _item in _raw_queries:
+            if isinstance(_item, str) and _item.strip():
+                _queries.append({"query_str": _item.strip()})
+            elif isinstance(_item, dict):
+                if str(_item.get("query_str", "")).strip():
+                    _queries.append(_item)
+                    continue
+                for _qk in ("query", "search_query", "q", "term", "search_terms", "title"):
+                    _candidate = str(_item.get(_qk, "")).strip()
+                    if _candidate:
+                        _item["query_str"] = _candidate
+                        _queries.append(_item)
+                        break
+        data["reference_queries"] = _queries
+    elif _raw_queries is not None:
+        data["reference_queries"] = []
 
     # --- CO normalization ---
     outcomes: list[Any] = data.get("outcomes", [])
@@ -2727,9 +2963,27 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
         if not isinstance(co, dict):
             continue
 
-        # bloom -> bloom_level alias
-        if "bloom_level" not in co and "bloom" in co:
-            co["bloom_level"] = co.pop("bloom")
+        # bloom_level, whatever the model called it.
+        #
+        # DeepSeek says `blooms_level`. It knew the answer, it wrote the answer, and the
+        # parser threw the outcome away over an 's' — which failed the whole generation,
+        # because a missing Bloom level is (correctly) a hard failure: it is the
+        # cognitive level the university claims to teach at and NBA/NAAC read it, so it
+        # is never guessed. Reading it out of the key the model used is not guessing.
+        if not str(co.get("bloom_level", "")).strip():
+            for alias in (
+                "blooms_level", "blooms", "bloom", "bloom_taxonomy_level",
+                "bloom_taxonomy", "bloom_category", "cognitive_level",
+            ):
+                candidate = str(co.get(alias, "")).strip()
+                if candidate:
+                    co["bloom_level"] = candidate
+                    break
+        for alias in (
+            "blooms_level", "blooms", "bloom", "bloom_taxonomy_level",
+            "bloom_taxonomy", "bloom_category", "cognitive_level",
+        ):
+            co.pop(alias, None)
 
         # Map description aliases when the field is absent OR empty/whitespace.
         # Groq sometimes emits description:"" while the real text is in a co_* alias.
@@ -2753,28 +3007,33 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
                     break
 
         # Always strip remaining alias keys so Pydantic sees no unexpected fields.
-        for alias in ("co_statement", "co_description", "statement", "co", "bloom"):
+        for alias in ("co_statement", "co_description", "statement", "co"):
             co.pop(alias, None)
         if not co.get("code"):
             co["code"] = f"CO{i + 1}"
-        if "suggested_po_codes" not in co:
-            co["suggested_po_codes"] = []
 
-        # po_mapping_strengths aliases. The ALIAS is mapped — a model that put the same
-        # answer under a different key gave the answer — but a missing answer is left
-        # missing, and the validator then rejects the outcome.
+        # ── THE CO-PO MATRIX, whatever shape it arrived in ──────────────────────
         #
-        # It used to be filled with MEDIUM. That figure IS the CO-PO matrix an
-        # accreditation body reads: it is the university's claim about how strongly this
-        # outcome drives that programme outcome. Manufacturing it here meant NBA and NAAC
-        # could be shown a claim that no academic made and no model wrote.
-        if "po_mapping_strengths" not in co:
-            for alias in ("po_strengths", "mapping_strengths", "po_code_strengths"):
-                if alias in co:
-                    co["po_mapping_strengths"] = co.pop(alias)
-                    break
-            else:
-                co["po_mapping_strengths"] = {}
+        # This is the same class of bug as `blooms_level` and a quieter one, because a
+        # missed alias here does not raise: `suggested_po_codes` defaults to empty, the
+        # strength validator then has nothing to check, the outcome PASSES — and the CO
+        # lands in the database mapped to no Programme Outcome at all. A silently empty
+        # CO-PO matrix is what an accreditation body would be shown.
+        #
+        # Three shapes are all the same answer:
+        #
+        #   {"suggested_po_codes": ["PO1"], "po_mapping_strengths": {"PO1": "HIGH"}}
+        #   {"po_mapping": {"PO1": "HIGH", "PO2": 2}}          <- codes AND strengths
+        #   {"mapped_pos": [{"po": "PO1", "strength": "strong"}]}
+        #
+        # What is NOT done here: inventing a code or a strength the model did not give.
+        # A CO that claims PO1 without saying how strongly still fails validation and is
+        # regenerated. Reading the answer out of a different key is not guessing it.
+        codes, strengths = _co_po_from(co)
+        co["suggested_po_codes"]   = codes
+        co["po_mapping_strengths"] = strengths
+        for alias in _CO_PO_ALIAS_KEYS:
+            co.pop(alias, None)
 
     # --- unit normalization ---
     units: list[Any] = data.get("units", [])
@@ -2849,22 +3108,44 @@ def _normalize_groq_response(raw: str) -> dict[str, Any]:
             if titles:
                 unit["content"] = ", ".join(titles) + "."
 
-        # topics: strings → {"title": str}; dicts with topic_title/topic_name → title
+        # topics: strings → {"title": str}; dicts with topic_title/topic_name → title;
+        # and COMPOUND LINES BROKEN APART (see _split_topic_line).
         raw_topics: list[Any] = unit.get("topics", [])
-        normalized_topics = []
+        normalized_topics: list[dict] = []
+        seen_titles: set[str] = set()
+
+        def _emit(title: str, carrier: dict | None = None) -> None:
+            """One printed syllabus line. The first piece of a compound topic inherits
+            the model's description and hours; the pieces after it are bare, because
+            copying one hours_estimate onto four lines would inflate the unit's hours."""
+            key = title.lower()
+            if key in seen_titles:
+                return                      # the same line twice is not a fuller unit
+            seen_titles.add(key)
+            topic = dict(carrier) if carrier else {}
+            topic["title"] = title
+            normalized_topics.append(topic)
+
         for t in raw_topics:
             if isinstance(t, str):
-                normalized_topics.append({"title": t})
+                for piece in _split_topic_line(t):
+                    _emit(piece)
             elif isinstance(t, dict):
-                if not str(t.get("title", "")).strip():
+                title = str(t.get("title", "")).strip()
+                if not title:
                     for talias in ("topic_title", "topic_name", "name"):
                         cand = str(t.get(talias, "")).strip()
                         if cand:
-                            t["title"] = cand
+                            title = cand
                             break
-                for talias in ("topic_title", "topic_name"):
+                for talias in ("topic_title", "topic_name", "name"):
                     t.pop(talias, None)
-                normalized_topics.append(t)
+                if not title:
+                    continue
+                pieces = _split_topic_line(title)
+                for index, piece in enumerate(pieces):
+                    _emit(piece, carrier=t if index == 0 else None)
+
         unit["topics"] = normalized_topics
 
     # --- reference_queries normalization ---
@@ -2913,20 +3194,28 @@ class GroqSyllabusProvider:
         system, user = _build_prompt(ctx)
         phash = _prompt_hash(system, user)
 
+        # CLOSED BEFORE THE LOOP IS. The client owns an httpx.AsyncClient, and a Celery
+        # task runs inside `asyncio.run`, which closes its event loop the moment the
+        # task returns. A client left open is then finalised against a dead loop and
+        # says so — "RuntimeError: Event loop is closed" — repeatedly, in the logs of a
+        # run that actually succeeded. Closing it here is not tidiness; it is the
+        # difference between a clean log and one nobody trusts.
         client = AsyncOpenAI(
             api_key=settings.GROQ_API_KEY,
             base_url="https://api.groq.com/openai/v1",
         )
-
-        response = await client.chat.completions.create(
-            model=settings.GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.35,
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.35,
+            )
+        finally:
+            await client.close()
 
         raw = (response.choices[0].message.content or "").strip()
         if not raw:
@@ -2962,12 +3251,19 @@ class GroqSyllabusProvider:
             api_key=settings.GROQ_API_KEY,
             base_url="https://api.groq.com/openai/v1",
         )
-        response = await client.chat.completions.create(
-            model=settings.GROQ_MODEL,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            response_format={"type": "json_object"},
-            temperature=0.35,
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.35,
+            )
+        finally:
+            await client.close()      # before the task's event loop closes under it
+
         raw = (response.choices[0].message.content or "").strip()
         if not raw:
             raise SyllabusAIBlockedError("Groq returned an empty response for a section.")
@@ -3020,16 +3316,18 @@ class DeepSeekSyllabusProvider:
             api_key=settings.DEEPSEEK_API_KEY,
             base_url="https://api.deepseek.com",
         )
-
-        response = await client.chat.completions.create(
-            model=settings.DEEPSEEK_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.35,
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.DEEPSEEK_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.35,
+            )
+        finally:
+            await client.close()      # before the task's event loop closes under it
 
         raw = (response.choices[0].message.content or "").strip()
         if not raw:
@@ -3063,12 +3361,19 @@ class DeepSeekSyllabusProvider:
             api_key=settings.DEEPSEEK_API_KEY,
             base_url="https://api.deepseek.com",
         )
-        response = await client.chat.completions.create(
-            model=settings.DEEPSEEK_MODEL,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            response_format={"type": "json_object"},
-            temperature=0.35,
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.DEEPSEEK_MODEL,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.35,
+            )
+        finally:
+            await client.close()      # before the task's event loop closes under it
+
         raw = (response.choices[0].message.content or "").strip()
         if not raw:
             raise SyllabusAIBlockedError("DeepSeek returned an empty response for a section.")
@@ -3324,17 +3629,51 @@ async def generate_theory_syllabus(
 
     await progress(PHASE_REFERENCES, "Creating Reference Books…")
 
+    # ── FROM HERE ON, A FAILURE COSTS ONLY ITSELF ────────────────────────────────
+    #
+    # The units, the objectives and the Course Outcomes are the syllabus. They are done
+    # by now, and NOTHING drafted after them is allowed to throw them away.
+    #
+    # That is exactly what used to happen. The Text Books section failed its depth bar
+    # three times (DeepSeek answering with `text_books`, normalised to an empty list),
+    # raised, and unwound the whole run — so a syllabus whose four units were already on
+    # disk and whose Course Outcomes had already been written by the model reached the
+    # Board with no outcomes, no CO-PO matrix and no reading, and looked like the
+    # pipeline had simply stopped after the last unit.
+    #
+    # A reading list is not worth a syllabus. These three sections are advisory
+    # everywhere else in the system — References are marked optional on the Board's own
+    # checklist, the approve gate does not test them, and the real bibliographic
+    # metadata is fetched afterwards from CrossRef and OpenLibrary anyway — so a failure
+    # here is logged, left empty, and REGENERATED ON ITS OWN by the Board from the
+    # section it belongs to. The syllabus survives.
+    #
+    # Note what is NOT in here: the outline, the units, the objectives and the outcomes.
+    # Those still fail the job loudly, because a syllabus without them is not a thin
+    # syllabus, it is not a syllabus.
+    async def optional_section(section: str, what: str) -> SectionGenerationResult | None:
+        try:
+            return await provider.generate_section(written_ctx, section)
+        except SyllabusAIError as exc:
+            logger.warning(
+                "m02: %s could not be generated for course %s — the syllabus is kept "
+                "without it and the Board can regenerate that section alone. %s",
+                what, ctx.course_code, exc,
+            )
+            return None
+
     # Text Books and the wider reading are two printed sections and two requests, for
     # the same reason the Board can regenerate them separately: they answer different
     # questions, and one list of eight mixed queries is reliably four good textbooks
     # and four vague web resources.
-    books_result = await provider.generate_section(written_ctx, SECTION_BOOKS)
-    refs_result  = await provider.generate_section(written_ctx, SECTION_REFERENCES)
+    books_result = await optional_section(SECTION_BOOKS, "Text Books")
+    refs_result  = await optional_section(SECTION_REFERENCES, "Reference Books")
 
     practicals: list[str] = []
     if ctx.has_practical:
-        practicals_result = await provider.generate_section(written_ctx, SECTION_PRACTICALS)
-        practicals = list(practicals_result.practical_components or [])
+        practicals_result = await optional_section(SECTION_PRACTICALS, "Practical Components")
+        if practicals_result:
+            practicals = list(practicals_result.practical_components or [])
 
     return SyllabusGenerationResult(
         doc_type=TYPE_THEORY,
@@ -3347,9 +3686,11 @@ async def generate_theory_syllabus(
         # syllabus that states its own version of it is one more chance to contradict
         # the university's own.
         internal_assessment=[],
+        # Empty when the reading could not be drafted — which is a gap the Board can see
+        # and fill, not a reason to have no syllabus.
         reference_queries=(
-            list(books_result.reference_queries or [])
-            + list(refs_result.reference_queries or [])
+            list((books_result.reference_queries if books_result else None) or [])
+            + list((refs_result.reference_queries if refs_result else None) or [])
         ),
         model_used=outcomes_result.model_used,
         provider_name=outcomes_result.provider_name,

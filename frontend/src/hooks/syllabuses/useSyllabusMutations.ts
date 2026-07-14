@@ -66,11 +66,14 @@ export function usePrepareSyllabus() {
     }: PrepareSyllabusArgs) => {
       const syllabus = await syllabusesApi.createSyllabus({ course_id: courseId })
 
-      if (mode === 'MANUAL') return syllabus
-
-      // The Board's academic structure, saved to the row BEFORE the model is asked for
-      // anything. The generator refuses a theory syllabus that has none — how a subject
-      // is divided, and how long each part is taught, is not the AI's to decide.
+      // THE STRUCTURE IS SAVED THROUGH EITHER DOOR — and this used to be inside the AI
+      // branch, which is the bug it exists to fix. A syllabus written by hand was
+      // created with no teaching hours and the default unit count of five, neither of
+      // which anybody had been asked about: the Board then wrote its four units and was
+      // told the syllabus was missing one, against a figure it had never chosen.
+      //
+      // How a subject is divided and how long each part is taught is a curriculum
+      // decision. It belongs to the Board whether or not a model is ever involved.
       if (unitCount && unitHours?.length) {
         await syllabusesApi.updateSyllabus(syllabus.id, {
           unit_count: unitCount,
@@ -79,6 +82,11 @@ export function usePrepareSyllabus() {
           hours_per_week: hoursPerWeek,
         })
       }
+
+      // And the manual door stops here. No model runs, nothing is generated, and the
+      // Board opens the same editor the AI door opens — with its structure already in
+      // it — to write the syllabus itself.
+      if (mode === 'MANUAL') return syllabus
 
       const job = await syllabusesApi.generateSyllabus(syllabus.id, {
         custom_instructions: instructions,

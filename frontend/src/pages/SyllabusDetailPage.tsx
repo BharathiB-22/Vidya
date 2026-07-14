@@ -91,6 +91,26 @@ export default function SyllabusDetailPage() {
   const { activeWorkspace: role } = useWorkspace()
   const isFaculty = role === 'FACULTY'
 
+  /**
+   * Compliance says what is missing; this is what carries the Board TO it.
+   *
+   * The tab switches, and then — after React has painted it — the page scrolls to the
+   * section itself, so "Add Objectives" lands on the objectives block with its own Add
+   * button rather than at the top of a long document the Board then has to hunt through.
+   * No AI call, no tokens: the fastest route to a finished syllabus is usually a Board
+   * member typing four lines they already know.
+   */
+  function goToSection(target: string, anchor?: string) {
+    setTab(target as Tab)
+    if (!anchor) return
+    requestAnimationFrame(() => {
+      document.getElementById(anchor)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    })
+  }
+
   const syllabusId = id ?? ''
   const { data: syllabus, isLoading, isError } = useSyllabus(syllabusId)
   const { data: outcomes   = [] } = useSyllabusOutcomes(syllabusId)
@@ -369,7 +389,7 @@ export default function SyllabusDetailPage() {
         )}
 
         {tab === 'compliance' && (
-          <CompliancePanel syllabusId={syllabusId} />
+          <CompliancePanel syllabusId={syllabusId} onFix={goToSection} />
         )}
 
         {tab === 'approval' && (

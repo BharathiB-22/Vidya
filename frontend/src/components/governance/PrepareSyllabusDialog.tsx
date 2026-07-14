@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles } from 'lucide-react'
+import { PenLine, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -101,21 +101,31 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject }: Props) {
     perWeek >= MIN_HOURS_PER_WEEK &&
     balanced
 
-  async function start() {
+  /**
+   * Both doors, and the SAME structure through either.
+   *
+   * How many units this subject is taught in, for how many hours each, and what it is
+   * taught for in total — that is the Board's decision, and it is the Board's decision
+   * whether or not a model is asked to draft anything. It used to be collected only on
+   * the AI door, so a syllabus written by hand arrived with no hours at all and a unit
+   * count of five it had never been asked about: the Board then wrote four units and was
+   * told it was missing one. The structure is asked for FIRST, once, and the door chosen
+   * after it only decides who writes the first draft.
+   */
+  async function start(mode: 'AI' | 'MANUAL') {
     const syllabus = await prepare.mutateAsync({
       courseId: subject!.course_id,
-      mode: 'AI',
-      // The Board's academic structure, saved before a model is asked for anything.
+      mode,
       unitCount: isTheory ? units : undefined,
       unitHours: isTheory ? hours : undefined,
-      // And the header's two figures. The AI paces the whole syllabus against the
-      // total — nothing assumes 60, and nothing derives it from the L-T-P.
+      // The header's two figures. The AI paces the whole syllabus against the total —
+      // nothing assumes 60, and nothing derives it from the L-T-P.
       teachingHours: isTheory ? totalHours : undefined,
       hoursPerWeek: isTheory ? perWeek : undefined,
-      instructions: instructions || undefined,
+      instructions: mode === 'AI' ? instructions || undefined : undefined,
     })
     onOpenChange(false)
-    // The same editor the manual door opens. There is only one.
+    // One editor, whichever door was taken. Nothing downstream can tell them apart.
     navigate(`/syllabuses/${syllabus.id}`)
   }
 
@@ -123,9 +133,8 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-1.5 font-bold text-black">
-            <Sparkles className="h-4 w-4 text-blue-600" />
-            Generate AI Draft — {subject.course_title}
+          <DialogTitle className="font-bold text-black">
+            Prepare Syllabus — {subject.course_title}
           </DialogTitle>
         </DialogHeader>
 
@@ -134,15 +143,21 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject }: Props) {
         </p>
 
         <div className="space-y-4">
-          {/* ── The AI door ────────────────────────────────────────────── */}
-          <section className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
-            <p className="text-xs text-gray-600">
-              The AI writes a first draft against the structure you set below — unit by unit,
-              then the objectives, outcomes and reading. You review and edit it like any other
-              syllabus.
-            </p>
-
-            {isTheory && (
+          {/* ── THE ACADEMIC STRUCTURE — the Board's, through either door ──────
+              How a subject is divided and how long each part is taught is a
+              curriculum decision, not a drafting one, so it is asked for BEFORE the
+              door is chosen and saved whichever door is taken. A syllabus written by
+              hand used to skip this form entirely and arrive with no hours and a unit
+              count of five it was never asked about — the Board then wrote four units
+              and was told it was missing one. */}
+          {isTheory && (
+            <section className="rounded-lg border border-gray-200 p-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600">
+                Academic Structure
+              </h3>
+              <p className="mt-0.5 text-xs text-gray-500">
+                Yours to decide, whether the AI drafts this syllabus or you write it.
+              </p>
               <>
                 {/* The two figures a real syllabus prints at the top of the page:
                     "Total Teaching Hours: 52   No. of Hours / Week: 04". They open at
@@ -255,7 +270,20 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject }: Props) {
                   </p>
                 )}
               </>
-            )}
+            </section>
+          )}
+
+          {/* ── The AI door ────────────────────────────────────────────── */}
+          <section className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+            <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-blue-800">
+              <Sparkles className="h-3.5 w-3.5" />
+              Let the AI draft it
+            </h3>
+            <p className="mt-0.5 text-xs text-gray-600">
+              A first draft against the structure above — the units, then the objectives,
+              outcomes, CO-PO matrix and reading. You review and edit all of it, and
+              anything the AI cannot finish you can write yourself.
+            </p>
 
             <Textarea
               rows={2}
@@ -268,13 +296,39 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject }: Props) {
             <Button
               className="mt-2 w-full"
               disabled={prepare.isPending || (isTheory && !sane)}
-              onClick={() => start()}
+              onClick={() => start('AI')}
             >
               <Sparkles className="mr-1 h-4 w-4" />
               {prepare.isPending ? 'Starting…' : 'Generate AI Draft'}
             </Button>
           </section>
 
+          {/* ── The manual door ────────────────────────────────────────────
+              No model runs. The Board gets the same empty syllabus at the same
+              editor, with the structure it has just set, and writes the units,
+              objectives, outcomes and reading itself. The professor who has taught
+              this subject for fifteen years does not need a machine to start. */}
+          <section className="rounded-lg border border-gray-200 p-3">
+            <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-gray-700">
+              <PenLine className="h-3.5 w-3.5" />
+              Write it yourself
+            </h3>
+            <p className="mt-0.5 text-xs text-gray-600">
+              Opens the same syllabus, empty. No AI runs. You add the units, objectives,
+              outcomes, CO-PO matrix and references by hand — and approval tests the
+              syllabus, not how it was written.
+            </p>
+
+            <Button
+              variant="outline"
+              className="mt-2 w-full"
+              disabled={prepare.isPending || (isTheory && !sane)}
+              onClick={() => start('MANUAL')}
+            >
+              <PenLine className="mr-1 h-4 w-4" />
+              {prepare.isPending ? 'Starting…' : 'Write Syllabus Manually'}
+            </Button>
+          </section>
         </div>
 
         <DialogFooter>

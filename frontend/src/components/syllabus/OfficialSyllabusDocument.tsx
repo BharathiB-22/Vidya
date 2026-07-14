@@ -213,6 +213,7 @@ export function OfficialSyllabusDocument({
         {/* ── Course Objectives ─────────────────────────────────────────── */}
         <EditableList
           heading="Course Objectives"
+          anchorId="section-objectives"
           items={syllabus.objectives}
           canEdit={canEdit}
           numbered
@@ -231,8 +232,18 @@ export function OfficialSyllabusDocument({
             replaces ALL of them and takes the CO-PO matrix with them — which is the
             wrong instrument for fixing the wording of CO3, and it is the only one the
             Board used to have on this page. */}
+        {sortedOutcomes.length === 0 && canEdit && (
+          <div id="section-outcomes" className="mt-6 print:hidden">
+            <SectionHeading>Course Outcomes</SectionHeading>
+            <p className="text-sm text-gray-600">
+              None yet. Add them on the <strong>Course Outcomes</strong> tab — by hand, or
+              by regenerating them. Neither the syllabus nor the approval cares which.
+            </p>
+          </div>
+        )}
+
         {sortedOutcomes.length > 0 && (
-          <section className="group mt-6">
+          <section id="section-outcomes" className="group mt-6">
             <div className="flex items-center gap-2">
               <div className="flex-1">
                 <SectionHeading>Course Outcomes</SectionHeading>
@@ -292,7 +303,7 @@ export function OfficialSyllabusDocument({
         {isTheory ? (
           <>
             {/* ── Units ─────────────────────────────────────────────────── */}
-            <section className="mt-6">
+            <section id="section-units" className="mt-6">
               {sortedUnits.map((unit) => (
                 <UnitBlock
                   key={unit.id}
@@ -380,7 +391,6 @@ export function OfficialSyllabusDocument({
               items={syllabus.practical_components}
               canEdit={canEdit}
               numbered
-              hideWhenEmpty
               onlyWhenPresent
               onRegenerate={() => regen('PRACTICALS')}
               onSave={(practical_components) =>
@@ -837,7 +847,7 @@ function topicLines(unit: SyllabusUnit): string[] {
  */
 function EditableList({
   heading, items, canEdit, onSave, onRegenerate, isPending, isRegenerating,
-  numbered, hideWhenEmpty, onlyWhenPresent, placeholder,
+  numbered, onlyWhenPresent, placeholder, anchorId,
 }: {
   heading: string
   items: string[]
@@ -847,13 +857,14 @@ function EditableList({
   isPending?: boolean
   isRegenerating?: boolean
   numbered?: boolean
-  hideWhenEmpty?: boolean
   /** No "Add this section" button when it is empty. For sections a real regulation
    *  only carries when the course genuinely has them — a theory course with no
    *  laboratory is not missing its Practical Components, it simply has none, and
    *  offering to add them invites a syllabus that promises a lab nobody staffs. */
   onlyWhenPresent?: boolean
   placeholder?: string
+  /** Where the Compliance panel's "Add …" button scrolls to. */
+  anchorId?: string
 }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(items.join('\n'))
@@ -862,11 +873,20 @@ function EditableList({
     if (!editing) setText(items.join('\n'))
   }, [editing, items])
 
-  if (items.length === 0 && onlyWhenPresent && !editing) return null
-  if (items.length === 0 && hideWhenEmpty && !canEdit) return null
-  if (items.length === 0 && hideWhenEmpty && canEdit && !editing) {
+  // AN EMPTY SECTION IS NOT A MISSING SECTION.
+  //
+  // This used to return null: an empty Course Objectives block simply was not on the
+  // page, so when the AI failed to draft one there was nothing to click and nothing to
+  // suggest the Board could write it themselves. The section now always offers its own
+  // way in — "Add Course Objectives" — and the Board fills it in without spending a
+  // token. `onlyWhenPresent` is the one exception, for sections a course genuinely does
+  // not have (a course with no practical hours has no Practical Components, and
+  // inviting the Board to invent some would be worse than silence).
+  if (items.length === 0 && !editing) {
+    if (onlyWhenPresent || !canEdit) return null
     return (
-      <div className="mt-6 print:hidden">
+      <div id={anchorId} className="mt-6 print:hidden">
+        <SectionHeading>{heading}</SectionHeading>
         <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
           <Plus className="mr-1 h-4 w-4" />
           Add {heading}

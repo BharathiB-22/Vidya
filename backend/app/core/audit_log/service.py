@@ -27,12 +27,47 @@ class AuditService:
         metadata: dict | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
+        db: AsyncSession | None = None,
     ) -> None:
         # Opens its own session — fully independent of any business transaction.
         # Swallows all exceptions per OQ-01: a DB outage must not block the
         # caller's business operation.  Failures are emitted to the audit logger
         # so they appear in structured logs without disrupting the response.
+        #
+        # `db` — A SESSION THE CALLER OPENED, for callers that cannot use ours.
+        #
+        # A Celery worker is one. `AsyncSessionLocal` is bound to the API's engine,
+        # whose pooled asyncpg connections belong to the event loop that created them —
+        # and a worker gets a NEW loop per task (`asyncio.run`). Writing an audit row
+        # through it from inside a task therefore reaches for a connection attached to a
+        # loop that has since closed, and asyncpg says so: "cannot perform operation:
+        # another operation is in progress", or "Event loop is closed". That failure
+        # then landed on top of whatever the worker was already reporting, and buried it.
+        #
+        # So a worker hands us a session of its own, on its own engine — and it must be
+        # a FRESH one, never the session whose transaction just failed. A session that
+        # has raised is not usable again until it is rolled back or discarded; trying to
+        # write the audit record for a failure through the very transaction that failed
+        # is how the original error gets replaced by a confusing one about connection
+        # state. The audit trail must report the failure, not become it.
         try:
+            if db is not None:
+                await AuditLogRepository.create(
+                    event_type.value,
+                    actor_user_id=actor_user_id,
+                    actor_role=actor_role,
+                    tenant_id=tenant_id,
+                    schema_name=schema_name,
+                    target_entity=target_entity,
+                    target_id=target_id,
+                    metadata=metadata,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    db=db,
+                )
+                await db.commit()
+                return
+
             async with AsyncSessionLocal() as session:
                 async with session.begin():
                     await AuditLogRepository.create(

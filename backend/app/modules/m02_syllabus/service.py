@@ -186,6 +186,7 @@ def _run_compliance_check(
     expected_units: int | None = None,
     objectives: list[str] | None = None,
     teaching_hours: int | None = None,
+    references: list | None = None,
 ) -> ComplianceCheckResponse:
     """Is this document fit to be signed off?
 
@@ -213,6 +214,18 @@ def _run_compliance_check(
                EMPTY, as templates, and filled in by the Dean when the facts exist. A
                curriculum that could not be approved until somebody invented an
                internship rubric was a curriculum held hostage by a form.
+
+    THIS GATE READS THE SYLLABUS, NEVER THE GENERATION JOB.
+
+    Nothing here asks whether the AI succeeded, and nothing here ever has. A unit the
+    Board typed by hand is a unit; a Course Outcome it wrote itself is a Course Outcome.
+    A model that failed leaves a section EMPTY, and an empty required section is
+    something the Board can fill — which is why these findings are shown as "Pending
+    Completion" while the syllabus is being written, and only become Approval Blockers
+    at the moment somebody tries to approve a syllabus that is still missing them.
+
+    The AI is an assistant. It is not a gatekeeper, and its bad afternoon is not the
+    Board's problem to be stuck behind.
 
     A theory syllabus is written and SAVED one unit at a time, so a generation that dies
     at Unit V leaves four good units on disk — which is what makes the failure cheap to
@@ -251,12 +264,19 @@ def _run_compliance_check(
     if doc_type == CourseType.THEORY.value:
         wanted = expected_units or _UNIT_MIN
 
+        # PENDING COMPLETION, not "the AI failed".
+        #
+        # The gate reads the SYLLABUS, never the generation job: a unit the Board typed
+        # by hand passes exactly as one a model drafted, and it always has. What the
+        # message must not do is tell the Board that its only move is to ask the machine
+        # again — the machine is an assistant here, and when it cannot finish, the Board
+        # finishes. So every one of these names both routes.
         if len(units) < wanted:
             violations.append(ComplianceViolation(
-                code="GENERATION_INCOMPLETE",
+                code="UNITS_PENDING",
                 message=(
-                    f"This syllabus has {len(units)} of its {wanted} units. "
-                    "Generation did not finish — regenerate the missing units."
+                    f"This syllabus has {len(units)} of its {wanted} units. Write the "
+                    f"missing units on the Official Syllabus, or regenerate them."
                 ),
                 severity="ERROR",
             ))
@@ -271,10 +291,11 @@ def _run_compliance_check(
         if thin:
             listed = ", ".join(f"Unit {n}" for n in sorted(thin))
             violations.append(ComplianceViolation(
-                code="GENERATION_INCOMPLETE",
+                code="UNITS_PENDING",
                 message=(
-                    f"AI generation is incomplete for {listed}. Regenerate "
-                    f"{'them' if len(thin) > 1 else 'it'} before approving."
+                    f"{listed} {'are' if len(thin) > 1 else 'is'} too thin to print — a "
+                    f"unit runs to {MIN_TOPICS_PER_UNIT} topics or more. Add the missing "
+                    f"topics, or regenerate {'them' if len(thin) > 1 else 'it'}."
                 ),
                 severity="ERROR",
             ))
@@ -344,6 +365,28 @@ def _run_compliance_check(
                 ),
                 severity="WARNING",
             ))
+
+    # 3b. The reading (WARNING — and it must stay a warning).
+    #
+    # Said here so the Board can SEE it is missing and add a book, which it could not
+    # before: an empty reading list produced no finding at all, so the compliance page
+    # had nothing to attach an "Add Reference" action to and the Board's only visible
+    # move was to spend tokens regenerating a section it could type in ten seconds.
+    #
+    # ADVISORY, permanently. References come from CrossRef and OpenLibrary, and a
+    # third-party outage has never been allowed to block a university's curriculum. This
+    # tells the Board something is missing; it does not stop them.
+    if references is not None and not references and doc_type in (
+        CourseType.THEORY.value, CourseType.LAB.value,
+    ):
+        violations.append(ComplianceViolation(
+            code="REFERENCES_PENDING",
+            message=(
+                "This syllabus lists no Text Books or References. Add them yourself, or "
+                "regenerate the reading — approval does not require them."
+            ),
+            severity="WARNING",
+        ))
 
     # 4. Bloom taxonomy diversity (WARNING — approval not blocked)
     if cos:
@@ -1514,6 +1557,7 @@ class SyllabusService:
         cos      = await CourseOutcomeRepository.list_by_syllabus(syllabus_id, db=db)
         units    = await SyllabusUnitRepository.list_by_syllabus(syllabus_id, db=db)
         mappings = await COPOMappingRepository.list_by_syllabus(syllabus_id, db=db)
+        refs     = await SyllabusReferenceRepository.list_by_syllabus(syllabus_id, db=db)
         return _run_compliance_check(
             cos, units, mappings,
             doc_type=syllabus.doc_type,
@@ -1521,6 +1565,10 @@ class SyllabusService:
             expected_units=syllabus.unit_count,
             objectives=syllabus.objectives,
             teaching_hours=syllabus.teaching_hours,
+            # Read-only path only. The APPROVE path deliberately does not pass these:
+            # the reading is advisory, and asking for it there would put a WARNING in
+            # front of a gate that does not test it.
+            references=refs,
         )
 
     # =========================================================================
