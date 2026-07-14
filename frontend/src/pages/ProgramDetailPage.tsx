@@ -38,9 +38,16 @@ export default function ProgramDetailPage() {
   const { data: courses = [] } = useProgramCourses(id!)
 
   // When generation finishes (AI_GENERATING → any other status), the program
-  // detail cache is already fresh from polling, but courses/outcomes/compliance
-  // are separate cache entries that were never invalidated. Force-refresh them
-  // so the Structure, Outcomes, and Compliance tabs update without Ctrl+R.
+  // detail cache is already fresh from polling, but courses, outcomes, compliance
+  // and elective baskets are separate cache entries that were never invalidated.
+  // Force-refresh them so those tabs update without Ctrl+R.
+  //
+  // `baskets` is easy to forget and expensive to omit: generation creates the
+  // elective slots, and a page that refetched the courses but kept an empty
+  // basket list from before the run renders every elective OPTION as a course
+  // card of its own — and then counts each one toward the credit total, because
+  // effectiveCredits() only collapses an option into its slot when that slot is
+  // loaded. The curriculum then reads 64/60 when the database holds exactly 60.
   const prevStatusRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     const prev = prevStatusRef.current
@@ -50,6 +57,7 @@ export default function ProgramDetailPage() {
       qc.invalidateQueries({ queryKey: programKeys.courses(id!) })
       qc.invalidateQueries({ queryKey: programKeys.outcomes(id!) })
       qc.invalidateQueries({ queryKey: programKeys.compliance(id!) })
+      qc.invalidateQueries({ queryKey: programKeys.baskets(id!) })
     }
   }, [program?.status, id, qc])
 

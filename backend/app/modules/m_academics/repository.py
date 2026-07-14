@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -81,6 +82,7 @@ class ProgramRepo:
         degree_type: str,
         duration_years: int,
         db: AsyncSession,
+        min_credits_for_degree: Decimal | None = None,
     ) -> AcadProgram:
         prog = AcadProgram(
             department_id=department_id,
@@ -88,6 +90,7 @@ class ProgramRepo:
             code=code,
             degree_type=degree_type,
             duration_years=duration_years,
+            min_credits_for_degree=min_credits_for_degree,
         )
         db.add(prog)
         await db.flush()

@@ -18,6 +18,9 @@ export interface AcadProgram {
   code: string
   degree_type: string
   duration_years: number
+  /** What the institution says this programme is worth — an MCA is 80. Null until
+   *  configured; a new curriculum falls back to its own default when it is. */
+  min_credits_for_degree: number | null
   is_active: boolean
   created_at: string
   updated_at: string | null
@@ -80,9 +83,9 @@ export const academicsApi = {
     api.get<AcadProgram[]>(`${B}/programs`, { params: { department_id: departmentId || undefined, include_inactive: includeInactive } }).then(r => r.data),
   getProgram: (id: string) =>
     api.get<AcadProgram>(`${B}/programs/${id}`).then(r => r.data),
-  createProgram: (body: { department_id: string; name: string; code: string; degree_type: string; duration_years: number }) =>
+  createProgram: (body: { department_id: string; name: string; code: string; degree_type: string; duration_years: number; min_credits_for_degree?: number }) =>
     api.post<AcadProgram>(`${B}/programs`, body).then(r => r.data),
-  updateProgram: (id: string, body: Partial<{ name: string; code: string; degree_type: string; duration_years: number; is_active: boolean }>) =>
+  updateProgram: (id: string, body: Partial<{ name: string; code: string; degree_type: string; duration_years: number; min_credits_for_degree: number; is_active: boolean }>) =>
     api.put<AcadProgram>(`${B}/programs/${id}`, body).then(r => r.data),
 
   // Dean governance — WHICH programmes a Dean governs.

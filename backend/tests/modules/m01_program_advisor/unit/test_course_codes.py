@@ -6,6 +6,8 @@ so the generator has to be right about gaps, normalisation and overflow.
 import pytest
 
 from app.modules.m01_program_advisor.course_codes import (
+    ProgramCodePrefixError,
+    assign_course_codes,
     format_course_code,
     next_free_code,
     normalise_prefix,
@@ -81,3 +83,64 @@ class TestNextFreeCode:
         taken = {format_course_code("MCA", 3, s) for s in range(1, 1000)}
         with pytest.raises(ValueError, match="Exhausted"):
             next_free_code("MCA", 3, taken)
+
+
+class TestAssignCourseCodes:
+    """The AI's codes are opaque temp keys. These are the real ones."""
+
+    def _ai_courses(self):
+        # What a real MCA run actually returned: CS-prefixed, numbered straight
+        # through the programme with no regard for the semester boundary.
+        return [
+            {"code": "CS501", "title": "Computer Systems", "semester": 1,
+             "prerequisite_codes": []},
+            {"code": "CS502", "title": "Python Programming", "semester": 1,
+             "prerequisite_codes": []},
+            {"code": "CS506", "title": "Database Systems", "semester": 2,
+             "prerequisite_codes": ["CS501"]},
+            {"code": "CS510", "title": "Computer Networks", "semester": 3,
+             "prerequisite_codes": ["CS506"]},
+        ]
+
+    def test_codes_are_reassigned_per_semester_from_the_prefix(self):
+        courses = self._ai_courses()
+        assign_course_codes(courses, "MCA", set())
+        assert [c["code"] for c in courses] == ["MCA101", "MCA102", "MCA201", "MCA301"]
+
+    def test_returns_the_map_prerequisites_are_resolved_through(self):
+        courses = self._ai_courses()
+        mapping = assign_course_codes(courses, "MCA", set())
+        assert mapping == {
+            "CS501": "MCA101", "CS502": "MCA102",
+            "CS506": "MCA201", "CS510": "MCA301",
+        }
+        # The AI's prerequisite edges survive the rename — the whole point of the map.
+        db_ms = courses[2]
+        assert [mapping[pc] for pc in db_ms["prerequisite_codes"]] == ["MCA101"]
+
+    def test_existing_human_codes_are_not_reused(self):
+        courses = self._ai_courses()
+        assign_course_codes(courses, "MCA", {"MCA101", "MCA201"})
+        assert [c["code"] for c in courses] == ["MCA102", "MCA103", "MCA202", "MCA301"]
+
+    def test_input_order_is_preserved(self):
+        """course_creates and new_courses are zipped positionally — reordering the
+        list in place would silently attach every prerequisite to the wrong course."""
+        courses = self._ai_courses()
+        titles = [c["title"] for c in courses]
+        assign_course_codes(courses, "MCA", set())
+        assert [c["title"] for c in courses] == titles
+
+    def test_duplicate_ai_codes_get_distinct_real_codes(self):
+        courses = [
+            {"code": "CS501", "title": "A", "semester": 1},
+            {"code": "CS501", "title": "B", "semester": 1},
+        ]
+        mapping = assign_course_codes(courses, "MCA", set())
+        assert [c["code"] for c in courses] == ["MCA101", "MCA102"]
+        # Ambiguous: the first claims the map rather than the last silently winning.
+        assert mapping == {"CS501": "MCA101"}
+
+    def test_no_prefix_is_refused_rather_than_guessed(self):
+        with pytest.raises(ProgramCodePrefixError):
+            assign_course_codes([{"code": "CS501", "semester": 1}], "", set())

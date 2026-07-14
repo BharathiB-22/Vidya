@@ -222,6 +222,10 @@ async def _run_generation(
         CourseNode,
         detect_prerequisite_cycles,
     )
+    from app.modules.m01_program_advisor.course_codes import (
+        assign_course_codes,
+        resolve_program_prefix,
+    )
     from app.modules.m01_program_advisor.course_types import normalize_course_type
     from app.modules.m01_program_advisor.electives import is_basket_placeholder
     from app.modules.m01_program_advisor.models import Course as CourseModel, ProgramStatus
@@ -420,6 +424,34 @@ async def _run_generation(
                 basket_name_to_id[(semester, ai_name)] = basket.id
 
         # ------------------------------------------------------------------
+        # Course codes are the BACKEND's, not the model's.
+        #
+        # The AI returns CS501..CS520 for an MCA curriculum — it is naming the
+        # subject discipline, because it cannot know what this institution calls
+        # its programmes. The institution does: `acad_programs.code`. Every code is
+        # reassigned here, from that prefix, numbered per semester (MCA101, MCA102,
+        # ... MCA301), into whatever gaps the program's human-authored courses left.
+        #
+        # Done AFTER the placeholder drop and the credit rebalance, so no code is
+        # spent on a course that is about to be discarded, and BEFORE bulk_create,
+        # so no AI code ever reaches the `courses` table.
+        #
+        # `ai_code_map` carries the AI's codes forward to the real ones. The AI's
+        # prerequisites reference its own codes, so without that translation the
+        # prerequisite graph would resolve to nothing and silently come out empty.
+        # ------------------------------------------------------------------
+        prefix = await resolve_program_prefix(program_id, db=session)
+        taken = {
+            c.code
+            for c in await CourseRepository.list_by_program(program_id, db=session)
+        }
+        ai_code_map = assign_course_codes(result.courses, prefix, taken)
+        logger.info(
+            "m01.generate: assigned %d %s course codes (program=%s)",
+            len(result.courses), prefix, program_id,
+        )
+
+        # ------------------------------------------------------------------
         # Bulk create new AI courses, then flag them as AI-generated.
         # Flagging is done via a targeted UPDATE on the new IDs only —
         # mark_all_ai_generated would incorrectly stamp human-authored courses.
@@ -475,13 +507,21 @@ async def _run_generation(
 
         # ------------------------------------------------------------------
         # Wire prerequisites
+        #
+        # `prerequisite_codes` are the AI's own codes (CS503), which no longer
+        # exist — ai_code_map translates them to the codes actually persisted
+        # (MCA103). A code that is not in the map is passed through unchanged, so
+        # a prerequisite naming an existing human-authored course still resolves.
         # ------------------------------------------------------------------
         prereq_count = 0
         for ai_dict, db_course in zip(result.courses, new_courses):
             prereq_ids = [
-                code_to_id[pc]
-                for pc in ai_dict.get("prerequisite_codes", [])
-                if pc in code_to_id and code_to_id[pc] != db_course.id
+                code_to_id[code]
+                for code in (
+                    ai_code_map.get(pc, pc)
+                    for pc in ai_dict.get("prerequisite_codes", [])
+                )
+                if code in code_to_id and code_to_id[code] != db_course.id
             ]
             if prereq_ids:
                 await CoursePrerequisiteRepository.bulk_create(

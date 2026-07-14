@@ -116,6 +116,7 @@ class ProgramService:
         prog = await ProgramRepo.create(
             body.department_id, body.name, body.code,
             body.degree_type.value, body.duration_years, db,
+            min_credits_for_degree=body.min_credits_for_degree,
         )
         await db.commit()
         return prog

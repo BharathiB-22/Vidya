@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.modules.m_academics.models import DegreeType
 
@@ -73,6 +74,10 @@ class ProgramCreate(BaseModel):
     code: str
     degree_type: DegreeType
     duration_years: int
+    # What this programme is worth, per the institution. Optional: an institution
+    # that has not decided keeps the old behaviour rather than being handed a
+    # number nobody chose.
+    min_credits_for_degree: Optional[Decimal] = Field(default=None, ge=1, le=9999)
 
     @field_validator("name", "code", mode="before")
     @classmethod
@@ -97,6 +102,7 @@ class ProgramUpdate(BaseModel):
     code: Optional[str] = None
     degree_type: Optional[DegreeType] = None
     duration_years: Optional[int] = None
+    min_credits_for_degree: Optional[Decimal] = Field(default=None, ge=1, le=9999)
     is_active: Optional[bool] = None
 
     @field_validator("code", mode="after")
@@ -119,6 +125,7 @@ class ProgramOut(BaseModel):
     code: str
     degree_type: str
     duration_years: int
+    min_credits_for_degree: Optional[Decimal] = None
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime]

@@ -62,6 +62,18 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
     // Auto-populate department name from departments list
     const dept = departments.find((d) => d.id === acad.department_id)
     if (dept) set('department', dept.name)
+    // The credit target belongs to the PROGRAMME, not to whoever fills in this
+    // form: an MCA is worth what the institution says it is worth. Leaving the
+    // hardcoded 60 in place is how an 80-credit MCA came to be generated — and
+    // rebalanced — against a 60-credit target, with nothing anywhere saying so.
+    //
+    // Only when the institution has actually configured it. An unset programme
+    // keeps the old default rather than being handed a number nobody chose, and
+    // the Dean can still override either way.
+    if (acad.min_credits_for_degree != null) {
+      set('total_credits', Number(acad.min_credits_for_degree))
+    }
+    set('duration_years', acad.duration_years)
   }
 
   async function handleSubmit(e: React.FormEvent) {

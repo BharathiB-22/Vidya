@@ -19,7 +19,10 @@ from app.modules.m01_program_advisor.compliance import (
     ProgramNode,
     run_compliance_check,
 )
-from app.modules.m01_program_advisor.course_codes import generate_course_code
+from app.modules.m01_program_advisor.course_codes import (
+    ProgramCodePrefixError,
+    generate_course_code,
+)
 from app.modules.m01_program_advisor.electives import (
     is_basket_placeholder,
     placeholder_message,
@@ -433,6 +436,24 @@ class ProgramService:
                 "INVALID_STATUS",
                 f"Expected DRAFT or GENERATION_FAILED, got {program.status.value}.",
                 409,
+            )
+
+        # The generator names every course it creates, and a course code is an
+        # INSTITUTIONAL identifier — MCA101, not CS501. That name lives in exactly
+        # one place, `acad_programs.code`, reachable only through this link.
+        #
+        # Refused here, before the job is queued, rather than in the worker: a
+        # curriculum with no programme cannot be numbered at all, so there is no
+        # partial result worth generating and no reason to make the Dean wait for
+        # a model to finish before telling him what is missing. Nothing downstream
+        # falls back to degree_type ("PG") or the title — see course_codes.py.
+        if program.acad_program_id is None:
+            raise ProgramServiceError(
+                "ACAD_PROGRAM_REQUIRED",
+                "This curriculum is not linked to an academic programme, so its "
+                "courses cannot be given institutional course codes. Set the "
+                "programme (e.g. MCA) on the curriculum, then generate.",
+                422,
             )
 
         # Persist ai_instructions update if provided
@@ -1135,7 +1156,10 @@ class ProgramService:
         # basket "Elective 1" is the slot listing itself as its own alternative.
         await ProgramService._reject_basket_placeholder(payload.title, basket_id, db=db)
 
-        code = await generate_course_code(program_id, program.degree_type, slot.semester, db)
+        try:
+            code = await generate_course_code(program_id, slot.semester, db)
+        except ProgramCodePrefixError as exc:
+            raise ProgramServiceError("ACAD_PROGRAM_REQUIRED", str(exc), 422) from exc
         course = await CourseRepository.create(
             program_id=program_id,
             code=code,

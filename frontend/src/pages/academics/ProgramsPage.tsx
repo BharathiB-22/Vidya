@@ -58,10 +58,11 @@ function CreateProgramDialog({ open, onClose, onCreated, departments }: {
   const [code,      setCode]      = useState('')
   const [degType,   setDegType]   = useState<DegreeType>('UG')
   const [duration,  setDuration]  = useState('4')
+  const [credits,   setCredits]   = useState('')
   const [err,       setErr]       = useState('')
   const [busy,      setBusy]      = useState(false)
 
-  function reset() { setDeptId(''); setName(''); setCode(''); setDegType('UG'); setDuration('4'); setErr('') }
+  function reset() { setDeptId(''); setName(''); setCode(''); setDegType('UG'); setDuration('4'); setCredits(''); setErr('') }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -71,6 +72,7 @@ function CreateProgramDialog({ open, onClose, onCreated, departments }: {
       const p = await academicsApi.createProgram({
         department_id: deptId, name: name.trim(), code: code.trim(),
         degree_type: degType, duration_years: Number(duration),
+        min_credits_for_degree: credits ? Number(credits) : undefined,
       })
       addToast('Program created.', 'success')
       onCreated(p); reset(); onClose()
@@ -122,6 +124,21 @@ function CreateProgramDialog({ open, onClose, onCreated, departments }: {
               </SelectContent>
             </Select>
           </div>
+          {/* The programme's credit weight, set once by the institution. Every
+              curriculum written against this programme starts from it, so the Dean
+              is not asked to remember what his own MCA is worth. */}
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              Total credits <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <Input
+              type="number" min={1} max={9999} value={credits}
+              onChange={e => setCredits(e.target.value)} placeholder="80"
+            />
+            <p className="text-xs text-gray-500">
+              Used as the default credit target for new curricula in this program.
+            </p>
+          </div>
           {err && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{err}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => { reset(); onClose() }}>Cancel</Button>
@@ -146,6 +163,7 @@ function EditProgramDialog({ prog, onClose, onUpdated }: {
   const [code,     setCode]     = useState('')
   const [degType,  setDegType]  = useState<DegreeType>('UG')
   const [duration, setDuration] = useState('4')
+  const [credits,  setCredits]  = useState('')
   const [isActive, setIsActive] = useState(true)
   const [err,      setErr]      = useState('')
   const [busy,     setBusy]     = useState(false)
@@ -155,6 +173,7 @@ function EditProgramDialog({ prog, onClose, onUpdated }: {
       setName(prog.name); setCode(prog.code)
       setDegType(prog.degree_type as DegreeType)
       setDuration(String(prog.duration_years))
+      setCredits(prog.min_credits_for_degree != null ? String(prog.min_credits_for_degree) : '')
       setIsActive(prog.is_active); setErr('')
     }
   }, [prog])
@@ -167,6 +186,7 @@ function EditProgramDialog({ prog, onClose, onUpdated }: {
       const updated = await academicsApi.updateProgram(prog.id, {
         name: name.trim(), code: code.trim(), degree_type: degType,
         duration_years: Number(duration), is_active: isActive,
+        min_credits_for_degree: credits ? Number(credits) : undefined,
       })
       addToast('Program updated.', 'success')
       onUpdated(updated); onClose()
@@ -207,6 +227,18 @@ function EditProgramDialog({ prog, onClose, onUpdated }: {
                   {DEGREE_TYPES.map(t => <SelectItem key={t} value={t}>{DEGREE_LABELS[t]}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">
+                Total credits <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <Input
+                type="number" min={1} max={9999} value={credits}
+                onChange={e => setCredits(e.target.value)} placeholder="80"
+              />
+              <p className="text-xs text-gray-500">
+                Used as the default credit target for new curricula in this program.
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="prog-active" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-indigo-600" />

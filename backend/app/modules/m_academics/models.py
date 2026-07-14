@@ -18,7 +18,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Enum,
-    ForeignKey, Index, Integer, PrimaryKeyConstraint, SmallInteger, String, Text,
+    ForeignKey, Index, Integer, Numeric, PrimaryKeyConstraint, SmallInteger, String, Text,
     UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -70,6 +70,17 @@ class AcadProgram(Base):
     code           = Column(String(10), nullable=False)
     degree_type    = Column(Enum(DegreeType, native_enum=False), nullable=False)
     duration_years = Column(SmallInteger, nullable=False)
+    # The credits this programme is worth, as the institution defines it — an MCA
+    # is 80, a BCA 120. Added by migration 0036 for degree-eligibility checks and
+    # read until now only by m11_sis (transcripts, graduation), which reached for
+    # it with getattr() because it was never mapped here.
+    #
+    # It is also the honest default for a new curriculum's total_credits: the
+    # Dean should not have to remember what his own MCA is worth, and a dialog
+    # that guesses 60 for every programme is how an 80-credit MCA came to be
+    # generated against a 60-credit target. Nullable: an institution that has not
+    # configured it still gets the old default, and nothing here invents a number.
+    min_credits_for_degree = Column(Numeric(6, 2), nullable=True)
     is_active      = Column(Boolean, nullable=False, default=True)
     created_at     = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at     = Column(DateTime(timezone=True), nullable=True)
