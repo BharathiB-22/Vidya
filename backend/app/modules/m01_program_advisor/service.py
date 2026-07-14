@@ -249,12 +249,20 @@ class ProgramService:
         if payload.courses:
             # Inline CourseCreate may include prerequisite_course_ids referencing UUIDs
             # that do not yet exist; strip them here — wire via add_course after creation.
+            #
+            # Everything else is carried over verbatim, course_type included: it was
+            # omitted here, so a program created with its courses inline (an import, a
+            # seeded programme, a client that posts the whole structure at once) lost
+            # the type of every one of them and got a five-unit theory syllabus for its
+            # internship. add_course, the AI worker and duplicate_program all preserve
+            # it; this path was the odd one out.
             bare = [
                 CourseCreate(
                     code=c.code,
                     title=c.title,
                     credits=c.credits,
                     semester=c.semester,
+                    course_type=c.course_type,
                     is_elective=c.is_elective,
                     hours_lecture=c.hours_lecture,
                     hours_tutorial=c.hours_tutorial,

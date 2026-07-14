@@ -16,6 +16,28 @@ class ProgramNode:
     outcome_count:  int
 
 
+# The course types this module reasons about, as plain strings.
+#
+# These MIRROR m01.models.CourseType and are deliberately not imported from it:
+# this module is pure logic over dataclasses (see the header) and stays free of
+# SQLAlchemy so it can be unit-tested without the ORM or a database. The mirror
+# is pinned against the real enum by a test, so the two cannot drift.
+#
+# There is no "PROJECT". It was split into MINI_PROJECT and MAJOR_PROJECT in
+# V2.3 (migration 0086ten) because they are different documents; every rule below
+# that used to compare against "PROJECT" now has to name both, and a rule that
+# means *specifically* a mini project — UGC-LAYOUT-002 — finally can.
+TYPE_THEORY        = "THEORY"
+TYPE_LAB           = "LAB"
+TYPE_INTERNSHIP    = "INTERNSHIP"
+TYPE_MINI_PROJECT  = "MINI_PROJECT"
+TYPE_MAJOR_PROJECT = "MAJOR_PROJECT"
+TYPE_SEMINAR       = "SEMINAR"
+
+PROJECT_TYPES: frozenset[str] = frozenset({TYPE_MINI_PROJECT, TYPE_MAJOR_PROJECT})
+PROJECT_OR_INTERNSHIP_TYPES: frozenset[str] = PROJECT_TYPES | {TYPE_INTERNSHIP}
+
+
 @dataclasses.dataclass
 class CourseNode:
     id:                      UUID
@@ -24,14 +46,21 @@ class CourseNode:
     semester:                int
     is_elective:             bool
     prerequisite_course_ids: list[UUID]
-    course_type:             str | None = None   # THEORY|LAB|PROJECT|INTERNSHIP|SEMINAR
+    # THEORY|LAB|INTERNSHIP|MINI_PROJECT|MAJOR_PROJECT|SEMINAR
+    course_type:             str | None = None
     # Set when this course is one interchangeable OPTION inside an elective
     # slot. Options are real courses (own code, syllabus, faculty, seats) but
     # they are not curriculum entries in their own right — the slot is.
     elective_basket_id:      UUID | None = None
 
+    def is_project(self) -> bool:
+        """A project of either size — mini or major."""
+        return self.course_type in PROJECT_TYPES
+
     def is_project_or_internship(self) -> bool:
-        return self.course_type in ("PROJECT", "INTERNSHIP")
+        """The courses that are DONE rather than taught, and whose credit band is
+        therefore wide (2 for an early mini project, 20 for a dissertation)."""
+        return self.course_type in PROJECT_OR_INTERNSHIP_TYPES
 
 
 @dataclasses.dataclass
@@ -325,9 +354,9 @@ def _check_slot_option_credits(
     return violations
 
 
-# A mini-project in an early semester is routinely worth 2 credits, while a
-# final-year dissertation runs to 20. Both are PROJECT courses, so the band has
-# to span the whole range rather than assume the dissertation.
+# A mini project is routinely worth 2 credits, while a final-year dissertation
+# runs to 20. Both are projects, so the band has to span the whole range rather
+# than assume the dissertation.
 _PROJECT_INTERNSHIP_MIN_CREDITS = 2
 _PROJECT_INTERNSHIP_MAX_CREDITS = 20
 
@@ -409,7 +438,7 @@ def _check_final_semester_composition(
             message=(
                 f"Final semester ({final_semester}) contains non-project/internship "
                 f"course(s): {codes}. The final semester is expected to contain only "
-                "PROJECT and INTERNSHIP courses."
+                "project (mini or major) and internship courses."
             ),
             severity="WARNING",
         )]
@@ -451,7 +480,12 @@ def _check_layout_zones(
 
     mini_semester_courses = [c for c in units if c.semester == mini_project_semester]
     if mini_semester_courses:
-        has_mini_project = any(c.course_type == "PROJECT" for c in mini_semester_courses)
+        # Specifically a MINI project. Under the old single "PROJECT" value this
+        # rule could not tell one from a dissertation, so a major project sitting
+        # in the second-to-last semester silently satisfied it.
+        has_mini_project = any(
+            c.course_type == TYPE_MINI_PROJECT for c in mini_semester_courses
+        )
         has_elective = any(c.is_elective for c in mini_semester_courses)
         if not has_mini_project:
             violations.append(ComplianceViolation(

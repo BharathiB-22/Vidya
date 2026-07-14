@@ -39,10 +39,22 @@ def _get_async_engine():
 # kept inside its valid per-course credit range, until the sum matches.
 # ---------------------------------------------------------------------------
 
+# These two helpers run on the RAW AI dicts, upstream of normalize_course_type —
+# so the type they see is the provider's own vocabulary, in which a project of
+# either size is the single word "PROJECT". Both spellings are accepted anyway:
+# the canonical MINI_PROJECT/MAJOR_PROJECT cannot reach here today, and if the
+# normalization boundary ever moves earlier, a rebalance that silently stopped
+# recognising projects would push a 2-credit mini project up to 6 rather than
+# fail — the kind of drift that does not announce itself.
+_PROJECT_OR_INTERNSHIP_TOKENS = frozenset(
+    {"PROJECT", "MINI_PROJECT", "MAJOR_PROJECT", "INTERNSHIP"}
+)
+
+
 def _course_credit_bounds(course: dict) -> tuple[int, int]:
     # Mirrors compliance._check_course_credit_range. A mini-project may be worth
     # as little as 2 credits, so rebalancing must not push it up to 6.
-    if (course.get("course_type") or "") in ("PROJECT", "INTERNSHIP"):
+    if (course.get("course_type") or "") in _PROJECT_OR_INTERNSHIP_TOKENS:
         return 2, 20   # UGC project/internship flexibility
     return 1, 6
 
@@ -53,7 +65,7 @@ def _rebalance_priority(course: dict) -> int:
         return 0
     if ct == "LAB":
         return 1
-    if ct in ("PROJECT", "INTERNSHIP"):
+    if ct in _PROJECT_OR_INTERNSHIP_TOKENS:
         return 2
     return 3
 
@@ -210,6 +222,7 @@ async def _run_generation(
         CourseNode,
         detect_prerequisite_cycles,
     )
+    from app.modules.m01_program_advisor.course_types import normalize_course_type
     from app.modules.m01_program_advisor.electives import is_basket_placeholder
     from app.modules.m01_program_advisor.models import Course as CourseModel, ProgramStatus
     from app.modules.m01_program_advisor.repository import (
@@ -410,6 +423,14 @@ async def _run_generation(
         # Bulk create new AI courses, then flag them as AI-generated.
         # Flagging is done via a targeted UPDATE on the new IDs only —
         # mark_all_ai_generated would incorrectly stamp human-authored courses.
+        #
+        # This is the boundary between the AI's vocabulary and the curriculum's.
+        # Everything above works in the provider's five loose types (and its bare
+        # "PROJECT", which the prompt asks for on a mini project); `courses` stores
+        # the canonical six. normalize_course_type translates — resolving PROJECT to
+        # MINI_PROJECT or MAJOR_PROJECT by title, exactly as migration 0086ten split
+        # the legacy rows — so a synonym never reaches the enum validator and one
+        # unrecognised word cannot fail an otherwise-correct generation run.
         # ------------------------------------------------------------------
         course_creates = [
             CourseCreate(
@@ -417,7 +438,9 @@ async def _run_generation(
                 title=c["title"],
                 credits=c["credits"],
                 semester=c["semester"],
-                course_type=c.get("course_type"),
+                course_type=normalize_course_type(
+                    c.get("course_type"), title=c.get("title") or "",
+                ),
                 is_elective=c["is_elective"],
                 elective_basket_id=basket_name_to_id.get(
                     (c["semester"], (c.get("elective_basket_name") or "").strip())

@@ -52,6 +52,19 @@ CATEGORY_LAB      = "Lab"
 CATEGORY_PROJECT  = "Project"
 
 
+# The types that print as "Project" in the header. MINI_PROJECT and MAJOR_PROJECT
+# are both here: the split (V2.3, migration 0086ten) gave them different
+# DOCUMENTS, not different header categories — a syllabus header says Project for
+# either, and the four-word vocabulary below is deliberate.
+#
+# Naming them explicitly rather than falling through to Core matters: before the
+# split this list said "PROJECT", so after it every project and dissertation in
+# the catalogue printed its category as Core.
+_PROJECT_CATEGORY_TYPES = frozenset({
+    "MINI_PROJECT", "MAJOR_PROJECT", "INTERNSHIP", "SEMINAR",
+})
+
+
 def derive_category(course: _CourseLike) -> str:
     """The course's category, from fields the Dean already fills in.
 
@@ -65,7 +78,7 @@ def derive_category(course: _CourseLike) -> str:
     course_type = (course.course_type or "").upper()
     if course_type == "LAB":
         return CATEGORY_LAB
-    if course_type in ("PROJECT", "INTERNSHIP", "SEMINAR"):
+    if course_type in _PROJECT_CATEGORY_TYPES:
         return CATEGORY_PROJECT
     return CATEGORY_CORE
 

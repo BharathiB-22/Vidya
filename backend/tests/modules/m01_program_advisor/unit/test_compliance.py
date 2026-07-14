@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from app.modules.m01_program_advisor.compliance import (
     CourseNode,
     ElectiveSlotNode,
@@ -469,7 +471,7 @@ def _credit_range_violations(course: CourseNode) -> list:
 
 def test_two_credit_mini_project_is_valid():
     # A Semester 3 mini-project is routinely 2 credits. Flagging it was the bug.
-    assert _credit_range_violations(_typed_course("MCA309", 2, "PROJECT")) == []
+    assert _credit_range_violations(_typed_course("MCA309", 2, "MINI_PROJECT")) == []
 
 
 def test_two_credit_internship_is_valid():
@@ -477,19 +479,34 @@ def test_two_credit_internship_is_valid():
 
 
 def test_twenty_credit_dissertation_is_valid():
-    assert _credit_range_violations(_typed_course("MCA401", 20, "PROJECT")) == []
+    assert _credit_range_violations(_typed_course("MCA401", 20, "MAJOR_PROJECT")) == []
 
 
-def test_one_credit_project_is_still_flagged():
-    # The floor moved to 2, it did not disappear.
-    v = _credit_range_violations(_typed_course("MCA311", 1, "PROJECT"))
+@pytest.mark.parametrize("course_type", ["MINI_PROJECT", "MAJOR_PROJECT"])
+def test_one_credit_project_is_still_flagged(course_type):
+    # The floor moved to 2, it did not disappear. Both project sizes share the band.
+    v = _credit_range_violations(_typed_course("MCA311", 1, course_type))
     assert len(v) == 1 and v[0].rule_id == "UGC-COURSE-002"
     assert "[2, 20]" in v[0].message
 
 
-def test_twentyone_credit_project_is_still_flagged():
-    v = _credit_range_violations(_typed_course("MCA402", 21, "PROJECT"))
+@pytest.mark.parametrize("course_type", ["MINI_PROJECT", "MAJOR_PROJECT"])
+def test_twentyone_credit_project_is_still_flagged(course_type):
+    v = _credit_range_violations(_typed_course("MCA402", 21, course_type))
     assert len(v) == 1 and v[0].rule_id == "UGC-COURSE-002"
+
+
+def test_legacy_project_type_is_not_a_project_anymore():
+    """The old single "PROJECT" value no longer exists in the enum, and nothing
+    writes it (migration 0086ten split the stored rows; normalize_course_type
+    resolves the AI's bare "PROJECT" before it can be persisted).
+
+    If one ever reappeared it would be treated as an ordinary taught course and
+    held to the narrow [1, 6] band — a loud, visible failure rather than a
+    dissertation quietly passing every shape rule.
+    """
+    v = _credit_range_violations(_typed_course("MCA403", 20, "PROJECT"))
+    assert len(v) == 1 and v[0].rule_id == "UGC-COURSE-001"
 
 
 def test_theory_course_keeps_the_narrow_band():
