@@ -8,11 +8,11 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { usePrepareSyllabus } from '@/hooks/syllabuses'
-import { useProgramCourses } from '@/hooks/programs'
 import {
-  DEFAULT_UNIT_COUNT, MAX_UNIT_HOURS, MIN_UNIT_HOURS, UNIT_COUNT_OPTIONS,
+  DEFAULT_HOURS_PER_WEEK, DEFAULT_TEACHING_HOURS, DEFAULT_UNIT_COUNT,
+  MAX_HOURS_PER_WEEK, MAX_TEACHING_HOURS, MAX_UNIT_HOURS, MIN_HOURS_PER_WEEK,
+  MIN_TEACHING_HOURS, MIN_UNIT_HOURS, UNIT_COUNT_OPTIONS,
 } from '@/types/syllabus'
-import { WEEKS_PER_SEMESTER } from '@/types/program'
 import type { ReadinessItem } from '@/types/governance'
 
 /**
@@ -34,6 +34,19 @@ import type { ReadinessItem } from '@/types/governance'
  * draft a theory syllabus without it: how a subject is divided, and how long each part
  * is taught, is the Board's decision and never the model's. The manual door asks for
  * nothing — the Board writes the units, and the structure follows what it writes.
+ *
+ * NOTHING IN THIS FORM IS COMPUTED AND LEFT UNREAD. Every figure it shows — the total
+ * hours, the weeks, the hours of each unit — is a SUGGESTION the Board looks at and may
+ * overrule. (L + T + P) x 15 weeks is arithmetic, not knowledge: for a 4-0-0 course it
+ * says 60 hours whatever the Board knows about the term it is actually planning for,
+ * and a term shortened by an election is 45. The AI is then told the figure the human
+ * left in the box, never the one the multiplication produced.
+ *
+ * THEORY ONLY, and deliberately. The unit boxes below make sense for a taught subject
+ * and for nothing else — a lab has experiments, an internship has weeks at a company,
+ * a project has milestones and reviews. Each of those is getting its own dialog; until
+ * it does, they go through this one with the structure fields hidden, and their
+ * generators (which have never read unit_count or unit_hours) are unaffected.
  */
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V']
@@ -42,38 +55,51 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   subject: ReadinessItem | null
-  programId: string
 }
 
-export function PrepareSyllabusDialog({ open, onOpenChange, subject, programId }: Props) {
+export function PrepareSyllabusDialog({ open, onOpenChange, subject }: Props) {
   const navigate = useNavigate()
   const prepare = usePrepareSyllabus()
-
-  // The course's contact hours come from its L-T-P — the curriculum's own record of how
-  // long this subject is taught. Used only to SEED the hour boxes; the Board reads them,
-  // edits them, and saves them. A suggestion a human accepts is not a decision the
-  // system made.
-  const { data: courses = [] } = useProgramCourses(programId)
-  const course = courses.find((c) => c.id === subject?.course_id)
-  const contactHours = course
-    ? ((course.hours_lecture ?? 0) + (course.hours_tutorial ?? 0) +
-       (course.hours_practical ?? 0)) * WEEKS_PER_SEMESTER
-    : 0
 
   const isTheory = subject?.course_type === 'THEORY'
 
   const [units, setUnits] = useState<number>(DEFAULT_UNIT_COUNT)
-  const [hours, setHours] = useState<number[]>(() => seed(DEFAULT_UNIT_COUNT, 0))
+  const [totalHours, setTotalHours] = useState<number>(DEFAULT_TEACHING_HOURS)
+  const [perWeek, setPerWeek] = useState<number>(DEFAULT_HOURS_PER_WEEK)
+  const [hours, setHours] = useState<number[]>(
+    () => seed(DEFAULT_UNIT_COUNT, DEFAULT_TEACHING_HOURS),
+  )
   const [instructions, setInstructions] = useState('')
 
+  // A different subject is a different form. Back to the opening figures — which are a
+  // convenience and nothing more: 60 hours at 4 a week is the common case, not a rule,
+  // and 40, 45, 48 and 52 are all ordinary answers the Board types straight over it.
   useEffect(() => {
-    setHours(seed(units, contactHours))
-  }, [units, contactHours, subject?.course_id])
+    setTotalHours(DEFAULT_TEACHING_HOURS)
+    setPerWeek(DEFAULT_HOURS_PER_WEEK)
+  }, [subject?.course_id])
+
+  // The units are apportioned out of whatever total is in the box. Re-spread whenever
+  // the total or the number of units changes, because an allocation of 60 across five
+  // is not an allocation of 52 across four — leaving the old figures would show the
+  // Board an hour plan for a course it has just said it is not teaching.
+  useEffect(() => {
+    setHours(seed(units, totalHours))
+  }, [units, totalHours, subject?.course_id])
 
   if (!subject) return null
 
   const total = hours.reduce((sum, h) => sum + (h || 0), 0)
-  const sane = hours.every((h) => h >= 1)
+
+  // THE ONE RULE, and the only thing that blocks the button: the units are the course,
+  // so they must add up to it. The server enforces the same rule at generation and
+  // again at approval — this is only the earliest, cheapest place to see it.
+  const balanced = total === totalHours
+  const sane =
+    hours.every((h) => h >= 1) &&
+    totalHours >= MIN_TEACHING_HOURS &&
+    perWeek >= MIN_HOURS_PER_WEEK &&
+    balanced
 
   async function start() {
     const syllabus = await prepare.mutateAsync({
@@ -82,6 +108,10 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject, programId }
       // The Board's academic structure, saved before a model is asked for anything.
       unitCount: isTheory ? units : undefined,
       unitHours: isTheory ? hours : undefined,
+      // And the header's two figures. The AI paces the whole syllabus against the
+      // total — nothing assumes 60, and nothing derives it from the L-T-P.
+      teachingHours: isTheory ? totalHours : undefined,
+      hoursPerWeek: isTheory ? perWeek : undefined,
       instructions: instructions || undefined,
     })
     onOpenChange(false)
@@ -101,7 +131,6 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject, programId }
 
         <p className="text-sm text-gray-600">
           {subject.course_code} · Semester {subject.semester}
-          {contactHours > 0 && ` · ${contactHours} contact hours`}
         </p>
 
         <div className="space-y-4">
@@ -115,6 +144,48 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject, programId }
 
             {isTheory && (
               <>
+                {/* The two figures a real syllabus prints at the top of the page:
+                    "Total Teaching Hours: 52   No. of Hours / Week: 04". They open at
+                    60 and 4 because that is the common case and an empty box is a
+                    chore — nothing derives them, nothing enforces 60, and the Board
+                    types straight over them. */}
+                <div className="mt-3 flex items-end gap-2">
+                  <div className="flex-1">
+                    <label
+                      htmlFor="teaching-hours"
+                      className="mb-0.5 block text-[11px] font-medium text-gray-500"
+                    >
+                      Total Teaching Hours
+                    </label>
+                    <Input
+                      id="teaching-hours"
+                      type="number"
+                      min={MIN_TEACHING_HOURS}
+                      max={MAX_TEACHING_HOURS}
+                      value={totalHours || ''}
+                      onChange={(e) => setTotalHours(Number(e.target.value) || 0)}
+                      className="h-8 bg-white"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label
+                      htmlFor="hours-per-week"
+                      className="mb-0.5 block text-[11px] font-medium text-gray-500"
+                    >
+                      No. of Hours / Week
+                    </label>
+                    <Input
+                      id="hours-per-week"
+                      type="number"
+                      min={MIN_HOURS_PER_WEEK}
+                      max={MAX_HOURS_PER_WEEK}
+                      value={perWeek || ''}
+                      onChange={(e) => setPerWeek(Number(e.target.value) || 0)}
+                      className="h-8 bg-white"
+                    />
+                  </div>
+                </div>
+
                 <div className="mt-3 flex gap-2">
                   {UNIT_COUNT_OPTIONS.map((n) => (
                     <button
@@ -156,20 +227,21 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject, programId }
                   <span className="ml-auto pb-1 text-right text-xs">
                     <span className="block text-gray-500">Total</span>
                     <span
-                      className={`font-bold ${
-                        contactHours && total !== contactHours ? 'text-amber-700' : 'text-black'
-                      }`}
+                      className={`font-bold ${balanced ? 'text-black' : 'text-amber-700'}`}
                     >
                       {total} Hours
                     </span>
                   </span>
                 </div>
 
-                {/* Advisory only. The Board may have a reason; this is where a mistake is
-                    cheapest to notice. */}
-                {contactHours > 0 && total !== contactHours && (
+                {/* The units are the course: they must add up to it. This is the only
+                    rule the form enforces, and the button below stays disabled until it
+                    holds — the server refuses to generate against units that do not add
+                    up, so failing here, on the form, is the cheap way to find out. */}
+                {!balanced && (
                   <p className="mt-1 text-xs text-amber-700">
-                    This course is taught for {contactHours} hours; your units add up to {total}.
+                    This course is taught for {totalHours} hours; your units add up to{' '}
+                    {total}. Adjust either until they agree.
                   </p>
                 )}
                 {hours.some((h) => h > MAX_UNIT_HOURS) && (
@@ -215,10 +287,11 @@ export function PrepareSyllabusDialog({ open, onOpenChange, subject, programId }
   )
 }
 
-/** What the hour boxes show before the Board touches them. A suggestion, not a decision. */
-function seed(units: number, contactHours: number): number[] {
-  if (contactHours <= 0) return Array<number>(units).fill(10)
-  const base = Math.floor(contactHours / units)
-  const rest = contactHours - base * units
+/** What the hour boxes show before the Board touches them — the total it stated, spread
+ *  across the units. A suggestion, not a decision. */
+function seed(units: number, totalHours: number): number[] {
+  if (totalHours <= 0) return Array<number>(units).fill(10)
+  const base = Math.floor(totalHours / units)
+  const rest = totalHours - base * units
   return Array.from({ length: units }, (_, i) => (i === 0 ? base + rest : base))
 }

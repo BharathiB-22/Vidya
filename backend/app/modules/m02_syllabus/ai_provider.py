@@ -73,7 +73,17 @@ class SyllabusGenerationContext:
     # contact hours, and practical components appear only if there are practical
     # hours to fill.
     ltp:                 str = "0-0-0"   # "3-1-2"
-    contact_hours:       int = 0         # (L + T + P) x 15 weeks
+    # The TOTAL taught hours the syllabus is written to. The Board's figure when it
+    # stated one; otherwise (L + T + P) x 15 weeks, derived from the course. The
+    # derivation is a suggestion about the term — a 4-0-0 course reads as 60 hours
+    # whatever the Board knows about the semester actually being planned — so the
+    # figure that reaches the model is the one a human last looked at.
+    contact_hours:       int = 0
+    # Hours a week, as the header prints it, and the weeks that implies. Pacing context:
+    # 52 hours at 4 a week is thirteen weeks, and the same 52 at 2 a week is half a year
+    # — a different subject to teach, and a different way to divide it.
+    hours_per_week:      int = 4
+    teaching_weeks:      int = 15
     category:            str = "Core"    # Core | Elective | Lab | Project
     has_practical:       bool = False
 
@@ -1309,13 +1319,15 @@ def _po_lines(ctx: SyllabusGenerationContext) -> str:
 def _course_header(ctx: SyllabusGenerationContext) -> str:
     return (
         f"COURSE INFORMATION (fixed by the approved curriculum — do not contradict it):\n"
-        f"  Course Code   : {ctx.course_code}\n"
-        f"  Course Name   : {ctx.course_title}\n"
-        f"  Credits       : {ctx.course_credits}\n"
-        f"  L-T-P         : {ctx.ltp}\n"
-        f"  Contact Hours : {ctx.contact_hours}\n"
-        f"  Category      : {ctx.category}\n"
-        f"  Course Type   : {normalize_course_type(ctx.course_type)}\n"
+        f"  Course Code          : {ctx.course_code}\n"
+        f"  Course Name          : {ctx.course_title}\n"
+        f"  Credits              : {ctx.course_credits}\n"
+        f"  L-T-P                : {ctx.ltp}\n"
+        f"  Total Teaching Hours : {ctx.contact_hours}\n"
+        f"  Hours per Week       : {ctx.hours_per_week} "
+        f"(about {ctx.teaching_weeks} teaching weeks)\n"
+        f"  Category             : {ctx.category}\n"
+        f"  Course Type          : {normalize_course_type(ctx.course_type)}\n"
     )
 
 
@@ -1417,10 +1429,10 @@ def _build_theory_user_prompt(ctx: SyllabusGenerationContext) -> str:
         hours_clause = (
             f"- The {n} units together must account for approximately "
             f"{ctx.contact_hours} contact hours (this course is taught for "
-            f"{ctx.contact_hours} hours across the semester, from its L-T-P of "
-            f"{ctx.ltp}). Distribute them across the units in proportion to each "
-            f"unit's weight — they need not be equal, but the total must be close to "
-            f"{ctx.contact_hours}.\n"
+            f"{ctx.contact_hours} hours in total, across a term of "
+            f"{ctx.teaching_weeks} weeks). Distribute them across the units in "
+            f"proportion to each unit's weight — they need not be equal, but the "
+            f"total must be close to {ctx.contact_hours}.\n"
         )
     else:
         hours_clause = "- Assign each unit a realistic teaching-hour total.\n"

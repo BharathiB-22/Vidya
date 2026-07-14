@@ -139,6 +139,25 @@ class Syllabus(Base):
     # plan the units were written to, not a second copy of them.
     unit_hours          = Column(JSONB, nullable=False, default=list, server_default="[]")
 
+    # The two figures at the top of a printed syllabus, and the Board's to state:
+    #
+    #     Total Teaching Hours: 52          No. of Hours / Week: 04
+    #
+    # `teaching_hours` is the authoritative one — what the AI paces the syllabus
+    # against, and what the units must add up to. `hours_per_week` is what the header
+    # prints and what the timetable is built from.
+    #
+    # Both were arithmetic once: (L + T + P) x 15 weeks, which for a 4-0-0 course is 60
+    # hours whatever the Board knew about the term it was planning for. It is not
+    # derived any more, and 40, 45, 48 and 52 are all ordinary answers. NULL means the
+    # Board has not said, and the L-T-P derivation is used as a fallback for syllabi
+    # written before it could (formatting.resolve_teaching_hours).
+    #
+    # WEEKS are deliberately absent: 52 hours at 4 a week IS thirteen weeks, and a
+    # stored third number is one that can disagree with the two it came from.
+    teaching_hours      = Column(Integer, nullable=True)
+    hours_per_week      = Column(Integer, nullable=True)
+
     # Course Objectives — a list of strings. Distinct from Course Outcomes: the
     # objectives say what the course sets out to teach, the outcomes what the
     # student can do afterwards. Official university syllabi carry both.

@@ -47,6 +47,13 @@ export interface PrepareSyllabusArgs {
   /** THEORY only, and required for AI: the Board's academic structure. */
   unitCount?: number
   unitHours?: number[]
+  /**
+   * THEORY only: what the subject is taught for, and at how many hours a week. The
+   * Board's figures — the AI paces the whole syllabus against the total, and the unit
+   * hours must add up to it or the server refuses to generate.
+   */
+  teachingHours?: number
+  hoursPerWeek?: number
   instructions?: string
 }
 
@@ -55,7 +62,7 @@ export function usePrepareSyllabus() {
 
   return useMutation({
     mutationFn: async ({
-      courseId, mode, unitCount, unitHours, instructions,
+      courseId, mode, unitCount, unitHours, teachingHours, hoursPerWeek, instructions,
     }: PrepareSyllabusArgs) => {
       const syllabus = await syllabusesApi.createSyllabus({ course_id: courseId })
 
@@ -68,6 +75,8 @@ export function usePrepareSyllabus() {
         await syllabusesApi.updateSyllabus(syllabus.id, {
           unit_count: unitCount,
           unit_hours: unitHours,
+          teaching_hours: teachingHours,
+          hours_per_week: hoursPerWeek,
         })
       }
 
@@ -75,6 +84,8 @@ export function usePrepareSyllabus() {
         custom_instructions: instructions,
         unit_count: unitCount,
         unit_hours: unitHours,
+        teaching_hours: teachingHours,
+        hours_per_week: hoursPerWeek,
       })
 
       // Remember which job is writing it, so the syllabus page can say what the AI is

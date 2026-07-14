@@ -39,9 +39,18 @@ from app.modules.m02_syllabus.models import (
 
 class Experiment(BaseModel):
     """One entry of a lab manual's experiment list — the thing that actually gets
-    performed in the laboratory, in the week it is performed."""
+    performed in the laboratory, in the week it is performed.
+
+    The TITLE is all that is required, because the title is all a real experiment list
+    has: "Implement a singly linked list", fifteen times, is a lab manual. Aim,
+    procedure, apparatus and hours are worth writing and are optional, and the Board
+    pastes the list in one go rather than opening fifteen dialogs.
+
+    `min_length=1` rather than 5: "DFS" and "pH test" are experiments, and a length
+    rule that rejects them is a rule about English, not about laboratories.
+    """
     number:     int  = Field(..., ge=1)
-    title:      str  = Field(..., min_length=5)
+    title:      str  = Field(..., min_length=1)
     aim:        Optional[str] = None
     procedure:  Optional[str] = None
     apparatus:  list[str] = Field(default_factory=list)
@@ -171,6 +180,21 @@ class UnitTopicItem(BaseModel):
 MIN_UNITS = 4
 MAX_UNITS = 5
 DEFAULT_UNITS = 5
+
+
+# ---------------------------------------------------------------------------
+# How long the subject is taught, and how many hours a week
+#
+# Bounds, not opinions. They exist to catch a typed 6000 or a 0, and nothing narrower:
+# 40, 45, 48, 52 and 60 hours are all ordinary answers, a 20-hour audit course and a
+# 300-hour intensive are both real, and nothing here forces any of them. Which figure
+# is right is the Board's business, not the form's.
+# ---------------------------------------------------------------------------
+
+MIN_TEACHING_HOURS = 1
+MAX_TEACHING_HOURS = 600
+MIN_HOURS_PER_WEEK = 1
+MAX_HOURS_PER_WEEK = 40
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +438,21 @@ class SyllabusUpdate(BaseModel):
     # derive them, and the model never chooses them.
     unit_count:           Optional[int] = Field(default=None, ge=MIN_UNITS, le=MAX_UNITS)
     unit_hours:           Optional[list[int]] = Field(default=None)
+    # The header's two figures — "Total Teaching Hours: 52 / No. of Hours per Week: 04".
+    # The Board's, and nothing derives them.
+    #
+    # NOTE what is NOT checked here: that the unit hours ADD UP to teaching_hours. While
+    # the Board is editing they routinely do not — the total changes to 52 before the
+    # units are redistributed, and a save that refused the intermediate state would make
+    # the form unusable. The sum is enforced where it matters and cannot be worked
+    # around: at generation (nothing is written to the wrong shape) and at approval
+    # (nothing is signed off in it). See service._unit_hours_fit.
+    teaching_hours:       Optional[int] = Field(
+        default=None, ge=MIN_TEACHING_HOURS, le=MAX_TEACHING_HOURS,
+    )
+    hours_per_week:       Optional[int] = Field(
+        default=None, ge=MIN_HOURS_PER_WEEK, le=MAX_HOURS_PER_WEEK,
+    )
 
     @model_validator(mode="after")
     def _hours_are_real(self) -> SyllabusUpdate:
@@ -458,6 +497,11 @@ class SyllabusResponse(BaseModel):
     # the ones on the units themselves, which the Board edits freely afterwards.
     unit_count:          int = DEFAULT_UNITS
     unit_hours:          list[int] = []
+    # What the Board said this subject is taught for, and at how many hours a week. None
+    # means it did not say, and the syllabus falls back to the L-T-P derivation —
+    # `course_information` always carries the figures actually in force.
+    teaching_hours:      Optional[int] = None
+    hours_per_week:      Optional[int] = None
     custom_instructions: Optional[str]
     change_note:         Optional[str]
     board_comment:       Optional[str]
@@ -480,17 +524,22 @@ class SyllabusResponse(BaseModel):
 class CourseInformation(BaseModel):
     """The header block of an official university syllabus.
 
-    Every field is DERIVED from the `courses` row at read time — none is stored
-    on the syllabus and none is typed in by anyone. See m02/formatting.py: a
-    stored copy of the credits or category would be a second source of truth, and
-    would silently disagree with the curriculum the moment the Board adjusted the
-    course during review.
+    Most of it is DERIVED from the `courses` row at read time — the code, the name, the
+    credits, the L-T-P, the category. See m02/formatting.py: a stored copy of the
+    credits would be a second source of truth, and would silently disagree with the
+    curriculum the moment the Dean adjusted the course during review.
+
+    The exception is the pair the printed page leads with, which the Board states and
+    the system does not compute:
+
+        Total Teaching Hours: 52          No. of Hours / Week: 04
     """
     course_code:     str
     course_name:     str
     credits:         int
     ltp:             str    # "3-1-2"
-    contact_hours:   int    # (L + T + P) x 15 weeks
+    contact_hours:   int    # Total Teaching Hours — the Board's figure
+    hours_per_week:  int    # No. of Hours / Week — the Board's figure
     category:        str    # Core | Elective | Lab | Project
     course_type:     str = CourseType.THEORY.value
     semester:        int = 1
@@ -579,6 +628,27 @@ class GenerateSyllabusRequest(BaseModel):
             "unit is then WRITTEN TO its hours rather than given hours after the fact. "
             "Must have exactly `unit_count` entries. Omitted lets the AI pace the "
             "units against the course's contact hours, as before."
+        ),
+    )
+    teaching_hours: Optional[int] = Field(
+        default=None,
+        ge=MIN_TEACHING_HOURS,
+        le=MAX_TEACHING_HOURS,
+        description=(
+            "Total teaching hours for the course — 52, 48, 45, 40, whatever this "
+            "subject is actually taught for. What the AI paces the whole syllabus "
+            "against, and what the unit hours must add up to. Nothing derives it and "
+            "nothing forces 60. Omitted keeps whatever the row already carries."
+        ),
+    )
+    hours_per_week: Optional[int] = Field(
+        default=None,
+        ge=MIN_HOURS_PER_WEEK,
+        le=MAX_HOURS_PER_WEEK,
+        description=(
+            "Hours a week, as the syllabus header prints it — 'No. of Hours / Week: "
+            "04'. With the total, it tells the generator how long the term runs (52 at "
+            "4 a week is 13 weeks), which is what a unit is paced against."
         ),
     )
 

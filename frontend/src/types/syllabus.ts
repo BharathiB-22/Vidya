@@ -30,7 +30,8 @@ export interface CourseInformation {
   course_name:     string
   credits:         number
   ltp:             string    // "3-1-2"
-  contact_hours:   number    // (L + T + P) x 15 weeks
+  contact_hours:   number    // Total Teaching Hours — the Board's figure
+  hours_per_week:  number    // No. of Hours / Week — the Board's figure
   category:        string    // Core | Elective | Lab | Project
   course_type:     CourseType
   semester:        number
@@ -193,6 +194,14 @@ export interface Syllabus {
    * let the AI pace the units against the course's contact hours.
    */
   unit_hours:          number[]
+  /**
+   * The header's two figures — "Total Teaching Hours: 52 / No. of Hours per Week: 04".
+   * null means the Board has not stated them and the L-T-P is used as a fallback;
+   * `course_information` always carries the figures actually in force, so read THAT to
+   * display them and these two only to seed a form.
+   */
+  teaching_hours:      number | null
+  hours_per_week:      number | null
   custom_instructions: string | null
   change_note:         string | null
   board_comment:       string | null
@@ -450,6 +459,13 @@ export interface SyllabusUpdate {
   unit_count?:           number
   unit_hours?:           number[]
   /**
+   * What the subject is taught for, and at how many hours a week. The Board's, and
+   * nothing derives them. Saving them does NOT require the unit hours to add up yet —
+   * that is enforced at generation and at approval, not mid-edit.
+   */
+  teaching_hours?:       number
+  hours_per_week?:       number
+  /**
    * The type-specific document body — the lab manual, the internship guidelines,
    * the project handbook. Validated server-side against the row's OWN doc_type, so
    * a client cannot turn one document into another by posting a different shape.
@@ -641,6 +657,13 @@ export interface GenerateSyllabusRequest {
    *  `unit_count` entries. Each unit is WRITTEN TO its hours; omitted lets the AI
    *  pace the units against the course's contact hours. */
   unit_hours?: number[]
+  /** Total teaching hours for the whole course — 52, 48, 45, 40, whatever this subject
+   *  is taught for. What the AI paces the syllabus against, and what the unit hours
+   *  must add up to. The server REFUSES generation if they do not. */
+  teaching_hours?: number
+  /** Hours a week, as the header prints it. With the total it tells the model how long
+   *  the term runs, which is what a unit is paced against. */
+  hours_per_week?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -671,6 +694,20 @@ export const DEFAULT_UNIT_COUNT = 5
  */
 export const MIN_UNIT_HOURS = 4
 export const MAX_UNIT_HOURS = 15
+
+/**
+ * What a subject is taught for, and at how many hours a week — the bounds the API
+ * enforces (m02/schemas.py). They catch a typed 6000 or a 0 and nothing narrower: 40,
+ * 45, 48, 52 and 60 are all ordinary answers and nothing here forces any of them.
+ */
+export const MIN_TEACHING_HOURS = 1
+export const MAX_TEACHING_HOURS = 600
+export const MIN_HOURS_PER_WEEK = 1
+export const MAX_HOURS_PER_WEEK = 40
+
+/** What the hours box opens at — a convenience, not a rule. The Board types over it. */
+export const DEFAULT_TEACHING_HOURS = 60
+export const DEFAULT_HOURS_PER_WEEK = 4
 
 export interface ApproveRequest {
   comment?: string

@@ -3,14 +3,17 @@ import type { CourseInformation } from '@/types/syllabus'
 /**
  * The Course Information block that opens an official university syllabus.
  *
- *     Course Code    : MCA201        Credits       : 4
- *     Course Name    : Machine …     L-T-P         : 3-1-2
- *     Category       : Core          Contact Hours : 90
+ *     Course Code    : 1MCA1         Credits              : 4
+ *     Course Name    : The Art …     L-T-P                : 4-0-0
+ *     Category       : Core          Total Teaching Hours : 52
+ *                                    No. of Hours / Week  : 04
  *
- * Every value here is DERIVED on the server from the course row — none of it is
- * stored on the syllabus and none of it is typed in by anyone. A stored copy of
- * the credits would be a second source of truth, and would quietly disagree with
- * the curriculum the moment the Board adjusted the course during review.
+ * Most of it is DERIVED on the server from the course row — a stored copy of the
+ * credits would be a second source of truth, and would quietly disagree with the
+ * curriculum the moment the Dean adjusted the course during review.
+ *
+ * The teaching hours and the hours a week are the exception: they are the Board's,
+ * they are typed, and nothing derives them from the L-T-P.
  */
 export function CourseInformationHeader({ info }: { info: CourseInformation }) {
   const fields: Array<[string, string | number]> = [
@@ -18,8 +21,9 @@ export function CourseInformationHeader({ info }: { info: CourseInformation }) {
     ['Course Name', info.course_name],
     ['Credits', info.credits],
     ['L-T-P', info.ltp],
-    ['Contact Hours', info.contact_hours],
     ['Category', info.category],
+    ['Total Teaching Hours', info.contact_hours],
+    ['Hours / Week', info.hours_per_week],
   ]
 
   return (

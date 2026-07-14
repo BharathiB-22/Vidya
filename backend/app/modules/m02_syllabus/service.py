@@ -156,6 +156,26 @@ _UNIT_MIN   = 4
 _COPO_WARN_THRESHOLD = 0.5   # warn if < 50 % of COs have any PO mapping
 
 
+def _unit_hours_mismatch(unit_hours: list[int] | None, teaching_hours: int | None) -> str | None:
+    """The message when the units do not add up to the course. None when they do.
+
+    Silent when either figure is missing, and that is deliberate: a syllabus whose
+    Board never stated a total (everything written before P1.10) has nothing to be
+    measured against, and inventing 60 to measure it against would be exactly the
+    assumption this feature removed.
+    """
+    if not unit_hours or not teaching_hours:
+        return None
+    total = sum(unit_hours)
+    if total == teaching_hours:
+        return None
+    return (
+        f"The units add up to {total} hours, but this course is taught for "
+        f"{teaching_hours}. Adjust the unit hours or the total — they are the same "
+        f"course, and they must say the same thing."
+    )
+
+
 def _run_compliance_check(
     cos:      list[CourseOutcome],
     units:    list[SyllabusUnit],
@@ -165,37 +185,66 @@ def _run_compliance_check(
     document: dict | None = None,
     expected_units: int | None = None,
     objectives: list[str] | None = None,
+    teaching_hours: int | None = None,
 ) -> ComplianceCheckResponse:
     """Is this document fit to be signed off?
 
-    WHAT is checked depends on WHAT the document is. A laboratory has no Unit III, an
-    internship has no units at all, and demanding four of them was refusing to approve
-    a lab manual for not being a syllabus — which is the whole mistake course types
-    exist to prevent, reappearing at the approval gate.
+    WHAT is checked depends on WHAT the document is, and the answer for four of the six
+    types is now NOTHING. That is the point of P1.10, and it is worth being explicit
+    about what changed and why, because this gate used to refuse things a university
+    does every year:
 
-    Every type does have Course Outcomes, and every type must carry its own body: a
-    theory syllabus its units, everything else the document its type defines.
+      THEORY   The full gate, and it is the only type that has one. Every unit the
+               Board asked for, none of them too thin to print, the objectives, the
+               outcomes, and unit hours that add up to the hours the course is taught
+               for. A theory syllabus IS these things; a syllabus missing them is not
+               an incomplete document, it is not a syllabus.
 
-    THIS IS ALSO THE COMPLETENESS GATE.
+      LAB      The experiment list, and nothing else. A lab manual's content is what
+               the student performs at the bench. Objectives, outcomes, CO-PO mappings
+               and references are all genuinely useful and all genuinely OPTIONAL —
+               demanding four Course Outcomes before a Board could sign off a list of
+               fifteen experiments was the theory syllabus's gate wearing a lab coat.
 
-    A theory syllabus is now written and SAVED one unit at a time, so a generation that
-    dies at Unit V leaves four good units on disk — which is what makes the failure
-    cheap to repair, and what makes this check load-bearing. An incomplete syllabus is
-    allowed to EXIST (the Board can see it, and regenerate the one unit that failed);
-    it is not allowed to be APPROVED. The row's presence proves nothing. What is tested
-    here is that the syllabus is whole: every unit the Board asked for, each at the
-    depth of a real regulation, with the objectives and outcomes that belong to them.
+      the rest No gate at all. A seminar, a mini project, a major project and an
+               internship have no syllabus and never did. What they contain depends on
+               the host company, the supervisor and the review calendar — none of which
+               anyone knows when the curriculum is approved — so they are approved
+               EMPTY, as templates, and filled in by the Dean when the facts exist. A
+               curriculum that could not be approved until somebody invented an
+               internship rubric was a curriculum held hostage by a form.
+
+    A theory syllabus is written and SAVED one unit at a time, so a generation that dies
+    at Unit V leaves four good units on disk — which is what makes the failure cheap to
+    repair, and what makes the theory branch load-bearing. An incomplete syllabus is
+    allowed to EXIST (the Board can see it, and regenerate the one unit that failed); it
+    is not allowed to be APPROVED. The row's presence proves nothing.
     """
     violations: list[ComplianceViolation] = []
     doc_type = (doc_type or CourseType.THEORY.value).upper()
 
-    # 1. Minimum COs — every type has outcomes. A lab has Lab Outcomes, an internship
-    #    has Learning Outcomes, and both map to Programme Outcomes like any other.
-    if len(cos) < _CO_MIN:
+    # 1. Course Outcomes — THEORY only.
+    #
+    # A lab has Lab Outcomes and they are worth writing: they map to Programme Outcomes
+    # like any other, and the accreditation reports read them. But a laboratory whose
+    # Board has not written them yet is still a laboratory, and its manual — the
+    # experiments the students perform — is complete without them. So they are advisory
+    # here, and the Board is told, not stopped.
+    if doc_type == CourseType.THEORY.value and len(cos) < _CO_MIN:
         violations.append(ComplianceViolation(
             code="CO_MIN_NOT_MET",
             message=f"At least {_CO_MIN} course outcomes required; found {len(cos)}.",
             severity="ERROR",
+        ))
+    elif doc_type == CourseType.LAB.value and not cos:
+        violations.append(ComplianceViolation(
+            code="CO_MISSING",
+            message=(
+                "This lab manual has no Lab Outcomes. They are not required to approve "
+                "it, but the CO-PO attainment report will not see this laboratory "
+                "without them."
+            ),
+            severity="WARNING",
         ))
 
     # 2. The document's own body.
@@ -240,21 +289,32 @@ def _run_compliance_check(
                 severity="ERROR",
             ))
 
-    elif not (document or {}):
-        violations.append(ComplianceViolation(
-            code="DOCUMENT_EMPTY",
-            message=(
-                "This document is empty. A lab manual needs its experiments; an "
-                "internship, project or seminar needs its guidelines."
-            ),
-            severity="ERROR",
-        ))
+        # The hours the units are taught for must be the hours the course is taught
+        # for. The Board may leave them mismatched while it works — the form only warns
+        # — but not here: an approved syllabus is printed in a regulation, and a
+        # regulation whose units total 60 hours under a header saying 52 is wrong on the
+        # page, in the timetable, and in the workload it implies for whoever teaches it.
+        #
+        # Measured against the UNITS' OWN hours, not the plan the Board typed before
+        # generation. The units are what the document says; the plan is what it was
+        # asked to say, and by approval time the Board may have edited a unit by hand.
+        mismatch = _unit_hours_mismatch(
+            [u.total_hours for u in units if u.total_hours], teaching_hours,
+        )
+        if mismatch:
+            violations.append(ComplianceViolation(
+                code="UNIT_HOURS_MISMATCH", message=mismatch, severity="ERROR",
+            ))
+
     elif doc_type == CourseType.LAB.value and not (document or {}).get("experiments"):
-        # A laboratory's experiments are its Unit I-V: they are what the student
-        # actually does in the room, and a manual without them is a document about a
-        # laboratory rather than a laboratory. It is also on the Board's checklist,
-        # which is the point — a checklist that ticks a stage the gate never tests is
-        # telling the Board something the system does not believe.
+        # THE ONLY THING A LAB MANUAL MUST HAVE. Its experiments are its Unit I-V: they
+        # are what the student actually does in the room, and a manual without them is a
+        # document ABOUT a laboratory rather than a laboratory.
+        #
+        # Everything else a lab manual can carry — its intro, its equipment, its
+        # software, its assessment guidelines, its outcomes, its references — is
+        # optional, and the Board approves without them. A laboratory is not a theory
+        # paper and must not be gated like one.
         violations.append(ComplianceViolation(
             code="EXPERIMENTS_MISSING",
             message=(
@@ -263,6 +323,13 @@ def _run_compliance_check(
             ),
             severity="ERROR",
         ))
+
+    # AND NOTHING FOR THE REST. A seminar, an internship, a mini or major project is
+    # approved EMPTY — deliberately, and with no violation raised. The Board is signing
+    # off that the curriculum contains this subject, not that somebody has already
+    # written the rubric for a company the student has not been placed at yet. The Dean
+    # fills the template in later, on the execution-documents surface that exists for
+    # exactly that (m02.service.dean_edit_document).
 
     # 3. CO-PO mapping coverage (WARNING — approval not blocked)
     if cos:
@@ -577,6 +644,12 @@ async def _deep_fork(
         # no longer be the syllabus it claims to be a version of.
         unit_count=original.unit_count,
         unit_hours=list(original.unit_hours or []),
+        # The SIZE of it travels too — the hours the units were written to, and the
+        # term they were paced against. A fork that dropped them would fall back to
+        # the L-T-P derivation and quietly re-pace the next draft to 60 hours against
+        # units the Board wrote for 45.
+        teaching_hours=original.teaching_hours,
+        hours_per_week=original.hours_per_week,
         objectives=list(original.objectives or []),
         practical_components=list(original.practical_components or []),
         internal_assessment=list(original.internal_assessment or []),
@@ -1043,6 +1116,8 @@ class SyllabusService:
         faculty_user_id: UUID | None = None,
         unit_count: int | None = None,
         unit_hours: list[int] | None = None,
+        teaching_hours: int | None = None,
+        hours_per_week: int | None = None,
         db: AsyncSession,
     ) -> str:
         """
@@ -1056,6 +1131,20 @@ class SyllabusService:
         there, and so does every later regeneration: a unit rewritten six months from
         now has to fit the same syllabus as the one it replaces, which only works if
         the row remembers what was asked for. Ignored for types that have no units.
+
+        `teaching_hours` and `hours_per_week` are the same kind of decision about the
+        SIZE of it — what the subject is taught for, and at how many hours a week — and
+        are stored the same way and for the same reason. Omitted leaves whatever the row
+        carries, which for a syllabus whose Board never stated them is nothing at all:
+        the worker then derives the hours from the course's L-T-P, as it always did.
+
+        The unit hours must ADD UP to the teaching hours, and this is one of the two
+        places that is enforced (the other is approval). Not on every save — a Board
+        that has raised the total to 52 and not yet redistributed its units is midway
+        through a thought, and a form that refused to save it would be unusable. But a
+        syllabus GENERATED to hours that do not add up is a document written to a
+        course that does not exist, and no amount of later editing makes those units
+        the right size again.
 
         The AI drafts for whoever OWNS the document: the Board for a syllabus, the Dean
         for an execution document. Neither may draft the other's.
@@ -1071,6 +1160,10 @@ class SyllabusService:
             shape["unit_count"] = unit_count
         if unit_hours is not None:
             shape["unit_hours"] = list(unit_hours)
+        if teaching_hours is not None:
+            shape["teaching_hours"] = teaching_hours
+        if hours_per_week is not None:
+            shape["hours_per_week"] = hours_per_week
         if shape:
             shape["updated_at"] = datetime.now(timezone.utc)
             await SyllabusRepository.update(syllabus_id, shape, db=db)
@@ -1088,6 +1181,7 @@ class SyllabusService:
         # against a structure a human has already decided.
         effective_hours = shape.get("unit_hours", list(syllabus.unit_hours or []))
         effective_count = shape.get("unit_count", syllabus.unit_count)
+        effective_total = shape.get("teaching_hours", syllabus.teaching_hours)
 
         if is_teaching_subject(syllabus.doc_type) and syllabus.doc_type == CourseType.THEORY.value:
             if not effective_hours or len(effective_hours) != effective_count:
@@ -1099,6 +1193,14 @@ class SyllabusService:
                     "decisions, and the system will not make them for you.",
                     422,
                 )
+
+            # THE ONE ARITHMETIC RULE. The units are the course: if they add up to 60
+            # for a subject taught for 52, then either eight hours are taught that
+            # nobody timetabled or the header is lying, and the model is about to write
+            # a unit's worth of material into whichever of the two is wrong.
+            mismatch = _unit_hours_mismatch(effective_hours, effective_total)
+            if mismatch:
+                raise SyllabusServiceError("UNIT_HOURS_MISMATCH", mismatch, 422)
 
         job_id = await TaskJobPublicRepository.create(
             tenant_id=tenant_id,
@@ -1300,6 +1402,7 @@ class SyllabusService:
             document=syllabus.document,
             expected_units=syllabus.unit_count,
             objectives=syllabus.objectives,
+            teaching_hours=syllabus.teaching_hours,
         )
         if not result.passed:
             error_msgs = "; ".join(
@@ -1415,6 +1518,9 @@ class SyllabusService:
             cos, units, mappings,
             doc_type=syllabus.doc_type,
             document=syllabus.document,
+            expected_units=syllabus.unit_count,
+            objectives=syllabus.objectives,
+            teaching_hours=syllabus.teaching_hours,
         )
 
     # =========================================================================

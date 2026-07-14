@@ -112,6 +112,43 @@ def derive_contact_hours(course: _CourseLike) -> int:
     return (lecture + tutorial + practical) * WEEKS_PER_SEMESTER
 
 
+def resolve_teaching_hours(course: _CourseLike, stated: int | None) -> int:
+    """The taught hours this syllabus is written to: the Board's figure if it stated
+    one, the L-T-P derivation otherwise.
+
+    The derivation is a SUGGESTION about the term — (L + T + P) x 15 — and a Board that
+    has looked at it and typed 45 knows something about this semester that the
+    multiplication does not. Its figure wins, and no arithmetic here second-guesses it.
+    """
+    return stated if stated and stated > 0 else derive_contact_hours(course)
+
+
+def resolve_hours_per_week(course: _CourseLike, stated: int | None) -> int:
+    """Hours a week, as the header prints it — 'No. of Hours / Week: 04'.
+
+    The Board's figure if it stated one, the course's weekly L-T-P load otherwise,
+    which is exactly what hours-a-week means when nobody has overruled it.
+    """
+    if stated and stated > 0:
+        return stated
+    lecture, tutorial, practical = derive_ltp(course)
+    return lecture + tutorial + practical
+
+
+def derive_teaching_weeks(teaching_hours: int, hours_per_week: int) -> int:
+    """How many weeks the subject runs — 52 hours at 4 a week is 13.
+
+    NOT stored, and that is the point: it is the arithmetic between the two figures the
+    Board states, and a third column holding it is a column that can disagree with them.
+    Computed here, for the one consumer that wants it — the generator, which paces a
+    unit differently over 10 weeks than over 15. Falls back to the standard semester
+    when the figures cannot produce one.
+    """
+    if teaching_hours > 0 and hours_per_week > 0:
+        return max(1, round(teaching_hours / hours_per_week))
+    return WEEKS_PER_SEMESTER
+
+
 def has_practical(course: _CourseLike) -> bool:
     """Whether the syllabus should carry a Practical Components section."""
     return (course.hours_practical or 0) > 0 or derive_category(course) == CATEGORY_LAB
@@ -139,7 +176,13 @@ def has_practical(course: _CourseLike) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def course_information(course, *, regulation_year: int | None = None) -> dict:
+def course_information(
+    course,
+    *,
+    regulation_year: int | None = None,
+    teaching_hours: int | None = None,
+    hours_per_week: int | None = None,
+) -> dict:
     """The full Course Information header, ready to render.
 
     Takes the ORM `Course` (needs `code`, `title`, `credits`, `semester` and
@@ -150,13 +193,20 @@ def course_information(course, *, regulation_year: int | None = None) -> dict:
     Still DERIVED, every field of it. The Board does not retype the course code into
     the syllabus: the curriculum already says what this course is, and a syllabus that
     kept its own copy would disagree with it the moment the Dean corrected a credit.
+
+    The two the Board may overrule are the taught hours and the hours a week — the pair
+    a real syllabus prints at the top of the page ("Total Teaching Hours: 52  /  No. of
+    Hours per Week: 04"). Pass the syllabus's figures and the header says what the
+    subject is actually taught for; omit them and it falls back to the L-T-P, which is
+    what every syllabus printed before the Board could state its own.
     """
     return {
         "course_code":     course.code,
         "course_name":     course.title,
         "credits":         course.credits,
         "ltp":             format_ltp(course),
-        "contact_hours":   derive_contact_hours(course),
+        "contact_hours":   resolve_teaching_hours(course, teaching_hours),
+        "hours_per_week":  resolve_hours_per_week(course, hours_per_week),
         "category":        derive_category(course),
         "course_type":     (course.course_type or "THEORY"),
         "semester":        course.semester,

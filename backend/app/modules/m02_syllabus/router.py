@@ -282,13 +282,19 @@ async def get_syllabus(
                 raise _404()
         detail = detail.model_copy(update={
             # The official syllabus header — code, name, credits, L-T-P, contact
-            # hours, category, course type, semester and regulation year. All derived
-            # from the course and its programme, never stored on the syllabus and
-            # never retyped by the Board.
+            # hours, category, course type, semester and regulation year. Derived from
+            # the course and its programme, never retyped by the Board.
+            #
+            # Contact Hours is the exception, and the only one: the Board may state
+            # what the subject is actually taught for, and when it has, the header
+            # prints THAT. A page that says 60 hours above units the Board wrote to 45
+            # is a page that disagrees with itself.
             "course_information": CourseInformation(
                 **course_information(
                     course,
                     regulation_year=getattr(program, "regulation_year", None),
+                    teaching_hours=detail.teaching_hours,
+                    hours_per_week=detail.hours_per_week,
                 )
             ),
             "course_title": course.title,
@@ -412,11 +418,14 @@ async def generate_syllabus(
             schema_name=current_user.schema_name,
             caller_role=current_user.role,
             faculty_user_id=current_user.user_id,
-            # The SHAPE of the syllabus the Board asked for: how many units, and the
-            # hours of each. Persisted on the row before the job runs, so the worker
-            # and every later regeneration write to the same shape.
+            # The SHAPE of the syllabus the Board asked for: how many units, the hours
+            # of each, how long the subject is taught and over how long a term.
+            # Persisted on the row before the job runs, so the worker and every later
+            # regeneration write to the same shape.
             unit_count=payload.unit_count,
             unit_hours=payload.unit_hours,
+            teaching_hours=payload.teaching_hours,
+            hours_per_week=payload.hours_per_week,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -430,9 +439,11 @@ async def generate_syllabus(
         target_entity="Syllabus",
         target_id=str(syllabus_id),
         metadata={
-            "job_id":     job_id,
-            "unit_count": payload.unit_count,
-            "unit_hours": payload.unit_hours,
+            "job_id":         job_id,
+            "unit_count":     payload.unit_count,
+            "unit_hours":     payload.unit_hours,
+            "teaching_hours": payload.teaching_hours,
+            "hours_per_week": payload.hours_per_week,
         },
     )
     return SyllabusAIJobResponse(job_id=UUID(job_id), syllabus_id=syllabus_id)

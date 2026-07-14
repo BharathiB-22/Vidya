@@ -598,49 +598,28 @@ async def submit_for_approval(
 # Board -> readiness: what is left before this can be approved
 # ---------------------------------------------------------------------------
 
-# The document sections each type must have filled before it is worth approving.
-# Keyed to the same field names the AI writes and the Board edits
-# (m02.schemas.DOCUMENT_SCHEMAS), so a section renamed there fails loudly here
-# rather than silently stopping being checked.
+# The document sections a type must have filled before it is worth approving — and
+# there is now exactly ONE, for exactly one type (P1.10).
 #
-# `duration` and `credits` are scalars, not lists, and are checked separately.
+# A LAB manual is its experiment list. Everything else it can carry — the equipment,
+# the software, the assessment guidelines, its outcomes, its references — is worth
+# writing and is not worth BLOCKING on, and a Board that has typed fifteen experiments
+# has produced a lab manual whatever else is still empty.
+#
+# The Dean's types are absent entirely, and that absence is the feature. A seminar, an
+# internship, a mini and a major project have no syllabus and never did: what they
+# contain depends on the host company, the supervisor and the review calendar, none of
+# which is known when a curriculum is approved. They are approved as EMPTY TEMPLATES and
+# filled in later, on the execution-documents surface that exists for that. Listing
+# "Missing: Viva Guidelines" against an internship the student has not been placed for
+# was the system inventing homework and then grading the Board on it.
+#
+# Keyed to the same field names the AI writes and the Board edits
+# (m02.schemas.DOCUMENT_SCHEMAS), so a section renamed there fails loudly here rather
+# than silently stopping being checked.
 _REQUIRED_DOC_SECTIONS: dict[str, tuple[tuple[str, str], ...]] = {
     CourseType.LAB.value: (
-        ("experiments",           "Experiment List"),
-        ("equipment",             "Equipment / Software"),
-        ("assessment_guidelines", "Assessment Guidelines"),
-    ),
-    CourseType.INTERNSHIP.value: (
-        ("guidelines",           "Internship Guidelines"),
-        ("evaluation_rubric",    "Evaluation Rubric"),
-        ("weekly_activities",    "Weekly Activities"),
-        ("company_requirements", "Company Requirements"),
-        ("report_format",        "Report Format"),
-        ("viva_guidelines",      "Viva Guidelines"),
-    ),
-    CourseType.MINI_PROJECT.value: (
-        ("guidelines",   "Project Guidelines"),
-        ("milestones",   "Milestones"),
-        ("deliverables", "Deliverables"),
-        ("reviews",      "Reviews"),
-        ("rubrics",      "Rubrics"),
-    ),
-    CourseType.MAJOR_PROJECT.value: (
-        ("handbook",            "Project Handbook"),
-        ("proposal_format",     "Proposal Format"),
-        ("timeline",            "Timeline"),
-        ("reviews",             "Reviews"),
-        ("rubrics",             "Rubrics"),
-        ("final_report_format", "Final Report Format"),
-        ("demonstration",       "Demonstration"),
-        ("viva",                "Viva"),
-    ),
-    CourseType.SEMINAR.value: (
-        ("guidelines",          "Seminar Guidelines"),
-        ("topic_selection",     "Topic Selection"),
-        ("presentation_format", "Presentation Format"),
-        ("evaluation_rubric",   "Evaluation Rubric"),
-        ("deliverables",        "Deliverables"),
+        ("experiments", "Experiment List"),
     ),
 }
 
@@ -739,22 +718,34 @@ def _teaching_checklist(row, doc_type, exists, approved, published) -> list[Chec
     else:
         document = row.document or {}
         items = [_item("structure", "Academic Structure", _DONE)]
-        # The manual is the laboratory's document: what it is for, what it needs to run.
-        # The experiments are what the student actually performs in the room. A manual
-        # with no experiment list is a laboratory nobody can teach.
-        items.append(_tick(bool(document), "lab_manual", "Lab Manual"))
+        # ONE STAGE, because a lab manual is one thing: the experiments the student
+        # performs at the bench. The manual's intro, its equipment, its software and its
+        # assessment guidelines are all worth writing and none of them is worth blocking
+        # a curriculum over, so they are not stages — a checklist that lists what the
+        # gate does not test teaches the Board to ignore the checklist.
         items.append(_tick(
             len(document.get("experiments") or []) > 0, "experiments", "Experiments",
         ))
 
-    # Objectives are theory's; a laboratory's document carries its own aims. Outcomes
-    # are BOTH — a lab has Lab Outcomes, they map to Programme Outcomes like any other,
-    # and approval will not pass without them. Showing a stage the gate tests is the
-    # entire point of a checklist.
+    # Objectives and Outcomes are THEORY's, and only theory's.
+    #
+    # A laboratory has Lab Outcomes and they matter — they are what the CO-PO attainment
+    # report reads. But they are OPTIONAL for a lab (P1.10): a Board that has written
+    # fifteen experiments has written the lab manual, and refusing to approve it for
+    # want of a fourth Course Outcome was the theory gate wearing a lab coat. Shown as
+    # an optional stage so the Board can see it is missing without being stopped by it.
     if doc_type == CourseType.THEORY.value:
         items.append(_tick(bool(row.objectives or []), "objectives", "Objectives"))
-
-    items.append(_tick((row.outcome_count or 0) >= _MIN_OUTCOMES, "outcomes", "Outcomes"))
+        items.append(_tick(
+            (row.outcome_count or 0) >= _MIN_OUTCOMES, "outcomes", "Outcomes",
+        ))
+    else:
+        items.append(_item(
+            "outcomes",
+            "Lab Outcomes (optional)",
+            _DONE if (row.outcome_count or 0) > 0 else _PENDING,
+            optional=True,
+        ))
 
     # ADVISORY, and said so. The references come from CrossRef and OpenLibrary, and a
     # third-party outage must never be able to block a university's curriculum. It is
@@ -833,10 +824,16 @@ def _readiness_gaps(row) -> list[str]:
     doc_type = normalize_course_type(row.doc_type or row.course_type)
     document = row.document or {}
 
-    if not (row.objectives or []):
-        gaps.append("Missing: Course Objectives")
-    if (row.outcome_count or 0) < _MIN_OUTCOMES:
-        gaps.append(f"Only {row.outcome_count or 0} Course Outcomes")
+    # Objectives and Outcomes are THEORY's. A laboratory may carry Lab Outcomes and is
+    # the better for them, but it is approved without them (P1.10) — and a gap line is a
+    # promise that something is wrong, so it must not appear for something the gate lets
+    # through. The Dean's types carry no gaps at all: an empty seminar is a complete
+    # seminar until the Dean has facts to put in it.
+    if doc_type == CourseType.THEORY.value:
+        if not (row.objectives or []):
+            gaps.append("Missing: Course Objectives")
+        if (row.outcome_count or 0) < _MIN_OUTCOMES:
+            gaps.append(f"Only {row.outcome_count or 0} Course Outcomes")
 
     if doc_type == CourseType.THEORY.value:
         # What the Board ASKED for, not a hardcoded five. A four-unit syllabus is a
@@ -868,20 +865,13 @@ def _readiness_gaps(row) -> list[str]:
             gaps.append("Missing: Practical Components")
 
     else:
+        # A lab manual needs its experiments and nothing else; every other type needs
+        # nothing at all, and `_REQUIRED_DOC_SECTIONS` says so by not mentioning them.
+        # An empty seminar is a complete seminar — the Dean writes it when the facts
+        # exist, and until then there is nothing here for the Board to be missing.
         for field, label in _REQUIRED_DOC_SECTIONS.get(doc_type, ()):
             if not document.get(field):
                 gaps.append(f"Missing: {label}")
-
-        # A lab manual with equipment but no software is fine, and vice versa — the
-        # requirement is that it names SOMETHING it needs to run. The loop above
-        # would otherwise flag every software-only laboratory.
-        if doc_type == CourseType.LAB.value and (
-            document.get("equipment") or document.get("software")
-        ):
-            gaps = [g for g in gaps if g != "Missing: Equipment / Software"]
-
-        if doc_type == CourseType.INTERNSHIP.value and not document.get("duration"):
-            gaps.append("Missing: Duration")
 
     return gaps
 

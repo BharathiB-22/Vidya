@@ -22,6 +22,7 @@ import sys
 from datetime import datetime, timezone
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -36,11 +37,19 @@ def _get_async_engine():
         from sqlalchemy.ext.asyncio import create_async_engine
         from sqlalchemy.pool import NullPool
         from app.config import settings
+        from app.database import bind_tenant_search_path
         # NullPool: no connection caching between asyncio.run() calls.
         # Each task creates a fresh event loop; pooled asyncpg connections
         # attached to the previous (now-closed) loop would cause
         # "Future attached to a different loop" — NullPool prevents that.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # And because of NullPool, a commit does not return this task's connection to
+        # a pool — it closes it. Everything after the first commit therefore runs on a
+        # connection that never saw a session-level `SET search_path`, which is why
+        # this job died writing a table that exists. The search_path is re-applied at
+        # the start of every transaction instead (app/database.py), which is the one
+        # place a commit cannot undo it.
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -144,16 +153,21 @@ def generate_syllabus(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_generation(
-            # The job's own id, so the run can say what it is doing while it does it.
-            # The Board watches a syllabus being written; it must not watch a spinner.
-            job_id=UUID(job_id),
-            syllabus_id=UUID(syllabus_id),
-            tenant_id=UUID(tenant_id),
-            schema_name=schema_name,
+    # Which tenant every transaction in this task belongs to. Held for the whole run
+    # and dropped at the end of it: a worker process is long-lived and serves every
+    # tenant in turn, and a schema left set is a schema the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_generation(
+                # The job's own id, so the run can say what it is doing while it does
+                # it. The Board watches a syllabus being written; it must not watch a
+                # spinner.
+                job_id=UUID(job_id),
+                syllabus_id=UUID(syllabus_id),
+                tenant_id=UUID(tenant_id),
+                schema_name=schema_name,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -190,9 +204,11 @@ async def _run_generation(
     from app.modules.m02_syllabus.schemas import parse_document
     from app.modules.m02_syllabus.formatting import (
         derive_category,
-        derive_contact_hours,
         format_ltp,
         has_practical,
+        resolve_teaching_hours,
+        resolve_hours_per_week,
+        derive_teaching_weeks,
     )
     from app.modules.m02_syllabus.models import MappingStrength, SyllabusStatus
     from app.modules.m02_syllabus.repository import (
@@ -281,6 +297,11 @@ async def _run_generation(
                     "invent academic structure."
                 )
 
+            # The header's two figures. Stated by the Board; the L-T-P is the fallback
+            # for syllabi written before it could state them.
+            _hours    = resolve_teaching_hours(course, syllabus.teaching_hours)
+            _per_week = resolve_hours_per_week(course, syllabus.hours_per_week)
+
             ctx = SyllabusGenerationContext(
                 course_id=str(syllabus.course_id),
                 course_code=course.code,
@@ -289,7 +310,15 @@ async def _run_generation(
                 program_outcomes=po_contexts,
                 custom_instructions=syllabus.custom_instructions,
                 ltp=format_ltp(course),
-                contact_hours=derive_contact_hours(course),
+                # What the subject is taught for, and at how many hours a week — the
+                # header's own two figures, stated by the Board. Nothing here assumes
+                # 60: a Board that typed 52 is telling the generator something true
+                # that no multiplication of the L-T-P could have known. The weeks are
+                # the arithmetic between them (52 at 4 a week is 13), and exist only to
+                # pace the units.
+                contact_hours=_hours,
+                hours_per_week=_per_week,
+                teaching_weeks=derive_teaching_weeks(_hours, _per_week),
                 category=derive_category(course),
                 has_practical=has_practical(course),
                 course_type=course_type,
@@ -655,16 +684,17 @@ def regenerate_syllabus_section(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_section_regeneration(
-            syllabus_id=UUID(syllabus_id),
-            tenant_id=UUID(tenant_id),
-            schema_name=schema_name,
-            section=section,
-            unit_id=UUID(unit_id) if unit_id else None,
-            guidance=guidance,
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_section_regeneration(
+                syllabus_id=UUID(syllabus_id),
+                tenant_id=UUID(tenant_id),
+                schema_name=schema_name,
+                section=section,
+                unit_id=UUID(unit_id) if unit_id else None,
+                guidance=guidance,
+            )
         )
-    )
 
 
 async def _run_section_regeneration(
@@ -703,9 +733,11 @@ async def _run_section_regeneration(
     )
     from app.modules.m02_syllabus.formatting import (
         derive_category,
-        derive_contact_hours,
         format_ltp,
         has_practical,
+        resolve_teaching_hours,
+        resolve_hours_per_week,
+        derive_teaching_weeks,
     )
     from app.modules.m02_syllabus.models import MappingStrength, SyllabusStatus
     from app.modules.m02_syllabus.repository import (
@@ -745,7 +777,14 @@ async def _run_section_regeneration(
             ],
             custom_instructions=syllabus.custom_instructions,
             ltp=format_ltp(course),
-            contact_hours=derive_contact_hours(course),
+            # The same hours the syllabus was WRITTEN to, not a fresh derivation: a
+            # rewritten unit has to fit the course the rest of the units belong to.
+            contact_hours=resolve_teaching_hours(course, syllabus.teaching_hours),
+            hours_per_week=resolve_hours_per_week(course, syllabus.hours_per_week),
+            teaching_weeks=derive_teaching_weeks(
+                resolve_teaching_hours(course, syllabus.teaching_hours),
+                resolve_hours_per_week(course, syllabus.hours_per_week),
+            ),
             category=derive_category(course),
             has_practical=has_practical(course),
             # Regenerate the document this course ACTUALLY has. The syllabus row's

@@ -682,7 +682,7 @@ function ExperimentEditor({
       <div className="group relative">
         {experiments.length === 0 ? (
           <p className="mt-2 text-sm italic text-gray-500">
-            No experiments yet. A laboratory course runs to 10–14 across the semester.
+            No experiments yet. Click the pencil and paste the list — one per line.
           </p>
         ) : (
           <ol className="mt-2 space-y-3 text-sm leading-relaxed text-black">
@@ -733,113 +733,58 @@ function ExperimentEditor({
     )
   }
 
-  function set(i: number, patch: Partial<Experiment>) {
-    const next = [...shown]
-    next[i] = { ...next[i], ...patch }
-    setDraft(next)
+  /** The whole list, one experiment per line — which is how a Board has it: in a Word
+   *  document, in an email, in the last regulation. Paste fifteen lines and there are
+   *  fifteen experiments. */
+  const lines = shown.map((e) => e.title).join('\n')
+
+  /** Lines back into experiments, KEEPING the detail the old ones carried.
+   *
+   *  An experiment's aim, procedure, apparatus and hours are optional and are edited
+   *  nowhere on this screen — so they are matched back by POSITION and preserved. A
+   *  Board that fixes a typo in experiment 7's title must not thereby delete the aim it
+   *  wrote for experiment 7 last week. */
+  function parse(text: string): Experiment[] {
+    return text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((title, i) => {
+        const prior = shown[i]
+        return {
+          number:    i + 1,
+          title,
+          aim:       prior?.aim ?? null,
+          procedure: prior?.procedure ?? null,
+          apparatus: prior?.apparatus ?? [],
+          hours:     prior?.hours ?? null,
+        }
+      })
   }
 
+  const count = lines.split('\n').filter((l) => l.trim()).length
+
   return (
-    <div className="mt-2 space-y-3 print:hidden">
-      {shown.map((e, i) => (
-        <div key={i} className="rounded border border-gray-200 p-2">
-          <div className="flex items-center gap-2">
-            <span className="w-6 shrink-0 text-sm font-semibold text-gray-500">{i + 1}.</span>
-            <Input
-              value={e.title}
-              placeholder="Title of the experiment"
-              className="flex-1 text-sm"
-              onChange={(ev) => set(i, { title: ev.target.value })}
-            />
-            <Input
-              type="number"
-              min={1}
-              value={e.hours ?? ''}
-              placeholder="hrs"
-              className="w-16 text-sm"
-              onChange={(ev) => {
-                const n = parseInt(ev.target.value, 10)
-                set(i, { hours: Number.isNaN(n) ? null : n })
-              }}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={i === 0}
-              title="Move up"
-              onClick={() => {
-                const next = [...shown]
-                ;[next[i - 1], next[i]] = [next[i], next[i - 1]]
-                setDraft(next)
-              }}
-            >
-              ↑
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={i === shown.length - 1}
-              title="Move down"
-              onClick={() => {
-                const next = [...shown]
-                ;[next[i + 1], next[i]] = [next[i], next[i + 1]]
-                setDraft(next)
-              }}
-            >
-              ↓
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setDraft(shown.filter((_, j) => j !== i))}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-red-600" />
-            </Button>
-          </div>
-          <Textarea
-            value={e.aim ?? ''}
-            rows={2}
-            placeholder="Aim"
-            className="mt-2 text-sm"
-            onChange={(ev) => set(i, { aim: ev.target.value })}
-          />
-          <Textarea
-            value={e.procedure ?? ''}
-            rows={2}
-            placeholder="Procedure"
-            className="mt-2 text-sm"
-            onChange={(ev) => set(i, { procedure: ev.target.value })}
-          />
-          <Input
-            value={(e.apparatus ?? []).join(', ')}
-            placeholder="Apparatus (comma separated)"
-            className="mt-2 text-sm"
-            onChange={(ev) =>
-              set(i, {
-                apparatus: ev.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              })
-            }
-          />
-        </div>
-      ))}
+    <div className="mt-2 space-y-2 print:hidden">
+      <Textarea
+        autoFocus
+        rows={Math.max(8, count + 2)}
+        value={lines}
+        placeholder={
+          'One experiment per line — paste the whole list at once:\n\n' +
+          'Implement stack operations using arrays\n' +
+          'Implement a singly linked list\n' +
+          'Implement binary search on a sorted array'
+        }
+        className="text-sm leading-relaxed"
+        onChange={(ev) => setDraft(parse(ev.target.value))}
+      />
+      <p className="text-xs text-gray-500">
+        {count} experiment{count === 1 ? '' : 's'}. They are numbered by their order
+        here. Aim, procedure and apparatus are optional and are kept as they were.
+      </p>
 
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            setDraft([
-              ...shown,
-              { number: shown.length + 1, title: '', aim: '', procedure: '', apparatus: [], hours: null },
-            ])
-          }
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          Add experiment
-        </Button>
         <Button
           size="sm"
           disabled={saving}
@@ -849,7 +794,7 @@ function ExperimentEditor({
           }}
         >
           <Check className="mr-1 h-4 w-4" />
-          Save
+          {saving ? 'Saving…' : 'Save'}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
           <X className="mr-1 h-4 w-4" />

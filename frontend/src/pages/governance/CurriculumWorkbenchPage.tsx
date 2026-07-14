@@ -158,7 +158,6 @@ export default function CurriculumWorkbenchPage() {
         open={draftSubject !== null}
         onOpenChange={(o) => !o && setDraftSubject(null)}
         subject={draftSubject}
-        programId={programId}
       />
 
       <ApproveCurriculumDialog

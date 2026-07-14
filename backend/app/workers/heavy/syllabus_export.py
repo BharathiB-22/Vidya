@@ -358,12 +358,18 @@ def _generate_pdf(buf, syllabus, course, pos):
 
     # ── Course Information ───────────────────────────────────────────────────
     # Every value here is DERIVED from the course row — the printed page cannot
-    # disagree with the curriculum it belongs to.
-    info = course_information(course)
+    # disagree with the curriculum it belongs to. Contact Hours is the one figure the
+    # Board may state for itself, and when it has, the page prints what it said.
+    info = course_information(
+        course,
+        teaching_hours=syllabus.teaching_hours,
+        hours_per_week=syllabus.hours_per_week,
+    )
     info_rows = [
-        ["Course Code",   info["course_code"],   "Credits",       str(info["credits"])],
-        ["Course Name",   info["course_name"],   "L-T-P",         info["ltp"]],
-        ["Category",      info["category"],      "Contact Hours", str(info["contact_hours"])],
+        ["Course Code",   info["course_code"],   "Credits",              str(info["credits"])],
+        ["Course Name",   info["course_name"],   "L-T-P",                info["ltp"]],
+        ["Category",      info["category"],      "Total Teaching Hours", str(info["contact_hours"])],
+        ["",              "",                    "Hours / Week",         str(info["hours_per_week"])],
     ]
     t = Table(info_rows, colWidths=[3 * cm, 6.4 * cm, 3 * cm, 4.6 * cm])
     t.setStyle(TableStyle(grid.getCommands() + [
@@ -557,13 +563,18 @@ def _generate_docx(buf, syllabus, course, pos):
     run.font.size = Pt(14)
 
     # ── Course Information ───────────────────────────────────────────────────
-    info = course_information(course)
+    info = course_information(
+        course,
+        teaching_hours=syllabus.teaching_hours,
+        hours_per_week=syllabus.hours_per_week,
+    )
     t = doc.add_table(rows=0, cols=4)
     t.style = "Table Grid"
     for left, lval, right, rval in [
-        ("Course Code", info["course_code"], "Credits",       str(info["credits"])),
-        ("Course Name", info["course_name"], "L-T-P",         info["ltp"]),
-        ("Category",    info["category"],    "Contact Hours", str(info["contact_hours"])),
+        ("Course Code", info["course_code"], "Credits",              str(info["credits"])),
+        ("Course Name", info["course_name"], "L-T-P",                info["ltp"]),
+        ("Category",    info["category"],    "Total Teaching Hours", str(info["contact_hours"])),
+        ("",            "",                  "Hours / Week",         str(info["hours_per_week"])),
     ]:
         row = t.add_row().cells
         row[0].text, row[1].text, row[2].text, row[3].text = left, lval, right, rval

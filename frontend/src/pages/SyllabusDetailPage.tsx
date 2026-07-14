@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Lock, AlertTriangle, Package, BookOpen } from 'lucide-react'
+import { ArrowLeft, Loader2, Lock, AlertTriangle, BookOpen } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { SyllabusStatusBadge } from '@/components/syllabus/SyllabusStatusBadge'
 import { SyllabusActionBar } from '@/components/syllabus/SyllabusActionBar'
 import { COSection } from '@/components/syllabus/COSection'
 import { COPOMatrix } from '@/components/syllabus/COPOMatrix'
-import { UnitsSection } from '@/components/syllabus/UnitsSection'
 import { ReferencesSection } from '@/components/syllabus/ReferencesSection'
 import { CompliancePanel } from '@/components/syllabus/CompliancePanel'
 import { SyllabusApprovalPanel } from '@/components/syllabus/SyllabusApprovalPanel'
@@ -28,10 +27,8 @@ import { useWorkspace } from '@/lib/workspace'
 
 type Tab =
   | 'document'
-  | 'overview'
   | 'outcomes'
   | 'matrix'
-  | 'units'
   | 'references'
   | 'compliance'
   | 'approval'
@@ -48,18 +45,26 @@ interface ContentCounts {
   references: number
 }
 
-// The DOCUMENT comes first, and it is where the Board works.
+// The DOCUMENT comes first, and it is where the Board works. What survives beside it
+// are the structured editors the document cannot be: the CO-PO matrix is a grid, the
+// reference search calls CrossRef, compliance is a report, approval is a gate.
 //
-// The remaining tabs are the structured editors underneath it — the CO-PO matrix,
-// the reference search, the compliance report. They are still the right tool for
-// those jobs, but nobody drafts a regulation by filling in one field at a time,
-// so they are no longer the first thing you see.
+// TWO TABS ARE GONE (P1.10), and their absence is the point:
+//
+//   Units      the units ARE the document — title, topics, hours, all editable in
+//              place on the Official Syllabus page, which is where a syllabus is
+//              read and therefore where it should be written. A separate tab holding
+//              a second editor for the same rows was the Board editing its syllabus
+//              in a form and then going somewhere else to see what it had said.
+//
+//   Overview   a page of counts. "5 units, 6 outcomes, 12 references" is not a thing
+//              anybody needs a tab for: the document shows all three by existing, and
+//              a dashboard about a document you are two clicks from reading is
+//              furniture.
 const TABS: TabDef[] = [
   { key: 'document',   label: 'Official Syllabus' },
-  { key: 'overview',   label: 'Overview' },
   { key: 'outcomes',   label: 'Course Outcomes',  badge: (c) => c.outcomes || null },
   { key: 'matrix',     label: 'CO-PO Matrix' },
-  { key: 'units',      label: 'Units',             badge: (c) => c.units || null },
   { key: 'references', label: 'References',        badge: (c) => c.references || null },
   { key: 'compliance', label: 'Compliance' },
   { key: 'approval',   label: 'Approval' },
@@ -340,58 +345,6 @@ export default function SyllabusDetailPage() {
           </>
         )}
 
-        {tab === 'overview' && (
-          <div className="space-y-5">
-            {/* Stats grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard label="Course Outcomes"  value={counts.outcomes}   onClick={() => setTab('outcomes')}   />
-              <StatCard label="Units"            value={counts.units}      onClick={() => setTab('units')}      />
-              <StatCard label="References"       value={counts.references} onClick={() => setTab('references')} />
-              <StatCard label="Total Hours"      value={units.reduce((s, u) => s + u.total_hours, 0)} />
-            </div>
-
-            {/* Custom instructions */}
-            {syllabus.custom_instructions && (
-              <div className="rounded-lg border border-gray-200 px-4 py-3">
-                <p className="text-xs font-semibold text-gray-500 mb-1">Custom Instructions</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{syllabus.custom_instructions}</p>
-              </div>
-            )}
-
-            {/* Metadata row */}
-            <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
-              {syllabus.approved_at && (
-                <span>Dean approved: {new Date(syllabus.approved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-              )}
-              {syllabus.locked_at && (
-                <span>Locked for semester: {new Date(syllabus.locked_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-              )}
-            </div>
-
-            {/* Course Kits link (G1) */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate(`/course-kits?syllabus_id=${syllabusId}`)}
-              className="w-fit"
-            >
-              <Package className="h-4 w-4 mr-1.5" />
-              View Course Kits
-            </Button>
-
-            {/* Quick-action hints when empty and editable */}
-            {isEditable && counts.outcomes === 0 && counts.units === 0 && (
-              <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-700 space-y-1">
-                <p className="font-semibold">Get started</p>
-                <p>
-                  Use <strong>Generate with AI</strong> to populate COs, units, and reference queries automatically,
-                  or add them manually via the Course Outcomes and Units tabs.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
         {tab === 'outcomes' && (
           <COSection
             syllabusId={syllabusId}
@@ -403,14 +356,6 @@ export default function SyllabusDetailPage() {
         {tab === 'matrix' && (
           <COPOMatrix
             syllabusId={syllabusId}
-            isEditable={isEditable}
-          />
-        )}
-
-        {tab === 'units' && (
-          <UnitsSection
-            syllabusId={syllabusId}
-            units={units}
             isEditable={isEditable}
           />
         )}
@@ -438,24 +383,3 @@ export default function SyllabusDetailPage() {
   )
 }
 
-interface StatCardProps {
-  label:    string
-  value:    number
-  onClick?: () => void
-}
-
-function StatCard({ label, value, onClick }: StatCardProps) {
-  const Tag = onClick ? 'button' : 'div'
-  return (
-    <Tag
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      className={`rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-center w-full ${
-        onClick ? 'hover:bg-gray-100 hover:border-gray-300 cursor-pointer transition-colors' : ''
-      }`}
-    >
-      <p className="text-2xl font-bold text-gray-800">{value}</p>
-      <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-    </Tag>
-  )
-}
