@@ -4,6 +4,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import re
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -52,6 +53,34 @@ _VALID_COURSE_TYPES = frozenset(
 )
 
 
+# Equivalent spellings of the six canonical levels: American spelling, the
+# gerund forms models like to emit, and the original (pre-revision) Bloom names.
+# Without these, a perfectly good "Analyze"/"Applying"/"Synthesis" silently
+# collapses to "Apply" and the outcome's cognitive level is lost.
+_BLOOM_SYNONYMS = {
+    "remember":      "Remember",
+    "remembering":   "Remember",
+    "knowledge":     "Remember",
+    "understand":    "Understand",
+    "understanding": "Understand",
+    "comprehension": "Understand",
+    "apply":         "Apply",
+    "applying":      "Apply",
+    "application":   "Apply",
+    "analyse":       "Analyse",
+    "analyze":       "Analyse",
+    "analysing":     "Analyse",
+    "analyzing":     "Analyse",
+    "analysis":      "Analyse",
+    "evaluate":      "Evaluate",
+    "evaluating":    "Evaluate",
+    "evaluation":    "Evaluate",
+    "create":        "Create",
+    "creating":      "Create",
+    "synthesis":     "Create",
+}
+
+
 class _OutcomeAI(BaseModel):
     code:          str
     description:   str
@@ -61,9 +90,17 @@ class _OutcomeAI(BaseModel):
     @field_validator("bloom_level", mode="before")
     @classmethod
     def coerce_bloom_level(cls, v: object) -> str:
-        """Default to 'Apply' when the field is missing, blank, or unrecognised."""
+        """Accept any equivalent spelling of a Bloom level; default to 'Apply'
+        when the field is missing, blank, or genuinely unrecognised.
+
+        Applies to every provider — Gemini validates through this model directly,
+        Groq/DeepSeek reach it through the shared normalizer — so a provider's
+        choice of 'Analyze' over 'Analyse' never costs an outcome its level.
+        """
         s = str(v).strip() if v else ""
-        return s if s in _VALID_BLOOM else "Apply"
+        if s in _VALID_BLOOM:
+            return s
+        return _BLOOM_SYNONYMS.get(s.lower(), "Apply")
 
 
 def _infer_course_type_from_title(title: str) -> str:
@@ -107,26 +144,32 @@ class _CourseAI(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def normalize_code_alias(cls, data: object) -> object:
-        """Some providers (and prompt variations) emit 'course_code' instead
-        of the expected 'code'. Accept either, normalized to 'code', so a
-        provider's field-name choice never fails program generation --
-        applies uniformly to every provider since all of them (Gemini
-        directly, Groq/DeepSeek via the shared normalizer) validate courses
-        through this same model."""
-        if isinstance(data, dict) and not data.get("code") and data.get("course_code"):
-            data = {**data, "code": data["course_code"]}
+    def normalize_identity_aliases(cls, data: object) -> object:
+        """Some providers (and prompt variations) emit 'course_code'/'course_title'
+        instead of the expected 'code'/'title'. Accept either, normalized to the
+        canonical name, so a provider's field-name choice never fails program
+        generation.
+
+        A last-resort safety net only: every provider now reaches this model
+        through the shared normalizer, which resolves a far wider alias set
+        before validation ever runs. It stays because this model is also
+        constructed directly in tests and by any future caller.
+        """
+        if not isinstance(data, dict):
+            return data
+        for canonical, alias in (("code", "course_code"), ("title", "course_title")):
+            if not data.get(canonical) and data.get(alias):
+                data = {**data, canonical: data[alias]}
         return data
 
     @model_validator(mode="after")
     def coerce_course_type(self) -> _CourseAI:
         """Infer course_type from title when missing, blank, or unrecognised.
 
-        Deliberately has no non-null default on the field itself — a default
-        of "THEORY" would already satisfy Pydantic before this validator runs,
-        silently skipping inference for any provider (e.g. Gemini's schema-
-        enforced JSON) that omits the field rather than passing it through
-        the Groq/DeepSeek text normalizer.
+        Deliberately has no non-null default on the field itself — a default of
+        "THEORY" would already satisfy Pydantic before this validator runs,
+        silently skipping inference for any course that omits the field, and
+        misclassifying e.g. 'Data Structures Lab' as THEORY.
         """
         s = self.course_type.strip().upper() if self.course_type else ""
         self.course_type = s if s in _VALID_COURSE_TYPES else _infer_course_type_from_title(self.title)
@@ -154,7 +197,65 @@ class ProgramStructureProvider(Protocol):
 # Private helpers
 # ---------------------------------------------------------------------------
 
-def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
+def _canonical_schema_clause() -> str:
+    """The response contract, for providers that cannot be handed a schema
+    out-of-band.
+
+    Gemini is passed the canonical schema as `response_schema` on
+    GenerateContentConfig. The OpenAI-compatible providers have no equivalent —
+    `response_format={"type": "json_object"}` guarantees *syntactically* valid
+    JSON and nothing at all about its shape. Left to themselves they invent one
+    per call: a "program" wrapper, a "program_structure" wrapper, semester-grouped
+    course lists, course_code vs code, and no programme outcomes or contact hours
+    whatsoever.
+
+    So they get the very same schema, serialised into the prompt. This is the
+    single source of truth for both paths — it is generated from
+    _ProgramStructureAI, not transcribed from it, so the two can never drift.
+
+    Neither mechanism is a guarantee, only a request — response_schema no more
+    than a prompt. Every provider's response, Gemini's included, is therefore put
+    through the normalizer before validation; see _parse_structure.
+    """
+    schema = json.dumps(_ProgramStructureAI.model_json_schema(), indent=2, sort_keys=True)
+    return (
+        "\n\nRESPONSE SCHEMA — return a single JSON object conforming EXACTLY to this "
+        "JSON Schema:\n"
+        f"{schema}\n\n"
+        "Schema rules (these override any other formatting assumption):\n"
+        "- The top-level object has EXACTLY two keys: \"outcomes\" and \"courses\". "
+        "Do NOT wrap them in \"program\", \"program_structure\", \"curriculum\", or any "
+        "other container.\n"
+        "- \"courses\" is ONE FLAT ARRAY of every course in the programme. Do NOT group "
+        "courses by semester — each course carries its own \"semester\" integer instead.\n"
+        "- Use these exact field names on every course: code, title, credits, semester, "
+        "course_type, is_elective, elective_basket_name, hours_lecture, hours_tutorial, "
+        "hours_practical, description, prerequisite_codes. Not course_code, not "
+        "course_title, not name.\n"
+        "- Every course must set hours_lecture, hours_tutorial and hours_practical to "
+        "realistic weekly contact hours (a 4-credit theory course is typically 3-1-0; a "
+        "2-credit lab 0-0-4; a project 0-0-8+). Never omit them and never leave them 0 "
+        "for a course that is actually taught.\n"
+        "- Every course must have a one-to-two sentence \"description\" of its content.\n"
+        "- \"outcomes\" is REQUIRED and must contain 6-12 programme outcomes, each with "
+        "code (PO1, PO2, ...), description, bloom_level, and display_order. Do not return "
+        "an empty outcomes array.\n"
+        "- Return raw JSON only — no markdown fences, no commentary."
+    )
+
+
+def _build_prompt(
+    ctx: ProgramGenerationContext,
+    *,
+    include_schema: bool = False,
+) -> tuple[str, str]:
+    """Build the (system, user) prompt.
+
+    `include_schema` appends the canonical schema to the user message, for
+    providers that cannot receive it out-of-band. Gemini leaves it off — it gets
+    the same schema as `response_schema` instead — so its prompt, and therefore
+    its audited prompt_hash, is unchanged.
+    """
     system = (
         "You are an expert academic curriculum designer. "
         "You create semester-wise program structures following outcome-based education principles "
@@ -263,6 +364,9 @@ def _build_prompt(ctx: ProgramGenerationContext) -> tuple[str, str]:
         f"- Return the full structure as JSON matching the schema exactly."
     )
 
+    if include_schema:
+        user += _canonical_schema_clause()
+
     return system, user
 
 
@@ -280,7 +384,6 @@ def _infer_semester(code: str) -> int:
     CS501 -> 5, MATH201 -> 2, PHY101 -> 1, CS1001 -> 1.
     Returns 1 when no usable digit is found.
     """
-    import re
     m = re.search(r"(\d+)", code)
     if m:
         first_digit = int(m.group(1)[0])
@@ -334,158 +437,606 @@ def _synthesise_fallback_outcomes(
     ]
 
 
-def _normalize_openai_compatible_structure(
+# --- key canonicalisation --------------------------------------------------
+#
+# Providers disagree about field naming in every dimension at once: separator
+# (course_title / courseTitle / "Course Title"), vocabulary (title / name /
+# subject_name), and nesting depth. Matching keys literally means every new
+# provider spelling is a fresh production failure. So keys are compared in a
+# canonical form -- lowercase, alphanumerics only -- and looked up in an alias
+# table keyed by that form. 'course_title', 'courseTitle' and 'Course Title'
+# all canonicalise to 'coursetitle' and resolve to the same schema field.
+
+def _canon(key: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).lower())
+
+
+# alias (canonical form) -> canonical _CourseAI field
+_COURSE_FIELD_ALIASES: dict[str, str] = {
+    # code
+    "code": "code", "coursecode": "code", "subjectcode": "code",
+    "papercode": "code", "courseid": "code",
+    # title
+    "title": "title", "coursetitle": "title", "name": "title",
+    "coursename": "title", "subjectname": "title", "subjecttitle": "title",
+    "papertitle": "title", "papername": "title",
+    # credits
+    "credits": "credits", "credit": "credits", "creditpoints": "credits",
+    "coursecredits": "credits", "creditvalue": "credits", "numberofcredits": "credits",
+    # semester
+    "semester": "semester", "semesternumber": "semester", "sem": "semester",
+    "semno": "semester", "semesterno": "semester", "term": "semester",
+    # course type
+    "coursetype": "course_type", "type": "course_type", "subjecttype": "course_type",
+    "coursecategory": "course_type", "category": "course_type",
+    "componenttype": "course_type",
+    # elective flag + basket
+    "iselective": "is_elective", "elective": "is_elective", "isoptional": "is_elective",
+    "electivebasketname": "elective_basket_name",
+    "electivebasket": "elective_basket_name",
+    "basketname": "elective_basket_name", "basket": "elective_basket_name",
+    "electivegroup": "elective_basket_name",
+    "electivepaper": "elective_basket_name",
+    "electivename": "elective_basket_name",
+    # contact hours
+    "hourslecture": "hours_lecture", "lecturehours": "hours_lecture",
+    "lecture": "hours_lecture", "l": "hours_lecture",
+    "hourstutorial": "hours_tutorial", "tutorialhours": "hours_tutorial",
+    "tutorial": "hours_tutorial", "t": "hours_tutorial",
+    "hourspractical": "hours_practical", "practicalhours": "hours_practical",
+    "hourslab": "hours_practical", "labhours": "hours_practical",
+    "practical": "hours_practical", "p": "hours_practical",
+    # description
+    "description": "description", "desc": "description", "summary": "description",
+    "coursedescription": "description", "overview": "description",
+    # prerequisites
+    "prerequisitecodes": "prerequisite_codes",
+    "prerequisitecoursecodes": "prerequisite_codes",
+    "prerequisites": "prerequisite_codes", "prerequisite": "prerequisite_codes",
+    "prereqs": "prerequisite_codes", "prereq": "prerequisite_codes",
+}
+
+# alias (canonical form) -> canonical _OutcomeAI field
+_OUTCOME_FIELD_ALIASES: dict[str, str] = {
+    "code": "code", "pocode": "code", "outcomecode": "code",
+    "programoutcomecode": "code",
+    "description": "description", "statement": "description",
+    "outcome": "description", "outcomestatement": "description",
+    "outcomedescription": "description", "text": "description", "desc": "description",
+    "bloomlevel": "bloom_level", "bloom": "bloom_level",
+    "bloomtaxonomy": "bloom_level", "bloomstaxonomylevel": "bloom_level",
+    "taxonomylevel": "bloom_level", "cognitivelevel": "bloom_level",
+    "displayorder": "display_order", "order": "display_order",
+    "sequence": "display_order", "index": "display_order",
+    "sno": "display_order", "serialnumber": "display_order",
+}
+
+# Keys whose value is a list of course objects.
+_COURSE_LIST_KEYS = frozenset({
+    "courses", "courselist", "programcourses", "programmecourses", "coursedetails",
+    "subjects", "subjectlist", "papers", "corecourses", "compulsorycourses",
+    # elective containers — courses found under these are electives by construction
+    "electives", "electivecourses", "electiveoptions", "electivechoices",
+    "options", "alternatives", "choices",
+})
+_ELECTIVE_LIST_KEYS = frozenset({
+    "electives", "electivecourses", "electiveoptions", "electivechoices",
+    "options", "alternatives", "choices",
+})
+
+# Keys whose value is a list of programme-outcome objects.
+_OUTCOME_LIST_KEYS = frozenset({
+    "outcomes", "outcomeslist", "programoutcomes", "programmeoutcomes",
+    "programoutcomeslist", "pos",
+})
+
+# Keys carrying the semester number on a semester-group object.
+_SEMESTER_NUMBER_KEYS = ("semesternumber", "semester", "sem", "semesterno", "semno", "term")
+
+# Keys carrying the elective paper name on a basket-group object.
+_BASKET_NAME_KEYS = ("electivebasketname", "basketname", "basket", "electivegroup",
+                     "electivepaper", "electivename", "papername")
+
+# Keys identifying a course object (as opposed to a group/wrapper object).
+_COURSE_IDENTITY_KEYS = frozenset({
+    "code", "coursecode", "subjectcode", "papercode", "courseid",
+    "title", "coursetitle", "name", "coursename", "subjectname", "subjecttitle",
+})
+
+# A course_type value that really means "this course is an elective".
+_ELECTIVE_TYPE_WORDS = frozenset({
+    "elective", "electives", "optional", "openelective",
+    "professionalelective", "departmentelective", "electivecourse",
+})
+
+# Credits to assume when a provider omits them entirely — a course with no
+# credits cannot be persisted at all, and a type-appropriate guess that the
+# worker's credit rebalance will then adjust beats failing the whole generation.
+_DEFAULT_CREDITS = {
+    "THEORY": 3, "LAB": 2, "PROJECT": 6, "INTERNSHIP": 4, "SEMINAR": 1,
+}
+
+_MAX_HARVEST_DEPTH = 8
+
+
+def _remap(d: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
+    """Add canonical field names to `d`, resolved from `aliases`.
+
+    An exact canonical key already present always wins; an alias only fills a
+    field that is absent or empty. Unrecognised keys are left untouched (Pydantic
+    ignores them) so nothing is lost if a provider carries extra metadata.
+    """
+    out: dict[str, Any] = dict(d)
+    for key, value in d.items():
+        target = aliases.get(_canon(key))
+        if target is None or target == key:
+            continue
+        if value in (None, ""):
+            continue
+        # `out.get(target) is False` must survive: `False in (None, "", [], {})`
+        # is False, so an explicit is_elective=false is never overwritten.
+        if out.get(target) in (None, "", [], {}):
+            out[target] = value
+    return out
+
+
+# --- value coercion --------------------------------------------------------
+
+def _as_int(value: object, default: int = 0) -> int:
+    """First integer found in the value. Handles 3, 3.0, "3", "Semester 3"."""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return int(value)
+    m = re.search(r"-?\d+", str(value or ""))
+    return int(m.group()) if m else default
+
+
+_TRUTHY = frozenset({"true", "yes", "y", "1", "elective", "optional"})
+
+
+def _as_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in _TRUTHY
+
+
+_NO_PREREQ_WORDS = frozenset({"", "none", "nil", "na", "n/a", "-", "null", "no prerequisites"})
+
+
+def _as_code_list(value: object) -> list[str]:
+    """Course codes out of any of: null, "", "None", "CS101, CS102",
+    ["CS101"], [{"code": "CS101"}]."""
+    if value in (None, "", [], {}):
+        return []
+    if isinstance(value, str):
+        if value.strip().lower() in _NO_PREREQ_WORDS:
+            return []
+        return [p.strip() for p in re.split(r"[,;/]|\band\b", value) if p.strip()]
+    if isinstance(value, dict):
+        value = list(value.values())
+    if not isinstance(value, list):
+        return []
+
+    codes: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            item = item.get("code") or item.get("course_code") or item.get("title")
+        if item is None or str(item).strip().lower() in _NO_PREREQ_WORDS:
+            continue
+        codes.append(str(item).strip())
+    return codes
+
+
+def _load_json(raw: str, provider: str) -> Any:
+    """Parse the provider's message content, tolerating markdown fences and any
+    prose a model wraps around the JSON despite being told not to."""
+    text = (raw or "").strip()
+
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+        text = re.sub(r"```\s*$", "", text).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Salvage the outermost JSON value from surrounding prose.
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start, end = text.find(opener), text.rfind(closer)
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except json.JSONDecodeError:
+                continue
+
+    raise ValueError(
+        f"{provider} response is not valid JSON.\n"
+        f"Raw (first 300 chars): {raw[:300]}"
+    )
+
+
+# --- structural harvesting -------------------------------------------------
+#
+# Rather than reaching into known paths ("program_structure" -> "semesters"),
+# walk the document and pick up course/outcome objects wherever they sit. This
+# is what makes {"program": {"semesters": [...]}}, {"program_structure":
+# {"semester_wise_courses": [...]}} and a bare {"courses": [...]} the same
+# problem, and what stops the next unseen wrapper key from being an outage.
+# Semester number and elective-paper name are inherited from the enclosing
+# group when the course object does not carry them itself.
+
+def _looks_like_course(node: dict[str, Any]) -> bool:
+    """True for a leaf course object; False for a group/wrapper that *contains*
+    courses (a semester, an elective basket, the root)."""
+    keys = {_canon(k) for k in node}
+    if keys & _COURSE_LIST_KEYS:
+        return False          # it holds courses, so it is not one
+    return bool(keys & _COURSE_IDENTITY_KEYS)
+
+
+def _group_value(node: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    by_canon = {_canon(k): k for k in node}
+    for key in keys:
+        if key in by_canon:
+            return node[by_canon[key]]
+    return None
+
+
+def _harvest_courses(
+    node: Any,
+    semester: int | None = None,
+    basket: str | None = None,
+    elective: bool = False,
+    found: list[dict[str, Any]] | None = None,
+    depth: int = 0,
+) -> list[dict[str, Any]]:
+    """Collect every course object in the document, each with the semester and
+    elective-paper context inherited from the group that contained it."""
+    if found is None:
+        found = []
+    if depth > _MAX_HARVEST_DEPTH:
+        return found
+
+    if isinstance(node, list):
+        for item in node:
+            _harvest_courses(item, semester, basket, elective, found, depth + 1)
+        return found
+
+    if not isinstance(node, dict):
+        return found
+
+    # Context this group contributes to the courses beneath it.
+    sem_value = _group_value(node, _SEMESTER_NUMBER_KEYS)
+    if isinstance(sem_value, (int, float, str)):
+        n = _as_int(sem_value, 0)
+        if 0 < n <= 20:
+            semester = n
+
+    basket_value = _group_value(node, _BASKET_NAME_KEYS)
+    if isinstance(basket_value, str) and basket_value.strip():
+        basket = basket_value.strip()
+
+    for key, value in node.items():
+        canon = _canon(key)
+
+        if canon in _OUTCOME_LIST_KEYS:
+            continue
+
+        # {"semesters": {"1": [...], "2": [...]}} / {"semester_1": [...]}
+        sem_match = re.fullmatch(r"(?:semester|sem|term)?(\d{1,2})", canon)
+
+        if canon in _COURSE_LIST_KEYS or (sem_match and isinstance(value, list)):
+            child_sem = int(sem_match.group(1)) if sem_match else semester
+            child_elective = elective or canon in _ELECTIVE_LIST_KEYS
+            for item in value if isinstance(value, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                if _looks_like_course(item):
+                    found.append({
+                        "raw": item,
+                        "semester": child_sem,
+                        "basket": basket,
+                        "elective": child_elective,
+                    })
+                else:
+                    # e.g. an elective basket object nested inside "electives"
+                    _harvest_courses(item, child_sem, basket, child_elective,
+                                     found, depth + 1)
+            continue
+
+        if isinstance(value, (dict, list)):
+            _harvest_courses(value, semester, basket, elective, found, depth + 1)
+
+    return found
+
+
+def _harvest_outcomes(
+    node: Any,
+    found: list[Any] | None = None,
+    depth: int = 0,
+) -> list[Any]:
+    """Collect every programme-outcome object in the document, at any depth."""
+    if found is None:
+        found = []
+    if depth > _MAX_HARVEST_DEPTH:
+        return found
+
+    if isinstance(node, list):
+        for item in node:
+            _harvest_outcomes(item, found, depth + 1)
+        return found
+
+    if not isinstance(node, dict):
+        return found
+
+    for key, value in node.items():
+        canon = _canon(key)
+        if canon in _COURSE_LIST_KEYS:
+            continue
+        if canon in _OUTCOME_LIST_KEYS and isinstance(value, list):
+            found.extend(value)
+            continue
+        if isinstance(value, (dict, list)):
+            _harvest_outcomes(value, found, depth + 1)
+
+    return found
+
+
+# --- per-object normalisation ----------------------------------------------
+
+def _synthesise_code(title: str, semester: int, index: int) -> str:
+    initials = "".join(w[0] for w in re.findall(r"[A-Za-z]+", title))[:3].upper()
+    return f"{initials or 'GEN'}{semester}{index:02d}"
+
+
+def _normalize_course(
+    entry: dict[str, Any],
+    index: int,
+    provider: str,
+) -> dict[str, Any] | None:
+    """One harvested course object -> a dict satisfying every _CourseAI field.
+    Returns None for an object too empty to be a course at all."""
+    c = _remap(entry["raw"], _COURSE_FIELD_ALIASES)
+
+    title = str(c.get("title") or "").strip()
+    code = str(c.get("code") or "").strip()
+    if not title and not code:
+        logger.warning("%s: dropped course entry with neither code nor title: %r",
+                       provider, entry["raw"])
+        return None
+
+    # course_type first — it decides the credit range and the credit default.
+    raw_type = str(c.get("course_type") or "").strip()
+    type_means_elective = _canon(raw_type) in _ELECTIVE_TYPE_WORDS
+    course_type = raw_type.upper()
+    if course_type not in _VALID_COURSE_TYPES:
+        course_type = _infer_course_type_from_title(title or code)
+
+    semester = _as_int(c.get("semester"), 0)
+    if not 0 < semester <= 20:
+        semester = entry["semester"] or _infer_semester(code)
+
+    if not title:
+        title = code
+    if not code:
+        code = _synthesise_code(title, semester, index)
+        logger.warning("%s: course %r had no code — synthesised %r.",
+                       provider, title, code)
+
+    # An ABSENT credits field falls back to a type-appropriate default; a
+    # credits field the provider actually set is trusted and merely clamped into
+    # range. The two must not be conflated -- an explicit 0 is a provider getting
+    # the value wrong (clamp it to the 1-credit floor), not a provider staying
+    # silent (where a 3-credit theory course is the better guess).
+    raw_credits = c.get("credits")
+    credits = -1 if raw_credits in (None, "") else _as_int(raw_credits, -1)
+    if credits < 0:
+        credits = _DEFAULT_CREDITS.get(course_type, 3)
+        logger.warning("%s: course %r has no usable credits — defaulted to %d for %s.",
+                       provider, code, credits, course_type)
+    lo, hi = (2, 20) if course_type in ("PROJECT", "INTERNSHIP") else (1, 6)
+    clamped = max(lo, min(hi, credits))
+    if clamped != credits:
+        logger.warning("%s: course %r credits %d out of range [%d, %d], clamped to %d.",
+                       provider, code, credits, lo, hi, clamped)
+        credits = clamped
+
+    # An elective is anything the provider flagged, typed, or filed under a paper.
+    basket = str(c.get("elective_basket_name") or "").strip() or (entry["basket"] or "")
+    is_elective = _as_bool(
+        c.get("is_elective"),
+        default=entry["elective"] or type_means_elective or bool(basket),
+    )
+    if not is_elective:
+        basket = ""   # a basket name is meaningless on a core course
+
+    description = str(c.get("description") or "").strip()
+    if not description:
+        description = f"Course covering topics in {title}."
+
+    prerequisite_codes = [
+        p for p in _as_code_list(c.get("prerequisite_codes"))
+        if p.upper() != code.upper()      # a course is never its own prerequisite
+    ]
+
+    return {
+        "code":                 code,
+        "title":                title,
+        "credits":              credits,
+        "semester":             semester,
+        "course_type":          course_type,
+        "is_elective":          is_elective,
+        "elective_basket_name": basket or None,
+        "hours_lecture":        max(0, _as_int(c.get("hours_lecture"), 0)),
+        "hours_tutorial":       max(0, _as_int(c.get("hours_tutorial"), 0)),
+        "hours_practical":      max(0, _as_int(c.get("hours_practical"), 0)),
+        "description":          description,
+        "prerequisite_codes":   prerequisite_codes,
+    }
+
+
+def _normalize_outcome(outcome: Any, index: int) -> dict[str, Any] | None:
+    """One harvested outcome (object, or a bare statement string) -> a dict
+    satisfying every _OutcomeAI field. Returns None when there is no statement."""
+    if isinstance(outcome, str):
+        outcome = {"description": outcome}
+    if not isinstance(outcome, dict):
+        return None
+
+    o = _remap(outcome, _OUTCOME_FIELD_ALIASES)
+
+    description = str(o.get("description") or "").strip()
+    if not description:
+        return None
+
+    display_order = _as_int(o.get("display_order"), index + 1) or index + 1
+
+    code = str(o.get("code") or "").strip()
+    if not code or code.isdigit():   # a bare "1" is an index, not a PO code
+        code = f"PO{display_order}"
+
+    return {
+        "code":          code,
+        "description":   description,
+        # _OutcomeAI.coerce_bloom_level resolves spelling variants and defaults.
+        "bloom_level":   str(o.get("bloom_level") or "").strip(),
+        "display_order": display_order,
+    }
+
+
+def _normalize_ai_structure(
     raw: str,
-    provider: str = "openai-compatible",
+    provider: str = "ai",
     *,
     department: str = "",
     degree_type: str = "",
 ) -> dict[str, Any]:
     """
-    Normalise JSON from any OpenAI-compatible provider (Groq, DeepSeek, etc.).
+    Normalise JSON from ANY provider (Gemini, Groq, DeepSeek, …) into the
+    canonical _ProgramStructureAI shape: {"outcomes": [...], "courses": [...]}.
 
-    Handles common response shape variations:
-      - {"program_structure": {...}}  wrapper unwrap
-      - semester-wise course lists  (semesters / semester_wise_courses)
-      - top-level key aliases       (programme_outcomes, program_courses, …)
-      - missing outcomes            → synthesise 4 fallback POs
-      - missing bloom_level         → "Apply"  (also enforced by _OutcomeAI validator)
-      - missing / aliased course fields
+    Nothing here is keyed on which provider sent the payload — the same pass runs
+    for all of them, and it is the *shape* of the document that is interpreted:
+
+      - any wrapper depth        {"program": {...}}, {"program_structure": {...}}, …
+      - semester-grouped courses  semesters / semester_wise_courses / {"1": [...]}
+      - elective baskets          courses nested under a paper, inheriting its name
+      - field-name variants       course_title→title, course_code→code, name→title,
+                                  prerequisites→prerequisite_codes, lab_hours→…
+      - missing required fields   code, credits, semester, is_elective, description
+      - missing outcomes          → 4 synthesised fallback POs
+
+    Every course returned is guaranteed to carry every field _CourseAI requires,
+    so a provider's field-naming or nesting choice can no longer fail generation.
     """
-    try:
-        data: dict[str, Any] = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"{provider} response is not valid JSON: {exc}\n"
-            f"Raw (first 300 chars): {raw[:300]}"
-        ) from exc
+    document = _load_json(raw, provider)
 
-    if not isinstance(data, dict):
+    if isinstance(document, list):
+        document = {"courses": document}     # a bare course array
+    if not isinstance(document, dict):
         raise ValueError(
-            f"{provider} response is not a JSON object (got {type(data).__name__})."
+            f"{provider} response is not a JSON object (got {type(document).__name__})."
         )
 
-    # --- unwrap program_structure wrapper ---
-    if "program_structure" in data and isinstance(data["program_structure"], dict):
-        data = data["program_structure"]
+    # --- courses ---
+    courses: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+    for index, entry in enumerate(_harvest_courses(document)):
+        course = _normalize_course(entry, index, provider)
+        if course is None:
+            continue
+        # Duplicate codes break the worker's code→id map and the DB's unique
+        # constraint. A course can be harvested twice when a provider emits both
+        # a flat list and a semester-grouped one; first occurrence wins.
+        if course["code"].upper() in seen_codes:
+            logger.warning("%s: dropped duplicate course code %r (%r).",
+                           provider, course["code"], course["title"])
+            continue
+        seen_codes.add(course["code"].upper())
+        courses.append(course)
 
-    # --- flatten semester-wise courses ---
-    _sem_key = None
-    if "semesters" in data and "courses" not in data:
-        _sem_key = "semesters"
-    elif "semester_wise_courses" in data and "courses" not in data:
-        _sem_key = "semester_wise_courses"
+    if not courses:
+        raise ValueError(
+            f"{provider} response contains no recognisable courses.\n"
+            f"Raw (first 500 chars): {raw[:500]}"
+        )
 
-    if _sem_key is not None:
-        flat: list[Any] = []
-        for sem in data.pop(_sem_key):
-            if not isinstance(sem, dict):
-                continue
-            sem_num = sem.get("semester_number") or sem.get("semester") or 1
-            for c in sem.get("courses", []):
-                if isinstance(c, dict) and not c.get("semester"):
-                    c["semester"] = int(sem_num)
-                flat.append(c)
-        data["courses"] = flat
+    # A prerequisite pointing at a course that does not exist in this program is
+    # dropped by the worker anyway; drop it here so the audited AI output and the
+    # persisted structure agree.
+    for course in courses:
+        course["prerequisite_codes"] = [
+            p for p in course["prerequisite_codes"] if p.upper() in seen_codes
+        ]
 
-    # --- top-level key aliases ---
-    for alias in ("programme_outcomes", "program_outcomes"):
-        if alias in data and "outcomes" not in data:
-            data["outcomes"] = data.pop(alias)
-            break
-    for alias in ("program_courses", "course_list"):
-        if alias in data and "courses" not in data:
-            data["courses"] = data.pop(alias)
-            break
+    # --- outcomes ---
+    outcomes: list[dict[str, Any]] = []
+    for index, raw_outcome in enumerate(_harvest_outcomes(document)):
+        outcome = _normalize_outcome(raw_outcome, index)
+        if outcome is not None:
+            outcomes.append(outcome)
 
-    # --- synthesise fallback outcomes when provider omits them ---
-    if not data.get("outcomes"):
+    if not outcomes:
         logger.warning(
             "%s response has no outcomes — synthesising 4 fallback POs "
             "(department=%r, degree_type=%r).",
             provider, department, degree_type,
         )
-        data["outcomes"] = _synthesise_fallback_outcomes(department, degree_type)
+        outcomes = _synthesise_fallback_outcomes(department, degree_type)
 
-    # --- outcome normalization ---
-    for i, o in enumerate(data.get("outcomes", [])):
-        if not isinstance(o, dict):
-            continue
-        if "display_order" not in o:
-            o["display_order"] = o.pop("order", i + 1)
-        # Ensure bloom_level is present — _OutcomeAI validator will default it to "Apply"
-        if not o.get("bloom_level"):
-            o["bloom_level"] = "Apply"
+    logger.info("%s: normalised %d courses, %d outcomes.",
+                provider, len(courses), len(outcomes))
 
-    # --- course normalization ---
-    for c in data.get("courses", []):
-        if not isinstance(c, dict):
-            continue
-
-        # name -> title
-        if "title" not in c and "name" in c:
-            c["title"] = c.pop("name")
-
-        # course_type aliases and inference — resolved before the credit clamp
-        # below, since PROJECT/INTERNSHIP courses use a wider credit range.
-        if "course_type" not in c:
-            for alias in ("type", "courseType", "course_category"):
-                if alias in c:
-                    c["course_type"] = c.pop(alias)
-                    break
-        raw_type = str(c.get("course_type") or "").strip().upper()
-        c["course_type"] = (
-            raw_type if raw_type in _VALID_COURSE_TYPES
-            else _infer_course_type_from_title(str(c.get("title", "")))
-        )
-
-        # clamp credits — [2, 20] for project/internship, [1, 6] otherwise.
-        # The floor is 2, not 6: a mini-project is legitimately worth 2 credits,
-        # and clamping it up to 6 would inflate the semester's total.
-        raw_credits = c.get("credits")
-        if isinstance(raw_credits, (int, float)):
-            is_project_or_internship = c["course_type"] in ("PROJECT", "INTERNSHIP")
-            lo, hi = (2, 20) if is_project_or_internship else (1, 6)
-            clamped = max(lo, min(hi, int(raw_credits)))
-            if clamped != int(raw_credits):
-                logger.warning(
-                    "%s course %r: credits %s out of range [%d, %d], clamped to %d.",
-                    provider, c.get("code", "?"), raw_credits, lo, hi, clamped,
-                )
-                c["credits"] = clamped
-
-        # infer semester from course code when absent
-        if not c.get("semester"):
-            c["semester"] = _infer_semester(str(c.get("code", "")))
-
-        # synthesise description when absent
-        if not c.get("description"):
-            label = c.get("title") or c.get("code", "this course")
-            c["description"] = f"Course covering topics in {label}."
-
-        # prerequisite_codes aliases
-        if "prerequisite_codes" not in c:
-            for alias in ("prerequisites", "prerequisite_course_codes", "prereqs"):
-                if alias in c:
-                    c["prerequisite_codes"] = c.pop(alias)
-                    break
-            c.setdefault("prerequisite_codes", [])
-
-        # hours aliases and defaults
-        if "hours_practical" not in c:
-            for alias in ("hours_lab", "lab_hours", "practical_hours"):
-                if alias in c:
-                    c["hours_practical"] = c.pop(alias)
-                    break
-            c.setdefault("hours_practical", 0)
-        c.setdefault("hours_lecture", 0)
-        c.setdefault("hours_tutorial", 0)
-
-    return data
+    return {"outcomes": outcomes, "courses": courses}
 
 
-# Keep old name as alias for backward compatibility with any external callers.
-_normalize_groq_structure = _normalize_openai_compatible_structure
+# Old names kept as aliases for existing callers and tests.
+_normalize_openai_compatible_structure = _normalize_ai_structure
+_normalize_groq_structure = _normalize_ai_structure
+
+
+def _parse_structure(
+    raw: str,
+    *,
+    provider: str,
+    label: str,
+    department: str = "",
+    degree_type: str = "",
+) -> _ProgramStructureAI:
+    """Raw provider text -> validated _ProgramStructureAI. The ONLY parse path.
+
+    Every provider goes through the normalizer, including Gemini. Gemini is given
+    the canonical schema as `response_schema`, but that is a request, not a
+    guarantee: it is free to wrap the payload ({"program": {"semesters": [...]}}),
+    group courses by semester, or rename fields, and it does. Validating its text
+    directly against _ProgramStructureAI — as this used to — turned any such
+    equivalent-but-different shape into `ValidationError: courses Field required`
+    and, since Gemini leads the fallback chain, failed generation outright even
+    though the curriculum data was entirely present and valid.
+
+    The normalizer is shape-driven and provider-agnostic, and it is a no-op on
+    input that is already canonical, so routing every provider through it costs a
+    conforming response nothing and rescues a non-conforming one.
+    """
+    normalized = _normalize_ai_structure(
+        raw,
+        provider=provider,
+        department=department,
+        degree_type=degree_type,
+    )
+    try:
+        return _ProgramStructureAI.model_validate(normalized)
+    except Exception as exc:
+        raise ValueError(
+            f"{label} response did not match the expected schema: {exc}\n"
+            f"Raw response (first 500 chars): {raw[:500]}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -531,7 +1082,13 @@ class GeminiStructureProvider:
                 "check safety filters and API quota."
             )
 
-        parsed = _ProgramStructureAI.model_validate_json(raw)
+        parsed = _parse_structure(
+            raw,
+            provider="gemini",
+            label="Gemini",
+            department=ctx.department,
+            degree_type=ctx.degree_type,
+        )
 
         return ProgramStructureResult(
             outcomes=[o.model_dump() for o in parsed.outcomes],
@@ -543,131 +1100,94 @@ class GeminiStructureProvider:
 
 
 # ---------------------------------------------------------------------------
-# Groq provider (OpenAI-compatible API)
+# OpenAI-compatible providers (Groq, DeepSeek)
+#
+# Identical pipeline, different endpoint: both are handed the canonical schema
+# in the prompt (they have no response_schema equivalent), both go through the
+# same provider-agnostic normalizer, and both land on _ProgramStructureAI. The
+# provider only supplies its endpoint, key and model — nothing about how a
+# response is interpreted may vary per provider, which is what stopped the
+# Groq/DeepSeek shapes being handled and stopped them being caught.
 # ---------------------------------------------------------------------------
 
-class GroqStructureProvider:
+class _OpenAICompatibleStructureProvider:
+
+    name:          str = ""   # provider_name recorded in the AuditLog
+    label:         str = ""   # human-facing name used in error messages
+    base_url:      str = ""
+    key_setting:   str = ""
+    model_setting: str = ""
+
+    async def generate_structure(
+        self,
+        ctx: ProgramGenerationContext,
+    ) -> ProgramStructureResult:
+        api_key = getattr(settings, self.key_setting, "")
+        if not api_key:
+            raise ValueError(
+                f"{self.key_setting} is not configured. Set it in your .env file."
+            )
+        model = getattr(settings, self.model_setting, "")
+
+        from openai import AsyncOpenAI
+
+        # include_schema: the canonical _ProgramStructureAI schema goes in the
+        # prompt, since these APIs cannot be given it out-of-band the way Gemini
+        # can. The prompt_hash therefore covers the schema actually sent.
+        system, user = _build_prompt(ctx, include_schema=True)
+        phash = _prompt_hash(system, user)
+
+        client = AsyncOpenAI(api_key=api_key, base_url=self.base_url)
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.4,
+        )
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            raise ValueError(f"{self.label} returned an empty response.")
+
+        parsed = _parse_structure(
+            raw,
+            provider=self.name,
+            label=self.label,
+            department=ctx.department,
+            degree_type=ctx.degree_type,
+        )
+
+        return ProgramStructureResult(
+            outcomes=[o.model_dump() for o in parsed.outcomes],
+            courses=[c.model_dump() for c in parsed.courses],
+            model_used=model,
+            provider_name=self.name,
+            prompt_hash=phash,
+        )
+
+
+class GroqStructureProvider(_OpenAICompatibleStructureProvider):
     """Groq llama-3.3-70b-versatile via the OpenAI-compatible API."""
 
-    async def generate_structure(
-        self,
-        ctx: ProgramGenerationContext,
-    ) -> ProgramStructureResult:
-        if not settings.GROQ_API_KEY:
-            raise ValueError(
-                "GROQ_API_KEY is not configured. Set it in your .env file."
-            )
-
-        from openai import AsyncOpenAI
-
-        system, user = _build_prompt(ctx)
-        phash = _prompt_hash(system, user)
-
-        client = AsyncOpenAI(
-            api_key=settings.GROQ_API_KEY,
-            base_url="https://api.groq.com/openai/v1",
-        )
-
-        response = await client.chat.completions.create(
-            model=settings.GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.4,
-        )
-
-        raw = (response.choices[0].message.content or "").strip()
-        if not raw:
-            raise ValueError("Groq returned an empty response.")
-
-        normalized = _normalize_openai_compatible_structure(
-            raw,
-            provider="groq",
-            department=ctx.department,
-            degree_type=ctx.degree_type,
-        )
-
-        try:
-            parsed = _ProgramStructureAI.model_validate(normalized)
-        except Exception as exc:
-            raise ValueError(
-                f"Groq response did not match the expected schema: {exc}\n"
-                f"Raw response (first 500 chars): {raw[:500]}"
-            ) from exc
-
-        return ProgramStructureResult(
-            outcomes=[o.model_dump() for o in parsed.outcomes],
-            courses=[c.model_dump() for c in parsed.courses],
-            model_used=settings.GROQ_MODEL,
-            provider_name="groq",
-            prompt_hash=phash,
-        )
+    name          = "groq"
+    label         = "Groq"
+    base_url      = "https://api.groq.com/openai/v1"
+    key_setting   = "GROQ_API_KEY"
+    model_setting = "GROQ_MODEL"
 
 
-# ---------------------------------------------------------------------------
-# DeepSeek provider (OpenAI-compatible API)
-# ---------------------------------------------------------------------------
-
-class DeepSeekStructureProvider:
+class DeepSeekStructureProvider(_OpenAICompatibleStructureProvider):
     """DeepSeek-V3 via the OpenAI-compatible API."""
 
-    async def generate_structure(
-        self,
-        ctx: ProgramGenerationContext,
-    ) -> ProgramStructureResult:
-        if not settings.DEEPSEEK_API_KEY:
-            raise ValueError(
-                "DEEPSEEK_API_KEY is not configured. Set it in your .env file."
-            )
-
-        from openai import AsyncOpenAI
-
-        system, user = _build_prompt(ctx)
-        phash = _prompt_hash(system, user)
-
-        client = AsyncOpenAI(
-            api_key=settings.DEEPSEEK_API_KEY,
-            base_url="https://api.deepseek.com",
-        )
-
-        response = await client.chat.completions.create(
-            model=settings.DEEPSEEK_MODEL,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user",   "content": user},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.4,
-        )
-
-        raw = (response.choices[0].message.content or "").strip()
-        if not raw:
-            raise ValueError("DeepSeek returned an empty response.")
-
-        normalized = _normalize_openai_compatible_structure(
-            raw,
-            provider="deepseek",
-            department=ctx.department,
-            degree_type=ctx.degree_type,
-        )
-
-        try:
-            parsed = _ProgramStructureAI.model_validate(normalized)
-        except Exception as exc:
-            raise ValueError(
-                f"DeepSeek response did not match the expected schema: {exc}\n"
-                f"Raw response (first 500 chars): {raw[:500]}"
-            ) from exc
-
-        return ProgramStructureResult(
-            outcomes=[o.model_dump() for o in parsed.outcomes],
-            courses=[c.model_dump() for c in parsed.courses],
-            model_used=settings.DEEPSEEK_MODEL,
-            provider_name="deepseek",
-            prompt_hash=phash,
-        )
+    name          = "deepseek"
+    label         = "DeepSeek"
+    base_url      = "https://api.deepseek.com"
+    key_setting   = "DEEPSEEK_API_KEY"
+    model_setting = "DEEPSEEK_MODEL"
 
 
 # ---------------------------------------------------------------------------
