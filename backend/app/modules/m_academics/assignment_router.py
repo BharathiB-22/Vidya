@@ -106,7 +106,7 @@ async def list_faculty_users(
     """Return all active FACULTY users — used by the assignment dialog. DEAN only."""
     from app.modules.m_academics.assignment_service import AssignmentService
     return await AssignmentService.list_faculty_users(
-        caller_role=current_user.role, caller_user_id=current_user.user_id, db=db
+        caller_role=current_user.viewing_role, caller_user_id=current_user.user_id, db=db
     )
 
 
@@ -127,7 +127,7 @@ async def list_assignments(
                 semester_id=semester_id,
                 section_id=section_id,
                 include_inactive=include_inactive,
-                caller_role=current_user.role,
+                caller_role=current_user.viewing_role,
                 caller_user_id=current_user.user_id,
                 db=db,
             )
@@ -135,7 +135,7 @@ async def list_assignments(
             semester_id=semester_id,
             section_id=section_id,
             include_inactive=include_inactive,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             caller_user_id=current_user.user_id,
             db=db,
         )

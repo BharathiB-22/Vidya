@@ -138,7 +138,7 @@ async def assert_can_edit_structure(
             },
         )
 
-    if current_user.is_super_admin or current_user.role == TenantRole.ADMIN.value:
+    if current_user.is_super_admin or current_user.viewing_role == TenantRole.ADMIN.value:
         return current_user
 
     is_governance = await acts_as_governance(current_user, db)
@@ -161,7 +161,7 @@ async def assert_can_edit_structure(
         return current_user
 
     # DRAFT / GENERATION_FAILED — the Dean's window.
-    if current_user.role == TenantRole.DEAN.value:
+    if current_user.viewing_role == TenantRole.DEAN.value:
         return current_user
 
     raise HTTPException(
@@ -243,13 +243,13 @@ async def list_programs(
         status_filter=status,
         offset=offset,
         limit=page_size,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
     total = await ProgramService.count_programs(
         status_filter=status,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
@@ -269,7 +269,7 @@ async def get_program(
 ) -> ProgramDetail:
     program = await ProgramService.get_program_detail(
         program_id,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
@@ -289,7 +289,7 @@ async def get_program_status(
 ) -> ProgramStatusResponse:
     program = await ProgramService.get_program(
         program_id,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
@@ -688,7 +688,7 @@ async def list_outcomes(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[ProgramOutcomeResponse]:
     owned = await ProgramService.get_program(
-        program_id, caller_role=current_user.role, caller_user_id=current_user.user_id, db=db
+        program_id, caller_role=current_user.viewing_role, caller_user_id=current_user.user_id, db=db
     )
     if owned is None:
         raise HTTPException(
@@ -789,7 +789,7 @@ async def list_courses(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[CourseResponse]:
     owned = await ProgramService.get_program(
-        program_id, caller_role=current_user.role, caller_user_id=current_user.user_id, db=db
+        program_id, caller_role=current_user.viewing_role, caller_user_id=current_user.user_id, db=db
     )
     if owned is None:
         raise HTTPException(

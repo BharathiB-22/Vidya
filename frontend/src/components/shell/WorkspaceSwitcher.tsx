@@ -1,15 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Crown } from 'lucide-react'
 import { useWorkspace } from '@/lib/workspace'
 import { useGovernance } from '@/lib/governance'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 /** Hidden entirely when the user has only one workspace — per spec, nothing
  *  to switch between. */
 export function WorkspaceSwitcher() {
   const { activeWorkspace, availableWorkspaces, setActiveWorkspace } = useWorkspace()
   const { bodyLabel } = useGovernance()
+  const user = useCurrentUser()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  // A Dean who has switched into another workspace (in practice, Faculty) is now
+  // scoped EXACTLY like that role server-side — Dean-wide data and Dean actions
+  // are gone until they switch back. Surface that so the narrowed view is
+  // understood as intentional, and so they know how to regain Dean tools. Only a
+  // base DEAN triggers it, so Faculty, Admin and Super Admin never see it.
+  const showViewingAsNotice = user?.role === 'DEAN' && activeWorkspace !== 'DEAN'
 
   // The governance workspace is named by the tenant, not by us: "Board" in one
   // university, "University Members" in another. Every other workspace keeps its
@@ -48,6 +57,18 @@ export function WorkspaceSwitcher() {
         </span>
         <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
+
+      {showViewingAsNotice && (
+        <div
+          className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-amber-400/10 border border-amber-400/20 px-2.5 py-1.5"
+          title="You are scoped exactly like a Faculty member here — only your assigned subjects and data, no Dean actions. Switch back to the Dean workspace for department-wide access and Dean tools."
+        >
+          <Crown className="h-3 w-3 text-amber-300/90 mt-[1px] flex-shrink-0" />
+          <span className="text-[10px] font-semibold text-amber-200/90 leading-snug">
+            Viewing as {labelFor(current.key, current.label)} · switch to Dean for Dean tools
+          </span>
+        </div>
+      )}
 
       {open && (
         <div

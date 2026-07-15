@@ -1,9 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Crown, BookOpen, GraduationCap, ShieldCheck, Landmark } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth, effectiveRoles } from '@/lib/auth'
+
+// Flat key read by the axios interceptor (outside React) to stamp every request
+// with X-Active-Workspace. Kept in sync with the active workspace below.
+const ACTIVE_WORKSPACE_KEY = 'vidya_active_workspace'
 
 export interface WorkspaceDef {
   /** The TenantRole value that defines this workspace (base role or grant). */
@@ -49,6 +54,7 @@ const WorkspaceContext = createContext<WorkspaceContextType | null>(null)
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const roleSet = useMemo(() => effectiveRoles(user), [user])
   const availableWorkspaces = useMemo(
@@ -57,6 +63,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   )
 
   const [activeWorkspace, setActiveWorkspaceState] = useState<string>(user?.role ?? '')
+
+  // Mirror the active workspace into the flat key the request interceptor reads,
+  // so every outgoing request carries the matching X-Active-Workspace. Cleared
+  // when there is no user (logout) so a stale workspace never leaks into the
+  // next session's requests.
+  useEffect(() => {
+    if (user && activeWorkspace) localStorage.setItem(ACTIVE_WORKSPACE_KEY, activeWorkspace)
+    else localStorage.removeItem(ACTIVE_WORKSPACE_KEY)
+  }, [user, activeWorkspace])
 
   // Resolve the active workspace whenever the logged-in user changes: the
   // last workspace persisted for THIS user if it's still valid for them,
@@ -72,8 +87,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   function setActiveWorkspace(key: string) {
     if (!availableWorkspaces.some((w) => w.key === key)) return
+    if (key === activeWorkspace) return
     setActiveWorkspaceState(key)
     if (user) localStorage.setItem(`${STORAGE_PREFIX}${user.id}`, key)
+    localStorage.setItem(ACTIVE_WORKSPACE_KEY, key)
+    // The workspace IS the server-side data scope now: every cached query was
+    // fetched under the old viewing role. Drop the cache so everything refetches
+    // under the new X-Active-Workspace — otherwise Dean-scoped data would linger
+    // after switching to Faculty (and vice-versa).
+    queryClient.clear()
     const def = WORKSPACES.find((w) => w.key === key)
     navigate(def?.homeRoute ?? '/dashboard')
   }

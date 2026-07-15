@@ -96,8 +96,8 @@ async def get_student_detail(
         detail = await StudentDirectoryService.get_detail(user_id, db)
     except DirectoryServiceError as e:
         raise _err(e)
-    if current_user.role == "DEAN":
-        governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+    if current_user.viewing_role == "DEAN":
+        governed = await get_dean_program_ids(current_user.user_id, current_user.viewing_role, db)
         if governed is not None and (detail.program is None or detail.program.id not in governed):
             raise HTTPException(
                 status_code=404,
@@ -161,8 +161,8 @@ async def get_faculty_detail(
         detail = await FacultyDirectoryService.get_detail(user_id, db)
     except DirectoryServiceError as e:
         raise _err(e)
-    if current_user.role == "DEAN":
-        governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+    if current_user.viewing_role == "DEAN":
+        governed = await get_dean_program_ids(current_user.user_id, current_user.viewing_role, db)
         if governed is not None:
             teaching_ids = {p.id for p in detail.teaching_programs}
             if not (teaching_ids & set(governed)):
@@ -221,7 +221,7 @@ async def list_dean_faculty(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     """Faculty tied to programs the Dean governs (coordinator grant OR active teaching)."""
-    governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+    governed = await get_dean_program_ids(current_user.user_id, current_user.viewing_role, db)
     if not governed:
         return DirectoryPage(items=[], total=0, page=page, page_size=page_size, total_pages=0)
     return await FacultyDirectoryService.list_directory(
@@ -246,7 +246,7 @@ async def list_dean_students(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     """Students enrolled in a program the Dean governs."""
-    governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+    governed = await get_dean_program_ids(current_user.user_id, current_user.viewing_role, db)
     if not governed:
         return DirectoryPage(items=[], total=0, page=page, page_size=page_size, total_pages=0)
     return await StudentDirectoryService.list_directory(

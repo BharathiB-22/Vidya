@@ -252,10 +252,24 @@ class CurrentUser(BaseModel):
     schema_name: Optional[str]
     role: str          # str not TenantRole so SUPER_ADMIN fits without being in TenantRole
     email: str
+    # The workspace the request is acting as (validated against the user's
+    # entitled roles in get_current_user). None ⇒ act as the base role. This is
+    # ALWAYS a role the user already holds — it can only re-select among held
+    # roles, never elevate — so honouring it can never widen access.
+    active_role: Optional[str] = None
 
     @property
     def is_super_admin(self) -> bool:
         return self.role == "SUPER_ADMIN"
+
+    @property
+    def viewing_role(self) -> str:
+        """The single role that governs BOTH access and data scope for this
+        request: the validated active workspace when one was sent, else the base
+        role. Use this — never ``role`` — for permission gates and query scoping,
+        so a Dean acting in the Faculty workspace is treated exactly as Faculty.
+        ``role`` stays the base identity (for ``/me`` and audit attribution)."""
+        return self.active_role or self.role
 
 
 # ---------------------------------------------------------------------------

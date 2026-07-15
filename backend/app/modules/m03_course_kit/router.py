@@ -328,7 +328,7 @@ async def list_kits(
         status_filter=status,
         page=page,
         page_size=page_size,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         faculty_user_id=current_user.user_id,
         db=db,
     )
@@ -362,7 +362,7 @@ async def get_kit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitDetail:
     kit = await CourseKitService.get_kit_detail(
-        kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
     )
     if kit is None:
         raise _404()
@@ -388,7 +388,7 @@ async def get_kit_status(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseKitStatusResponse:
     kit = await CourseKitService.get_kit(
-        kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
     )
     if kit is None:
         raise _404()
@@ -405,7 +405,7 @@ async def update_kit(
     try:
         kit = await CourseKitService.update_kit(
             kit_id, payload,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -432,7 +432,7 @@ async def delete_kit(
     try:
         await CourseKitService.delete_kit(
             kit_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -457,7 +457,7 @@ async def list_versions(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[CourseKitVersionResponse]:
     kit = await CourseKitService.get_kit(
-        kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+        kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
     )
     if kit is None:
         raise _404()
@@ -494,7 +494,7 @@ async def generate_kit(
                     complexity_level=payload.complexity_level,
                     tone=payload.tone,
                 ),
-                caller_role=current_user.role, faculty_user_id=current_user.user_id,
+                caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
                 db=db,
             )
         except KitServiceError as e:
@@ -505,7 +505,7 @@ async def generate_kit(
             kit_id=kit_id,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             db=db,
         )
@@ -557,7 +557,7 @@ async def publish_kit(
     try:
         kit = await CourseKitService.publish_kit(
             kit_id, published_by=current_user.user_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -584,7 +584,7 @@ async def archive_kit(
 ) -> CourseKitStatusResponse:
     try:
         kit = await CourseKitService.archive_kit(
-            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+            kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
         )
     except KitServiceError as e:
         raise _err(e)
@@ -613,7 +613,7 @@ async def fork_kit(
             kit_id,
             forked_by=current_user.user_id,
             change_note=payload.change_note,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             db=db,
         )
@@ -648,7 +648,7 @@ async def get_compliance(
 ) -> ComplianceCheckResponse:
     try:
         return await CourseKitService.run_compliance_check(
-            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+            kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
         )
     except KitServiceError as e:
         raise _err(e)
@@ -670,10 +670,10 @@ async def request_export(
             kit_id=kit_id,
             export_format=payload.format,
             requested_by=current_user.user_id,
-            requested_by_role=current_user.role,
+            requested_by_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             db=db,
         )
@@ -700,7 +700,7 @@ async def list_exports(
 ) -> list[dict]:
     try:
         assets = await CourseKitService.list_exports(
-            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+            kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
         )
     except KitServiceError as e:
         raise _err(e)
@@ -726,7 +726,7 @@ async def get_export_download(
     try:
         asset, url = await CourseKitService.get_export_download(
             kit_id, asset_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -751,7 +751,7 @@ async def list_slides(
 ) -> list[KitSlideResponse]:
     try:
         slides = await CourseKitService.list_slides(
-            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+            kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
         )
     except KitServiceError as e:
         raise _err(e)
@@ -772,7 +772,7 @@ async def reorder_slides(
     try:
         count = await CourseKitService.reorder_slides(
             kit_id, order_map,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -800,7 +800,7 @@ async def add_slide(
     try:
         slide = await CourseKitService.add_slide(
             kit_id, payload,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -829,7 +829,7 @@ async def update_slide(
     try:
         slide = await CourseKitService.update_slide(
             slide_id, kit_id, payload,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -857,7 +857,7 @@ async def delete_slide(
     try:
         await CourseKitService.delete_slide(
             slide_id, kit_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -887,7 +887,7 @@ async def list_assignments(
 ) -> list[KitAssignmentResponse]:
     try:
         assignments = await CourseKitService.list_assignments(
-            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+            kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
         )
     except KitServiceError as e:
         raise _err(e)
@@ -907,7 +907,7 @@ async def add_assignment(
     try:
         assignment = await CourseKitService.add_assignment(
             kit_id, payload,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -942,7 +942,7 @@ async def update_assignment(
     try:
         assignment = await CourseKitService.update_assignment(
             assignment_id, kit_id, payload,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -972,7 +972,7 @@ async def delete_assignment(
     try:
         await CourseKitService.delete_assignment(
             assignment_id, kit_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -1010,7 +1010,7 @@ async def generate_resource_upload_url(
             payload,
             tenant_slug=tenant_info.slug,
             current_user_id=current_user.user_id,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             db=db,
         )
@@ -1033,7 +1033,7 @@ async def add_resource(
             tenant_id=tenant_info.id,
             tenant_slug=tenant_info.slug,
             current_user_id=current_user.user_id,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             db=db,
         )
@@ -1065,7 +1065,7 @@ async def list_resources(
 ) -> StorageAssetListResponse:
     try:
         items = await CourseKitService.list_resources(
-            kit_id, caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db
+            kit_id, caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db
         )
     except KitServiceError as e:
         raise _err(e)
@@ -1088,7 +1088,7 @@ async def get_resource_download_url(
     try:
         presigned_url = await CourseKitService.get_resource_download_url(
             kit_id, asset_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:
@@ -1109,7 +1109,7 @@ async def delete_resource(
     try:
         await CourseKitService.delete_resource(
             kit_id, asset_id,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
             db=db,
         )
     except KitServiceError as e:

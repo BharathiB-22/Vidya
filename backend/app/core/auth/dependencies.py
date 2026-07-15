@@ -47,6 +47,7 @@ async def resolve_tenant(
 
 async def get_current_user(
     authorization: Optional[str] = Header(None),
+    x_active_workspace: Optional[str] = Header(None),
 ) -> CurrentUser:
     if authorization is None or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -119,12 +120,19 @@ async def get_current_user(
                 detail={"error": "UNAUTHORIZED", "message": "User not found or inactive"},
             )
         tenant_id_str = payload.get("tenant_id")
+        active_role = await _resolve_active_role(
+            base_role=user.role.value,
+            requested=x_active_workspace,
+            user_id=user.id,
+            schema_name=schema_name,
+        )
         return CurrentUser(
             user_id=user.id,
             tenant_id=UUID(tenant_id_str) if tenant_id_str else None,
             schema_name=schema_name,
             role=user.role.value,
             email=user.email,
+            active_role=active_role,
         )
 
 
@@ -192,7 +200,12 @@ def require_roles(*allowed_roles: TenantRole) -> Callable:
     ) -> CurrentUser:
         if current_user.is_super_admin:
             return current_user
-        if current_user.role not in {r.value for r in allowed_roles}:
+        # Gate on the VIEWING role, not the base role: a Dean acting in the
+        # Faculty workspace fails Dean-only gates (403) and passes Faculty gates,
+        # exactly as a real Faculty would. viewing_role defaults to the base role
+        # when no workspace was selected, so clients that send nothing are
+        # unaffected.
+        if current_user.viewing_role not in {r.value for r in allowed_roles}:
             raise HTTPException(
                 status_code=403,
                 detail={"error": "FORBIDDEN", "message": "Insufficient permissions"},
@@ -234,6 +247,31 @@ async def user_active_grants(user_id: UUID, schema_name: str | None) -> set[str]
         _tenant_schema_ctx.reset(_ctx)
 
 
+async def _resolve_active_role(
+    *, base_role: str, requested: str | None, user_id: UUID, schema_name: str | None
+) -> str | None:
+    """Validate a requested workspace (``X-Active-Workspace``) into an active role.
+
+    Returns the role the request should act as, or None to act as the base role.
+
+    Security contract: the returned role is ALWAYS one the user already holds
+    (base role or an active grant). A requested workspace the user is not
+    entitled to — stale client state or tampering — fails SAFE to the base role
+    rather than 403, so it can never elevate and never breaks an in-flight
+    session. The frontend only ever sends a workspace from its entitled set, so
+    the fallback is an edge guard, not a normal path.
+    """
+    if not requested:
+        return None
+    req = requested.strip().upper()
+    if not req or req == base_role:
+        return None
+    grants = await user_active_grants(user_id, schema_name)
+    if req in ({base_role} | grants):
+        return req
+    return None
+
+
 async def user_has_grant(db: AsyncSession, user_id: UUID, role_code: str) -> bool:
     """True if ``user_id`` holds an active grant for ``role_code``.
 
@@ -262,7 +300,12 @@ def require_responsibility(*allowed: "TenantRole | str") -> Callable:
     ) -> CurrentUser:
         if current_user.is_super_admin:
             return current_user
-        if current_user.role in allowed_codes:
+        # The primary check uses the VIEWING role (the active workspace), so a
+        # Dean acting as Faculty passes faculty-write gates as Faculty and cannot
+        # use this path to perform a Dean-only responsibility while in the Faculty
+        # workspace. Grants remain a cross-workspace overlay (GUIDE/EVALUATOR/…)
+        # and are still honoured regardless of the active workspace.
+        if current_user.viewing_role in allowed_codes:
             return current_user
         grants = await user_active_grants(current_user.user_id, current_user.schema_name)
         if grants & allowed_codes:

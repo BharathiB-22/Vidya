@@ -262,7 +262,7 @@ async def get_dashboard(
             threshold=threshold,
             semester_id=semester_id,
             db=db,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             caller_user_id=current_user.user_id,
         )
     except AttendanceServiceError as e:
@@ -291,7 +291,7 @@ async def get_shortage_report(
             program_id=program_id,
             batch_id=batch_id,
             finalized_only=finalized_only,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             caller_user_id=current_user.user_id,
         )
     except AttendanceServiceError as e:
@@ -316,7 +316,7 @@ async def get_shortage_grouped(
             program_id=program_id,
             batch_id=batch_id,
             finalized_only=finalized_only,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             caller_user_id=current_user.user_id,
         )
     except AttendanceServiceError as e:
@@ -355,7 +355,7 @@ async def get_section_analytics(
     try:
         return await AttendanceService.get_section_analytics(
             section_id, threshold, db,
-            caller_role=current_user.role, caller_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role, caller_user_id=current_user.user_id,
         )
     except AttendanceServiceError as e:
         raise _err(e)

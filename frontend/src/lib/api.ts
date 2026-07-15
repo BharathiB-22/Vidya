@@ -28,9 +28,15 @@ function getStoredToken(): string | null {
 api.interceptors.request.use((config) => {
   const token = getStoredToken()
   const slug = localStorage.getItem('vidya_tenant_slug')
+  // The active workspace is the server-enforced viewing context: a Dean in the
+  // Faculty workspace is scoped exactly as Faculty. The backend validates this
+  // against the user's entitled roles, so it can only ever re-select among roles
+  // the user already holds — never elevate. Written by WorkspaceProvider.
+  const workspace = localStorage.getItem('vidya_active_workspace')
 
   if (token) config.headers.Authorization = `Bearer ${token}`
   if (slug) config.headers['X-Tenant-Slug'] = slug
+  if (workspace) config.headers['X-Active-Workspace'] = workspace
 
   return config
 })
@@ -47,6 +53,7 @@ api.interceptors.response.use(
       localStorage.removeItem('vidya_auth')
       localStorage.removeItem('vidya_refresh_token')
       localStorage.removeItem('vidya_role')
+      localStorage.removeItem('vidya_active_workspace')
       // Keep vidya_tenant_slug so the login form pre-fills with the institution.
       window.location.href = '/login'
     }

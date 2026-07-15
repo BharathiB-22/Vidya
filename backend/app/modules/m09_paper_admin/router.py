@@ -673,7 +673,7 @@ async def get_script_file_url(
         url = await ScriptService.get_script_file_url(
             script_id,
             caller_user_id=current_user.user_id,
-            caller_role=current_user.role.value,
+            caller_role=current_user.viewing_role,
             db=db,
         )
     except ScriptServiceError as exc:

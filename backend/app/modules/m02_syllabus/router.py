@@ -169,7 +169,7 @@ async def create_syllabus(
         syllabus = await SyllabusService.create_syllabus(
             payload,
             created_by=current_user.user_id,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -205,7 +205,7 @@ async def list_syllabi(
             status_filter=status,
             page=page,
             page_size=page_size,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             db=db,
         )
@@ -263,7 +263,7 @@ async def get_syllabus(
     # A faculty may only open a syllabus for a course they teach — otherwise a
     # colleague's syllabus is one guessable id away. Mirrors the ownership the
     # LIST endpoint already enforces (m02/service.py list_syllabi FACULTY branch).
-    if current_user.role == "FACULTY":
+    if current_user.viewing_role == "FACULTY":
         from app.modules.m_academics.faculty_scope import faculty_teaches_course
         if not await faculty_teaches_course(current_user.user_id, syllabus.course_id, db):
             raise _404()
@@ -275,8 +275,8 @@ async def get_syllabus(
     if course:
         program_result = await db.execute(select(Program).where(Program.id == course.program_id))
         program = program_result.scalar_one_or_none()
-        if current_user.role == "DEAN":
-            governed = await get_dean_program_ids(current_user.user_id, current_user.role, db)
+        if current_user.viewing_role == "DEAN":
+            governed = await get_dean_program_ids(current_user.user_id, current_user.viewing_role, db)
             owned_acad_id = program.acad_program_id if program else None
             if governed is not None and owned_acad_id not in governed:
                 raise _404()
@@ -328,7 +328,7 @@ async def update_syllabus(
     try:
         syllabus = await SyllabusService.update_syllabus(
             syllabus_id, payload,
-            caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db,
         )
     except SyllabusServiceError as e:
         raise _err(e)
@@ -356,7 +356,7 @@ async def delete_syllabus(
 ) -> dict:
     try:
         await SyllabusService.delete_syllabus(
-            syllabus_id, caller_role=current_user.role,
+            syllabus_id, caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id, db=db,
         )
     except SyllabusServiceError as e:
@@ -407,7 +407,7 @@ async def generate_syllabus(
             await SyllabusService.update_syllabus(
                 syllabus_id,
                 SyllabusUpdate(custom_instructions=payload.custom_instructions),
-                caller_role=current_user.role, faculty_user_id=current_user.user_id, db=db,
+                caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id, db=db,
             )
         except SyllabusServiceError as e:
             raise _err(e)
@@ -416,7 +416,7 @@ async def generate_syllabus(
             syllabus_id=syllabus_id,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             faculty_user_id=current_user.user_id,
             # The SHAPE of the syllabus the Board asked for: how many units, the hours
             # of each, how long the subject is taught and over how long a term.
@@ -477,7 +477,7 @@ async def regenerate_section(
             payload.section.value,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             unit_id=payload.unit_id,
             guidance=payload.guidance,
             db=db,
@@ -530,7 +530,7 @@ async def dean_edit_document(
     try:
         syllabus = await SyllabusService.dean_edit_document(
             syllabus_id, payload, current_user.user_id,
-            caller_role=current_user.role, db=db,
+            caller_role=current_user.viewing_role, db=db,
         )
     except SyllabusServiceError as e:
         raise _err(e)
@@ -606,7 +606,7 @@ async def approve_syllabus(
         syllabus = await SyllabusService.approve(
             syllabus_id,
             approved_by=current_user.user_id,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -703,7 +703,7 @@ async def fork_syllabus(
             syllabus_id,
             created_by=current_user.user_id,
             change_note=payload.change_note,
-            caller_role=current_user.role,
+            caller_role=current_user.viewing_role,
             db=db,
         )
     except SyllabusServiceError as e:
@@ -764,7 +764,7 @@ async def add_outcome(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseOutcomeResponse:
     try:
-        co = await SyllabusService.add_co(syllabus_id, payload, caller_role=current_user.role, db=db)
+        co = await SyllabusService.add_co(syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -796,7 +796,7 @@ async def update_outcome(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CourseOutcomeResponse:
     try:
-        co = await SyllabusService.update_co(co_id, syllabus_id, payload, caller_role=current_user.role, db=db)
+        co = await SyllabusService.update_co(co_id, syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -824,7 +824,7 @@ async def delete_outcome(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_co(co_id, syllabus_id, caller_role=current_user.role, db=db)
+        await SyllabusService.delete_co(co_id, syllabus_id, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -860,7 +860,7 @@ async def update_copo_mappings(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> list[COPOMappingResponse]:
     try:
-        mappings = await SyllabusService.update_copo_mappings(co_id, syllabus_id, payload, caller_role=current_user.role, db=db)
+        mappings = await SyllabusService.update_copo_mappings(co_id, syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -914,7 +914,7 @@ async def add_unit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusUnitResponse:
     try:
-        unit = await SyllabusService.add_unit(syllabus_id, payload, caller_role=current_user.role, db=db)
+        unit = await SyllabusService.add_unit(syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -943,7 +943,7 @@ async def update_unit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusUnitResponse:
     try:
-        unit = await SyllabusService.update_unit(unit_id, syllabus_id, payload, caller_role=current_user.role, db=db)
+        unit = await SyllabusService.update_unit(unit_id, syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -971,7 +971,7 @@ async def delete_unit(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_unit(unit_id, syllabus_id, caller_role=current_user.role, db=db)
+        await SyllabusService.delete_unit(unit_id, syllabus_id, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -1000,7 +1000,7 @@ async def reorder_units(
 ) -> dict:
     order_map = {uid: num for uid, num in payload.order}
     try:
-        count = await SyllabusService.reorder_units(syllabus_id, order_map, caller_role=current_user.role, db=db)
+        count = await SyllabusService.reorder_units(syllabus_id, order_map, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     return {"updated": count}
@@ -1040,7 +1040,7 @@ async def add_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
-        ref = await SyllabusService.add_reference(syllabus_id, payload, caller_role=current_user.role, db=db)
+        ref = await SyllabusService.add_reference(syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -1069,7 +1069,7 @@ async def update_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
-        ref = await SyllabusService.update_reference(ref_id, syllabus_id, payload, caller_role=current_user.role, db=db)
+        ref = await SyllabusService.update_reference(ref_id, syllabus_id, payload, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -1097,7 +1097,7 @@ async def delete_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> dict:
     try:
-        await SyllabusService.delete_reference(ref_id, syllabus_id, caller_role=current_user.role, db=db)
+        await SyllabusService.delete_reference(ref_id, syllabus_id, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(
@@ -1128,7 +1128,7 @@ async def confirm_reference(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> SyllabusReferenceResponse:
     try:
-        ref = await SyllabusService.confirm_reference(ref_id, syllabus_id, caller_role=current_user.role, db=db)
+        ref = await SyllabusService.confirm_reference(ref_id, syllabus_id, caller_role=current_user.viewing_role, db=db)
     except SyllabusServiceError as e:
         raise _err(e)
     await AuditService.log(

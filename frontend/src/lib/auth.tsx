@@ -136,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('vidya_token')
       localStorage.removeItem('vidya_refresh_token')
       localStorage.removeItem('vidya_role')
+      localStorage.removeItem('vidya_active_workspace')
       // Keep vidya_tenant_slug so it pre-fills the login form next time
       setUser(null)
       setIsAuthenticated(false)

@@ -102,7 +102,7 @@ async def get_dean_programs(
 ) -> list[DeanProgramOut]:
     """Programs the calling dean governs (ADMIN sees all programs)."""
     try:
-        if current_user.role == "ADMIN":
+        if current_user.viewing_role == "ADMIN":
             rows = (
                 await db.execute(
                     text(
@@ -165,7 +165,7 @@ async def get_faculty_workload(
 ) -> FacultyWorkloadResponse:
     """Course + program count per faculty in the dean's governed programs."""
     try:
-        if current_user.role == "ADMIN":
+        if current_user.viewing_role == "ADMIN":
             rows = (
                 await db.execute(
                     text(
@@ -347,7 +347,7 @@ async def get_ownership_matrix(
     ADMIN sees all (or filtered via ?program_ids=uuid1,uuid2).
     """
     try:
-        if current_user.role == "ADMIN":
+        if current_user.viewing_role == "ADMIN":
             if program_ids:
                 pids = [UUID(p.strip()) for p in program_ids.split(",") if p.strip()]
             else:

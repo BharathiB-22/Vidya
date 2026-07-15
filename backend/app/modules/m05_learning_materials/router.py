@@ -117,7 +117,7 @@ async def _require_package_access(package_id: UUID, current_user: CurrentUser, d
         return await LearningPackageService.get_package(package_id, db=db)
     pkg = await LearningPackageService.get_package(
         package_id,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
@@ -177,7 +177,7 @@ async def trigger_curation(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ) -> CurationJobResponse:
     # A faculty may only curate materials for a course they teach.
-    if current_user.role == TenantRole.FACULTY.value:
+    if current_user.viewing_role == TenantRole.FACULTY.value:
         if not await LearningPackageService._faculty_can_see_syllabus(
             payload.syllabus_id, current_user.user_id, db=db
         ):
@@ -264,7 +264,7 @@ async def list_packages(
         status_filter=status,
         page=page,
         page_size=page_size,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
@@ -284,7 +284,7 @@ async def get_package(
 ) -> LearningPackageResponse:
     pkg = await LearningPackageService.get_package(
         package_id,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
@@ -308,7 +308,7 @@ async def get_package_status(
 ) -> PackageStatusResponse:
     pkg = await LearningPackageService.get_package(
         package_id,
-        caller_role=current_user.role,
+        caller_role=current_user.viewing_role,
         caller_user_id=current_user.user_id,
         db=db,
     )
