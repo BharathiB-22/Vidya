@@ -8,7 +8,11 @@ import type { FacultyDayClass } from '@/lib/api/sis'
 import { ExtraClassDialog } from './ExtraClassDialog'
 
 const DOW = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+// Full month names so the header reads "Wednesday, 15 July 2026" (not "15 Jul 2026").
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
 
 function todayISO(): string {
   const d = new Date()
