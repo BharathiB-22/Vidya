@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     PRESIGNED_URL_EXPIRY_MINUTES_GET: int = 60
     STORAGE_ASSET_RETENTION_YEARS: int = 3
 
+    # Attendance
+    # How many days back (including today) faculty may take or edit attendance.
+    # Sessions dated older than this are read-only. Configurable so the policy can
+    # be tuned per deployment; a Dean/Admin override may layer on top later.
+    ATTENDANCE_EDIT_WINDOW_DAYS: int = 7
+
     # Google OAuth (for Super Admin Google Sign-In)
     GOOGLE_CLIENT_ID: str = ""
 

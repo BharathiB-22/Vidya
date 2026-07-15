@@ -483,6 +483,9 @@ export interface FacultyDay {
   on_date: string
   weekday: number
   today:   FacultyDayClass[]
+  /** False when on_date is older than the configured edit window (or future):
+   *  the day is read-only — no Take/Edit actions. */
+  editable: boolean
 }
 
 export interface AttendanceSessionUpdateIn {

@@ -5,9 +5,9 @@ Business rules (all per approved H55 policy decisions):
   - Faculty must hold an active PRIMARY or CO_FACULTY subject_assignment for the
     course in the semester that contains the target section. GUEST role cannot mark.
   - section.semester_id must match the assignment's semester_id (SECTION_MISMATCH).
-  - Edit window: 48 hours from first_marked_at (not session created_at).
-    If first_marked_at is None, session is editable (window not yet started).
-    After reopen: 48 hours from reopened_at.
+  - Edit window: date-based — today plus the previous
+    settings.ATTENDANCE_EDIT_WINDOW_DAYS days. Classes dated older than the
+    window (or in the future) are read-only. Count is configurable, not hardcoded.
   - edit_reason is mandatory on any modification after the first save.
   - Phase 1 MVP: only PRESENT/ABSENT are valid statuses.
   - Shortage warning notification fires once per student per (course, section)
@@ -52,7 +52,7 @@ from app.modules.m_academics.models import AcadSection, SubjectAssignment
 
 logger = logging.getLogger("vidya.sis.attendance")
 
-ATTENDANCE_EDIT_WINDOW_HOURS: int = 48
+from app.config import settings
 
 
 async def _resolve_dean_scope(
@@ -87,28 +87,37 @@ async def _resolve_dean_scope(
 # Helpers: edit window
 # ---------------------------------------------------------------------------
 
+def is_within_edit_window(session_date: date) -> bool:
+    """Is a class on ``session_date`` still within the take/edit window?
+
+    The window is date-based: today plus the previous
+    ``settings.ATTENDANCE_EDIT_WINDOW_DAYS`` days. Future dates are never editable.
+    Anything older than the window is read-only (a Dean/Admin override may layer
+    on top later). The day count is configuration, never hardcoded here.
+    """
+    today = date.today()
+    if session_date > today:
+        return False
+    return (today - session_date).days <= settings.ATTENDANCE_EDIT_WINDOW_DAYS
+
+
 def is_editable(session: SisAttendanceSession) -> bool:
-    """
-    Session is editable if:
-      1. status is OPEN, AND
-      2. first_marked_at is None (window not started), OR
-         now() is within 48h of (reopened_at or first_marked_at)
-    """
+    """A session may be taken/edited while OPEN and within the date window."""
     if session.status == SessionStatus.LOCKED:
         return False
-    if session.first_marked_at is None:
-        return True  # never marked; window not started
-    reference = session.reopened_at or session.first_marked_at
-    return datetime.now(timezone.utc) < reference + timedelta(hours=ATTENDANCE_EDIT_WINDOW_HOURS)
+    return is_within_edit_window(session.session_date)
 
 
 def minutes_until_lock(session: SisAttendanceSession) -> Optional[int]:
-    """Minutes remaining in edit window. None if not started or already locked."""
-    if session.status == SessionStatus.LOCKED or session.first_marked_at is None:
+    """Minutes remaining until the date window closes (midnight after the last
+    editable day). None once locked or already outside the window."""
+    if session.status == SessionStatus.LOCKED:
         return None
-    reference = session.reopened_at or session.first_marked_at
-    deadline  = reference + timedelta(hours=ATTENDANCE_EDIT_WINDOW_HOURS)
-    remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+    if not is_within_edit_window(session.session_date):
+        return None
+    last_day = session.session_date + timedelta(days=settings.ATTENDANCE_EDIT_WINDOW_DAYS)
+    close_at = datetime(last_day.year, last_day.month, last_day.day, tzinfo=timezone.utc) + timedelta(days=1)
+    remaining = (close_at - datetime.now(timezone.utc)).total_seconds()
     return max(0, int(remaining // 60))
 
 
@@ -449,7 +458,12 @@ class AttendanceService:
             )
             for r in rows
         ]
-        return FacultyDayOut(on_date=on_date, weekday=on_date.weekday(), today=classes)
+        return FacultyDayOut(
+            on_date=on_date,
+            weekday=on_date.weekday(),
+            today=classes,
+            editable=is_within_edit_window(on_date),
+        )
 
     # ------------------------------------------------------------------
     # Faculty: create session
@@ -464,6 +478,13 @@ class AttendanceService:
         schema_name: Optional[str],
         db: AsyncSession,
     ) -> SessionOut:
+        if not is_within_edit_window(body.session_date):
+            raise AttendanceServiceError(
+                "EDIT_WINDOW_EXPIRED",
+                f"Attendance can only be taken for today and the previous "
+                f"{settings.ATTENDANCE_EDIT_WINDOW_DAYS} days.",
+                403,
+            )
         section_id, semester_id = await _resolve_session_class(body, actor_id, db)
 
         session = SisAttendanceSession(

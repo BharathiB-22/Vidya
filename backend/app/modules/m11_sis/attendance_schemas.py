@@ -64,6 +64,9 @@ class FacultyDayOut(BaseModel):
     on_date:  date
     weekday:  int   # 0=Monday..6=Sunday
     today:    list[FacultyDayClassOut]
+    # False when on_date is older than the configured edit window (or in the
+    # future): the day's classes are read-only and cannot be taken/edited.
+    editable: bool = True
 
 
 class SessionCreateIn(BaseModel):
@@ -151,7 +154,7 @@ class SessionOut(BaseModel):
     duration_minutes: Optional[int]
     topic_covered:    Optional[str]
     status:           str                  # OPEN | LOCKED
-    is_editable:      bool                 # computed: within 48h window and OPEN
+    is_editable:      bool                 # computed: within the date edit window and OPEN
     minutes_until_lock: Optional[int]      # countdown; None if not yet marked or locked
     first_marked_at:  Optional[datetime]
     locked_at:        Optional[datetime]
