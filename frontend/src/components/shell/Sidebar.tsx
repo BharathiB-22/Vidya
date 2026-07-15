@@ -7,8 +7,8 @@ import {
   GraduationCap, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
-  Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert, Monitor,
-  Activity, Scale, ShieldCheck, ScanSearch, Crown, ListChecks,
+  Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert,
+  Scale, ShieldCheck, ScanSearch, Crown, ListChecks,
   Bell, Presentation, Library, PartyPopper, CalendarClock, TrendingUp, Briefcase,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
@@ -154,14 +154,12 @@ const NAV_SECTIONS: NavSection[] = [
   },
 
   // ── DEAN: Examinations ────────────────────────────────────────────────────
-  // Dean is the academic owner of all examination operations. Digital sessions,
-  // monitoring, OCR and physical logistics all sit here; Admin retains
-  // read-only access to results and analytics.
+  // Dean is the academic owner of all examination operations — OCR review,
+  // hall tickets, sessions, centers and results. VIDYA is offline-only: there is
+  // no digital/online examination UI. Admin retains read-only results/analytics.
   {
     heading: 'Examinations',
     items: [
-      { label: 'Digital Sessions', to: '/exams/digital',            icon: Monitor,       roles: ['DEAN'] },
-      { label: 'Exam Monitoring',  to: '/exams/digital/monitoring', icon: Activity,      roles: ['DEAN'] },
       { label: 'OCR Review Queue', to: '/ocr-review',               icon: ScanSearch,    roles: ['DEAN'] },
       { label: 'Hall Tickets',     to: '/sis/hall-tickets',         icon: Ticket,        roles: ['DEAN'] },
       { label: 'Exam Sessions',    to: '/sis/exam/sessions',        icon: CalendarDays,  roles: ['DEAN'] },
@@ -277,9 +275,6 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Script Evaluation', to: '/scripts/board',               icon: FileText,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Mark Sheet',        to: '/scripts/ledger',              icon: BookLock,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Grade Analytics',   to: '/bell-curve',                  icon: BarChart2,      roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
-      { label: 'Digital Sessions',  to: '/exams/digital',               icon: Monitor,        roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
-      { label: 'Exam Monitoring',   to: '/exams/digital/monitoring',    icon: Activity,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
-      { label: 'Exam Analytics',    to: '/exams/digital/analytics',     icon: BarChart2,      roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Board Analytics',   to: '/board/exam-analytics',        icon: Scale,          roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Compliance & Audit', to: '/board/compliance',           icon: ShieldCheck,    roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
     ],
@@ -303,15 +298,24 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Assessments',
     items: [
-      { label: 'Digital Exams',    to: '/student/exams/digital',   icon: Monitor,       roles: ['STUDENT'] },
       { label: 'My Attendance',    to: '/sis/attendance/me',       icon: CalendarCheck, roles: ['STUDENT'] },
       { label: 'Internal Marks',   to: '/sis/marks/me',            icon: BookMarked,    roles: ['STUDENT'] },
       { label: 'Semester Results', to: '/student/semester-results', icon: BarChart2,     roles: ['STUDENT'] },
-      { label: 'Hall Ticket',      to: '/sis/hall-tickets/me',     icon: Ticket,        roles: ['STUDENT'] },
-      { label: 'Exam Timetable',   to: '/sis/exam/my-timetable',   icon: CalendarDays,  roles: ['STUDENT'] },
       { label: 'Transcript',       to: '/sis/my-transcript',       icon: Award,         roles: ['STUDENT'] },
       { label: 'Timetable',        to: '/student/timetable',       icon: CalendarClock, roles: ['STUDENT'] },
       { label: 'Academic Progress', to: '/student/academic-progress', icon: TrendingUp, roles: ['STUDENT'] },
+    ],
+  },
+
+  // ── STUDENT: Examination ──────────────────────────────────────────────────
+  // One home for exam-facing items. Hall Ticket and Exam Timetable moved here
+  // from Assessments; Results will join later (currently under "Semester
+  // Results"). Digital/online exams were removed — VIDYA does not run them.
+  {
+    heading: 'Examination',
+    items: [
+      { label: 'Hall Ticket',    to: '/sis/hall-tickets/me',   icon: Ticket,       roles: ['STUDENT'] },
+      { label: 'Exam Timetable', to: '/sis/exam/my-timetable', icon: CalendarDays, roles: ['STUDENT'] },
     ],
   },
 

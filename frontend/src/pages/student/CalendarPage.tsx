@@ -123,7 +123,7 @@ export default function CalendarPage() {
       ) : items.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <CalendarDays className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">Nothing scheduled in this range.</p>
+          <p className="text-sm text-gray-400">No upcoming academic events.</p>
         </div>
       ) : (
         <div className="space-y-6">

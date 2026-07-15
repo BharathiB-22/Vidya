@@ -142,18 +142,6 @@ import ExamSessionDetailPage from '@/pages/sis/ExamSessionDetailPage'
 import ExamInvigilationPage from '@/pages/sis/ExamInvigilationPage'
 import ExamSeatAllocationPage from '@/pages/sis/ExamSeatAllocationPage'
 import MyExamTimetablePage from '@/pages/sis/MyExamTimetablePage'
-import AvailableExamsPage from '@/pages/student/AvailableExamsPage'
-import ExamInstructionsPage from '@/pages/student/ExamInstructionsPage'
-import ActiveExamPage from '@/pages/student/ActiveExamPage'
-import SubmissionConfirmPage from '@/pages/student/SubmissionConfirmPage'
-import ExamResultPage from '@/pages/student/ExamResultPage'
-import { ExamGuard } from '@/components/digitalExams/ExamGuard'
-import DigitalSessionsPage from '@/pages/DigitalSessionsPage'
-import CreateDigitalSessionPage from '@/pages/CreateDigitalSessionPage'
-import DigitalSessionDetailPage from '@/pages/DigitalSessionDetailPage'
-import DigitalMonitoringPage from '@/pages/DigitalMonitoringPage'
-import DeanDigitalAnalyticsPage from '@/pages/DeanDigitalAnalyticsPage'
-import SessionStatisticsPage from '@/pages/SessionStatisticsPage'
 import DeanExamAnalyticsPage from '@/pages/DeanExamAnalyticsPage'
 import AdminExamAnalyticsPage from '@/pages/AdminExamAnalyticsPage'
 import BoardExamAnalyticsPage from '@/pages/BoardExamAnalyticsPage'
@@ -254,11 +242,6 @@ export default function App() {
             <Route path="/notifications" element={<NotificationCenterPage />} />
           </Route>
 
-          {/* Dean Digital Exam Analytics — DEAN, ADMIN, BOARD */}
-          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
-            <Route path="/exams/digital/analytics"              element={<DeanDigitalAnalyticsPage />} />
-            <Route path="/exams/digital/analytics/:sessionId"   element={<SessionStatisticsPage />} />
-          </Route>
 
           {/* M09.8 Examination Analytics — role-specific dashboards */}
           <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
@@ -397,16 +380,8 @@ export default function App() {
             <Route path="/sis/exam/my-timetable"           element={<MyExamTimetablePage />} />
           </Route>
 
-          {/* Digital Exams — M09.5 Student flow */}
-          <Route element={<AuthGuard allowedRoles={['STUDENT']} />}>
-            <Route path="/student/exams/digital"                        element={<AvailableExamsPage />} />
-            <Route element={<ExamGuard />}>
-              <Route path="/student/exams/digital/:sessionId/instructions" element={<ExamInstructionsPage />} />
-              <Route path="/student/exams/digital/:sessionId/take"         element={<ActiveExamPage />} />
-              <Route path="/student/exams/digital/:sessionId/submitted"    element={<SubmissionConfirmPage />} />
-            </Route>
-            <Route path="/student/exams/digital/attempts/:attemptId/result" element={<ExamResultPage />} />
-          </Route>
+          {/* Digital/online exams are not offered in VIDYA — student exam-taking
+              screens and navigation removed (M09.5 backend/APIs retained). */}
 
           {/* SIS Faculty Directory — ADMIN only (Deans use /dean/my-faculty) */}
           <Route element={<AuthGuard allowedRoles={['ADMIN']} />}>
@@ -539,16 +514,8 @@ export default function App() {
             <Route path="/exams/internal-marks/course/:courseId" element={<InternalExamReleasePage />} />
           </Route>
 
-          {/* Digital Exam Sessions — Dean owns; Admin + Board can view */}
-          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN', 'BOARD']} />}>
-            <Route path="/exams/digital"            element={<DigitalSessionsPage />} />
-            <Route path="/exams/digital/monitoring" element={<DigitalMonitoringPage />} />
-            <Route path="/exams/digital/:sessionId" element={<DigitalSessionDetailPage />} />
-          </Route>
-          {/* Digital session creation — Dean + Board only; Admin cannot create sessions */}
-          <Route element={<AuthGuard allowedRoles={['DEAN', 'BOARD']} />}>
-            <Route path="/exams/digital/create" element={<CreateDigitalSessionPage />} />
-          </Route>
+          {/* Digital/online exam sessions removed from the UI — VIDYA is an
+              offline ERP. Backend/APIs retained for possible future use. */}
 
           {/* Scanned Scripts — ADMIN, BOARD */}
           <Route element={<AuthGuard allowedRoles={['ADMIN', 'BOARD']} />}>
