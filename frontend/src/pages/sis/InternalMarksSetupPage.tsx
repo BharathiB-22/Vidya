@@ -16,8 +16,10 @@ const STATUS_COLORS: Record<string, string> = {
   LOCKED:    'bg-gray-100   text-gray-700   border-gray-300',
 }
 
+// QUIZ is no longer an offered assessment type; any legacy row falls back to its
+// raw type via the ?? below.
 const TYPE_LABELS: Record<string, string> = {
-  CIE: 'CIE', ASSIGNMENT: 'Assignment', QUIZ: 'Quiz', LAB: 'Lab', OTHER: 'Other',
+  CIE: 'CIE', ASSIGNMENT: 'Assignment', LAB: 'Lab Assessment', OTHER: 'Other',
 }
 
 export default function InternalMarksSetupPage() {

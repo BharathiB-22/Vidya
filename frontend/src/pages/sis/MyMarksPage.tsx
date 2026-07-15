@@ -11,7 +11,7 @@ const STATUS_COLORS: Record<string, string> = {
   LOCKED:    'bg-gray-100   text-gray-700   border-gray-300',
 }
 const TYPE_LABELS: Record<string, string> = {
-  CIE: 'CIE', ASSIGNMENT: 'Assignment', QUIZ: 'Quiz', LAB: 'Lab', OTHER: 'Other',
+  CIE: 'CIE', ASSIGNMENT: 'Assignment', LAB: 'Lab Assessment', OTHER: 'Other',
 }
 
 function ScoreBar({ obtained, max }: { obtained: number | null; max: number }) {

@@ -122,9 +122,15 @@ export function MarksTab({ ctx }: FacultySubjectTabProps) {
       <CreateComponentDialog
         open={showCreate}
         onOpenChange={setShowCreate}
-        defaultCourseId={course_id}
-        defaultSectionId={section_id ?? undefined}
-        defaultSemesterId={semester_id}
+        context={{
+          courseId:        course_id,
+          sectionId:       section_id ?? undefined,
+          semesterId:      semester_id,
+          courseLabel:     [ctx.assignment.course?.code, ctx.assignment.course?.title].filter(Boolean).join(' — ') || 'Course',
+          sectionLabel:    ctx.assignment.section?.name ?? undefined,
+          semesterLabel:   ctx.assignment.semester ? `Semester ${ctx.assignment.semester.number}` : '',
+          hasLabComponent: ctx.hasLabComponent,
+        }}
         onCreated={(created) => setEntryComponentId(created.id)}
       />
       <PublishComponentDialog component={publishTarget} onClose={() => setPublishTarget(null)} />
