@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, BookOpen, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -50,7 +50,36 @@ export default function LearningPackageListPage() {
     syllabus_id: syllabusId || undefined,
     status:      statusFilter || undefined,
   })
-  const packages = data?.items ?? []
+  const allPackages = data?.items ?? []
+
+  // Unit-scoped mode: when a unit_number is in the URL, this page resolves to
+  // THAT unit's package only. Each syllabus unit owns an independent Learning
+  // Package, so we must never fall back to another unit's (e.g. Unit 1's).
+  const targetUnit = unitNumber ? Number(unitNumber) : null
+  const packages = targetUnit != null
+    ? allPackages.filter((p) => p.unit_number === targetUnit)
+    : allPackages
+
+  // The live package for the selected unit: the newest non-OUTDATED row (a
+  // version bump supersedes the old one). null when the unit has none yet.
+  const currentForUnit = targetUnit != null
+    ? [...packages]
+        .filter((p) => p.status !== 'OUTDATED')
+        .sort((a, b) => b.version - a.version)[0] ?? null
+    : null
+
+  // Selecting a unit opens that unit's package directly. replace:true so Back
+  // returns to the syllabus / course kit, not to this resolver page.
+  const currentForUnitId = currentForUnit?.id ?? null
+  useEffect(() => {
+    if (targetUnit != null && !isLoading && currentForUnitId) {
+      navigate(`/learning-packages/${currentForUnitId}`, { replace: true })
+    }
+  }, [targetUnit, isLoading, currentForUnitId, navigate])
+
+  // While the redirect above is in flight, keep the loading view so the full
+  // list never flashes before we jump to the resolved unit package.
+  const redirecting = targetUnit != null && currentForUnit != null
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -106,7 +135,7 @@ export default function LearningPackageListPage() {
       )}
 
       {/* ── List ── */}
-      {isLoading ? (
+      {isLoading || redirecting ? (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white">
           {[1, 2, 3].map((n) => <SkeletonRow key={n} />)}
         </div>

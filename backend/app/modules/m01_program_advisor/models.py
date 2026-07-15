@@ -146,6 +146,19 @@ def is_teaching_subject(course_type: str | None) -> bool:
     return not is_execution_document(course_type)
 
 
+def has_lab_component(course_type: str | None, hours_practical: int | None) -> bool:
+    """Does this subject carry a laboratory component?
+
+    True for a LAB subject, and for a combined theory+lab course that carries
+    practical (P) hours in its L-T-P even though its primary type is THEORY. This
+    is a curriculum fact about the course, so it lives beside the other course-type
+    predicates rather than being re-derived at each UI call site.
+    """
+    if (course_type or "").upper() == CourseType.LAB.value:
+        return True
+    return (hours_practical or 0) > 0
+
+
 class ElectiveSlotStatus(str, enum.Enum):
     """An elective slot's own lifecycle, independent of its program's.
 

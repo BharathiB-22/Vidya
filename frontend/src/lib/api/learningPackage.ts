@@ -114,11 +114,14 @@ export async function uploadFacultyNote(
   const form = new FormData()
   form.append('file', payload.file, payload.file.name)
   if (payload.title) form.append('title', payload.title)
-  // Do NOT set Content-Type manually — axios/the browser must compute the
-  // multipart boundary itself. A hardcoded 'multipart/form-data' header has
-  // no boundary parameter, so the server can't parse the body and the
-  // upload fails.
-  const { data } = await api.post<PackageItem>(`${BASE}/${packageId}/notes`, form)
+  // Override the axios instance default 'Content-Type: application/json'.
+  // Without this, axios 1.x sees a JSON content-type on a FormData body and
+  // JSON-serializes it (dropping the File), so the multipart upload never
+  // actually sends the file. Setting 'multipart/form-data' keeps the FormData
+  // intact; the browser then replaces it with the real boundary at send time.
+  const { data } = await api.post<PackageItem>(`${BASE}/${packageId}/notes`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
   return data
 }
 

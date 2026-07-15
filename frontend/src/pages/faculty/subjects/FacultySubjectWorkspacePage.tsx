@@ -99,7 +99,12 @@ export default function FacultySubjectWorkspacePage() {
     departmentName: courseEntry?.department_name ?? null,
     facultyName: facultyProfile?.full_name ?? null,
     sectionsHandled,
+    // Authoritative, always-present course metadata (computed server-side).
+    // No syllabus dependency — a lab subject shows Labs even before its manual exists.
+    hasLabComponent: assignment.course?.has_lab_component ?? false,
   }
+
+  const visibleTabs = FACULTY_SUBJECT_TABS.filter((tab) => !tab.isVisible || tab.isVisible(ctx))
 
   return (
     <PageShell>
@@ -127,7 +132,7 @@ export default function FacultySubjectWorkspacePage() {
 
           <div className="overflow-x-auto pb-1">
             <TabsList className="w-max">
-              {FACULTY_SUBJECT_TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <TabsTrigger key={tab.key} value={tab.key} className="gap-1.5">
                   <tab.icon className="h-3.5 w-3.5" />
                   {tab.label}
@@ -137,7 +142,7 @@ export default function FacultySubjectWorkspacePage() {
           </div>
         </div>
 
-        {FACULTY_SUBJECT_TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <TabsContent key={tab.key} value={tab.key}>
             <tab.Component ctx={ctx} onNavigateTab={setActiveTab} />
           </TabsContent>

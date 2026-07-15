@@ -6,6 +6,11 @@ export interface CourseInfo {
   id: string
   code: string
   title: string
+  /** Raw curriculum type (THEORY, LAB, …); null on legacy courses. */
+  course_type?: string | null
+  /** Derived server-side: LAB, or a theory course carrying practical hours.
+   * Drives lab-only UI visibility (Labs nav item + workspace Labs tab). */
+  has_lab_component: boolean
 }
 
 export interface SemesterInfo {

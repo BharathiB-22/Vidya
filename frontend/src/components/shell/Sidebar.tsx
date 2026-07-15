@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BookOpen, FlaskConical, Microscope,
@@ -14,6 +15,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 import { useWorkspace } from '@/lib/workspace'
+import { assignmentsApi } from '@/lib/api/assignments'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 type LucideIconType = typeof LayoutDashboard
@@ -35,6 +37,10 @@ interface NavItem {
   allRoles?: string[]     // AND (grant-overlay only): effective role set must also contain all of these
   excludeRoles?: string[] // NOT: hidden if the effective role set contains any of these
   exact?: boolean
+  // Data-driven gate: show only when the faculty is assigned at least one course
+  // with a lab component. Computed once from the faculty's own assignment list
+  // (see facultyHasLab below) — a pure visibility rule, no permission change.
+  requiresLabAssignment?: boolean
 }
 
 interface NavSection {
@@ -63,7 +69,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Syllabuses',          to: '/syllabuses',                   icon: GraduationCap, roles: ['FACULTY'] },
       { label: 'Course Kits',         to: '/course-kits',                  icon: Presentation,  roles: ['FACULTY'] },
       { label: 'Learning Materials',  to: '/learning-packages',            icon: Library,       roles: ['FACULTY'] },
-      { label: 'Labs',                to: '/labs',                         icon: FlaskConical,  roles: ['FACULTY'] },
+      { label: 'Labs',                to: '/labs',                         icon: FlaskConical,  roles: ['FACULTY'], requiresLabAssignment: true },
       { label: 'Assignments',         to: '/faculty/assignments',          icon: FileText,      roles: ['FACULTY'] },
       { label: 'Attendance',          to: '/sis/attendance',               icon: CalendarCheck, roles: ['FACULTY'] },
       { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
@@ -438,6 +444,24 @@ export function Sidebar({ onClose }: SidebarProps) {
   // grant stays inside one workspace's navigation at a time instead of seeing
   // the union of every held role, and can explicitly switch to the other.
   const { activeWorkspace } = useWorkspace()
+
+  // Faculty lab visibility, resolved once here. Same query key as the Faculty
+  // workspace uses, so React Query serves it from a single shared cache entry —
+  // no duplicate request. A faculty sees the Labs nav item only if at least one
+  // of their assigned courses carries a lab component (course.has_lab_component,
+  // computed server-side). Only fetched inside the FACULTY workspace.
+  const { data: myAssignments, isLoading: assignmentsLoading } = useQuery({
+    queryKey: ['my-assignments'],
+    queryFn: () => assignmentsApi.listMine(),
+    enabled: activeWorkspace === 'FACULTY',
+    staleTime: 5 * 60 * 1000,
+  })
+  const facultyHasLab = (myAssignments?.items ?? []).some((a) => a.course?.has_lab_component)
+  // While the faculty assignment list is still resolving we don't yet know
+  // whether to show Labs. Hold the item's slot with a skeleton rather than
+  // hiding it (which would flash/jump once the answer arrives). Only true inside
+  // the FACULTY workspace, where the query is enabled — never for other roles.
+  const labGateLoading = activeWorkspace === 'FACULTY' && assignmentsLoading
   // Full effective role set (base role + active responsibility grants) —
   // used only for grant-overlay items (roles held ON TOP of the active
   // workspace, e.g. a FACULTY user who also evaluates) and for allRoles/
@@ -530,6 +554,9 @@ export function Sidebar({ onClose }: SidebarProps) {
             }
             if (item.allRoles && !item.allRoles.every((r) => roleSet.has(r))) return false
             if (item.excludeRoles && item.excludeRoles.some((r) => roleSet.has(r))) return false
+            // Keep the slot while loading (rendered as a skeleton below); hide only
+            // once we know the faculty has no lab assignment.
+            if (item.requiresLabAssignment && !facultyHasLab && !labGateLoading) return false
             return true
           })
           if (visibleItems.length === 0) return null
@@ -546,6 +573,18 @@ export function Sidebar({ onClose }: SidebarProps) {
               )}
               <ul className="space-y-0.5">
                 {visibleItems.map((item) => {
+                  // Lab-gated item, answer not in yet: reserve the row with a
+                  // skeleton so the sidebar never jumps and Labs never flashes.
+                  if (item.requiresLabAssignment && labGateLoading) {
+                    return (
+                      <li key={item.to + item.label} className="relative" aria-hidden="true">
+                        <div className="flex items-center gap-2.5 px-3 py-[9px]">
+                          <div className="h-[15px] w-[15px] flex-shrink-0 rounded bg-white/10 animate-pulse" />
+                          <div className="h-3 w-16 rounded bg-white/10 animate-pulse" />
+                        </div>
+                      </li>
+                    )
+                  }
                   const active = isActive(item.to, item.exact)
                   return (
                     <li key={item.to + item.label} className="relative">

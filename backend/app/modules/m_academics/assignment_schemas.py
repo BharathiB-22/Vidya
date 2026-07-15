@@ -34,6 +34,12 @@ class CourseInfo(BaseModel):
     id:    UUID
     code:  str
     title: str
+    # Curriculum metadata used by the client to gate lab-only UI (the Labs nav
+    # item and the subject-workspace Labs tab). course_type is the raw type;
+    # has_lab_component is the derived rule (LAB, or a theory course with
+    # practical hours). Both are read-only and grant no permissions.
+    course_type:       Optional[str] = None
+    has_lab_component: bool = False
 
     model_config = {"from_attributes": True}
 

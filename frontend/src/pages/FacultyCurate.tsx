@@ -28,6 +28,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { getErrorMessage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PackageStatusBadge } from '@/components/learningPackage/PackageStatusBadge'
@@ -401,15 +402,10 @@ function NoteUploadForm({
       await uploadMutation.mutateAsync({ file, title: title.trim() || undefined })
       onClose()
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: { message?: string } | string } } })
-        ?.response?.data?.detail
-      const msg =
-        typeof detail === 'object' && detail !== null
-          ? (detail as { message?: string }).message
-          : typeof detail === 'string'
-          ? detail
-          : null
-      setFormError(msg ?? 'Upload failed — please try again.')
+      // getErrorMessage surfaces the real backend error across every shape the
+      // API returns: custom {error,message}, FastAPI {detail:{message}}, and
+      // 422 Pydantic validation arrays — instead of a generic fallback.
+      setFormError(getErrorMessage(err))
     }
   }
 

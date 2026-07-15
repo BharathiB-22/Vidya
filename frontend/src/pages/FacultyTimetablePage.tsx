@@ -34,6 +34,7 @@ function ClassRow({ s }: { s: FacultyTimetableSlot }) {
           {s.course_code} — {s.course_title}
         </p>
         <p className="text-xs text-gray-400 truncate">
+          {s.program_name && `${s.program_name} · `}
           Sec {s.section_name} · {s.semester_name}
           {s.room && ` · Room ${s.room}`}
           {s.remarks && ` · ${s.remarks}`}

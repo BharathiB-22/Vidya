@@ -20,6 +20,7 @@ logger = logging.getLogger("vidya.academics.assignment")
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
+from app.modules.m01_program_advisor.models import has_lab_component
 from app.modules.m_academics.assignment_repository import SubjectAssignmentRepository
 from app.modules.m_academics.curriculum_scope import (
     draft_paper_name_for_course,
@@ -89,13 +90,18 @@ async def _notify_safe(
 async def _fetch_course(course_id: UUID, db: AsyncSession) -> CourseInfo:
     row = (
         await db.execute(
-            text("SELECT id, code, title FROM courses WHERE id = :id"),
+            text("SELECT id, code, title, course_type, hours_practical "
+                 "FROM courses WHERE id = :id"),
             {"id": str(course_id)},
         )
     ).mappings().one_or_none()
     if row is None:
         raise AssignmentServiceError("COURSE_NOT_FOUND", "Course not found.", 404)
-    return CourseInfo(id=row["id"], code=row["code"], title=row["title"])
+    return CourseInfo(
+        id=row["id"], code=row["code"], title=row["title"],
+        course_type=row["course_type"],
+        has_lab_component=has_lab_component(row["course_type"], row["hours_practical"]),
+    )
 
 
 async def _fetch_section(section_id: UUID, db: AsyncSession) -> SectionInfo:
@@ -232,7 +238,8 @@ async def _enrich(
 
     courses_rows = (
         await db.execute(
-            text("SELECT id::text, code, title FROM courses WHERE id = ANY(:ids)"),
+            text("SELECT id::text, code, title, course_type, hours_practical "
+                 "FROM courses WHERE id = ANY(:ids)"),
             {"ids": course_ids},
         )
     ).mappings().all()
@@ -283,7 +290,11 @@ async def _enrich(
                 revoked_at=a.revoked_at,
                 revoked_by_user_id=a.revoked_by_user_id,
                 course=CourseInfo(
-                    id=c_row["id"], code=c_row["code"], title=c_row["title"]
+                    id=c_row["id"], code=c_row["code"], title=c_row["title"],
+                    course_type=c_row["course_type"],
+                    has_lab_component=has_lab_component(
+                        c_row["course_type"], c_row["hours_practical"]
+                    ),
                 ) if c_row else None,
                 semester=SemesterInfo(
                     id=s_row["id"], number=s_row["number"], label=s_row["label"]

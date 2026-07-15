@@ -73,6 +73,7 @@ export interface TimetableSlot {
 export interface FacultyTimetableSlot extends TimetableSlot {
   section_name: string
   semester_name: string
+  program_name: string | null
 }
 
 export interface Timetable {

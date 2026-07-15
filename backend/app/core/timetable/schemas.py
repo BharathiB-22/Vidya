@@ -224,6 +224,7 @@ class StudentTimetableOut(BaseModel):
 class FacultyTimetableSlotOut(TimetableSlotOut):
     section_name: str | None = None
     semester_name: str | None = None
+    program_name: str | None = None
 
 
 class FacultyTimetableOut(BaseModel):

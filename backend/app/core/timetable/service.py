@@ -563,12 +563,15 @@ class TimetableService:
                    (c.is_elective OR c.elective_basket_id IS NOT NULL) AS is_elective,
                    sec.name AS section_name,
                    COALESCE(sem.label, 'Semester ' || sem.number) AS semester_name,
+                   ap.name AS program_name,
                    tp.start_time, tp.end_time, tp.label AS period_label
             FROM timetable_slots ts
             JOIN timetables tt ON tt.id = ts.timetable_id AND tt.status = 'PUBLISHED'
             JOIN courses c ON c.id = ts.course_id
             JOIN acad_sections sec ON sec.id = tt.section_id
             JOIN acad_semesters sem ON sem.id = tt.semester_id
+            LEFT JOIN acad_batches  ab ON ab.id = sem.batch_id
+            LEFT JOIN acad_programs ap ON ap.id = ab.program_id
             LEFT JOIN timetable_periods tp ON tp.template_id = tt.template_id AND tp.period_number = ts.period_number
             WHERE ts.faculty_user_id = :faculty_id
             ORDER BY ts.day_of_week, ts.period_number
@@ -581,6 +584,7 @@ class TimetableService:
                 remarks=r["remarks"], is_elective=bool(r["is_elective"]),
                 start_time=r["start_time"], end_time=r["end_time"], period_label=r["period_label"],
                 section_name=r["section_name"], semester_name=r["semester_name"],
+                program_name=r["program_name"],
             )
             for r in rows
         ]

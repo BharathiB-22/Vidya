@@ -13,6 +13,11 @@ export interface FacultySubjectContext {
   facultyName: string | null
   /** All section names this faculty teaches for this same course (usually one). */
   sectionsHandled: string[]
+  /** True when this subject carries a laboratory component — course_type LAB, or a
+   * combined theory+lab course with practical (P) hours. Drives whether the Labs
+   * tab renders. A visibility signal only; it grants no permissions. Derived from
+   * the course's syllabus metadata (see FacultySubjectWorkspacePage). */
+  hasLabComponent: boolean
 }
 
 export interface FacultySubjectTabProps {
