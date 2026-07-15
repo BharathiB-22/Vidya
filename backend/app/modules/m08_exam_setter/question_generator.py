@@ -353,7 +353,7 @@ def _normalise_question(q: dict, unit_number_fallback: int = 1) -> dict:
 
 async def _call_llm(prompt: str) -> tuple[str, str, str]:
     """
-    Call LLM with Gemini → Groq fallback.
+    Call LLM with Gemini → Groq → DeepSeek fallback.
     Returns (raw_text, model_name, prompt_hash).
     """
     from app.config import settings
@@ -379,22 +379,44 @@ async def _call_llm(prompt: str) -> tuple[str, str, str]:
         )
         return resp.choices[0].message.content
 
+    async def _try_deepseek() -> str:
+        # DeepSeek is OpenAI-compatible; reuse the existing config (key + model)
+        # via the OpenAI SDK — no new provider framework, no duplicated AI code.
+        from openai import OpenAI
+        client = OpenAI(api_key=settings.DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
+        resp   = client.chat.completions.create(
+            model=settings.DEEPSEEK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4096,
+            temperature=0.7,
+        )
+        return resp.choices[0].message.content
+
     if provider == "gemini":
-        text = await _try_gemini()
-        return text, settings.GEMINI_MODEL, prompt_hash
-
+        return await _try_gemini(), settings.GEMINI_MODEL, prompt_hash
     if provider == "groq":
-        text = await _try_groq()
-        return text, settings.GROQ_MODEL, prompt_hash
+        return await _try_groq(), settings.GROQ_MODEL, prompt_hash
+    if provider == "deepseek":
+        return await _try_deepseek(), settings.DEEPSEEK_MODEL, prompt_hash
 
-    # fallback: Gemini first, then Groq
-    try:
-        text = await _try_gemini()
-        return text, settings.GEMINI_MODEL, prompt_hash
-    except Exception as gem_exc:
-        logger.warning("Gemini failed (%s), falling back to Groq.", gem_exc)
-        text = await _try_groq()
-        return text, settings.GROQ_MODEL, prompt_hash
+    # Automatic fallback chain: Gemini → Groq → DeepSeek. DeepSeek only joins
+    # when it is enabled and keyed (config already present). Mock remains the
+    # ultimate fallback in generate_questions() if the whole chain fails.
+    chain = [
+        ("gemini", _try_gemini, settings.GEMINI_MODEL),
+        ("groq",   _try_groq,   settings.GROQ_MODEL),
+    ]
+    if settings.AI_DEEPSEEK_ENABLED and settings.DEEPSEEK_API_KEY.strip():
+        chain.append(("deepseek", _try_deepseek, settings.DEEPSEEK_MODEL))
+
+    last_exc: Exception | None = None
+    for name, fn, model_name in chain:
+        try:
+            return await fn(), model_name, prompt_hash
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Provider %s failed (%s); trying next.", name, exc)
+    raise last_exc or RuntimeError("All LLM providers failed")
 
 
 def _mock_questions(
@@ -577,7 +599,11 @@ async def generate_questions(
     """
     from app.config import settings
 
-    no_keys = (not settings.GEMINI_API_KEY.strip()) and (not settings.GROQ_API_KEY.strip())
+    no_keys = (
+        (not settings.GEMINI_API_KEY.strip())
+        and (not settings.GROQ_API_KEY.strip())
+        and not (settings.AI_DEEPSEEK_ENABLED and settings.DEEPSEEK_API_KEY.strip())
+    )
 
     if no_keys:
         logger.warning("No LLM API keys configured — using syllabus-aware fallback generation.")

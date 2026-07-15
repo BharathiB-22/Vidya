@@ -1,11 +1,14 @@
 // M08 Exam Setter — Faculty: create exam paper configuration form
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { FileText, Info, Loader2, ChevronLeft, AlertTriangle } from 'lucide-react'
+import { FileText, Info, Loader2, ChevronLeft, AlertTriangle, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createExamPaper } from '@/lib/api/exam'
 import { listPrograms, listCourses } from '@/lib/api/programs'
+import { listSyllabuses, getSyllabus } from '@/lib/api/syllabuses'
+import { assignmentsApi } from '@/lib/api/assignments'
+import { useWorkspace } from '@/lib/workspace'
 import { getErrorMessage } from '@/lib/api'
 import type {
   BloomsDistribution,
@@ -27,6 +30,14 @@ const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color:
 
 const EXAM_TYPES: ExamType[] = ['END_SEM', 'MID_SEM', 'QUIZ', 'INTERNAL', 'CUSTOM']
 
+// Institution-specific display labels for internal papers. Not hardcoded to one
+// standard — the faculty picks (or types a custom one). Display label only; it
+// maps to the paper title and changes no workflow logic.
+const ASSESSMENT_NAMES = [
+  'IA 1', 'IA 2', 'MSE 1', 'MSE 2',
+  'Internal Assessment 1', 'Internal Assessment 2', 'CIE 1', 'CIE 2', 'Custom',
+]
+
 const SECTION_MARKS_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20]
 
 const DEFAULT_DIST: BloomsDistribution = {
@@ -47,6 +58,11 @@ const DEFAULT_SECTIONS: SectionRow[] = [
 
 export default function ExamPaperCreatePage() {
   const navigate = useNavigate()
+  const { activeWorkspace } = useWorkspace()
+  // Faculty may only set papers for subjects assigned to them: their course
+  // dropdown comes from their own assignments, never the full programme catalog.
+  // Board/Admin (who own semester papers) keep the Program → Course cascade.
+  const isFacultyMode = activeWorkspace === 'FACULTY'
 
   const [programId,         setProgramId]         = useState('')
   const [semesterFilter,    setSemesterFilter]     = useState<number | ''>('')
@@ -62,9 +78,14 @@ export default function ExamPaperCreatePage() {
   const [specialInstructions, setSpecialInstructions] = useState('')
   const [useSectionLayout,  setUseSectionLayout]  = useState(false)
   const [sections,          setSections]          = useState<SectionRow[]>(DEFAULT_SECTIONS)
+  const [assessmentName,    setAssessmentName]    = useState('IA 1')
+  const [customAssessment,  setCustomAssessment]  = useState('')
+  const [selectedUnits,     setSelectedUnits]     = useState<number[]>([])
   const [error,             setError]             = useState<string | null>(null)
 
   const bloomSum = Object.values(dist).reduce((a, b) => a + b, 0)
+  const isInternal = examWorkflow === 'INTERNAL'
+  const assessmentLabel = assessmentName === 'Custom' ? customAssessment.trim() : assessmentName
 
   const isBoardMcqOnly =
     examWorkflow === 'BOARD_EXAM' &&
@@ -83,24 +104,80 @@ export default function ExamPaperCreatePage() {
   const { data: allCourses = [], isLoading: coursesLoading } = useQuery({
     queryKey: ['program-courses', programId],
     queryFn: () => listCourses(programId),
-    enabled: !!programId,
+    enabled: !!programId && !isFacultyMode,
     staleTime: 60_000,
   })
+
+  // Faculty: assigned subjects only (self-scoped by the backend).
+  const { data: myAssignments, isLoading: assignmentsLoading } = useQuery({
+    queryKey: ['my-assignments'],
+    queryFn: () => assignmentsApi.listMine(),
+    enabled: isFacultyMode,
+    staleTime: 5 * 60 * 1000,
+  })
+  const facultyCourses = useMemo(() => {
+    const seen = new Map<string, { id: string; code: string; title: string; semester: number | null }>()
+    for (const a of myAssignments?.items ?? []) {
+      if (!a.is_active || !a.course || seen.has(a.course_id)) continue
+      seen.set(a.course_id, { id: a.course_id, code: a.course.code, title: a.course.title, semester: a.semester?.number ?? null })
+    }
+    return [...seen.values()]
+  }, [myAssignments])
 
   const semesters = [...new Set(allCourses.map(c => c.semester))].sort((a, b) => a - b)
   const visibleCourses = semesterFilter === ''
     ? allCourses
     : allCourses.filter(c => c.semester === semesterFilter)
 
+  const selectedProgram = programs.find(p => p.id === programId)
+  // Unified selected-course info across both sources (faculty assignments vs
+  // programme catalog) so the preview and units work in either mode.
+  const selectedCourse = isFacultyMode
+    ? facultyCourses.find(c => c.id === courseId)
+    : allCourses.find(c => c.id === courseId)
+
+  // Load the course's official (LOCKED/APPROVED) syllabus so units can be picked
+  // by name — same source the generation worker reads. Falls back to the manual
+  // comma-separated input when no approved syllabus exists.
+  const { data: syllabusList } = useQuery({
+    queryKey: ['exam-course-syllabuses', courseId],
+    queryFn:  () => listSyllabuses({ course_id: courseId }),
+    enabled:  !!courseId,
+    staleTime: 60_000,
+  })
+  const officialSyllabus = useMemo(() => {
+    const items = (syllabusList?.items ?? []).filter(s => s.status === 'LOCKED' || s.status === 'APPROVED')
+    return [...items].sort((a, b) => b.version - a.version)[0] ?? null
+  }, [syllabusList])
+
+  const { data: syllabusDetail } = useQuery({
+    queryKey: ['exam-syllabus-detail', officialSyllabus?.id],
+    queryFn:  () => getSyllabus(officialSyllabus!.id),
+    enabled:  !!officialSyllabus,
+    staleTime: 60_000,
+  })
+  const syllabusUnits = syllabusDetail?.units ?? []
+  const useUnitCheckboxes = syllabusUnits.length > 0
+
+  const effectiveUnits = useUnitCheckboxes
+    ? [...selectedUnits].sort((a, b) => a - b)
+    : unitsRaw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0)
+
+  function toggleUnit(n: number) {
+    setSelectedUnits(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n])
+  }
+
   function handleProgramChange(pid: string) {
     setProgramId(pid)
     setSemesterFilter('')
     setCourseId('')
+    setSelectedUnits([])
   }
 
   function handleSemesterChange(val: string) {
     setSemesterFilter(val === '' ? '' : Number(val))
     setCourseId('')
+    setSelectedUnits([])
   }
 
   function updateSection(index: number, field: keyof SectionRow, value: number | boolean) {
@@ -130,13 +207,18 @@ export default function ExamPaperCreatePage() {
       return
     }
 
-    const units = unitsRaw
-      .split(',')
-      .map(s => parseInt(s.trim(), 10))
-      .filter(n => !isNaN(n) && n > 0)
+    // INTERNAL papers are identified by their institution label (Assessment Name);
+    // Board papers keep the free-text Title. Either way it maps to `title` — a
+    // display value only, no workflow change.
+    const effectiveTitle = isInternal ? assessmentLabel : title.trim()
+    if (!effectiveTitle) {
+      setError(isInternal ? 'Please choose or enter an Assessment Name.' : 'Please enter a title.')
+      return
+    }
 
+    const units = effectiveUnits
     if (units.length === 0) {
-      setError('At least one unit must be specified.')
+      setError(useUnitCheckboxes ? 'Select at least one unit.' : 'At least one unit must be specified.')
       return
     }
 
@@ -172,7 +254,7 @@ export default function ExamPaperCreatePage() {
 
     mutate({
       course_id:             courseId.trim(),
-      title:                 title.trim(),
+      title:                 effectiveTitle,
       exam_type:             examType,
       exam_workflow:         examWorkflow,
       total_marks:           totalMarks,
@@ -203,21 +285,72 @@ export default function ExamPaperCreatePage() {
         <section className="space-y-4">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Paper Details</h2>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Title *</label>
-            <input
-              required
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. End Semester Exam – Nov 2026"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            />
-          </div>
+          {isInternal ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Assessment Name *</label>
+              <select
+                value={assessmentName}
+                onChange={e => setAssessmentName(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+              >
+                {ASSESSMENT_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              {assessmentName === 'Custom' && (
+                <input
+                  value={customAssessment}
+                  onChange={e => setCustomAssessment(e.target.value)}
+                  placeholder="Custom assessment name (e.g. Surprise Test 1)"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              )}
+              <p className="text-xs text-gray-400">Display label only — it does not change the internal-assessment workflow.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Title *</label>
+              <input
+                required
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="e.g. End Semester Exam – Nov 2026"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+          )}
 
-          {/* Course selection — Program → Semester → Course */}
+          {/* Course selection — Faculty: assigned subjects only; Board/Admin: Program → Semester → Course */}
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
             <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Course Selection</p>
 
+          {isFacultyMode ? (
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-gray-700">Course *</label>
+              {assignmentsLoading ? (
+                <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading your subjects…
+                </div>
+              ) : facultyCourses.length === 0 ? (
+                <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                  You have no assigned subjects. Papers can only be set for subjects assigned to you.
+                </p>
+              ) : (
+                <select
+                  value={courseId}
+                  onChange={e => { setCourseId(e.target.value); setSelectedUnits([]) }}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                >
+                  <option value="">— Select an assigned subject —</option>
+                  {facultyCourses.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.title}{c.semester != null ? ` (Sem ${c.semester})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <p className="text-xs text-gray-400">Only subjects assigned to you appear here.</p>
+            </div>
+          ) : (
+            <>
             {/* Program */}
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Program *</label>
@@ -276,7 +409,7 @@ export default function ExamPaperCreatePage() {
                 ) : (
                   <select
                     value={courseId}
-                    onChange={e => setCourseId(e.target.value)}
+                    onChange={e => { setCourseId(e.target.value); setSelectedUnits([]) }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
                   >
                     <option value="">— Select a course —</option>
@@ -289,6 +422,8 @@ export default function ExamPaperCreatePage() {
                 )}
               </div>
             )}
+            </>
+          )}
           </div>
 
           <div className="space-y-2">
@@ -304,7 +439,7 @@ export default function ExamPaperCreatePage() {
             </select>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Total Marks *</label>
               <input
@@ -323,15 +458,45 @@ export default function ExamPaperCreatePage() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Units (comma-separated)</label>
-              <input
-                value={unitsRaw}
-                onChange={e => setUnitsRaw(e.target.value)}
-                placeholder="1,2,3"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
-            </div>
+          </div>
+
+          {/* Units — checkboxes from the course's approved syllabus (names visible);
+              falls back to manual entry when no approved syllabus exists. Backend
+              always receives unit numbers, unchanged. */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Units *</label>
+            {!courseId ? (
+              <p className="text-sm text-gray-400 bg-gray-50 rounded-lg px-3 py-2">Select a course to load its syllabus units.</p>
+            ) : useUnitCheckboxes ? (
+              <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                {syllabusUnits.map(u => (
+                  <label key={u.unit_number} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedUnits.includes(u.unit_number)}
+                      onChange={() => toggleUnit(u.unit_number)}
+                      className="accent-indigo-600 w-4 h-4"
+                    />
+                    <span className="text-sm text-gray-700">
+                      <span className="font-medium">Unit {u.unit_number}</span>
+                      {u.title ? ` — ${u.title}` : ''}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <>
+                <input
+                  value={unitsRaw}
+                  onChange={e => setUnitsRaw(e.target.value)}
+                  placeholder="1,2,3"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+                <p className="text-xs text-amber-600">
+                  No approved syllabus found for this course — enter unit numbers manually (comma-separated).
+                </p>
+              </>
+            )}
           </div>
         </section>
 
@@ -581,6 +746,26 @@ export default function ExamPaperCreatePage() {
           />
         </section>
 
+        {/* Generation preview — a read-only summary of what will be generated. */}
+        <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-indigo-800 uppercase tracking-wide">
+            <Eye className="w-4 h-4" /> Review before generating
+          </h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+            <PreviewRow label="Program"  value={isFacultyMode ? '—' : (selectedProgram?.title ?? '—')} />
+            <PreviewRow label="Semester" value={selectedCourse?.semester != null ? `Semester ${selectedCourse.semester}` : '—'} />
+            <PreviewRow label="Course"   value={selectedCourse ? `${selectedCourse.code} — ${selectedCourse.title}` : '—'} />
+            <PreviewRow label={isInternal ? 'Assessment Name' : 'Title'} value={(isInternal ? assessmentLabel : title.trim()) || '—'} />
+            <PreviewRow label="Exam Type" value={examType.replace('_', ' ')} />
+            <PreviewRow label="Workflow" value={isInternal ? 'Internal Assessment' : 'Board Exam'} />
+            <PreviewRow label="Total Marks" value={`${totalMarks}`} />
+            <PreviewRow label="Duration" value={`${durationMins} min`} />
+            <PreviewRow label="Selected Units" value={effectiveUnits.length ? effectiveUnits.join(', ') : '—'} />
+            <PreviewRow label="Bloom's Distribution" value={BLOOM_LEVELS.map(b => `${b.label} ${dist[b.key]}%`).join(' · ')} />
+            <PreviewRow label="Question Pattern" value={`MCQ ${format.mcq_count} · Short ${format.short_count} · Long ${format.long_count} · Problem ${format.problem_count}`} />
+          </dl>
+        </section>
+
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600">
             {error}
@@ -604,6 +789,15 @@ export default function ExamPaperCreatePage() {
           </Button>
         </div>
       </form>
+    </div>
+  )
+}
+
+function PreviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <dt className="text-gray-500 min-w-[8rem] shrink-0">{label}</dt>
+      <dd className="text-gray-800 font-medium break-words">{value}</dd>
     </div>
   )
 }

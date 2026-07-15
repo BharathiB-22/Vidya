@@ -73,6 +73,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Assignments',         to: '/faculty/assignments',          icon: FileText,      roles: ['FACULTY'] },
       { label: 'Attendance',          to: '/sis/attendance',               icon: CalendarCheck, roles: ['FACULTY'] },
       { label: 'Internal Marks',      to: '/sis/marks/setup',              icon: BookMarked,    roles: ['FACULTY'] },
+      { label: 'Question Papers',     to: '/exams',                        icon: ClipboardList, roles: ['FACULTY'] },
       { label: 'My Timetable',        to: '/faculty/timetable',            icon: CalendarClock, roles: ['FACULTY'] },
       { label: 'Elective Students',   to: '/faculty/elective-students',    icon: ListChecks,    roles: ['FACULTY'] },
     ],
@@ -271,6 +272,7 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Examination',
     items: [
       { label: 'Exam Paper Review', to: '/exams/board/pending',        icon: ClipboardCheck, roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'Question Papers',   to: '/exams',                       icon: FileText,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Answer Scripts',    to: '/scripts',                     icon: ClipboardList,  roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Script Evaluation', to: '/scripts/board',               icon: FileText,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
       { label: 'Mark Sheet',        to: '/scripts/ledger',              icon: BookLock,       roles: ['BOARD'], grantOverlay: true, excludeRoles: ['DEAN'] },
