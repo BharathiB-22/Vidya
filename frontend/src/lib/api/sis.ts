@@ -1564,10 +1564,30 @@ export interface SubjectFacultyInfo {
   photo_url: string | null
 }
 
+export interface SubjectUnitTopicOut {
+  title: string
+  description: string | null
+  hours_estimate: number | null
+}
+
 export interface SyllabusUnitOut {
   unit_number: number
   title: string
   hours: number | null
+  content: string | null
+  topics: SubjectUnitTopicOut[]
+  pedagogy: string | null
+}
+
+export interface SubjectSyllabusReferenceOut {
+  title: string
+  authors: string[]
+  year: number | null
+  ref_type: string
+  publisher: string | null
+  doi: string | null
+  isbn: string | null
+  url: string | null
 }
 
 export interface SubjectCourseOutcomeOut {
@@ -1595,7 +1615,13 @@ export interface SubjectDetailOut {
   syllabus_id: string | null
   syllabus_version: number | null
   syllabus_status: string | null
+  syllabus_teaching_hours: number | null
+  syllabus_hours_per_week: number | null
+  objectives: string[]
+  practical_components: string[]
+  internal_assessment: string[]
   units: SyllabusUnitOut[]
+  references: SubjectSyllabusReferenceOut[]
   course_outcomes: SubjectCourseOutcomeOut[]
   internal_marks: StudentCourseMarks | null
 }

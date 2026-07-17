@@ -44,10 +44,36 @@ class SubjectFacultyInfo(BaseModel):
     photo_url: Optional[str] = None
 
 
+class SubjectUnitTopicOut(BaseModel):
+    """One entry of SyllabusUnit.topics — the structured breakdown under the
+    unit's printed prose."""
+    title: str
+    description: Optional[str] = None
+    hours_estimate: Optional[int] = None
+
+
 class SyllabusUnitOut(BaseModel):
     unit_number: int
     title: str
     hours: Optional[int] = None
+    # The unit's official prose block — what prints in the regulation.
+    content: Optional[str] = None
+    topics: list[SubjectUnitTopicOut] = []
+    pedagogy: Optional[str] = None
+
+
+class SubjectSyllabusReferenceOut(BaseModel):
+    """A bibliography entry. `ref_type` drives which printed section the student
+    sees it under (Text Books / Reference Books / Suggested Reading / Web
+    Resources) — the same buckets m02.formatting.BIBLIOGRAPHY_SECTIONS uses."""
+    title: str
+    authors: list[str] = []
+    year: Optional[int] = None
+    ref_type: str
+    publisher: Optional[str] = None
+    doi: Optional[str] = None
+    isbn: Optional[str] = None
+    url: Optional[str] = None
 
 
 class SubjectCourseOutcomeOut(BaseModel):
@@ -75,6 +101,12 @@ class SubjectDetailOut(BaseModel):
     syllabus_id: Optional[UUID] = None
     syllabus_version: Optional[int] = None
     syllabus_status: Optional[str] = None
+    syllabus_teaching_hours: Optional[int] = None
+    syllabus_hours_per_week: Optional[int] = None
+    objectives: list[str] = []
+    practical_components: list[str] = []
+    internal_assessment: list[str] = []
     units: list[SyllabusUnitOut] = []
+    references: list[SubjectSyllabusReferenceOut] = []
     course_outcomes: list[SubjectCourseOutcomeOut] = []
     internal_marks: Optional[StudentCourseMarks] = None

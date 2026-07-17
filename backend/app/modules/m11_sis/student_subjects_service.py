@@ -27,6 +27,8 @@ from app.modules.m11_sis.student_subjects_schemas import (
     SubjectCourseOutcomeOut,
     SubjectDetailOut,
     SubjectFacultyInfo,
+    SubjectSyllabusReferenceOut,
+    SubjectUnitTopicOut,
     SyllabusUnitOut,
 )
 from app.modules.m02_syllabus.models import Syllabus, SyllabusStatus
@@ -60,6 +62,28 @@ async def _faculty_lookup(
             "photo_url": profile.photo_url if profile else None,
         }
     return out
+
+
+def _unit_topics(raw: object) -> list[SubjectUnitTopicOut]:
+    """SyllabusUnit.topics is free JSONB written by the generator and edited by
+    the Board, so it is read defensively: an entry without a title is not a topic,
+    and one stray row must not 500 a student's syllabus page."""
+    if not isinstance(raw, list):
+        return []
+    topics: list[SubjectUnitTopicOut] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+        hours = item.get("hours_estimate")
+        topics.append(SubjectUnitTopicOut(
+            title=title,
+            description=(item.get("description") or None),
+            hours_estimate=hours if isinstance(hours, int) else None,
+        ))
+    return topics
 
 
 class StudentSubjectsService:
@@ -147,22 +171,56 @@ class StudentSubjectsService:
                 Syllabus.course_id == course_id,
                 Syllabus.status.in_([SyllabusStatus.APPROVED, SyllabusStatus.LOCKED]),
             )
-            .options(selectinload(Syllabus.units), selectinload(Syllabus.outcomes))
+            .options(
+                selectinload(Syllabus.units),
+                selectinload(Syllabus.outcomes),
+                selectinload(Syllabus.references),
+            )
             .order_by(Syllabus.version.desc())
             .limit(1)
         )
         syllabus = syllabus_result.scalars().first()
 
         units: list[SyllabusUnitOut] = []
+        references: list[SubjectSyllabusReferenceOut] = []
         course_outcomes: list[SubjectCourseOutcomeOut] = []
+        objectives: list[str] = []
+        practical_components: list[str] = []
+        internal_assessment: list[str] = []
         syllabus_id = syllabus_version = syllabus_status = None
+        syllabus_teaching_hours = syllabus_hours_per_week = None
         if syllabus is not None:
             syllabus_id = syllabus.id
             syllabus_version = syllabus.version
             syllabus_status = syllabus.status.value
+            syllabus_teaching_hours = syllabus.teaching_hours
+            syllabus_hours_per_week = syllabus.hours_per_week
+            objectives = [str(o) for o in (syllabus.objectives or [])]
+            practical_components = [str(p) for p in (syllabus.practical_components or [])]
+            internal_assessment = [str(i) for i in (syllabus.internal_assessment or [])]
             units = [
-                SyllabusUnitOut(unit_number=u.unit_number, title=u.title, hours=u.total_hours)
+                SyllabusUnitOut(
+                    unit_number=u.unit_number,
+                    title=u.title,
+                    hours=u.total_hours,
+                    content=u.content,
+                    topics=_unit_topics(u.topics),
+                    pedagogy=u.pedagogy,
+                )
                 for u in sorted(syllabus.units, key=lambda u: u.unit_number)
+            ]
+            references = [
+                SubjectSyllabusReferenceOut(
+                    title=ref.title,
+                    authors=[str(a) for a in (ref.authors or [])],
+                    year=ref.year,
+                    ref_type=ref.ref_type.value if ref.ref_type else "REFERENCE",
+                    publisher=ref.publisher,
+                    doi=ref.doi,
+                    isbn=ref.isbn,
+                    url=ref.url,
+                )
+                for ref in sorted(syllabus.references, key=lambda r: (r.year or 0), reverse=True)
             ]
             course_outcomes = [
                 SubjectCourseOutcomeOut(
@@ -196,7 +254,13 @@ class StudentSubjectsService:
             syllabus_id=syllabus_id,
             syllabus_version=syllabus_version,
             syllabus_status=syllabus_status,
+            syllabus_teaching_hours=syllabus_teaching_hours,
+            syllabus_hours_per_week=syllabus_hours_per_week,
+            objectives=objectives,
+            practical_components=practical_components,
+            internal_assessment=internal_assessment,
             units=units,
+            references=references,
             course_outcomes=course_outcomes,
             internal_marks=internal_marks,
         )
