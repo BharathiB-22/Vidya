@@ -43,9 +43,13 @@ export async function uploadMyAvatar(file: File): Promise<string | null> {
   assertValidAvatar(file)
   const form = new FormData()
   form.append('file', file, file.name)
-  // Do NOT set Content-Type manually — the browser must compute the multipart
-  // boundary itself, or the server cannot parse the body.
-  const { data } = await api.post('/auth/me/avatar', form)
+  // The api instance defaults Content-Type to application/json. For multipart we
+  // must clear that so the browser sets multipart/form-data with its boundary —
+  // otherwise the body is unparseable and FastAPI reports the `file` field
+  // missing (422). undefined removes the header without overriding the boundary.
+  const { data } = await api.post('/auth/me/avatar', form, {
+    headers: { 'Content-Type': undefined },
+  })
   return data.avatar_url ?? null
 }
 
@@ -58,7 +62,10 @@ export async function uploadPlatformAvatar(file: File): Promise<string | null> {
   assertValidAvatar(file)
   const form = new FormData()
   form.append('file', file, file.name)
-  const { data } = await adminApi.post('/platform/auth/me/avatar', form)
+  // adminApi carries the same application/json default — clear it for multipart.
+  const { data } = await adminApi.post('/platform/auth/me/avatar', form, {
+    headers: { 'Content-Type': undefined },
+  })
   return data.avatar_url ?? null
 }
 
