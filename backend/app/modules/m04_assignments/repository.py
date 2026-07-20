@@ -22,6 +22,11 @@ from app.modules.m04_assignments.models import (
     SubmissionStatus,
 )
 
+# How coursework identifies itself to the M09.6 assignment engine, whose target is
+# polymorphic (scanned_script, revaluation_request, …). One student submission is
+# one unit of evaluation work.
+COURSEWORK_TARGET_ENTITY = "assignment_submission"
+
 
 class AssignmentRepository:
 
@@ -41,6 +46,9 @@ class AssignmentRepository:
         late_penalty_percent: float | None = None,
         max_attempts: int = 1,
         allowed_file_types: list[str] | None = None,
+        evaluator_user_ids: list[UUID] | None = None,
+        questions: list[dict] | None = None,
+        question_paper_url: str | None = None,
         db: AsyncSession,
     ) -> Assignment:
         obj = Assignment(
@@ -57,6 +65,10 @@ class AssignmentRepository:
             late_penalty_percent=late_penalty_percent,
             max_attempts=max_attempts,
             allowed_file_types=allowed_file_types or [],
+            # JSONB holds no UUID type of its own — store the canonical string form.
+            evaluator_user_ids=[str(e) for e in (evaluator_user_ids or [])],
+            questions=questions or [],
+            question_paper_url=question_paper_url,
             status=AssignmentStatus.DRAFT,
         )
         db.add(obj)
@@ -131,6 +143,87 @@ class AssignmentRepository:
             return None
         obj.status = AssignmentStatus.CLOSED
         obj.closed_at = datetime.utcnow()
+        await db.flush()
+        await db.refresh(obj)
+        return obj
+
+    @staticmethod
+    async def active_evaluator_for_submission(
+        submission_id: UUID, *, db: AsyncSession
+    ) -> UUID | None:
+        """Who the M09.6 assignment engine currently has evaluating this submission.
+
+        Evaluator allocation is not duplicated into m04 — that engine is the one
+        ledger for evaluation work, so this reads it. Returns None when nothing is
+        allocated yet. Reassignment leaves the superseded row in a non-active
+        status, so at most one row can match.
+        """
+        from app.modules.m09_paper_admin.assignment_models import (
+            ACTIVE_STATUSES,
+            EvaluationAssignment,
+        )
+        result = await db.execute(
+            select(EvaluationAssignment.evaluator_id).where(
+                EvaluationAssignment.target_entity == COURSEWORK_TARGET_ENTITY,
+                EvaluationAssignment.target_id == submission_id,
+                EvaluationAssignment.status.in_(ACTIVE_STATUSES),
+            )
+        )
+        return result.scalars().first()
+
+    @staticmethod
+    async def evaluator_for_student(
+        assignment_id: UUID, student_user_id: UUID, *, db: AsyncSession
+    ) -> UUID | None:
+        """Who is already evaluating this student's work on this assignment.
+
+        A re-attempt is a new submission and so a new unit of work, but it is the
+        same student's answer to the same question — it belongs with whoever read
+        the first one, not with whoever the rota happens to point at now. Reads the
+        M09.6 ledger; m04 keeps no copy.
+        """
+        from app.modules.m09_paper_admin.assignment_models import EvaluationAssignment
+
+        result = await db.execute(
+            select(EvaluationAssignment.evaluator_id)
+            .join(
+                AssignmentSubmission,
+                AssignmentSubmission.id == EvaluationAssignment.target_id,
+            )
+            .where(
+                EvaluationAssignment.target_entity == COURSEWORK_TARGET_ENTITY,
+                AssignmentSubmission.assignment_id == assignment_id,
+                AssignmentSubmission.student_user_id == student_user_id,
+            )
+            .order_by(EvaluationAssignment.assigned_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    @staticmethod
+    async def submit_for_evaluation(
+        assignment_id: UUID, *, actor_user_id: UUID, db: AsyncSession
+    ) -> Assignment | None:
+        obj = await AssignmentRepository.get_by_id(assignment_id, db=db)
+        if obj is None:
+            return None
+        obj.status = AssignmentStatus.SUBMITTED
+        obj.submitted_at = datetime.utcnow()
+        obj.submitted_by_user_id = actor_user_id
+        await db.flush()
+        await db.refresh(obj)
+        return obj
+
+    @staticmethod
+    async def finalize(
+        assignment_id: UUID, *, actor_user_id: UUID, db: AsyncSession
+    ) -> Assignment | None:
+        obj = await AssignmentRepository.get_by_id(assignment_id, db=db)
+        if obj is None:
+            return None
+        obj.status = AssignmentStatus.FINALIZED
+        obj.finalized_at = datetime.utcnow()
+        obj.finalized_by_user_id = actor_user_id
         await db.flush()
         await db.refresh(obj)
         return obj
@@ -222,6 +315,22 @@ class SubmissionRepository:
         return result.scalar_one()
 
     @staticmethod
+    async def count_distinct_students(
+        assignment_id: UUID, *, db: AsyncSession
+    ) -> int:
+        """How many students have submitted anything at all.
+
+        This is a student's position in the evaluator rota. It counts STUDENTS,
+        not submissions, so a re-attempt cannot shift the rota by one — and a
+        re-attempt does not consult it anyway (see `evaluator_for_student`).
+        """
+        result = await db.execute(
+            select(func.count(func.distinct(AssignmentSubmission.student_user_id)))
+            .where(AssignmentSubmission.assignment_id == assignment_id)
+        )
+        return result.scalar_one()
+
+    @staticmethod
     async def list_for_assignment(
         assignment_id: UUID, *, db: AsyncSession, offset: int = 0, limit: int = 100
     ) -> tuple[list[AssignmentSubmission], int]:
@@ -231,6 +340,46 @@ class SubmissionRepository:
         list_q = (
             select(AssignmentSubmission)
             .where(AssignmentSubmission.assignment_id == assignment_id)
+            .order_by(AssignmentSubmission.submitted_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        total = (await db.execute(count_q)).scalar_one()
+        items = (await db.execute(list_q)).scalars().all()
+        return list(items), total
+
+    @staticmethod
+    async def list_allocated_to(
+        assignment_id: UUID,
+        evaluator_id: UUID,
+        *,
+        db: AsyncSession,
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[AssignmentSubmission], int]:
+        """This assignment's submissions that are allocated to one evaluator.
+
+        Scopes an evaluator to the work actually handed to them. Reads the M09.6
+        ledger rather than any copy of it.
+        """
+        from app.modules.m09_paper_admin.assignment_models import (
+            ACTIVE_STATUSES,
+            EvaluationAssignment,
+        )
+
+        allocated = select(EvaluationAssignment.target_id).where(
+            EvaluationAssignment.target_entity == COURSEWORK_TARGET_ENTITY,
+            EvaluationAssignment.evaluator_id == evaluator_id,
+            EvaluationAssignment.status.in_(ACTIVE_STATUSES),
+        )
+        where = (
+            AssignmentSubmission.assignment_id == assignment_id,
+            AssignmentSubmission.id.in_(allocated),
+        )
+        count_q = select(func.count()).select_from(AssignmentSubmission).where(*where)
+        list_q = (
+            select(AssignmentSubmission)
+            .where(*where)
             .order_by(AssignmentSubmission.submitted_at.desc())
             .offset(offset)
             .limit(limit)
@@ -298,6 +447,19 @@ class SubmissionRepository:
         await db.flush()
         await db.refresh(obj)
         return obj
+
+    @staticmethod
+    async def count_ungraded(assignment_id: UUID, *, db: AsyncSession) -> int:
+        """Submissions still carrying no mark. Guards mark finalization."""
+        result = await db.execute(
+            select(func.count())
+            .select_from(AssignmentSubmission)
+            .where(
+                AssignmentSubmission.assignment_id == assignment_id,
+                AssignmentSubmission.marks_obtained.is_(None),
+            )
+        )
+        return int(result.scalar() or 0)
 
     @staticmethod
     async def statistics(assignment_id: UUID, *, db: AsyncSession) -> dict:

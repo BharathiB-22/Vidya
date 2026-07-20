@@ -1,5 +1,6 @@
 import api from '@/lib/api'
 import type {
+  AssignEvaluatorPayload,
   CourseworkAssignment,
   CourseworkAssignmentCreate,
   CourseworkAssignmentListResponse,
@@ -9,6 +10,8 @@ import type {
   CourseworkSubmission,
   CourseworkSubmissionListResponse,
   CourseworkSubmitPayload,
+  EligibleEvaluator,
+  MyCourseworkEvaluation,
 } from '@/types/coursework'
 
 const BASE = '/assignments'
@@ -48,6 +51,47 @@ export async function publishAssignment(id: string): Promise<CourseworkAssignmen
 
 export async function closeAssignment(id: string): Promise<CourseworkAssignment> {
   const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/close`)
+  return data
+}
+
+// ── Evaluation hand-off ─────────────────────────────────────────────────────
+// Faculty submits → Dept/Admin assigns an Evaluator per submission → Evaluator
+// evaluates → a human finalizes the marks.
+
+/** Faculty hands a CLOSED assignment to the department for evaluation. */
+export async function submitAssignmentForEvaluation(id: string): Promise<CourseworkAssignment> {
+  const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/submit`)
+  return data
+}
+
+/** Users holding the EVALUATOR responsibility (standalone role or FACULTY with
+ *  an active EVALUATOR grant). */
+export async function listEligibleEvaluators(): Promise<EligibleEvaluator[]> {
+  const { data } = await api.get<EligibleEvaluator[]>(`${BASE}/evaluators`)
+  return data
+}
+
+/** The coursework currently allocated to me. Reads the M09.6 ledger and resolves
+ *  its target ids back to the coursework they point at. */
+export async function listMyCourseworkEvaluations(): Promise<MyCourseworkEvaluation[]> {
+  const { data } = await api.get<MyCourseworkEvaluation[]>(`${BASE}/evaluator/my-work`)
+  return data
+}
+
+/** Dept/Admin allocates one submission to one evaluator. Recorded by the M09.6
+ *  assignment engine, which is the single ledger for evaluation work. */
+export async function assignEvaluator(
+  submissionId: string,
+  payload: AssignEvaluatorPayload,
+): Promise<{ allocation_id: string; evaluator_user_id: string }> {
+  const { data } = await api.post(`${BASE}/submissions/${submissionId}/evaluator`, payload)
+  return data
+}
+
+/** Ratify the evaluated marks. Every submission must be evaluated first, and
+ *  grading stops once this succeeds. */
+export async function finalizeAssignmentMarks(id: string): Promise<CourseworkAssignment> {
+  const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/finalize`)
   return data
 }
 
@@ -127,6 +171,27 @@ export async function getSubmissionFileUrl(
 ): Promise<{ url: string; expires_in_seconds: number }> {
   const { data } = await api.get<{ url: string; expires_in_seconds: number }>(
     `${BASE}/submissions/${submissionId}/file-url`
+  )
+  return data
+}
+
+/** Presigned download for the assignment's uploaded question paper (faculty /
+ *  allocated evaluator). */
+export async function getQuestionPaperUrl(
+  assignmentId: string
+): Promise<{ url: string; expires_in_seconds: number }> {
+  const { data } = await api.get<{ url: string; expires_in_seconds: number }>(
+    `${BASE}/${assignmentId}/question-paper-url`
+  )
+  return data
+}
+
+/** Presigned download for the assignment's question paper (student). */
+export async function studentGetQuestionPaperUrl(
+  assignmentId: string
+): Promise<{ url: string; expires_in_seconds: number }> {
+  const { data } = await api.get<{ url: string; expires_in_seconds: number }>(
+    `${BASE}/student/${assignmentId}/question-paper-url`
   )
   return data
 }

@@ -40,9 +40,21 @@ class AssignmentType(str, enum.Enum):
 
 
 class AssignmentStatus(str, enum.Enum):
+    """Lifecycle of one coursework assignment.
+
+        DRAFT      faculty is still writing it.
+        PUBLISHED  students can see it and submit.
+        CLOSED     the window has shut; no more student submissions.
+        SUBMITTED  faculty has handed it to the department for evaluation, which
+                   is what lets Admin/Dean allocate an Evaluator per submission.
+        FINALIZED  a human has ratified the marks. Terminal for grading.
+        ARCHIVED   filed away.
+    """
     DRAFT     = "DRAFT"
     PUBLISHED = "PUBLISHED"
     CLOSED    = "CLOSED"
+    SUBMITTED = "SUBMITTED"
+    FINALIZED = "FINALIZED"
     ARCHIVED  = "ARCHIVED"
 
 
@@ -92,6 +104,17 @@ class Assignment(Base):
     # this phase — no automatic sync into sis_marks_components/entries).
     weightage_percent    = Column(Numeric(5, 2), nullable=True)
 
+    # The actual questions the faculty set, in order. Each item is
+    # {question_number, question_text, marks, notes}. Empty [] = no structured
+    # questions (either the faculty uploaded a question paper instead, or this is
+    # an older metadata-only assignment). When non-empty, the marks sum to
+    # max_marks (enforced in the service). JSONB so the whole builder round-trips
+    # as one column without a child table.
+    questions            = Column(JSONB, nullable=False, server_default="[]")
+    # S3 object key of an uploaded question paper (.pdf/.docx), used as the
+    # fallback when the faculty did not enter structured questions. NULL = none.
+    question_paper_url   = Column(String, nullable=True)
+
     due_date             = Column(DateTime(timezone=True), nullable=True)
     allow_late           = Column(Boolean, nullable=False, default=True)
     late_penalty_percent = Column(Numeric(5, 2), nullable=True)
@@ -107,6 +130,24 @@ class Assignment(Base):
     )
     published_at         = Column(DateTime(timezone=True), nullable=True)
     closed_at            = Column(DateTime(timezone=True), nullable=True)
+
+    # The evaluator(s) the faculty nominated when creating the assignment. Each
+    # student submission becomes one work item against these, round-robin, through
+    # the M09.6 assignment engine — this column is the nomination, never a second
+    # allocation ledger. NULL/[] = nobody nominated, and the department allocates
+    # by hand exactly as before.
+    evaluator_user_ids     = Column(JSONB, nullable=True)
+
+    # Faculty hands the closed assignment to the department for evaluation.
+    submitted_at           = Column(DateTime(timezone=True), nullable=True)
+    submitted_by_user_id   = Column(UUID(as_uuid=True), nullable=True)
+
+    # The human ratification of the marks, recorded at the database level and not
+    # only in the UI: nothing computes or infers this, a person does it, and
+    # grading stops once it is set.
+    finalized_at           = Column(DateTime(timezone=True), nullable=True)
+    finalized_by_user_id   = Column(UUID(as_uuid=True), nullable=True)
+
     created_at           = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

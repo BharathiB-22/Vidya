@@ -5,8 +5,13 @@ import {
   Upload, FileText, X, Loader2, Lock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { AssignmentQuestionsView } from '@/components/coursework/AssignmentQuestionsView'
 import { useStudentAssignments, useMySubmissions, useStudentSubmit } from '@/hooks/coursework'
-import { requestSubmissionUploadUrl, uploadFileToPresignedUrl } from '@/lib/api/coursework'
+import {
+  requestSubmissionUploadUrl,
+  studentGetQuestionPaperUrl,
+  uploadFileToPresignedUrl,
+} from '@/lib/api/coursework'
 import { addToast } from '@/hooks/useToast'
 import type { CourseworkAssignment } from '@/types/coursework'
 
@@ -205,7 +210,7 @@ export default function StudentAssignmentSubmitPage() {
               {attempts.map((a) => (
                 <div key={a.id} className="px-4 py-2.5 flex items-center justify-between text-sm">
                   <span className="text-gray-600">Attempt {a.attempt_number}</span>
-                  <span className="text-gray-400">{new Date(a.submitted_at).toLocaleString()}</span>
+                  <span className="text-gray-600">{new Date(a.submitted_at).toLocaleString()}</span>
                   <span className="text-gray-800 font-medium">
                     {a.marks_obtained != null ? `${a.marks_obtained}/${assignment.max_marks}` : a.status}
                   </span>
@@ -245,12 +250,12 @@ export default function StudentAssignmentSubmitPage() {
           <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-purple-50 text-purple-700">
             {assignment.assignment_type}
           </span>
-          <span className="text-xs text-gray-400">{assignment.max_marks} marks</span>
+          <span className="text-xs text-gray-600">{assignment.max_marks} marks</span>
           {assignment.weightage_percent != null && (
-            <span className="text-xs text-gray-400">{assignment.weightage_percent}% weightage</span>
+            <span className="text-xs text-gray-600">{assignment.weightage_percent}% weightage</span>
           )}
           {maxAttempts > 1 && (
-            <span className="text-xs text-gray-400">Attempt {attempts.length + 1} of {maxAttempts}</span>
+            <span className="text-xs text-gray-600">Attempt {attempts.length + 1} of {maxAttempts}</span>
           )}
         </div>
       </div>
@@ -278,6 +283,12 @@ export default function StudentAssignmentSubmitPage() {
           </div>
         </div>
       )}
+
+      <AssignmentQuestionsView
+        questions={assignment.questions ?? []}
+        hasQuestionPaper={Boolean(assignment.question_paper_url)}
+        fetchQuestionPaperUrl={() => studentGetQuestionPaperUrl(assignmentId)}
+      />
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
@@ -312,7 +323,7 @@ export default function StudentAssignmentSubmitPage() {
               onChange={(e) => setContent(e.target.value)}
             />
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-400">{content.length} characters</p>
+              <p className="text-xs text-gray-600">{content.length} characters</p>
               <Button type="submit" disabled={!canSubmit}>
                 {submitting ? 'Submitting…' : 'Submit'}
               </Button>
@@ -331,9 +342,9 @@ export default function StudentAssignmentSubmitPage() {
                 htmlFor="submission-file"
                 className="flex flex-col items-center justify-center w-full h-36 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
               >
-                <Upload className="h-8 w-8 text-gray-300 mb-2" />
-                <p className="text-sm text-gray-400">Click to select file</p>
-                <p className="text-xs text-gray-300 mt-0.5">{allowedExtensions.join(' · ').toUpperCase()}</p>
+                <Upload className="h-8 w-8 text-gray-500 mb-2" />
+                <p className="text-sm text-gray-600">Click to select file</p>
+                <p className="text-xs text-gray-500 mt-0.5">{allowedExtensions.join(' · ').toUpperCase()}</p>
                 <input
                   id="submission-file"
                   ref={fileInputRef}
@@ -348,7 +359,7 @@ export default function StudentAssignmentSubmitPage() {
                 <FileText className="h-8 w-8 text-purple-400 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{selectedFile.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-600 mt-0.5">
                     {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
                   </p>
                   {isUploading && (
@@ -367,7 +378,7 @@ export default function StudentAssignmentSubmitPage() {
                   <button
                     type="button"
                     onClick={clearFile}
-                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                    className="p-1 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-600"
                     title="Remove file"
                   >
                     <X className="h-4 w-4" />
