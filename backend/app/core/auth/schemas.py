@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from typing import Optional
-from app.core.auth.models import TenantRole, OTPPurpose
+from app.core.auth.models import TenantRole
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 import httpx
 
@@ -167,7 +166,7 @@ async def _get_with_retry(
                 resp.raise_for_status()
                 return resp.json()
 
-        except httpx.TimeoutException as exc:
+        except httpx.TimeoutException:
             last_exc = ReferenceClientTimeout(
                 f"Timeout after {timeout}s reaching {url}"
             )

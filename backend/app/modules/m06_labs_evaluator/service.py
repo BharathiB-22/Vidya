@@ -11,9 +11,9 @@ Architecture contract:
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,6 +102,36 @@ def _validate_rubric_weights(rubric: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 # AssignmentService
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Ownership
+# ---------------------------------------------------------------------------
+# A lab belongs to the faculty who set it. Another faculty member is a peer, not
+# a supervisor, and has no business reading it or publishing it. The Dean owns
+# the department and Admin the institution, so both keep their full view.
+#
+# Evaluators do not come through here at all: they have their own /evaluator/*
+# endpoints, which are self-scoped to the work allocated to them.
+
+
+def _is_privileged(actor_role: str | None) -> bool:
+    return (actor_role or "").upper() in ("ADMIN", "DEAN")
+
+
+def assert_may_manage_lab(
+    assignment: Any, *, actor_user_id: UUID, actor_role: str | None
+) -> None:
+    """Only the faculty who set this lab may read or change it.
+
+    404, not 403: a faculty member has no way to know another's lab exists, and
+    saying "forbidden" would confirm that it does.
+    """
+    if _is_privileged(actor_role):
+        return
+    if getattr(assignment, "created_by_user_id", None) == actor_user_id:
+        return
+    raise LabServiceError("NOT_FOUND", "Assignment not found.", 404)
+
 
 class AssignmentService:
 
@@ -550,7 +580,7 @@ def _compute_overall_human_score(rubric_scores: list[dict], rubric_def: list[dic
         cid   = row.get("criterion_id", "")
         score = row.get("human_score") or row.get("ai_score") or 0
         weight = weight_map.get(cid, 0)
-        max_m  = float(next(
+        float(next(
             (c.get("max_marks", 0) for c in rubric_def if c.get("criterion_id") == cid), 0
         ))
         total += float(score) * weight

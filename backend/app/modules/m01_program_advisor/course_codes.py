@@ -15,7 +15,8 @@ WHERE THE PREFIX COMES FROM — and where it must never come from
 ---------------------------------------------------------------
 The prefix is `acad_programs.code`: the institution's OWN identifier for the
 programme, typed by the institution, unique per tenant, and reachable from any
-curriculum through `programs.acad_program_id`.
+curriculum through `programs.acad_program_id`. Whatever is in that field IS the
+prefix — BCA, BTECHCSE, BSCDS — used whole, never truncated, never rewritten.
 
 It is deliberately NOT derived from anything else, because everything else is a
 guess:
@@ -23,31 +24,45 @@ guess:
   - `programs.degree_type` is a LEVEL, not a code. A real MCA curriculum in this
     system carries degree_type "PG", which would yield PG101 — wrong, and wrong
     in a way that looks plausible enough to ship.
-  - the title ("Master of Computer Applications") is prose. Turning prose into an
-    identifier is exactly the guessing this module exists to stop.
+  - the name ("Bachelor of Computer Applications") is prose. Abbreviating prose
+    means maintaining a lexicon of every degree an institution might award, and
+    being wrong about the ones it does not contain — BE and BTECH are the same
+    two words apart, and no rule derives both.
   - the AI's own codes are worse still: a model asked for an MCA curriculum
     returns CS501, because it is naming the subject discipline — it cannot know
     what the institution calls its programmes, and nothing in the prompt could
     honestly tell it.
 
-So a curriculum with no `acad_program_id` has no code, and this module says so
-(ProgramCodePrefixError) rather than inventing one. AI generation refuses to
-start without the link; see ProgramService.generate_structure.
+So a curriculum whose programme has no code has no course codes either, and this
+module says so (ProgramCodePrefixError) rather than inventing one. The fix is a
+one-field edit in Academics → Programs; inventing a prefix would instead bake the
+guess into every course code, syllabus header and transcript. AI generation
+refuses to start without the link; see ProgramService.generate_structure.
 
 Nothing here assumes a particular semester. Semester 10 simply yields MCA1001 —
 the semester number is concatenated, not packed into a fixed width.
 """
 from __future__ import annotations
 
+import logging
 import re
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
 # A code is only ever generated into a gap or onto the end of the sequence, so a
 # program that already holds MCA301..MCA305 yields MCA306 next.
-_MAX_SEQ = 999
+#
+# 99, not 999. The whole point of the format is that the digit after the prefix IS
+# the semester — read MCA301 and you know it is a third-semester subject. A 100th
+# course in one semester would produce MCA1100, where the semester silently becomes
+# unreadable (is that semester 1 or 11?) and MCA120 could mean either semester 1
+# course 20 or semester 12 course 0. Refusing to mint the 100th code is the honest
+# failure; minting one that lies about its own semester is not.
+_MAX_SEQ = 99
 
 
 class ProgramCodePrefixError(Exception):
@@ -67,8 +82,10 @@ def normalise_prefix(code: str) -> str:
     letter or digit.
 
     Applied to `acad_programs.code` so an institution that types its own code with
-    a dot or a space still gets a usable identifier. It does NOT invent a prefix
-    from a degree type or a title — see the module docstring.
+    a dot or a space still gets a usable identifier: 'B.Sc DS' and 'BSCDS' are the
+    same prefix. Nothing is dropped and nothing is shortened — 'BTECHCSE' stays
+    'BTECHCSE'. It does NOT invent a prefix from a degree type or a name; see the
+    module docstring.
     """
     return re.sub(r"[^A-Za-z0-9]", "", code or "").upper()
 
@@ -92,8 +109,9 @@ def next_free_code(prefix: str, semester: int, taken: set[str]) -> str:
         if code not in taken:
             return code
     raise ValueError(
-        f"Exhausted course codes for {prefix} semester {semester} "
-        f"after {_MAX_SEQ} attempts."
+        f"Semester {semester} of {prefix} already holds {_MAX_SEQ} courses. "
+        f"A {_MAX_SEQ + 1}th would have to be numbered {prefix}{semester}{_MAX_SEQ + 1}, "
+        f"which no longer reads as semester {semester}."
     )
 
 
@@ -138,28 +156,46 @@ def assign_course_codes(
 
 
 async def resolve_program_prefix(program_id: UUID, *, db: AsyncSession) -> str:
-    """The institution's code for the programme this curriculum belongs to.
+    """The institution's code for the programme this curriculum belongs to — BCA,
+    MCA, BTECHCSE — used verbatim as the course prefix.
 
-    Raises ProgramCodePrefixError when the curriculum is not linked to an
-    `acad_programs` row. That is a real, reachable state — `acad_program_id` is
-    nullable and curricula predate the link — and it is the one case where
-    refusing to act is the correct behaviour.
+    Raises ProgramCodePrefixError in the two states where there is no code to use:
+    the curriculum is not linked to an `acad_programs` row (`acad_program_id` is
+    nullable, and curricula predate the link), or the linked programme's code is
+    blank. Both are real and reachable, and both are the one case where refusing
+    to act is the correct behaviour — the caller turns this into a 422 telling the
+    Dean which field to fill in.
     """
     row = (await db.execute(
         text(
-            "SELECT ap.code FROM programs p "
-            "JOIN acad_programs ap ON ap.id = p.acad_program_id "
+            "SELECT p.acad_program_id, ap.id AS ap_id, ap.name, ap.code "
+            "FROM programs p "
+            "LEFT JOIN acad_programs ap ON ap.id = p.acad_program_id "
             "WHERE p.id = :pid"
         ),
         {"pid": str(program_id)},
-    )).scalar_one_or_none()
+    )).first()
 
-    prefix = normalise_prefix(row or "")
+    prefix = normalise_prefix(row.code if row else "")
+
+    # Diagnostic: the whole chain in one line, so a wrong prefix can be traced to
+    # the row it came from without guessing which programme the curriculum is
+    # actually pointing at.
+    logger.info(
+        "m01.prefix: curriculum=%s acad_program_id=%s acad_program=%r code=%r -> prefix=%r",
+        program_id,
+        row.acad_program_id if row else None,
+        row.name if row else None,
+        row.code if row else None,
+        prefix,
+    )
+
     if not prefix:
         raise ProgramCodePrefixError(
-            "This curriculum is not linked to an academic programme, so its courses "
-            "have no institutional code to be numbered under. Set the programme "
-            "(e.g. MCA) on the curriculum, then generate."
+            "This curriculum has no academic programme code to number its courses "
+            "under. Set the programme on the curriculum, and give that programme a "
+            "code in Academics → Programs (e.g. BCA, MCA, BTECHCSE) — the code is "
+            "used as-is, so BCA yields BCA101."
         )
     return prefix
 

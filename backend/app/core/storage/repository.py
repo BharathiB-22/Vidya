@@ -1,6 +1,6 @@
 import asyncio
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from uuid import UUID
 
 import boto3
@@ -9,7 +9,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.storage.models import StorageAsset, StorageEntityType
+from app.core.storage.models import StorageAsset
 
 
 class StorageRepository:

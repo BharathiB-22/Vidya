@@ -22,7 +22,7 @@ this module changes a grade, applies a penalty, or finalises a result.
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 # ===========================================================================

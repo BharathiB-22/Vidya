@@ -23,7 +23,17 @@ from __future__ import annotations
 
 import logging
 import secrets
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    # Names used only in string annotations below. The runtime imports stay
+    # inside the methods that need them, so execution is unchanged.
+    from app.modules.m09_paper_admin.schemas import (
+        ModerationHistoryResponse,
+        ModerationSubmitRequest,
+        ScriptVarianceResponse,
+    )
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +78,6 @@ from app.modules.m09_paper_admin.schemas import (
     PaperPipelineStats,
     QualityOverrideRequest,
     ScriptAssignEvaluatorRequest,
-    ScriptEvaluationResponse,
     ScriptFinaliseRequest,
     ScriptIngestRequest,
     ScriptSubmitMarksRequest,
@@ -1532,7 +1541,6 @@ class ModerationService:
         Only valid when status == MARKS_SUBMITTED.
         Creates a moderation review row and advances to MODERATION_PENDING.
         """
-        from app.modules.m09_paper_admin.schemas import ModerationReviewResponse
         from app.core.audit_log.models import AuditEventType
         from app.core.audit_log.service import AuditService
 
@@ -1634,7 +1642,6 @@ class ModerationService:
           - MODERATION round rows carry the moderator's authoritative marks.
           - board_finalise will use MODERATION round for final_marks.
         """
-        from app.modules.m09_paper_admin.schemas import ModerationSubmitRequest
         from app.core.audit_log.models import AuditEventType
         from app.core.audit_log.service import AuditService
 
@@ -1921,7 +1928,6 @@ class BoardApprovalService:
         """
         from app.core.audit_log.models import AuditEventType
         from app.core.audit_log.service import AuditService
-        import math
 
         # Guard: no existing OPEN session
         existing_open = await BoardSessionRepository.get_open_session(exam_paper_id, db=db)
@@ -1948,7 +1954,6 @@ class BoardApprovalService:
             )
 
         # Compute statistics from the exam_score_ledger
-        from sqlalchemy import func as sa_func
         ledger_q = select(ExamScoreLedger).where(
             ExamScoreLedger.exam_paper_id == exam_paper_id
         )
@@ -2312,7 +2317,7 @@ class RevaluationService:
             )
 
         # Check declared board session exists for this paper
-        declared_session = await BoardSessionRepository.get_by_id_and_status(
+        await BoardSessionRepository.get_by_id_and_status(
             script.exam_paper_id, BoardSessionStatus.DECLARED.value, db=db
         ) if hasattr(BoardSessionRepository, "get_by_id_and_status") else None
         # Simplified: check for any DECLARED session
@@ -2504,7 +2509,6 @@ class RevaluationService:
         """
         from app.core.audit_log.models import AuditEventType
         from app.core.audit_log.service import AuditService
-        from app.modules.m09_paper_admin.schemas import RevaluationMarkEntry
 
         req = await _require_revaluation(request_id, db=db)
         valid = {RevaluationStatus.ACCEPTED.value, RevaluationStatus.IN_PROGRESS.value}
@@ -2782,7 +2786,6 @@ class DigitalExamService:
         instructions: str | None,
         db: AsyncSession,
     ) -> DigitalExamSession:
-        from app.modules.m09_paper_admin.schemas import DigitalSessionResponse
         from app.core.audit_log.service import AuditService as AuditLogService
         from app.core.audit_log.models import AuditEventType
 
@@ -3073,7 +3076,6 @@ class DigitalExamService:
         student_user_id: UUID,
         db: AsyncSession,
     ):
-        from app.modules.m09_paper_admin.schemas import DigitalResultResponse
 
         attempt = await DigitalAttemptRepository.get(attempt_id, db=db)
         if not attempt:

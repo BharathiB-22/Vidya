@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.dependencies import get_tenant_context_dep, require_responsibility, require_roles
+from app.core.auth.dependencies import get_tenant_context_dep, require_responsibility
 from app.core.auth.models import TenantRole
 from app.core.auth.schemas import CurrentUser
 from app.modules.m10_bell_curve.schemas import (
@@ -494,7 +494,7 @@ async def fairness_report(
         metadata={"analyses_count": len(analyses)},
     )
 
-    filename = f"bell_curve_fairness_report.pdf"
+    filename = "bell_curve_fairness_report.pdf"
     return StreamingResponse(
         buf,
         media_type="application/pdf",

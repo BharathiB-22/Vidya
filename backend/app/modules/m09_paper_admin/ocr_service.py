@@ -21,8 +21,12 @@ Human-gate invariants:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    # Used only in the string return annotation on _get_active.
+    from app.modules.m09_paper_admin.ocr_models import OcrReviewQueue
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +36,6 @@ from app.core.auth.schemas import CurrentUser
 from app.modules.m09_paper_admin.ocr_models import (
     OcrPriorityCategory,
     OcrReviewStatus,
-    OcrThresholdScope,
 )
 from app.modules.m09_paper_admin.ocr_repository import (
     OcrQueueRepository,
@@ -361,7 +364,6 @@ class OcrReviewService:
 
     @staticmethod
     async def _get_active(queue_id: UUID, *, db: AsyncSession) -> "OcrReviewQueue":
-        from app.modules.m09_paper_admin.ocr_models import OcrReviewQueue as _M
         row = await OcrQueueRepository.get_by_id(queue_id, db=db)
         if not row:
             raise OcrServiceError("NOT_FOUND", "OCR queue item not found.", 404)

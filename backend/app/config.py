@@ -104,7 +104,9 @@ class Settings(BaseSettings):
     M06_MAX_CODE_OUTPUT_CHARS: int = 4096     # truncate stdout/stderr beyond this
 
     # Research Supervision (M07)
-    M07_WHISPER_ENDPOINT: str = ""              # blank = mock transcription in dev
+    # Blank = ASR disabled. Viva AI evaluation is then reported as UNAVAILABLE
+    # and the guide evaluates manually; no transcript is ever fabricated.
+    M07_WHISPER_ENDPOINT: str = ""
     M07_MAX_VIVA_DURATION_MINS: int = 45
     M07_NOVELTY_SEARCH_MAX_RESULTS: int = 10
     M07_AI_CONTENT_THRESHOLD: float = 0.75
@@ -174,6 +176,12 @@ class Settings(BaseSettings):
             "image/jpeg",
             "image/png",
         ],
+        # Faculty-uploaded notes and coursework question papers.
+        # NOTE: an earlier duplicate of this key appeared above and was dead —
+        # Python keeps the LAST definition, so this list is what has always been
+        # enforced. Removing the dead entry changes nothing at runtime. The dead
+        # entry did list "application/msword" (.doc), which this one does not:
+        # legacy .doc uploads are, and have always been, rejected.
         "faculty_note": [
             "application/pdf",
             "text/plain",

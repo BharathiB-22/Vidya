@@ -527,6 +527,29 @@ class CourseRepository:
         return list(result.scalars().all())
 
     @staticmethod
+    async def list_all(
+        *,
+        program_status: str | None = None,
+        db: AsyncSession,
+    ) -> list[tuple[Course, Program]]:
+        """Every course in the tenant, each with the Program that owns it.
+
+        A course already belongs to exactly one semester of exactly one program,
+        so callers that only need to identify a course (exam paper creation) can
+        select it directly and derive the program from the result, instead of
+        making the user pick a program first.
+        """
+        stmt = (
+            select(Course, Program)
+            .join(Program, Program.id == Course.program_id)
+            .order_by(Program.title.asc(), Course.semester.asc(), Course.code.asc())
+        )
+        if program_status:
+            stmt = stmt.where(Program.status == program_status)
+        result = await db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
+    @staticmethod
     async def list_by_semester(
         program_id: UUID,
         semester: int,

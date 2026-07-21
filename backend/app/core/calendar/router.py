@@ -14,6 +14,7 @@ from app.core.calendar.schemas import (
     AcademicEventOut,
     AcademicEventUpdate,
     CalendarItem,
+    TeachingDays,
 )
 from app.core.calendar.service import CalendarService, CalendarServiceError
 
@@ -37,6 +38,45 @@ async def get_my_calendar(
     date_from = date_from or today
     date_to = date_to or (today + timedelta(days=60))
     return await CalendarService.get_student_calendar(current_user.user_id, date_from, date_to, db)
+
+
+@router.get("/me/teaching-days", response_model=TeachingDays)
+async def get_my_teaching_days(
+    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> TeachingDays:
+    """Which weekdays this student has class on, so the calendar can grey out the
+    ones they do not — without assuming Saturday is a holiday for everybody."""
+    days = await CalendarService.get_teaching_days(current_user.user_id, db)
+    return TeachingDays(teaching_days=days)
+
+
+@router.post("/me/events", response_model=AcademicEventOut, status_code=201)
+async def create_my_personal_event(
+    body: AcademicEventCreate,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> AcademicEventOut:
+    """A student adds their own academic event to their own calendar.
+
+    Deliberately separate from the managers' /events: the service forces this to
+    PERSONAL visibility, so nothing a student writes can land on anyone else's
+    calendar regardless of what the request body says.
+    """
+    ev = await CalendarService.create_personal_event(body, current_user.user_id, db)
+    return AcademicEventOut.model_validate(ev)
+
+
+@router.delete("/me/events/{event_id}", status_code=204)
+async def delete_my_personal_event(
+    event_id: UUID,
+    current_user: CurrentUser = Depends(require_roles(TenantRole.STUDENT)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> None:
+    try:
+        await CalendarService.delete_personal_event(event_id, current_user.user_id, db)
+    except CalendarServiceError as e:
+        raise _err(e)
 
 
 @router.post("/events", response_model=AcademicEventOut, status_code=201)

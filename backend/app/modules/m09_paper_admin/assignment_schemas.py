@@ -13,7 +13,6 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from app.modules.m09_paper_admin.assignment_models import (
-    AssignmentStatus,
     AssignmentType,
 )
 

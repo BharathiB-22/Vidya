@@ -60,7 +60,7 @@ from app.modules.m06_labs_evaluator.evaluator_schemas import (
     TenantEvaluatorUser,
 )
 from app.modules.m06_labs_evaluator.evaluator_service import EvaluatorService
-from app.modules.m06_labs_evaluator.repository import GradeLedgerRepository, TaskJobPublicRepository
+from app.modules.m06_labs_evaluator.repository import GradeLedgerRepository
 from app.modules.m06_labs_evaluator.schemas import (
     AssignmentCreate,
     AssignmentListResponse,
@@ -81,6 +81,8 @@ from app.modules.m06_labs_evaluator.service import (
     LabServiceError,
     ReviewService,
     SubmissionService,
+    _is_privileged,
+    assert_may_manage_lab,
 )
 
 router = APIRouter(tags=["labs-evaluator"])
@@ -96,6 +98,20 @@ _FULL     = require_roles(
     TenantRole.ADMIN, TenantRole.DEAN, TenantRole.FACULTY,
     TenantRole.STUDENT, TenantRole.EVALUATOR,
 )
+
+
+async def _assert_may_manage_lab(
+    assignment_id: UUID, current_user: CurrentUser, db: AsyncSession
+) -> None:
+    """Load the lab and check the caller is the faculty who set it (or the
+    department). Evaluators never come through here — they have their own
+    /evaluator/* endpoints, self-scoped to the work allocated to them."""
+    assignment = await AssignmentService.get(assignment_id, db=db)
+    assert_may_manage_lab(
+        assignment,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+    )
 
 
 def _svc_error(exc: LabServiceError) -> HTTPException:
@@ -176,10 +192,19 @@ async def list_assignments(
     current_user: CurrentUser = Depends(_READ),
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
+    # A lab belongs to the faculty who set it: they see their own and nobody
+    # else's. The Dean owns the department and Admin the institution, so both keep
+    # the full list.
     items, total = await AssignmentService.list_assignments(
         db=db,
         syllabus_id=syllabus_id,
         status=status,
+        # Authorization on the ACTIVE workspace, not the base login role, so a
+        # DEAN acting in the Faculty workspace is scoped to their own labs exactly
+        # like Faculty (matches the M04 fix).
+        created_by_user_id=(
+            None if _is_privileged(current_user.viewing_role) else current_user.user_id
+        ),
         offset=offset,
         limit=limit,
     )
@@ -199,6 +224,11 @@ async def get_assignment(
 ):
     try:
         assignment = await AssignmentService.get(assignment_id, db=db)
+        assert_may_manage_lab(
+            assignment,
+            actor_user_id=current_user.user_id,
+            actor_role=current_user.role,
+        )
     except LabServiceError as exc:
         raise _svc_error(exc)
     course_title, course_code = await _course_context(assignment.syllabus_id, db)
@@ -215,6 +245,7 @@ async def update_assignment(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
+        await _assert_may_manage_lab(assignment_id, current_user, db)
         assignment = await AssignmentService.update(assignment_id, payload, db=db)
     except LabServiceError as exc:
         raise _svc_error(exc)
@@ -238,6 +269,7 @@ async def publish_assignment(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
+        await _assert_may_manage_lab(assignment_id, current_user, db)
         assignment = await AssignmentService.publish(assignment_id, db=db)
     except LabServiceError as exc:
         raise _svc_error(exc)
@@ -285,6 +317,7 @@ async def close_assignment(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
+        await _assert_may_manage_lab(assignment_id, current_user, db)
         assignment = await AssignmentService.close(assignment_id, db=db)
     except LabServiceError as exc:
         raise _svc_error(exc)
@@ -314,6 +347,7 @@ async def list_submissions(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
+        await _assert_may_manage_lab(assignment_id, current_user, db)
         items, total = await SubmissionService.list_for_assignment(
             assignment_id, db=db, offset=offset, limit=limit
         )
@@ -336,6 +370,11 @@ async def get_review_panel(
     try:
         sub, assignment, grade_entry = await ReviewService.get_review_panel(
             submission_id, db=db
+        )
+        assert_may_manage_lab(
+            assignment,
+            actor_user_id=current_user.user_id,
+            actor_role=current_user.role,
         )
     except LabServiceError as exc:
         raise _svc_error(exc)
@@ -370,6 +409,8 @@ async def update_scores(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
+        sub = await SubmissionService.get_submission(submission_id, db=db)
+        await _assert_may_manage_lab(sub.assignment_id, current_user, db)
         evaluation = await ReviewService.update_scores(
             submission_id, payload.scores, db=db
         )
@@ -398,6 +439,8 @@ async def ratify_submission(
     db: AsyncSession = Depends(get_tenant_db_dep),
 ):
     try:
+        sub = await SubmissionService.get_submission(submission_id, db=db)
+        await _assert_may_manage_lab(sub.assignment_id, current_user, db)
         grade = await ReviewService.ratify(
             submission_id,
             ratified_by_user_id=current_user.user_id,
@@ -447,6 +490,11 @@ async def get_moderation_report(
     """Generate and return the moderation report CSV for an assignment."""
     try:
         assignment = await AssignmentService.get(assignment_id, db=db)
+        assert_may_manage_lab(
+            assignment,
+            actor_user_id=current_user.user_id,
+            actor_role=current_user.role,
+        )
     except LabServiceError as exc:
         raise _svc_error(exc)
 
@@ -775,10 +823,21 @@ async def get_submission_file_url(
     except LabServiceError as exc:
         raise _svc_error(exc)
 
-    # Evaluator scope check
-    if current_user.role == TenantRole.EVALUATOR:
+    # A student's uploaded file is readable by exactly two people: the faculty who
+    # set the lab (or the department), and an evaluator this lab was allocated to.
+    # Checked in that order, because a FACULTY account may hold an EVALUATOR grant
+    # and reach here as either.
+    try:
+        assert_may_manage_lab(
+            await AssignmentService.get(sub.assignment_id, db=db),
+            actor_user_id=current_user.user_id,
+            actor_role=current_user.role,
+        )
+    except LabServiceError:
         try:
-            await EvaluatorService.require_scope(current_user.user_id, sub.assignment_id, db)
+            await EvaluatorService.require_scope(
+                current_user.user_id, sub.assignment_id, db
+            )
         except LabServiceError as exc:
             raise _svc_error(exc)
 

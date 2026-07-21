@@ -1,5 +1,10 @@
 import io
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING, AsyncGenerator
+
+if TYPE_CHECKING:
+    # Only for the string annotation on _parse_uuid_form; the runtime import
+    # stays inside that function, so nothing about execution changes.
+    from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response

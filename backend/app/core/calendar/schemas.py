@@ -9,16 +9,28 @@ from app.core.calendar.models import AcademicEventType, AcademicEventVisibility
 
 
 class CalendarItem(BaseModel):
-    """Normalized shape for every calendar entry, regardless of source module."""
+    """Normalized shape for every calendar entry, regardless of source module.
+
+    Every dated academic thing a student must know about arrives here in the same
+    shape, so the calendar never has to know which module owns what.
+    """
     id: str
     title: str
-    item_type: str  # HOLIDAY | EVENT | ANNOUNCEMENT | ASSIGNMENT_DUE | LAB_DUE | EXAM | VIVA
+    # One line of context — the course code, the room, the exam session. Whatever
+    # makes the title mean something without opening it.
+    detail: str | None = None
+    # An AcademicEventType, or one of the aggregated deadline kinds:
+    # ASSIGNMENT_DUE | LAB_DUE | EXAM | VIVA.
+    item_type: str
     date: date
     start_time: time | None = None
     end_time: time | None = None
     all_day: bool = False
     source_module: str  # calendar | assignments | labs | exam | research
     link: str | None = None
+    # True only for the student's own PERSONAL notes — the only items on this
+    # calendar that are theirs to remove.
+    editable: bool = False
 
 
 class AcademicEventCreate(BaseModel):
@@ -61,6 +73,20 @@ class AcademicEventOut(BaseModel):
     program_id: UUID | None
     batch_id: UUID | None
     section_id: UUID | None
-    created_by_user_id: UUID
+    # NULL for seeded reference data (the fixed-date national holidays), which
+    # nobody authored.
+    created_by_user_id: UUID | None
     created_at: datetime
     updated_at: datetime | None
+
+
+class TeachingDays(BaseModel):
+    """Which weekdays this student actually has class on, 0=Monday .. 6=Sunday.
+
+    Read off their section's PUBLISHED timetable, because "is Saturday a holiday"
+    has no general answer — some institutions teach on Saturday, some teach on
+    alternate Saturdays, and some do not teach at all. The calendar greys a day
+    out only when the student's own timetable is silent on it, so a student with
+    Saturday classes never sees Saturday marked as a non-teaching day.
+    """
+    teaching_days: list[int]

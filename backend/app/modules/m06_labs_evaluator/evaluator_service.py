@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.m06_labs_evaluator.models import (
     EvaluatorAssignment,
-    GradeLedger,
     LabAssignment,
     LabSubmission,
     SubmissionStatus,

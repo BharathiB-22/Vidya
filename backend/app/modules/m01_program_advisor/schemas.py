@@ -28,7 +28,17 @@ class CoursePrerequisiteResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class CourseCreate(BaseModel):
-    code:                    str
+    # The SERVER names the course. A code is an institutional identifier —
+    # {PREFIX}{semester}{NN}, where the prefix is the programme's own code and the
+    # first digit is the semester — and it is derived, not typed: a Dean should not
+    # have to know that MCA305 is taken, and a hand-typed MCA120 in semester 4 is a
+    # code that lies about where its course sits.
+    #
+    # Anything sent here is IGNORED on the API paths (add_course assigns the code
+    # itself). It stays on the model, and required-in-practice, because the AI worker
+    # constructs CourseCreate directly with codes it has already assigned via
+    # assign_course_codes, and duplicate_program carries existing codes forward.
+    code:                    str = ""
     title:                   str
     credits:                 int = Field(..., ge=1)
     semester:                int = Field(..., ge=1)
@@ -43,6 +53,10 @@ class CourseCreate(BaseModel):
 
 
 class CourseUpdate(BaseModel):
+    # Not editable. Kept so an older client PATCHing the whole course back does not
+    # 422 on an unknown field — update_course discards it. Moving a course to another
+    # semester RENUMBERS it (that is what keeps the first digit true); nobody may set
+    # the code by hand.
     code:               Optional[str] = None
     title:              Optional[str] = None
     credits:            Optional[int] = Field(default=None, ge=1)
@@ -75,6 +89,17 @@ class CourseResponse(BaseModel):
     description:        Optional[str]
     created_at:         datetime
     updated_at:         Optional[datetime]
+
+
+class CourseWithProgramResponse(CourseResponse):
+    """A course plus the program that owns it.
+
+    A course already determines its semester and its program, so callers that
+    identify work by course (exam paper creation) select the course and read the
+    program off the result — the user never picks a program by hand.
+    """
+    program_title:      str
+    program_department: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

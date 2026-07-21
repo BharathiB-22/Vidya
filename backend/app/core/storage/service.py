@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +9,7 @@ from app.config import settings
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
 from app.core.storage.avatar import normalize_avatar_upload
-from app.core.storage.models import StorageAsset, StorageEntityType
+from app.core.storage.models import StorageEntityType
 from app.core.storage.repository import StorageRepository
 from app.core.storage.schemas import (
     StorageAssetResponse,

@@ -22,6 +22,7 @@ from app.modules.m01_program_advisor.compliance import (
 from app.modules.m01_program_advisor.course_codes import (
     ProgramCodePrefixError,
     generate_course_code,
+    resolve_program_prefix,
 )
 from app.modules.m01_program_advisor.electives import (
     is_basket_placeholder,
@@ -456,6 +457,15 @@ class ProgramService:
                 422,
             )
 
+        # Linked, but the programme's code is blank — same dead end, one field
+        # further in. Resolving the prefix here is the cheapest way to find out,
+        # and finding out now costs a query instead of a whole AI job that can
+        # only fail at the moment it tries to name its first course.
+        try:
+            await resolve_program_prefix(program_id, db=db)
+        except ProgramCodePrefixError as exc:
+            raise ProgramServiceError("ACAD_PROGRAM_CODE_REQUIRED", str(exc), 422) from exc
+
         # Persist ai_instructions update if provided
         if ai_instructions is not None:
             await ProgramRepository.update(
@@ -885,6 +895,25 @@ class ProgramService:
             )
 
     @staticmethod
+    async def _generate_code(
+        program_id: UUID,
+        semester: int,
+        *,
+        db: AsyncSession,
+    ) -> str:
+        """The next free {PREFIX}{semester}{NN} for this programme.
+
+        The one place every manual path gets a code, so add_course, add_choice and a
+        semester move cannot drift apart in how they name a course.
+        """
+        try:
+            return await generate_course_code(program_id, semester, db)
+        except ProgramCodePrefixError as exc:
+            raise ProgramServiceError("ACAD_PROGRAM_REQUIRED", str(exc), 422) from exc
+        except ValueError as exc:          # semester full — see course_codes._MAX_SEQ
+            raise ProgramServiceError("SEMESTER_FULL", str(exc), 422) from exc
+
+    @staticmethod
     async def add_course(
         program_id: UUID,
         payload: CourseCreate,
@@ -895,19 +924,23 @@ class ProgramService:
         await ProgramService._reject_basket_placeholder(
             payload.title, payload.elective_basket_id, db=db,
         )
-        existing = await CourseRepository.get_by_code(program_id, payload.code, db=db)
-        if existing:
-            raise ProgramServiceError(
-                "CODE_EXISTS", f"Course code {payload.code!r} already exists in this program.", 409
-            )
         await ProgramService._validate_basket_assignment(
             program_id, payload.semester, payload.elective_basket_id, db=db,
         )
+        # The code is GENERATED, never accepted. payload.code is ignored.
+        #
+        # This path used to take whatever the client sent and merely check it was
+        # unique — which is how a semester-4 project came to be called MCA120 (a
+        # semester-1 number) while the AI path, add_choice and the elective options
+        # were all being numbered properly. Uniqueness was never the property that
+        # mattered; the code has to say which programme and which semester the course
+        # belongs to, and only the server knows both.
+        code = await ProgramService._generate_code(program_id, payload.semester, db=db)
         # A course inside a basket is an elective by definition.
         is_elective = payload.is_elective or payload.elective_basket_id is not None
         course = await CourseRepository.create(
             program_id=program_id,
-            code=payload.code,
+            code=code,
             title=payload.title,
             credits=payload.credits,
             semester=payload.semester,
@@ -948,6 +981,11 @@ class ProgramService:
         if course is None or course.program_id != program_id:
             raise ProgramServiceError("NOT_FOUND", "Course not found.", 404)
         updates = payload.model_dump(exclude_none=True)
+        # The code is never the client's to set — see CourseUpdate.code. Discarded
+        # before the emptiness check, so a PATCH carrying nothing but a hand-typed
+        # code is correctly rejected as "no fields to update" rather than quietly
+        # renaming the course.
+        updates.pop("code", None)
         if not updates:
             raise ProgramServiceError("NO_FIELDS", "No fields to update.", 422)
         if "elective_basket_id" in updates:
@@ -964,6 +1002,29 @@ class ProgramService:
                 updates.get("title", course.title),
                 updates.get("elective_basket_id", course.elective_basket_id),
                 db=db,
+            )
+
+        # Moving a course to another semester RENUMBERS it. The first digit of a code
+        # is the semester — that is the whole contract of {PREFIX}{semester}{NN} — so a
+        # course carried from semester 1 to semester 4 while keeping MCA120 is a code
+        # that lies about where its course sits, and it is exactly how MCA120 "Main
+        # Project" ended up in semester 4 of the MCA.
+        #
+        # The old code is simply released: next_free_code fills gaps, so it will be
+        # handed to the next course in that semester rather than being burned.
+        #
+        # The rewrite is deliberate and visible, not silent: `code` is one of the
+        # _SYLLABUS_BEARING_FIELDS, so the invalidation below sends any approved
+        # syllabus for this course back to DRAFT — the Board signed off a document
+        # whose header now prints a different course code, and must re-read it.
+        new_semester = updates.get("semester")
+        if new_semester is not None and new_semester != course.semester:
+            updates["code"] = await ProgramService._generate_code(
+                program_id, new_semester, db=db,
+            )
+            logger.info(
+                "m01: course %s moved semester %d -> %d, renumbered %s -> %s",
+                course_id, course.semester, new_semester, course.code, updates["code"],
             )
 
         updates["updated_at"] = datetime.now(timezone.utc)
@@ -1156,10 +1217,7 @@ class ProgramService:
         # basket "Elective 1" is the slot listing itself as its own alternative.
         await ProgramService._reject_basket_placeholder(payload.title, basket_id, db=db)
 
-        try:
-            code = await generate_course_code(program_id, slot.semester, db)
-        except ProgramCodePrefixError as exc:
-            raise ProgramServiceError("ACAD_PROGRAM_REQUIRED", str(exc), 422) from exc
+        code = await ProgramService._generate_code(program_id, slot.semester, db=db)
         course = await CourseRepository.create(
             program_id=program_id,
             code=code,

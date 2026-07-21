@@ -18,10 +18,9 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.m10_bell_curve.models import AnalysisStatus, BoardDecision, NormalisationMethod
+from app.modules.m10_bell_curve.models import AnalysisStatus, BoardDecision
 from app.modules.m10_bell_curve.repository import (
     BellCurveAnalysisRepository,
     BellCurveDecisionRepository,

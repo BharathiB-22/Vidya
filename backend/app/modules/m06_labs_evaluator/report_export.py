@@ -20,7 +20,6 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.m06_labs_evaluator.repository import (
-    GradeLedgerRepository,
     SubmissionRepository,
 )
 

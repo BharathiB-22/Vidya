@@ -38,6 +38,7 @@ from app.modules.m01_program_advisor.schemas import (
     CourseCreate,
     CoursePrerequisiteResponse,
     CourseResponse,
+    CourseWithProgramResponse,
     CourseUpdate,
     ElectiveBasketCreate,
     ElectiveBasketResponse,
@@ -779,6 +780,35 @@ async def add_course(
         },
     )
     return CourseResponse.model_validate(course)
+
+
+# Declared before "/{program_id}/courses" so the literal path wins the match.
+@router.get("/courses", response_model=list[CourseWithProgramResponse])
+async def list_all_courses(
+    program_status: ProgramStatus | None = Query(
+        None, description="Only courses of programs in this status (e.g. APPROVED)"
+    ),
+    current_user: CurrentUser = Depends(require_roles(*_READ)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> list[CourseWithProgramResponse]:
+    """Every course in the tenant, each carrying the program that owns it.
+
+    A course already belongs to one semester of one program, so a caller that
+    identifies work by course (exam paper creation) selects the course and reads
+    the program off the result. Tenant-scoped by the session's search_path, same
+    as every other route here.
+    """
+    rows = await CourseRepository.list_all(
+        program_status=program_status.value if program_status else None, db=db
+    )
+    return [
+        CourseWithProgramResponse(
+            **CourseResponse.model_validate(course).model_dump(),
+            program_title=program.title,
+            program_department=program.department,
+        )
+        for course, program in rows
+    ]
 
 
 @router.get("/{program_id}/courses", response_model=list[CourseResponse])

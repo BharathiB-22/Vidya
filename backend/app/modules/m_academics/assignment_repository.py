@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid as _uuid
 from uuid import UUID
 
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.m_academics.models import CourseRoleInCourse, SubjectAssignment

@@ -235,7 +235,7 @@ async def main() -> int:
                           json={"title": f"E2E MSc CS {tag} (revised)"})
         check(r.status_code == 200, f"{body_label} edits the structure -> 200", f"{r.status_code}")
 
-        r = await c.get(f"/governance/queue", headers=hdr("BOARD"))
+        r = await c.get("/governance/queue", headers=hdr("BOARD"))
         pending = r.json().get("pending", []) if r.status_code == 200 else []
         check(any(p["program_id"] == program_id for p in pending),
               f"curriculum appears in the {body_label}'s queue")
@@ -315,7 +315,7 @@ async def main() -> int:
               "adding a NEW syllabus to a locked curriculum -> 409 (the back door is bolted)",
               f"{r.status_code} {r.text[:80]}")
 
-        locked_baskets = await sql(
+        await sql(
             "SELECT count(*) FROM elective_baskets WHERE program_id=:p AND locked_at IS NULL",
             p=program_id)
         check(True, "elective basket composition frozen at approval")
@@ -372,7 +372,6 @@ async def main() -> int:
         r = await c.get(f"/governance/programs/{program_id}/trail", headers=hdr("DEAN"))
         trail = r.json() if r.status_code == 200 else []
         cats = {e["category"] for e in trail}
-        actions = {e["action"] for e in trail}
 
         check(r.status_code == 200 and len(trail) > 0,
               "the Dean can read the full governance trail", f"{r.status_code}")

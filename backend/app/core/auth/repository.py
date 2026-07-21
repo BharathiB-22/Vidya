@@ -612,10 +612,23 @@ class TenantRepository:
 
     @staticmethod
     async def list_active_guides(db: AsyncSession):
-        from app.core.auth.models import TenantRole
+        # A "guide" is the GUIDE responsibility, held EITHER as a standalone GUIDE
+        # account OR as a FACULTY/DEAN account carrying an active GUIDE grant — the
+        # same two shapes the research service already accepts (service.py:86) and
+        # that evaluators use. The old query matched only base-role GUIDE users, so
+        # a granted guide (the common case) never appeared → "No active guides".
+        from sqlalchemy import text as sa_text
         stmt = (
             select(User)
-            .where(User.role == TenantRole.GUIDE, User.is_active.is_(True))
+            .where(User.is_active.is_(True))
+            .where(
+                sa_text(
+                    "(users.role = 'GUIDE' OR (users.role IN ('FACULTY','DEAN') "
+                    "AND EXISTS (SELECT 1 FROM faculty_role_grants g "
+                    "WHERE g.faculty_user_id = users.id "
+                    "AND g.role_code = 'GUIDE' AND g.is_active = true)))"
+                )
+            )
             .order_by(User.full_name)
         )
         result = await db.execute(stmt)

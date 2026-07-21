@@ -24,7 +24,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Enum, ForeignKey,
+    Column, DateTime, Enum, ForeignKey,
     Index, Integer, Numeric, String, Text,
     UniqueConstraint, text,
 )
