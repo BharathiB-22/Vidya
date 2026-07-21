@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import UUID
 
 logger = logging.getLogger("vidya.repo.m08")
@@ -52,7 +51,11 @@ class ExamPaperRepository:
         question_format: dict,
         requested_dist: dict,
         section_config: list | None = None,
+        blueprint: list | None = None,
+        template_type: str | None = None,
+        template_definition: dict | None = None,
         special_instructions: str | None,
+        creation_mode: str = "AI",
         db: AsyncSession,
     ) -> ExamPaper:
         paper = ExamPaper(
@@ -67,7 +70,11 @@ class ExamPaperRepository:
             question_format=question_format,
             requested_dist=requested_dist,
             section_config=section_config,
+            blueprint=blueprint,
+            template_type=template_type,
+            template_definition=template_definition,
             special_instructions=special_instructions,
+            creation_mode=creation_mode,
             status=ExamPaperStatus.DRAFT.value,
         )
         db.add(paper)
@@ -104,10 +111,12 @@ class ExamPaperRepository:
         limit: int,
         db: AsyncSession,
     ) -> list[ExamPaper]:
-        """Papers awaiting Board review."""
+        """SEMESTER (BOARD_EXAM) papers awaiting Board review. Internal papers go
+        to the Dean queue instead."""
         q = (
             select(ExamPaper)
             .where(ExamPaper.status == ExamPaperStatus.SUBMITTED.value)
+            .where(ExamPaper.exam_workflow == ExamWorkflow.BOARD_EXAM.value)
             .order_by(ExamPaper.submitted_at.asc())
             .offset(offset)
             .limit(limit)
@@ -116,17 +125,46 @@ class ExamPaperRepository:
         return list(result.scalars().all())
 
     @staticmethod
-    async def list_all(
+    async def list_dean_pending(
         *,
-        status: str | None,
+        course_ids: list[UUID] | None,
         offset: int,
         limit: int,
         db: AsyncSession,
     ) -> list[ExamPaper]:
-        """Admin / Dean: all papers for the tenant."""
+        """INTERNAL papers awaiting Dean review. When course_ids is not None the
+        result is restricted to that set (department scoping); None = unrestricted
+        (ADMIN)."""
+        q = (
+            select(ExamPaper)
+            .where(ExamPaper.status == ExamPaperStatus.SUBMITTED.value)
+            .where(ExamPaper.exam_workflow == ExamWorkflow.INTERNAL.value)
+        )
+        if course_ids is not None:
+            if not course_ids:
+                return []
+            q = q.where(ExamPaper.course_id.in_(course_ids))
+        q = q.order_by(ExamPaper.submitted_at.asc()).offset(offset).limit(limit)
+        result = await db.execute(q)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def list_all(
+        *,
+        status: str | None,
+        workflow: str | None = None,
+        offset: int,
+        limit: int,
+        db: AsyncSession,
+    ) -> list[ExamPaper]:
+        """Admin / Dean: all papers for the tenant. When ``workflow`` is given the
+        result is restricted to that workflow — the Board passes BOARD_EXAM so it
+        never sees INTERNAL papers (workflow isolation)."""
         q = select(ExamPaper)
         if status:
             q = q.where(ExamPaper.status == status)
+        if workflow:
+            q = q.where(ExamPaper.exam_workflow == workflow)
         q = q.order_by(ExamPaper.created_at.desc()).offset(offset).limit(limit)
         result = await db.execute(q)
         return list(result.scalars().all())
@@ -159,6 +197,16 @@ class ExamPaperRepository:
                 failure_reason=reason,
                 updated_at=datetime.now(timezone.utc),
             )
+        )
+
+    @staticmethod
+    async def delete(paper_id: UUID, *, db: AsyncSession) -> None:
+        """Delete the paper row. A Core DELETE lets Postgres apply the ON DELETE
+        CASCADE on exam_questions and blooms_compliance_reports directly, rather
+        than SQLAlchemy trying to manage those relationships in Python."""
+        from sqlalchemy import delete as sa_delete
+        await db.execute(
+            sa_delete(ExamPaper).where(ExamPaper.id == paper_id)
         )
 
     @staticmethod
@@ -376,7 +424,7 @@ class ExamQuestionRepository:
         db: AsyncSession,
     ) -> list[ExamQuestion]:
         objs = []
-        for q in questions:
+        for idx, q in enumerate(questions):
             obj = ExamQuestion(
                 exam_paper_id=exam_paper_id,
                 unit_number=q["unit_number"],
@@ -395,11 +443,108 @@ class ExamQuestionRepository:
                 co_ids=q.get("co_ids") or [],
                 ai_generated=True,
                 is_edited=False,
+                display_order=idx,
+                template_block_id=q.get("template_block_id"),
+                template_subpart_index=q.get("template_subpart_index"),
+                unit_numbers=q.get("unit_numbers"),
+                difficulty=q.get("difficulty"),
             )
             db.add(obj)
             objs.append(obj)
         await db.flush()
         return objs
+
+    @staticmethod
+    async def add_one(
+        exam_paper_id: UUID,
+        *,
+        data: dict,
+        display_order: int,
+        db: AsyncSession,
+    ) -> ExamQuestion:
+        """Add a single hand-written question (manual builder)."""
+        obj = ExamQuestion(
+            exam_paper_id=exam_paper_id,
+            unit_number=data.get("unit_number", 1),
+            co_code=data.get("co_code"),
+            bloom_level=(data.get("bloom_level") or "REMEMBER").upper().strip(),
+            question_type=(data.get("question_type") or "SHORT_ANSWER").upper().replace(" ", "_").strip(),
+            question_text=data["question_text"],
+            options=data.get("options"),
+            correct_option=data.get("correct_option"),
+            marks=data["marks"],
+            model_answer=data.get("model_answer"),
+            marking_scheme=data.get("marking_scheme"),
+            set_membership=data.get("set_membership") or ["A", "B"],
+            section_label=data.get("section_label"),
+            co_ids=data.get("co_ids") or [],
+            ai_generated=False,
+            is_edited=False,
+            display_order=display_order,
+            template_block_id=data.get("template_block_id"),
+            template_subpart_index=data.get("template_subpart_index"),
+            unit_numbers=data.get("unit_numbers"),
+            difficulty=data.get("difficulty"),
+        )
+        db.add(obj)
+        await db.flush()
+        return obj
+
+    @staticmethod
+    async def copy_question(
+        source: ExamQuestion,
+        *,
+        display_order: int,
+        db: AsyncSession,
+    ) -> ExamQuestion:
+        """Duplicate an existing question (all content columns) into the same
+        paper. The copy is treated as a manual artifact (ai_generated=False)."""
+        obj = ExamQuestion(
+            exam_paper_id=source.exam_paper_id,
+            unit_number=source.unit_number,
+            co_code=source.co_code,
+            bloom_level=source.bloom_level,
+            question_type=source.question_type,
+            question_text=source.question_text,
+            options=source.options,
+            correct_option=source.correct_option,
+            marks=source.marks,
+            model_answer=source.model_answer,
+            marking_scheme=source.marking_scheme,
+            set_membership=source.set_membership or ["A", "B"],
+            section_label=source.section_label,
+            choice_group=source.choice_group,
+            co_ids=source.co_ids or [],
+            ai_generated=False,
+            is_edited=False,
+            display_order=display_order,
+            # The copy belongs to the same template block as its source, so it
+            # prints alongside it instead of ending up unplaceable.
+            template_block_id=source.template_block_id,
+            template_subpart_index=source.template_subpart_index,
+            unit_numbers=source.unit_numbers,
+            difficulty=source.difficulty,
+        )
+        db.add(obj)
+        await db.flush()
+        return obj
+
+    @staticmethod
+    async def max_display_order(exam_paper_id: UUID, *, db: AsyncSession) -> int:
+        from sqlalchemy import func
+        result = await db.execute(
+            select(func.max(ExamQuestion.display_order)).where(
+                ExamQuestion.exam_paper_id == exam_paper_id
+            )
+        )
+        return int(result.scalar() or -1)
+
+    @staticmethod
+    async def set_display_orders(order_map: dict[UUID, int], *, db: AsyncSession) -> None:
+        for qid, order in order_map.items():
+            await db.execute(
+                sa_update(ExamQuestion).where(ExamQuestion.id == qid).values(display_order=order)
+            )
 
     @staticmethod
     async def list_by_paper(
@@ -411,7 +556,7 @@ class ExamQuestionRepository:
         q = (
             select(ExamQuestion)
             .where(ExamQuestion.exam_paper_id == exam_paper_id)
-            .order_by(ExamQuestion.created_at)
+            .order_by(ExamQuestion.display_order, ExamQuestion.created_at)
         )
         result = await db.execute(q)
         rows = list(result.scalars().all())

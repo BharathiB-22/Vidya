@@ -11,7 +11,7 @@ Naming convention:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -59,6 +59,70 @@ class BloomsDistribution(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Per-unit paper blueprint  (P1.16)
+# ---------------------------------------------------------------------------
+
+class BlueprintRow(BaseModel):
+    """One question group within a unit's blueprint — a university exam pattern
+    row: generate ``count`` questions of ``marks`` each, of which the student
+    answers ``answer_count`` per the ``choice_pattern``.
+
+    choice_pattern:
+      COMPULSORY  — answer all (answer_count == count).
+      ANSWER_ANY  — "Answer any N of M" (answer_count < count).
+      OR_CHOICE   — either/or alternatives ("Q OR Q"); answer_count == 1.
+
+    Backward compatible: legacy rows carry only {count, marks}. When answer_count
+    is absent it defaults to count (compulsory), so old blueprints keep their exact
+    printed and evaluation totals.
+    """
+    category:       str | None = Field(default=None, description="Optional group label")
+    count:          int   = Field(..., gt=0, le=50, description="Questions to GENERATE")
+    marks:          float = Field(..., gt=0, le=100, description="Marks per question")
+    answer_count:   int | None = Field(default=None, ge=1, le=50,
+                                       description="Questions the student must answer")
+    choice_pattern: str   = Field(default="COMPULSORY")
+
+    # Identity of the template block this row was compiled from. Generation stamps
+    # it onto every question the row produces, so the editor and the PDF rebuild
+    # the faculty's template exactly rather than inferring it from (unit, marks).
+    # Absent on legacy blueprints, which keep the old inference path.
+    template_block_id: str | None = Field(default=None, description="Owning template block id")
+    subpart_index:     int | None = Field(default=None, ge=0,
+                                          description="Sub-part index within a FULL_QUESTION block")
+    # Position of the owning block in the printed paper. Rows are grouped by unit,
+    # so this is what restores the faculty's block order for numbering.
+    block_order:       int | None = Field(default=None, ge=0,
+                                          description="Owning block's position in the paper")
+
+    @field_validator("choice_pattern", mode="before")
+    @classmethod
+    def _norm_pattern(cls, v: str | None) -> str:
+        v = (v or "COMPULSORY").upper().strip()
+        return v if v in ("COMPULSORY", "ANSWER_ANY", "OR_CHOICE") else "COMPULSORY"
+
+    @model_validator(mode="after")
+    def _defaults(self) -> "BlueprintRow":
+        # Default answer_count to count, then coerce it to the pattern so the two
+        # totals and the printed instructions are always self-consistent.
+        if self.answer_count is None:
+            self.answer_count = self.count
+        if self.choice_pattern == "COMPULSORY":
+            self.answer_count = self.count
+        elif self.choice_pattern == "OR_CHOICE":
+            self.answer_count = 1
+        if self.answer_count > self.count:
+            self.answer_count = self.count
+        return self
+
+
+class UnitBlueprint(BaseModel):
+    """Blueprint for a single unit: an ordered list of question groups."""
+    unit_number: int              = Field(..., ge=0)
+    rows:        list[BlueprintRow] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # Section configuration  (H-35)
 # ---------------------------------------------------------------------------
 
@@ -95,6 +159,9 @@ class SectionConfig(BaseModel):
 class ExamPaperCreate(BaseModel):
     course_id:            UUID
     title:                str = Field(..., min_length=3, max_length=300)
+    # "AI" dispatches the existing Celery/LLM generation; "MANUAL" creates an
+    # empty, immediately-editable paper (no Celery, no LLM).
+    creation_mode:        str = Field(default="AI", pattern="^(AI|MANUAL)$")
     exam_type:            str = Field(default="END_SEM")
     exam_workflow:        ExamWorkflow = Field(
         default=ExamWorkflow.BOARD_EXAM,
@@ -103,14 +170,62 @@ class ExamPaperCreate(BaseModel):
     total_marks:          int = Field(..., gt=0, le=500)
     duration_mins:        int = Field(..., gt=0, le=600)
     units_included:       list[int] = Field(..., min_length=1)
-    question_format:      QuestionFormatConfig
+    # A paper's question plan may come from a per-unit blueprint (preferred), a
+    # flat question_format, or a section layout. At least one must be provided.
+    question_format:      QuestionFormatConfig | None = None
+    blueprint:            list[UnitBlueprint] | None = None
+    # Paper Template (source of truth). blueprint is compiled from this; the
+    # definition is stored verbatim so the editor and PDF can reconstruct the
+    # exact structure. Optional → legacy/unit papers still work.
+    template_definition:  dict[str, Any] | None = None
+    # LEGACY. v3 templates have no "type" — a paper is sections of question
+    # definitions, and the builder stopped sending this. Still accepted (and still
+    # stored) so an older client's papers record what they always did.
+    template_type:        str | None = None
     requested_dist:       BloomsDistribution
     section_config:       list[SectionConfig] | None = None
     special_instructions: str | None = None
 
     @model_validator(mode="after")
+    def _has_question_plan(self) -> "ExamPaperCreate":
+        # A template fully describes the paper on its own — it is the source of
+        # truth and does not need a blueprint alongside it. The older plans stay
+        # valid so legacy and section papers keep working unchanged.
+        td = self.template_definition or {}
+        has_template = bool(td.get("sections") or td.get("blocks") or td.get("units"))
+        has_blueprint = bool(self.blueprint) and any(b.rows for b in self.blueprint)
+        if not (has_template or has_blueprint
+                or self.question_format is not None or self.section_config):
+            raise ValueError(
+                "Provide a paper template, a blueprint, a question format, or a "
+                "section layout."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _template_marks_match(self) -> "ExamPaperCreate":
+        """total_marks must be the template's own evaluation total.
+
+        The template is the source of truth, so a paper whose stored total says
+        something different from what its structure evaluates to is already wrong
+        before a single question exists.
+        """
+        td = self.template_definition or {}
+        if not (td.get("sections") or td.get("blocks") or td.get("units")):
+            return self
+        from app.modules.m08_exam_setter.paper_template import template_totals
+
+        _printed, evaluation = template_totals(self.template_definition)
+        if evaluation > 0 and abs(evaluation - float(self.total_marks)) > 0.01:
+            raise ValueError(
+                f"total_marks ({self.total_marks}) does not match the template's "
+                f"evaluation total ({evaluation:g}). The template decides the marks."
+            )
+        return self
+
+    @model_validator(mode="after")
     def _mcq_only_guard(self) -> "ExamPaperCreate":
-        if self.section_config:
+        if self.section_config and self.question_format is not None:
             has_mcq_only = any(s.mcq_only for s in self.section_config)
             if has_mcq_only and self.question_format.mcq_count == 0:
                 raise ValueError(
@@ -130,7 +245,10 @@ class ExamPaperResponse(BaseModel):
     total_marks:          int
     duration_mins:        int
     units_included:       list[Any]
-    question_format:      dict[str, Any]
+    question_format:      dict[str, Any] | None
+    blueprint:            list[Any] | None
+    template_type:        str | None
+    template_definition:  dict[str, Any] | None
     requested_dist:       dict[str, Any]
     actual_dist:          dict[str, Any] | None
     section_config:       list[Any] | None
@@ -183,6 +301,11 @@ class ExamQuestionResponse(BaseModel):
     id:             UUID
     exam_paper_id:  UUID
     unit_number:    int
+    # Every unit the question draws on (P1.19). unit_number stays the PRIMARY
+    # unit; a definition that INTEGRATES a pool lists the whole pool here. NULL
+    # on legacy rows, which cover unit_number alone.
+    unit_numbers:   list[Any] | None = None
+    difficulty:     str | None = None
     co_code:        str | None
     bloom_level:    str
     question_type:  str
@@ -195,6 +318,9 @@ class ExamQuestionResponse(BaseModel):
     co_ids:         list[Any] | None
     ai_generated:   bool
     is_edited:      bool
+    display_order:  int
+    template_block_id:      str | None
+    template_subpart_index: int | None
     created_at:     datetime
     updated_at:     datetime | None
     # model_answer and correct_option exposed only in answers export (role-gated)
@@ -218,6 +344,8 @@ class ExamQuestionUpdate(BaseModel):
     marking_scheme:  list[MarkingCriterion] | None = None
     set_membership:  list[str] | None = None
     bloom_level:     str | None = None
+    unit_number:     int | None = None       # editable unit mapping
+    co_code:         str | None = None
     section_label:   str | None = None
     choice_group:    int | None = None
     co_ids:          list[UUID] | None = None
@@ -233,6 +361,44 @@ class ExamQuestionUpdate(BaseModel):
         if v is None:
             return v
         return [str(s).upper().strip() for s in v]
+
+
+class ManualQuestionCreate(BaseModel):
+    """Add a hand-written question to a paper (manual builder). Coexists with
+    AI-generated questions; stored with ai_generated=False."""
+    question_text:   str = Field(..., min_length=1)
+    question_type:   str = Field(default="SHORT_ANSWER")
+    marks:           float = Field(..., gt=0, le=999.99)
+    bloom_level:     str = Field(default="REMEMBER")
+    unit_number:     int = Field(default=1, ge=0)
+    co_code:         str | None = None
+    co_ids:          list[UUID] | None = None
+    options:         list[MCQOption] | None = None
+    correct_option:  str | None = None
+    model_answer:    str | None = None
+    marking_scheme:  list[MarkingCriterion] | None = None
+    section_label:   str | None = None
+    set_membership:  list[str] = Field(default_factory=lambda: ["A", "B"])
+    # Which template block this question belongs to. Required in practice on a
+    # paper that has a template: a question with no block has nowhere to print,
+    # and inventing an "other" bucket for it would misrepresent the paper.
+    template_block_id:      str | None = None
+    template_subpart_index: int | None = Field(default=None, ge=0)
+
+    @field_validator("bloom_level", mode="before")
+    @classmethod
+    def _norm_bloom(cls, v: str | None) -> str | None:
+        return v.upper().strip() if v else "REMEMBER"
+
+    @field_validator("question_type", mode="before")
+    @classmethod
+    def _norm_type(cls, v: str | None) -> str | None:
+        return v.upper().replace(" ", "_").strip() if v else "SHORT_ANSWER"
+
+
+class QuestionReorderRequest(BaseModel):
+    """Full ordered list of question ids for the paper; index becomes display_order."""
+    ordered_ids: list[UUID] = Field(..., min_length=1)
 
 
 # ---------------------------------------------------------------------------

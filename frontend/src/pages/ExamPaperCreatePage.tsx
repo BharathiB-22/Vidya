@@ -1,25 +1,47 @@
-// M08 Exam Setter — Faculty: create exam paper configuration form
-import { useMemo, useState } from 'react'
+// M08 Exam Setter — Faculty: create an exam paper.
+//
+// The faculty's whole mental model, and nothing else:
+//
+//     1. Create Sections          2. Define section rules
+//     3. Add question definitions 4. Choose marks
+//     5. Choose unit coverage     6. Compulsory / any / OR
+//     7. Bloom's  8. Difficulty   9. CO mapping
+//
+// There is no template "type" to choose, and no university is named or implied
+// anywhere in this file. Any pattern — "answer any 5 of 8", "Q1 a) b) c)", "one
+// full question per module" — is expressed as sections, rules and definitions.
+//
+// Units come from the course's APPROVED syllabus and nowhere else. If the course
+// has no approved syllabus, paper creation is blocked rather than falling back to
+// invented unit numbers: a paper over units that do not exist is not a paper.
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { FileText, Info, Loader2, ChevronLeft, AlertTriangle, Eye } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, Eye, FileText, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createExamPaper } from '@/lib/api/exam'
-import { listPrograms, listCourses } from '@/lib/api/programs'
+import { listAllCourses } from '@/lib/api/programs'
 import { listSyllabuses, getSyllabus } from '@/lib/api/syllabuses'
 import { assignmentsApi } from '@/lib/api/assignments'
 import { useWorkspace } from '@/lib/workspace'
 import { getErrorMessage } from '@/lib/api'
+import PaperStructureBuilder from '@/components/exam/PaperStructureBuilder'
+import PaperPreview from '@/components/exam/PaperPreview'
+import {
+  TEMPLATE_VERSION,
+  compileSpecs,
+  newSection,
+  templateTotals,
+  type PaperSection,
+} from '@/lib/paperTemplate'
 import type {
   BloomsDistribution,
   ExamPaperCreatePayload,
   ExamType,
   ExamWorkflow,
-  QuestionFormatConfig,
-  SectionConfig,
 } from '@/types/exam'
 
-const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color: string }> = [
+const BLOOM_BARS: Array<{ key: keyof BloomsDistribution; label: string; color: string }> = [
   { key: 'remember',   label: 'Remember',   color: 'bg-red-400' },
   { key: 'understand', label: 'Understand', color: 'bg-orange-400' },
   { key: 'apply',      label: 'Apply',      color: 'bg-yellow-400' },
@@ -28,83 +50,79 @@ const BLOOM_LEVELS: Array<{ key: keyof BloomsDistribution; label: string; color:
   { key: 'create',     label: 'Create',     color: 'bg-purple-400' },
 ]
 
-const EXAM_TYPES: ExamType[] = ['END_SEM', 'MID_SEM', 'QUIZ', 'INTERNAL', 'CUSTOM']
-
-// Institution-specific display labels for internal papers. Not hardcoded to one
-// standard — the faculty picks (or types a custom one). Display label only; it
-// maps to the paper title and changes no workflow logic.
-const ASSESSMENT_NAMES = [
-  'IA 1', 'IA 2', 'MSE 1', 'MSE 2',
-  'Internal Assessment 1', 'Internal Assessment 2', 'CIE 1', 'CIE 2', 'Custom',
+// Institutional assessment / exam names, chosen per workflow. Display labels
+// only — they map to the paper title (+ a derived exam_type enum) and change no
+// workflow logic. "Custom" reveals a free-text field.
+const INTERNAL_ASSESSMENT_NAMES = [
+  'IA 1', 'IA 2', 'IA 3', 'MSE 1', 'MSE 2', 'MSE 3', 'CIE 1', 'CIE 2', 'Assignment', 'Custom',
 ]
 
-const SECTION_MARKS_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20]
+const BOARD_EXAM_NAMES = [
+  'Mid Semester', 'End Semester', 'Supplementary', 'Improvement', 'Custom',
+]
+
+// Map the selected name to the backend exam_type enum (kept valid: one of
+// MID_SEM / END_SEM / QUIZ / INTERNAL / CUSTOM). The friendly name lives in title.
+function deriveExamType(workflow: ExamWorkflow, name: string): ExamType {
+  if (workflow === 'INTERNAL') return /^mse/i.test(name) ? 'MID_SEM' : 'INTERNAL'
+  switch (name) {
+    case 'Mid Semester': return 'MID_SEM'
+    case 'End Semester':
+    case 'Supplementary':
+    case 'Improvement':  return 'END_SEM'
+    default:             return 'CUSTOM'
+  }
+}
 
 const DEFAULT_DIST: BloomsDistribution = {
   remember: 20, understand: 20, apply: 20, analyse: 20, evaluate: 10, create: 10,
 }
 
-const DEFAULT_FORMAT: QuestionFormatConfig = {
-  mcq_count: 5, short_count: 3, long_count: 2, problem_count: 0,
+// One shape for a pickable course across both sources (faculty assignments and
+// the programme catalog). `program_title` is read off the course, never chosen.
+interface SelectableCourse {
+  id:            string
+  code:          string
+  title:         string
+  semester:      number | null
+  program_title: string | null
 }
-
-type SectionRow = Omit<SectionConfig, 'order' | 'instruction'>
-
-const DEFAULT_SECTIONS: SectionRow[] = [
-  { label: 'A', total_q: 10, answer_q: 10, marks_each: 2,  mcq_only: false },
-  { label: 'B', total_q:  5, answer_q:  3, marks_each: 5,  mcq_only: false },
-  { label: 'C', total_q:  3, answer_q:  2, marks_each: 10, mcq_only: false },
-]
 
 export default function ExamPaperCreatePage() {
   const navigate = useNavigate()
   const { activeWorkspace } = useWorkspace()
   // Faculty may only set papers for subjects assigned to them: their course
   // dropdown comes from their own assignments, never the full programme catalog.
-  // Board/Admin (who own semester papers) keep the Program → Course cascade.
+  // Board/Admin (who own semester papers) pick from the whole catalog.
   const isFacultyMode = activeWorkspace === 'FACULTY'
 
-  const [programId,         setProgramId]         = useState('')
-  const [semesterFilter,    setSemesterFilter]     = useState<number | ''>('')
+  // A paper is identified by its Course, and nothing else. The course already
+  // belongs to a semester, which belongs to a program — so the program is read
+  // off the selected course and is never chosen by hand.
   const [courseId,          setCourseId]          = useState('')
-  const [title,             setTitle]             = useState('')
-  const [examType,          setExamType]          = useState<ExamType>('END_SEM')
   const [examWorkflow,      setExamWorkflow]      = useState<ExamWorkflow>('BOARD_EXAM')
-  const [totalMarks,        setTotalMarks]        = useState(100)
+  const [examName,          setExamName]          = useState('End Semester')
+  const [customName,        setCustomName]        = useState('')
   const [durationMins,      setDurationMins]      = useState(180)
-  const [unitsRaw,          setUnitsRaw]          = useState('1,2,3')
-  const [format,            setFormat]            = useState<QuestionFormatConfig>(DEFAULT_FORMAT)
+  const [sections,          setSections]          = useState<PaperSection[]>([])
   const [dist,              setDist]              = useState<BloomsDistribution>(DEFAULT_DIST)
   const [specialInstructions, setSpecialInstructions] = useState('')
-  const [useSectionLayout,  setUseSectionLayout]  = useState(false)
-  const [sections,          setSections]          = useState<SectionRow[]>(DEFAULT_SECTIONS)
-  const [assessmentName,    setAssessmentName]    = useState('IA 1')
-  const [customAssessment,  setCustomAssessment]  = useState('')
   const [selectedUnits,     setSelectedUnits]     = useState<number[]>([])
+  const [mode,              setMode]              = useState<'AI' | 'MANUAL'>('AI')
   const [error,             setError]             = useState<string | null>(null)
 
   const bloomSum = Object.values(dist).reduce((a, b) => a + b, 0)
   const isInternal = examWorkflow === 'INTERNAL'
-  const assessmentLabel = assessmentName === 'Custom' ? customAssessment.trim() : assessmentName
+  const nameOptions = isInternal ? INTERNAL_ASSESSMENT_NAMES : BOARD_EXAM_NAMES
+  const isCustomName = examName === 'Custom'
+  const effectiveTitle = isCustomName ? customName.trim() : examName
+  const derivedExamType = deriveExamType(examWorkflow, examName)
 
-  const isBoardMcqOnly =
-    examWorkflow === 'BOARD_EXAM' &&
-    format.mcq_count > 0 &&
-    format.short_count === 0 &&
-    format.long_count === 0 &&
-    format.problem_count === 0
-
-  const { data: programsData, isLoading: programsLoading } = useQuery({
-    queryKey: ['programs', 'approved'],
-    queryFn: () => listPrograms({ status: 'APPROVED', page_size: 200 }),
-    staleTime: 60_000,
-  })
-  const programs = programsData?.items ?? []
-
+  // The approved catalog: Board/Admin choose a course from it directly, and both
+  // modes use it to resolve the program a chosen course belongs to.
   const { data: allCourses = [], isLoading: coursesLoading } = useQuery({
-    queryKey: ['program-courses', programId],
-    queryFn: () => listCourses(programId),
-    enabled: !!programId && !isFacultyMode,
+    queryKey: ['all-courses', 'approved'],
+    queryFn: () => listAllCourses({ program_status: 'APPROVED' }),
     staleTime: 60_000,
   })
 
@@ -115,31 +133,52 @@ export default function ExamPaperCreatePage() {
     enabled: isFacultyMode,
     staleTime: 5 * 60 * 1000,
   })
+
+  const programByCourseId = useMemo(
+    () => new Map(allCourses.map(c => [c.id, c.program_title])),
+    [allCourses],
+  )
+
   const facultyCourses = useMemo(() => {
-    const seen = new Map<string, { id: string; code: string; title: string; semester: number | null }>()
+    const seen = new Map<string, SelectableCourse>()
     for (const a of myAssignments?.items ?? []) {
       if (!a.is_active || !a.course || seen.has(a.course_id)) continue
-      seen.set(a.course_id, { id: a.course_id, code: a.course.code, title: a.course.title, semester: a.semester?.number ?? null })
+      seen.set(a.course_id, {
+        id: a.course_id,
+        code: a.course.code,
+        title: a.course.title,
+        semester: a.semester?.number ?? null,
+        program_title: programByCourseId.get(a.course_id) ?? null,
+      })
     }
     return [...seen.values()]
-  }, [myAssignments])
+  }, [myAssignments, programByCourseId])
 
-  const semesters = [...new Set(allCourses.map(c => c.semester))].sort((a, b) => a - b)
-  const visibleCourses = semesterFilter === ''
-    ? allCourses
-    : allCourses.filter(c => c.semester === semesterFilter)
+  const catalogCourses: SelectableCourse[] = useMemo(
+    () => allCourses.map(c => ({
+      id: c.id, code: c.code, title: c.title, semester: c.semester, program_title: c.program_title,
+    })),
+    [allCourses],
+  )
 
-  const selectedProgram = programs.find(p => p.id === programId)
-  // Unified selected-course info across both sources (faculty assignments vs
-  // programme catalog) so the preview and units work in either mode.
-  const selectedCourse = isFacultyMode
-    ? facultyCourses.find(c => c.id === courseId)
-    : allCourses.find(c => c.id === courseId)
+  const selectableCourses = isFacultyMode ? facultyCourses : catalogCourses
+  const selectedCourse = selectableCourses.find(c => c.id === courseId)
+  const coursesBusy = isFacultyMode ? assignmentsLoading : coursesLoading
 
-  // Load the course's official (LOCKED/APPROVED) syllabus so units can be picked
-  // by name — same source the generation worker reads. Falls back to the manual
-  // comma-separated input when no approved syllabus exists.
-  const { data: syllabusList } = useQuery({
+  const coursesByProgram = useMemo(() => {
+    const groups = new Map<string, SelectableCourse[]>()
+    for (const c of catalogCourses) {
+      const key = c.program_title ?? 'Other'
+      groups.set(key, [...(groups.get(key) ?? []), c])
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [catalogCourses])
+
+  // ── The syllabus gate ──────────────────────────────────────────────────────
+  // Units, and the COs a question may map to, come from the course's official
+  // (LOCKED/APPROVED) syllabus — the same source the generation worker reads. No
+  // approved syllabus, no paper: there is nothing legitimate to set questions on.
+  const { data: syllabusList, isLoading: syllabusLoading } = useQuery({
     queryKey: ['exam-course-syllabuses', courseId],
     queryFn:  () => listSyllabuses({ course_id: courseId }),
     enabled:  !!courseId,
@@ -150,48 +189,77 @@ export default function ExamPaperCreatePage() {
     return [...items].sort((a, b) => b.version - a.version)[0] ?? null
   }, [syllabusList])
 
-  const { data: syllabusDetail } = useQuery({
+  const { data: syllabusDetail, isLoading: detailLoading } = useQuery({
     queryKey: ['exam-syllabus-detail', officialSyllabus?.id],
     queryFn:  () => getSyllabus(officialSyllabus!.id),
     enabled:  !!officialSyllabus,
     staleTime: 60_000,
   })
-  const syllabusUnits = syllabusDetail?.units ?? []
-  const useUnitCheckboxes = syllabusUnits.length > 0
 
-  const effectiveUnits = useUnitCheckboxes
-    ? [...selectedUnits].sort((a, b) => a - b)
-    : unitsRaw.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0)
+  const syllabusBusy = !!courseId && (syllabusLoading || (!!officialSyllabus && detailLoading))
+  // Whatever the syllabus says — six units, or two. The builder follows it.
+  const syllabusUnits = syllabusDetail?.units ?? []
+  const outcomes = useMemo(
+    () => (syllabusDetail?.outcomes ?? []).map(o => ({ id: o.id, code: o.code })),
+    [syllabusDetail],
+  )
+  const hasSyllabus = !!officialSyllabus && syllabusUnits.length > 0
+  const syllabusBlocked = !!courseId && !syllabusBusy && !hasSyllabus
+
+  const effectiveUnits = useMemo(
+    () => [...selectedUnits].sort((a, b) => a - b),
+    [selectedUnits],
+  )
+  const unitsKey = effectiveUnits.join(',')
+
+  // A newly chosen course brings its own syllabus: default to covering all of it,
+  // which is what a paper usually does, and is a starting point not a decision.
+  useEffect(() => {
+    setSelectedUnits(syllabusUnits.map(u => u.unit_number))
+  }, [officialSyllabus?.id, syllabusUnits.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleUnit(n: number) {
     setSelectedUnits(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n])
   }
 
-  function handleProgramChange(pid: string) {
-    setProgramId(pid)
-    setSemesterFilter('')
-    setCourseId('')
+  function handleCourseChange(id: string) {
+    setCourseId(id)
     setSelectedUnits([])
+    // A template is written against a syllabus. Carrying one to another course
+    // would silently point definitions at units that course may not have.
+    setSections([])
   }
 
-  function handleSemesterChange(val: string) {
-    setSemesterFilter(val === '' ? '' : Number(val))
-    setCourseId('')
-    setSelectedUnits([])
-  }
+  // The template document — the single source of truth for this paper's
+  // structure. It is what gets stored, what the AI is told to reproduce, and what
+  // the editor and the PDF rebuild the paper from.
+  const templateDoc = useMemo(
+    () => ({ version: TEMPLATE_VERSION, sections }),
+    [sections],
+  )
 
-  function updateSection(index: number, field: keyof SectionRow, value: number | boolean) {
-    setSections(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s))
-  }
+  const { printed: printedTotal, evaluation: evaluationTotal } = templateTotals(templateDoc)
+  const specs = useMemo(
+    () => compileSpecs(templateDoc, effectiveUnits),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [templateDoc, unitsKey],
+  )
+
+  // The paper seen from the syllabus-coverage angle — what a Board member checks.
+  const unitCoverage = useMemo(() => {
+    const byUnit = new Map<number, number>()
+    for (const s of specs) {
+      for (const u of s.unit_numbers) byUnit.set(u, (byUnit.get(u) ?? 0) + 1)
+    }
+    return [...byUnit.entries()].sort((a, b) => a[0] - b[0])
+  }, [specs])
+
+  const uncoveredUnits = effectiveUnits.filter(u => !unitCoverage.some(([n]) => n === u))
 
   const { mutate, isPending } = useMutation({
     mutationFn: (payload: ExamPaperCreatePayload) => createExamPaper(payload),
-    onSuccess: (res) => {
-      navigate(`/exams/${res.paper_id}`)
-    },
-    onError: (err: unknown) => {
-      setError(getErrorMessage(err))
-    },
+    onSuccess: (res) => navigate(`/exams/${res.paper_id}`),
+    onError: (err: unknown) => setError(getErrorMessage(err)),
   })
 
   function handleSubmit(e: React.FormEvent) {
@@ -206,69 +274,54 @@ export default function ExamPaperCreatePage() {
       setError('Please select a course from the dropdown.')
       return
     }
-
-    // INTERNAL papers are identified by their institution label (Assessment Name);
-    // Board papers keep the free-text Title. Either way it maps to `title` — a
-    // display value only, no workflow change.
-    const effectiveTitle = isInternal ? assessmentLabel : title.trim()
+    if (!hasSyllabus) {
+      setError('This course has no approved syllabus, so its units are unknown. '
+             + 'A paper cannot be set until the syllabus is approved.')
+      return
+    }
     if (!effectiveTitle) {
-      setError(isInternal ? 'Please choose or enter an Assessment Name.' : 'Please enter a title.')
+      setError(isInternal ? 'Please choose or enter an Assessment Name.' : 'Please choose or enter an Exam Name.')
+      return
+    }
+    if (effectiveUnits.length === 0) {
+      setError('Select at least one unit for the paper to cover.')
+      return
+    }
+    if (specs.length === 0) {
+      setError('Add at least one section with a question definition.')
+      return
+    }
+    if (evaluationTotal <= 0) {
+      setError('The paper has no evaluated marks — check the section rules and marks.')
+      return
+    }
+    if (evaluationTotal > 500) {
+      setError(`Evaluation total is ${evaluationTotal} marks — the maximum is 500. Reduce the counts or marks.`)
       return
     }
 
-    const units = effectiveUnits
-    if (units.length === 0) {
-      setError(useUnitCheckboxes ? 'Select at least one unit.' : 'At least one unit must be specified.')
-      return
-    }
-
-    const totalQuestions =
-      format.mcq_count + format.short_count + format.long_count + format.problem_count
-    if (totalQuestions === 0) {
-      setError('At least one question format must have count > 0.')
-      return
-    }
-
-    if (isBoardMcqOnly) {
-      setError(
-        'Board Exam papers cannot be MCQ-only. ' +
-        'Add at least one Short Answer, Long Answer, or Problem Solving question.'
-      )
-      return
-    }
-
-    if (useSectionLayout) {
-      for (const sec of sections) {
-        if (sec.answer_q > sec.total_q) {
-          setError(
-            `Part ${sec.label}: "Answer Q" (${sec.answer_q}) cannot exceed "Total Q" (${sec.total_q}).`
-          )
-          return
-        }
-      }
-    }
-
-    const sectionConfig: SectionConfig[] | undefined = useSectionLayout
-      ? sections.map((s, i) => ({ ...s, order: i }))
-      : undefined
-
+    // The template IS the paper's structure. It is stored verbatim, and the
+    // worker, the editor and the PDF all rebuild the paper from it — so no
+    // blueprint is sent alongside it to drift out of step.
     mutate({
       course_id:             courseId.trim(),
       title:                 effectiveTitle,
-      exam_type:             examType,
+      creation_mode:         mode,
+      exam_type:             derivedExamType,
       exam_workflow:         examWorkflow,
-      total_marks:           totalMarks,
+      total_marks:           evaluationTotal,
       duration_mins:         durationMins,
-      units_included:        units,
-      question_format:       format,
+      units_included:        effectiveUnits,
+      template_definition:   templateDoc,
       requested_dist:        dist,
-      section_config:        sectionConfig,
       special_instructions:  specialInstructions || undefined,
     })
   }
 
+  const courseLabel = selectedCourse ? `${selectedCourse.code} — ${selectedCourse.title}` : null
+
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => navigate('/exams')}>
           <ChevronLeft className="w-5 h-5" />
@@ -279,233 +332,39 @@ export default function ExamPaperCreatePage() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-2xl border border-gray-200 p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] gap-6 items-start">
+        <form onSubmit={handleSubmit} className="space-y-6 bg-white rounded-2xl border border-gray-200 p-6">
 
-        {/* Basic info */}
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Paper Details</h2>
-
-          {isInternal ? (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Assessment Name *</label>
-              <select
-                value={assessmentName}
-                onChange={e => setAssessmentName(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
-              >
-                {ASSESSMENT_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-              {assessmentName === 'Custom' && (
-                <input
-                  value={customAssessment}
-                  onChange={e => setCustomAssessment(e.target.value)}
-                  placeholder="Custom assessment name (e.g. Surprise Test 1)"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
-              )}
-              <p className="text-xs text-gray-400">Display label only — it does not change the internal-assessment workflow.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Title *</label>
-              <input
-                required
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                placeholder="e.g. End Semester Exam – Nov 2026"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
-            </div>
-          )}
-
-          {/* Course selection — Faculty: assigned subjects only; Board/Admin: Program → Semester → Course */}
-          <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
-            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Course Selection</p>
-
-          {isFacultyMode ? (
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Course *</label>
-              {assignmentsLoading ? (
-                <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading your subjects…
-                </div>
-              ) : facultyCourses.length === 0 ? (
-                <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                  You have no assigned subjects. Papers can only be set for subjects assigned to you.
-                </p>
-              ) : (
-                <select
-                  value={courseId}
-                  onChange={e => { setCourseId(e.target.value); setSelectedUnits([]) }}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+          {/* Creation mode — AI assists, faculty always has full control */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Creation Mode</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { value: 'AI' as const, title: 'Generate with AI', desc: 'AI drafts questions from the syllabus; you edit freely afterwards.' },
+                { value: 'MANUAL' as const, title: 'Create Manually', desc: 'Start with an empty paper and add every question by hand.' },
+              ]).map(opt => (
+                <label
+                  key={opt.value}
+                  className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                    mode === opt.value ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
                 >
-                  <option value="">— Select an assigned subject —</option>
-                  {facultyCourses.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} — {c.title}{c.semester != null ? ` (Sem ${c.semester})` : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <p className="text-xs text-gray-400">Only subjects assigned to you appear here.</p>
-            </div>
-          ) : (
-            <>
-            {/* Program */}
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Program *</label>
-              {programsLoading ? (
-                <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading programs…
-                </div>
-              ) : programs.length === 0 ? (
-                <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                  No approved programs found. Please approve a program first.
-                </p>
-              ) : (
-                <select
-                  value={programId}
-                  onChange={e => handleProgramChange(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
-                >
-                  <option value="">— Select a program —</option>
-                  {programs.map(p => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {/* Semester filter — only shown when program has multiple semesters */}
-            {programId && !coursesLoading && semesters.length > 1 && (
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Semester</label>
-                <select
-                  value={semesterFilter}
-                  onChange={e => handleSemesterChange(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
-                >
-                  <option value="">All semesters</option>
-                  {semesters.map(s => (
-                    <option key={s} value={s}>Semester {s}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Course */}
-            {programId && (
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">Course *</label>
-                {coursesLoading ? (
-                  <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Loading courses…
+                  <input type="radio" name="creation_mode" value={opt.value} checked={mode === opt.value}
+                    onChange={() => setMode(opt.value)} className="mt-0.5 accent-indigo-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{opt.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
                   </div>
-                ) : visibleCourses.length === 0 ? (
-                  <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                    No courses available for this program
-                    {semesterFilter !== '' ? ` in Semester ${semesterFilter}` : ''}.
-                  </p>
-                ) : (
-                  <select
-                    value={courseId}
-                    onChange={e => { setCourseId(e.target.value); setSelectedUnits([]) }}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
-                  >
-                    <option value="">— Select a course —</option>
-                    {visibleCourses.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.code} — {c.title}{semesters.length > 1 && semesterFilter === '' ? ` (Sem ${c.semester})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            )}
-            </>
-          )}
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Exam Type</label>
-            <select
-              value={examType}
-              onChange={e => setExamType(e.target.value as ExamType)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-            >
-              {EXAM_TYPES.map(t => (
-                <option key={t} value={t}>{t.replace('_', ' ')}</option>
+                </label>
               ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Total Marks *</label>
-              <input
-                type="number" min={1} max={500} required
-                value={totalMarks}
-                onChange={e => setTotalMarks(Number(e.target.value))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Duration (min) *</label>
-              <input
-                type="number" min={15} max={600} required
-                value={durationMins}
-                onChange={e => setDurationMins(Number(e.target.value))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
-            </div>
-          </div>
+          </section>
 
-          {/* Units — checkboxes from the course's approved syllabus (names visible);
-              falls back to manual entry when no approved syllabus exists. Backend
-              always receives unit numbers, unchanged. */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Units *</label>
-            {!courseId ? (
-              <p className="text-sm text-gray-400 bg-gray-50 rounded-lg px-3 py-2">Select a course to load its syllabus units.</p>
-            ) : useUnitCheckboxes ? (
-              <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
-                {syllabusUnits.map(u => (
-                  <label key={u.unit_number} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedUnits.includes(u.unit_number)}
-                      onChange={() => toggleUnit(u.unit_number)}
-                      className="accent-indigo-600 w-4 h-4"
-                    />
-                    <span className="text-sm text-gray-700">
-                      <span className="font-medium">Unit {u.unit_number}</span>
-                      {u.title ? ` — ${u.title}` : ''}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <>
-                <input
-                  value={unitsRaw}
-                  onChange={e => setUnitsRaw(e.target.value)}
-                  placeholder="1,2,3"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
-                <p className="text-xs text-amber-600">
-                  No approved syllabus found for this course — enter unit numbers manually (comma-separated).
-                </p>
-              </>
-            )}
-          </div>
-        </section>
-
-        {/* Exam Workflow */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Exam Workflow</h2>
-          <div className="grid grid-cols-2 gap-3">
-            {(
-              [
+          {/* Exam Workflow */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Exam Workflow</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {([
                 {
                   value: 'BOARD_EXAM' as ExamWorkflow,
                   title: 'Board Exam',
@@ -514,290 +373,377 @@ export default function ExamPaperCreatePage() {
                 {
                   value: 'INTERNAL' as ExamWorkflow,
                   title: 'Internal Assessment',
-                  desc:  'Faculty approves directly — no Board committee review required',
+                  desc:  'Faculty → Dean review → Approve. No Board committee involved.',
                 },
-              ]
-            ).map(opt => (
-              <label
-                key={opt.value}
-                className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-colors ${
-                  examWorkflow === opt.value
-                    ? 'border-indigo-500 bg-indigo-50'
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="exam_workflow"
-                  value={opt.value}
-                  checked={examWorkflow === opt.value}
-                  onChange={() => setExamWorkflow(opt.value)}
-                  className="mt-0.5 accent-indigo-600"
-                />
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">{opt.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
-                </div>
+              ]).map(opt => (
+                <label
+                  key={opt.value}
+                  className={`flex items-start gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                    examWorkflow === opt.value ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <input
+                    type="radio" name="exam_workflow" value={opt.value}
+                    checked={examWorkflow === opt.value}
+                    onChange={() => {
+                      setExamWorkflow(opt.value)
+                      setExamName(opt.value === 'INTERNAL' ? 'IA 1' : 'End Semester')
+                      setCustomName('')
+                    }}
+                    className="mt-0.5 accent-indigo-600"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{opt.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          {/* Basic info */}
+          <section className="space-y-4">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Paper Details</h2>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                {isInternal ? 'Assessment Name *' : 'Exam Name *'}
               </label>
-            ))}
-          </div>
-
-          {examWorkflow === 'INTERNAL' && (
-            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-sm text-amber-800">
-              <Info className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                Internal Assessment: after generation, Faculty approves the paper directly.
-                It advances to <strong>Board Approved</strong> state without Board committee review.
-              </span>
-            </div>
-          )}
-        </section>
-
-        {/* Section Layout */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Section Layout</h2>
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={useSectionLayout}
-                onChange={e => setUseSectionLayout(e.target.checked)}
-                className="rounded accent-indigo-600"
-              />
-              Use Part A / B / C structure
-            </label>
-          </div>
-
-          {useSectionLayout && (
-            <div className="rounded-xl border border-gray-200 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Part</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Q</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Answer Q</th>
-                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Marks Each</th>
-                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">MCQ Only</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {sections.map((sec, i) => (
-                    <tr key={sec.label} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 py-2.5">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-bold">
-                          {sec.label}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <input
-                          type="number" min={1} max={30}
-                          value={sec.total_q}
-                          onChange={e => updateSection(i, 'total_q', Number(e.target.value))}
-                          className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div>
-                          <input
-                            type="number" min={1} max={sec.total_q}
-                            value={sec.answer_q}
-                            onChange={e => updateSection(i, 'answer_q', Number(e.target.value))}
-                            className={`w-16 border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
-                              sec.answer_q > sec.total_q
-                                ? 'border-red-400 bg-red-50'
-                                : 'border-gray-200'
-                            }`}
-                          />
-                          {sec.answer_q > sec.total_q && (
-                            <p className="text-xs text-red-600 mt-0.5">max {sec.total_q}</p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <select
-                          value={sec.marks_each}
-                          onChange={e => updateSection(i, 'marks_each', Number(e.target.value))}
-                          className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
-                        >
-                          {SECTION_MARKS_OPTIONS.map(m => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-3 py-2.5 text-center">
-                        <input
-                          type="checkbox"
-                          checked={sec.mcq_only}
-                          onChange={e => updateSection(i, 'mcq_only', e.target.checked)}
-                          className="accent-indigo-600 w-4 h-4"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500 flex gap-4">
-                <span>
-                  Section marks total:{' '}
-                  <strong className="text-gray-700">
-                    {sections.reduce((sum, s) => sum + s.answer_q * s.marks_each, 0)}
-                  </strong>
-                </span>
-                <span>
-                  Questions set / answer:{' '}
-                  <strong className="text-gray-700">
-                    {sections.reduce((sum, s) => sum + s.total_q, 0)}
-                  </strong>
-                  {' / '}
-                  <strong className="text-gray-700">
-                    {sections.reduce((sum, s) => sum + s.answer_q, 0)}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Question format */}
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Question Format</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {(
-              [
-                { key: 'mcq_count',     label: 'MCQ' },
-                { key: 'short_count',   label: 'Short Answer' },
-                { key: 'long_count',    label: 'Long Answer' },
-                { key: 'problem_count', label: 'Problem Solving' },
-              ] as const
-            ).map(({ key, label }) => (
-              <div key={key} className="space-y-1">
-                <label className="text-xs font-medium text-gray-600">{label}</label>
+              <select
+                value={examName}
+                onChange={e => setExamName(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+              >
+                {nameOptions.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              {isCustomName && (
                 <input
-                  type="number" min={0} max={50}
-                  value={format[key]}
-                  onChange={e => setFormat(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                  value={customName}
+                  onChange={e => setCustomName(e.target.value)}
+                  placeholder={isInternal ? 'Custom assessment name (e.g. Surprise Test 1)' : 'Custom exam name (e.g. Re-Exam Jan 2027)'}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              )}
+              <p className="text-xs text-gray-600">
+                Display name only — it identifies the paper and maps to the “{derivedExamType.replace('_', ' ')}” exam type.
+              </p>
+            </div>
+
+            {/* Course selection — the paper's only identity input. */}
+            <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
+              <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Course Selection</p>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-gray-700">Course *</label>
+                {coursesBusy ? (
+                  <div className="flex items-center gap-2 py-2 text-sm text-gray-600">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {isFacultyMode ? 'Loading your subjects…' : 'Loading courses…'}
+                  </div>
+                ) : selectableCourses.length === 0 ? (
+                  <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    {isFacultyMode
+                      ? 'You have no assigned subjects. Papers can only be set for subjects assigned to you.'
+                      : 'No courses found in any approved program. Please approve a program first.'}
+                  </p>
+                ) : isFacultyMode ? (
+                  <select
+                    value={courseId}
+                    onChange={e => handleCourseChange(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                  >
+                    <option value="">— Select an assigned subject —</option>
+                    {facultyCourses.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.title}{c.semester != null ? ` (Sem ${c.semester})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={courseId}
+                    onChange={e => handleCourseChange(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                  >
+                    <option value="">— Select a course —</option>
+                    {coursesByProgram.map(([programTitle, courses]) => (
+                      <optgroup key={programTitle} label={programTitle}>
+                        {courses.map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.code} — {c.title} (Sem {c.semester})
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                )}
+                <p className="text-xs text-gray-600">
+                  {isFacultyMode
+                    ? 'Only subjects assigned to you appear here.'
+                    : 'Grouped by program. Selecting a course sets its semester and program.'}
+                </p>
+              </div>
+
+              {/* Derived, never chosen. */}
+              {selectedCourse && (
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm">
+                  <div className="flex gap-2">
+                    <dt className="text-gray-500">Program</dt>
+                    <dd className="text-gray-800 font-medium break-words">{selectedCourse.program_title ?? '—'}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="text-gray-500">Semester</dt>
+                    <dd className="text-gray-800 font-medium">
+                      {selectedCourse.semester != null ? `Semester ${selectedCourse.semester}` : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Marks (from the template)</label>
+                <div className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-700">
+                  <span className="font-semibold">Max {evaluationTotal}</span>
+                  <span className="text-gray-600"> · Printed {printedTotal}</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Duration (min) *</label>
+                <input
+                  type="number" min={15} max={600} required
+                  value={durationMins}
+                  onChange={e => setDurationMins(Number(e.target.value))}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 />
               </div>
-            ))}
-          </div>
-
-          {isBoardMcqOnly && (
-            <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2.5 text-sm text-orange-800">
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>
-                <strong>Board Exam — MCQ-only not allowed.</strong>{' '}
-                Board papers must include at least one Short Answer, Long Answer, or Problem Solving question.
-              </span>
             </div>
-          )}
-        </section>
+          </section>
 
-        {/* Bloom's distribution */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Bloom's Distribution (%)</h2>
-            <span className={`text-sm font-semibold ${Math.abs(bloomSum - 100) > 1 ? 'text-red-600' : 'text-green-600'}`}>
-              Total: {bloomSum.toFixed(0)}%
-            </span>
-          </div>
-
-          {/* Distribution bar */}
-          <div className="flex h-3 rounded-full overflow-hidden gap-0.5">
-            {BLOOM_LEVELS.map(({ key, color }) => (
-              <div
-                key={key}
-                className={`${color} transition-all`}
-                style={{ width: `${dist[key]}%` }}
-              />
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {BLOOM_LEVELS.map(({ key, label, color }) => (
-              <div key={key} className="space-y-1">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
-                  <span className={`w-2 h-2 rounded-full ${color}`} />
-                  {label}
-                </label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number" min={0} max={100} step={5}
-                    value={dist[key]}
-                    onChange={e => setDist(prev => ({ ...prev, [key]: Number(e.target.value) }))}
-                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
-                  <span className="text-xs text-gray-400">%</span>
+          {/* Units — the approved syllabus's own units, and nothing else. */}
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Syllabus Coverage</h2>
+            {!courseId ? (
+              <p className="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
+                Select a course to load its approved syllabus units.
+              </p>
+            ) : syllabusBusy ? (
+              <div className="flex items-center gap-2 py-2 text-sm text-gray-600">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading the approved syllabus…
+              </div>
+            ) : syllabusBlocked ? (
+              <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-amber-900">
+                    No approved syllabus for this course
+                  </p>
+                  <p className="text-xs text-amber-800">
+                    A paper's units come from the approved syllabus. Until one exists,
+                    there are no units to set questions on — so paper creation is
+                    blocked rather than inventing them.
+                  </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Special instructions */}
-        <section className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">Special Instructions (optional)</label>
-          <textarea
-            rows={3}
-            value={specialInstructions}
-            onChange={e => setSpecialInstructions(e.target.value)}
-            placeholder="e.g. Focus on practical application questions, avoid theoretical definitions."
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
-          />
-        </section>
-
-        {/* Generation preview — a read-only summary of what will be generated. */}
-        <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-indigo-800 uppercase tracking-wide">
-            <Eye className="w-4 h-4" /> Review before generating
-          </h2>
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-            <PreviewRow label="Program"  value={isFacultyMode ? '—' : (selectedProgram?.title ?? '—')} />
-            <PreviewRow label="Semester" value={selectedCourse?.semester != null ? `Semester ${selectedCourse.semester}` : '—'} />
-            <PreviewRow label="Course"   value={selectedCourse ? `${selectedCourse.code} — ${selectedCourse.title}` : '—'} />
-            <PreviewRow label={isInternal ? 'Assessment Name' : 'Title'} value={(isInternal ? assessmentLabel : title.trim()) || '—'} />
-            <PreviewRow label="Exam Type" value={examType.replace('_', ' ')} />
-            <PreviewRow label="Workflow" value={isInternal ? 'Internal Assessment' : 'Board Exam'} />
-            <PreviewRow label="Total Marks" value={`${totalMarks}`} />
-            <PreviewRow label="Duration" value={`${durationMins} min`} />
-            <PreviewRow label="Selected Units" value={effectiveUnits.length ? effectiveUnits.join(', ') : '—'} />
-            <PreviewRow label="Bloom's Distribution" value={BLOOM_LEVELS.map(b => `${b.label} ${dist[b.key]}%`).join(' · ')} />
-            <PreviewRow label="Question Pattern" value={`MCQ ${format.mcq_count} · Short ${format.short_count} · Long ${format.long_count} · Problem ${format.problem_count}`} />
-          </dl>
-        </section>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600">
-            {error}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" type="button" onClick={() => navigate('/exams')}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={isPending || isBoardMcqOnly}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
-          >
-            {isPending ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
             ) : (
-              'Generate Paper'
+              <>
+                <p className="text-xs text-gray-500">
+                  From <span className="font-medium">{officialSyllabus?.status === 'LOCKED' ? 'the locked' : 'the approved'}</span>{' '}
+                  syllabus v{officialSyllabus?.version}. Tick the units this paper covers.
+                </p>
+                <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                  {syllabusUnits.map(u => (
+                    <label key={u.unit_number} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={selectedUnits.includes(u.unit_number)}
+                        onChange={() => toggleUnit(u.unit_number)}
+                        className="accent-indigo-600 w-4 h-4"
+                      />
+                      <span className="text-sm text-gray-700">
+                        <span className="font-medium">Unit {u.unit_number}</span>
+                        {u.title ? ` — ${u.title}` : ''}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </>
             )}
-          </Button>
+          </section>
+
+          {/* Structure — sections and question definitions. The whole builder. */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Paper Structure</h2>
+              {sections.length > 0 && (
+                <span className="text-xs text-gray-500">
+                  {specs.length} question{specs.length === 1 ? '' : 's'} · {sections.length} section{sections.length === 1 ? '' : 's'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-600">
+              Say how many questions, worth what, over which units. The compiler
+              distributes them across the units you pick — you never place a
+              question on a unit by hand.
+            </p>
+
+            {!hasSyllabus ? (
+              <p className="text-sm text-gray-600 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-4 py-6 text-center">
+                The structure builder unlocks once the course has an approved syllabus.
+              </p>
+            ) : (
+              <PaperStructureBuilder
+                sections={sections}
+                onChange={setSections}
+                units={syllabusUnits
+                  .filter(u => effectiveUnits.includes(u.unit_number))
+                  .map(u => ({ unit_number: u.unit_number, title: u.title ?? null }))}
+                outcomes={outcomes}
+              />
+            )}
+
+            {sections.length === 0 && hasSyllabus && (
+              <Button
+                type="button" variant="ghost" size="sm" className="text-indigo-600"
+                onClick={() => setSections([newSection(0)])}
+              >
+                Start with a section
+              </Button>
+            )}
+
+            {uncoveredUnits.length > 0 && (
+              <p className="text-xs text-amber-600">
+                No question covers unit{uncoveredUnits.length === 1 ? '' : 's'}{' '}
+                {uncoveredUnits.join(', ')} — either add a definition for {uncoveredUnits.length === 1 ? 'it' : 'them'} or
+                untick {uncoveredUnits.length === 1 ? 'it' : 'them'} above.
+              </p>
+            )}
+          </section>
+
+          {/* Bloom's distribution */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground uppercase tracking-wide">Bloom's Distribution (%)</h2>
+              <span className={`text-sm font-semibold ${Math.abs(bloomSum - 100) > 1 ? 'text-red-600' : 'text-green-600'}`}>
+                Total: {bloomSum.toFixed(0)}%
+              </span>
+            </div>
+            <p className="text-xs text-gray-600">
+              The paper's overall mix. A question definition may override it for its
+              own questions.
+            </p>
+
+            <div className="flex h-3 rounded-full overflow-hidden gap-0.5">
+              {BLOOM_BARS.map(({ key, color }) => (
+                <div key={key} className={`${color} transition-all`} style={{ width: `${dist[key]}%` }} />
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {BLOOM_BARS.map(({ key, label, color }) => (
+                <div key={key} className="space-y-1">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+                    <span className={`w-2 h-2 rounded-full ${color}`} />
+                    {label}
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number" min={0} max={100} step={5}
+                      value={dist[key]}
+                      onChange={e => setDist(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                    <span className="text-xs text-gray-600">%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Special instructions */}
+          <section className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Special Instructions (optional)</label>
+            <textarea
+              rows={3}
+              value={specialInstructions}
+              onChange={e => setSpecialInstructions(e.target.value)}
+              placeholder="e.g. Focus on practical application questions, avoid theoretical definitions."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+            />
+          </section>
+
+          {/* Review — a read-only summary of what will be generated. */}
+          <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-indigo-800 uppercase tracking-wide">
+              <Eye className="w-4 h-4" /> Review before generating
+            </h2>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+              <ReviewRow label="Course"   value={courseLabel ?? '—'} />
+              <ReviewRow label="Semester" value={selectedCourse?.semester != null ? `Semester ${selectedCourse.semester}` : '—'} />
+              <ReviewRow label="Program"  value={selectedCourse?.program_title ?? '—'} derived />
+              <ReviewRow label={isInternal ? 'Assessment Name' : 'Exam Name'} value={effectiveTitle || '—'} />
+              <ReviewRow label="Exam Type" value={derivedExamType.replace('_', ' ')} derived />
+              <ReviewRow label="Workflow" value={isInternal ? 'Internal Assessment' : 'Board Exam'} />
+              <ReviewRow label="Duration" value={`${durationMins} min`} />
+              <ReviewRow label="Printed Marks" value={`${printedTotal}`} derived />
+              <ReviewRow label="Evaluation (Max) Marks" value={`${evaluationTotal}`} derived />
+              <ReviewRow label="Units Covered" value={effectiveUnits.length ? effectiveUnits.join(', ') : '—'} />
+              <ReviewRow
+                label="Unit Distribution" derived
+                value={unitCoverage.length ? unitCoverage.map(([u, n]) => `U${u}: ${n}q`).join('   ·   ') : '—'}
+              />
+              <ReviewRow label="Bloom's Distribution" value={BLOOM_BARS.map(b => `${b.label} ${dist[b.key]}%`).join(' · ')} />
+            </dl>
+          </section>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" type="button" onClick={() => navigate('/exams')}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isPending || syllabusBlocked}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+            >
+              {isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> {mode === 'MANUAL' ? 'Creating…' : 'Generating…'}</>
+              ) : (
+                mode === 'MANUAL' ? 'Create Manually' : 'Generate Paper'
+              )}
+            </Button>
+          </div>
+        </form>
+
+        {/* Live preview — the same reconstruction the PDF prints. */}
+        <div className="lg:sticky lg:top-6">
+          <PaperPreview
+            sections={sections}
+            units={effectiveUnits}
+            title={effectiveTitle}
+            courseLabel={courseLabel}
+            durationMins={durationMins}
+          />
         </div>
-      </form>
+      </div>
     </div>
   )
 }
 
-function PreviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({ label, value, derived }: { label: string; value: string; derived?: boolean }) {
   return (
     <div className="flex gap-2">
-      <dt className="text-gray-500 min-w-[8rem] shrink-0">{label}</dt>
-      <dd className="text-gray-800 font-medium break-words">{value}</dd>
+      <dt className="text-gray-500 shrink-0">{label}</dt>
+      <dd className="text-gray-800 font-medium break-words">
+        {value}
+        {derived && <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-600">derived</span>}
+      </dd>
     </div>
   )
 }

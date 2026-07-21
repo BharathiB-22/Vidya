@@ -161,6 +161,161 @@ def _make_model_answer(qtype: str, bloom: str, topic: str, unit_title: str, mark
     return intros.get(bloom, f"Model answer for {topic} in {unit_title}. Address all parts systematically.")
 
 
+def _type_for_marks(marks: float) -> str:
+    """Infer a question type from a blueprint row's mark value (the blueprint
+    specifies marks per question, not type). Low marks → short answer, higher
+    marks → long answer."""
+    if marks <= 2:
+        return "SHORT_ANSWER"
+    return "LONG_ANSWER"
+
+
+def _type_for_row(category: str | None, marks: float) -> str:
+    """Prefer an explicit blueprint category hint, else infer from marks."""
+    cat = (category or "").lower()
+    if "mcq" in cat or "objective" in cat or "multiple" in cat:
+        return "MCQ"
+    if "problem" in cat or "numeric" in cat:
+        return "PROBLEM_SOLVING"
+    if "long" in cat or "essay" in cat or "descriptive" in cat:
+        return "LONG_ANSWER"
+    if "short" in cat:
+        return "SHORT_ANSWER"
+    return _type_for_marks(marks)
+
+
+# ---------------------------------------------------------------------------
+# Template slots — the paper's structure as a flat, ordered list of positions
+# ---------------------------------------------------------------------------
+
+def _blueprint_slots(blueprint: list | None) -> list[dict]:
+    """Expand a blueprint into one slot per question the paper must contain.
+
+    A slot is a position in the printed paper: it fixes the unit, the marks, and
+    the template block that owns the question. Generation fills slots rather than
+    producing a loose bag of questions, which is what guarantees every question
+    lands inside exactly one template block (no "Additional Questions" bucket).
+
+    Slots are returned in printed-paper order: by the owning block's position
+    first (blueprint rows are grouped by unit, so block order would otherwise be
+    lost), then by the order rows appear within the blueprint.
+    """
+    slots: list[dict] = []
+    # Choice-group ids for OR_CHOICE rows so the PDF pairs them. Start high to
+    # avoid colliding with any LLM-assigned choice_group.
+    or_group = 10000
+    for entry in (blueprint or []):
+        try:
+            unit = int(entry.get("unit_number") or 1)
+        except (TypeError, ValueError):
+            unit = 1
+        for row in (entry.get("rows") or []):
+            count = int(row.get("count") or 0)
+            marks = float(row.get("marks") or 0)
+            if count <= 0 or marks <= 0:
+                continue
+            pattern = (row.get("choice_pattern") or "COMPULSORY").upper()
+            cg: int | None = None
+            if pattern == "OR_CHOICE":
+                or_group += 1
+                cg = or_group
+            block_order = row.get("block_order")
+            for _ in range(count):
+                slots.append({
+                    "unit_number":            unit,
+                    "marks":                  marks,
+                    "category":               row.get("category"),
+                    "choice_group":           cg,
+                    "block_id":      row.get("template_block_id"),
+                    "subpart_index": row.get("subpart_index"),
+                    "block_order":            10_000 if block_order is None else int(block_order),
+                })
+
+    # Stable sort by block position; rows without a block_order (legacy
+    # blueprints) all share one sentinel and keep their original order.
+    slots.sort(key=lambda s: s["block_order"])
+    return slots
+
+
+def _stamp_slot(q: dict, slot: dict) -> dict:
+    """Pin a question onto its slot. The template is the contract: whatever the
+    faculty asked for wins over whatever the model returned, so the printed
+    structure and the mark totals always match the paper they designed.
+
+    Only what the definition actually specified is forced — a Bloom's level or a
+    difficulty the faculty left to inherit stays as the model chose it.
+    """
+    q["unit_number"]            = slot["unit_number"]
+    q["unit_numbers"]           = slot.get("unit_numbers") or [slot["unit_number"]]
+    q["marks"]                  = slot["marks"]
+    q["choice_group"]           = slot["choice_group"]
+    q["template_block_id"]      = slot.get("block_id")
+    q["template_subpart_index"] = slot.get("subpart_index")
+
+    if slot.get("question_type"):
+        q["question_type"] = slot["question_type"]
+    if slot.get("bloom"):
+        q["bloom_level"] = str(slot["bloom"]).upper()
+    if slot.get("difficulty"):
+        q["difficulty"] = str(slot["difficulty"]).upper()
+    # A definition that named its COs overrides the model's guess; AUTO leaves the
+    # model's mapping alone.
+    if slot.get("co_mode") == "SPECIFIC" and slot.get("co_ids"):
+        q["co_ids"] = [str(c) for c in slot["co_ids"]]
+    return q
+
+
+def _bind_to_slots(questions: list[dict], slots: list[dict], fallback: list[dict]) -> list[dict]:
+    """Assign generated questions to template slots, one per slot.
+
+    Preference order per slot: a question already on the right unit AND marks,
+    then any question on the right unit, then any remaining question. A slot the
+    model under-delivered for is filled from `fallback` (slot-aligned mock
+    questions), and questions the template has no room for are dropped — the
+    paper contains exactly the questions the template asks for.
+    """
+    used: set[int] = set()
+
+    def _pick(slot: dict) -> int | None:
+        def _match(q: dict, exact: bool) -> bool:
+            if int(q.get("unit_number") or 0) != int(slot["unit_number"]):
+                return False
+            return (not exact) or float(q.get("marks") or 0) == float(slot["marks"])
+
+        for pred in (lambda q: _match(q, True), lambda q: _match(q, False), lambda _q: True):
+            for i, q in enumerate(questions):
+                if i not in used and pred(q):
+                    return i
+        return None
+
+    bound: list[dict] = []
+    filled = 0
+    for i, slot in enumerate(slots):
+        idx = _pick(slot)
+        if idx is None:
+            src = fallback[i] if i < len(fallback) else None
+            if src is None:
+                continue
+            filled += 1
+            bound.append(_stamp_slot(dict(src), slot))
+            continue
+        used.add(idx)
+        bound.append(_stamp_slot(dict(questions[idx]), slot))
+
+    if filled:
+        logger.warning(
+            "Model returned too few questions for the template — %d of %d slot(s) "
+            "filled from fallback generation.", filled, len(slots),
+        )
+    surplus = len(questions) - len(used)
+    if surplus > 0:
+        logger.warning(
+            "Model returned %d question(s) beyond the template's %d slot(s) — dropped.",
+            surplus, len(slots),
+        )
+    return bound
+
+
 def _build_prompt(
     units: list[dict],
     bloom_targets: dict[str, float],
@@ -171,8 +326,11 @@ def _build_prompt(
     course_code: str = "",
     exam_type: str = "END_SEM",
     section_config: list | None = None,
+    blueprint: list | None = None,
     course_outcomes: list | None = None,
     exam_workflow: str = "BOARD_EXAM",
+    template_prompt: str | None = None,
+    single_set: bool = False,
 ) -> str:
     """Build the LLM generation prompt with optional section and CO context."""
     course_header = ""
@@ -195,8 +353,11 @@ def _build_prompt(
         if pct > 0
     )
 
-    # Section structure overrides flat question_format when provided
-    if section_config:
+    # The template describes the paper position by position, so it outranks every
+    # looser description below it.
+    if template_prompt:
+        format_block = template_prompt
+    elif section_config:
         section_lines = []
         for s in sorted(section_config, key=lambda x: x.get("order", 0)):
             label      = s.get("label", "?")
@@ -220,6 +381,45 @@ def _build_prompt(
             "SECTION STRUCTURE (generate exactly total_q questions per section):\n"
             + "\n".join(section_lines)
             + f"\n\nTotal marks for Set A: {total_marks}"
+        )
+    elif blueprint:
+        bp_lines = []
+        printed_total = 0.0
+        evaluation_total = 0.0
+        for entry in blueprint:
+            unit_no = entry.get("unit_number", "?")
+            for r in (entry.get("rows") or []):
+                count = int(r.get("count", 0) or 0)
+                marks = float(r.get("marks", 0) or 0)
+                if count <= 0 or marks <= 0:
+                    continue
+                answer  = int(r.get("answer_count") or count)
+                answer  = min(answer, count)
+                pattern = (r.get("choice_pattern") or "COMPULSORY").upper()
+                category = (r.get("category") or "").strip()
+                printed_total    += count * marks
+                evaluation_total += answer * marks
+                if pattern == "OR_CHOICE":
+                    ans_note = "students answer ANY ONE (either/or) — print as 'Q OR Q'"
+                elif answer < count:
+                    ans_note = f"students answer ANY {answer} of the {count}"
+                else:
+                    ans_note = "all compulsory"
+                cat_note = f" [{category}]" if category else ""
+                bp_lines.append(
+                    f"  Unit {unit_no}{cat_note}: generate EXACTLY {count} unique "
+                    f"question(s) of {marks:g} marks each; {ans_note}. "
+                    f"Set unit_number={unit_no} and marks={marks:g} on each."
+                )
+        format_block = (
+            "PAPER BLUEPRINT — generate the number of questions to GENERATE for "
+            "each row (NOT the number the student answers). Optional and either/or "
+            "questions must ALL be generated:\n"
+            + "\n".join(bp_lines)
+            + f"\n\nPrinted total (all generated questions): {printed_total:g} marks. "
+            f"Evaluation total (maximum a student can score): {evaluation_total:g} marks.\n"
+            "Generate TWO sets (Set A and Set B) that both satisfy this blueprint; "
+            "most questions appear in both sets, vary at least 20% between sets."
         )
     else:
         format_text = ", ".join(
@@ -263,6 +463,19 @@ def _build_prompt(
 
     extra = f"\nSpecial instructions: {special_instructions}" if special_instructions else ""
 
+    # A template paper is ONE paper. Asking for two sets would make the model split
+    # its questions between them, and neither set would then hold the structure the
+    # template promised.
+    if single_set:
+        set_field_note = 'always exactly ["A"] — this paper has a single set'
+        total_note = (
+            "Write exactly one question for every position in the paper structure "
+            "above — no more, no fewer."
+        )
+    else:
+        set_field_note = 'array — ["A","B"] if in both sets, ["A"] or ["B"] if set-specific'
+        total_note = f"Ensure total marks across all questions in Set A equals {total_marks}."
+
     return f"""You are an experienced university examiner. Generate an exam question paper.
 
 {course_header}SYLLABUS UNITS:
@@ -275,12 +488,13 @@ def _build_prompt(
 For EACH question output a JSON object with these fields:
   unit_number     (integer — which unit this question covers)
   bloom_level     (one of: REMEMBER, UNDERSTAND, APPLY, ANALYSE, EVALUATE, CREATE)
-  question_type   (one of: MCQ, SHORT_ANSWER, LONG_ANSWER, PROBLEM_SOLVING)
+  question_type   (one of: MCQ, SHORT_ANSWER, LONG_ANSWER, PROBLEM_SOLVING, CASE_STUDY, PROGRAMMING)
+  difficulty      (one of: EASY, MEDIUM, HARD — match the difficulty asked for at this position)
   question_text   (the full question text — specific, subject-relevant, no placeholders)
   marks           (number — marks allocated; use the section marks_each for section-based papers)
   model_answer    (clear, complete model answer)
   marking_scheme  (array of {{criterion: str, marks: number, description: str}})
-  set_membership  (array — ["A","B"] if in both sets, ["A"] or ["B"] if set-specific)
+  set_membership  ({set_field_note})
   section_label   (string — section label "A"/"B"/"C" if this is a section-based paper, else null)
   co_ids          (array of CO UUID strings this question addresses — empty array if not applicable)
   options         (array of {{label: str, text: str}} — only for MCQ questions)
@@ -288,7 +502,7 @@ For EACH question output a JSON object with these fields:
 
 Output a JSON array of question objects only. No extra text or markdown fences.
 Ensure Bloom's distribution across questions matches the requested percentages within ±10%.
-Ensure total marks across all questions in Set A equals {total_marks}.
+{total_note}
 """
 
 
@@ -327,8 +541,19 @@ def _normalise_question(q: dict, unit_number_fallback: int = 1) -> dict:
     if isinstance(raw_co_ids, list):
         co_ids = [str(x) for x in raw_co_ids if x]
 
+    raw_units = q.get("unit_numbers")
+    unit_numbers = [int(u) for u in raw_units if str(u).strip().isdigit()] if isinstance(raw_units, list) else []
+
+    difficulty = q.get("difficulty")
+    if difficulty is not None:
+        difficulty = str(difficulty).strip().upper() or None
+        if difficulty not in ("EASY", "MEDIUM", "HARD"):
+            difficulty = None
+
     result: dict = {
         "unit_number":    int(q.get("unit_number") or unit_number_fallback),
+        "unit_numbers":   unit_numbers or None,
+        "difficulty":     difficulty,
         "co_code":        q.get("co_code"),
         "bloom_level":    bloom,
         "question_type":  qtype,
@@ -425,14 +650,25 @@ def _mock_questions(
     bloom_targets: dict[str, float],
     total_marks: int,
     section_config: list | None = None,
+    blueprint: list | None = None,
     exam_workflow: str = "BOARD_EXAM",
     course_outcomes: list | None = None,
+    slots: list | None = None,
+    single_set: bool = True,
 ) -> list[dict]:
     """
     Fallback question generation when no LLM key is configured.
     Produces structurally valid questions using actual unit/topic names.
     When section_config is provided, generates per-section respecting mcq_only
     and marks_each. Supports 2, 5, 8, 10, 15 mark questions via marks_each.
+
+    slots      pre-compiled template slots — one question is written per slot,
+               which is the only way the paper can match its template exactly.
+    single_set every question belongs to Set A. Two-set generation splits the
+               questions BETWEEN the sets, so neither set would then contain the
+               full structure the template promised; template papers are always
+               a single paper. Legacy blueprint/flat papers pass False and keep
+               the original A/B behaviour untouched.
     """
     import itertools
 
@@ -450,7 +686,10 @@ def _mock_questions(
         topic_pairs = [({"unit_no": 1, "title": "General Concepts"}, "Core Concepts")]
 
     topic_cycle = itertools.cycle(topic_pairs)
-    sets_cycle  = itertools.cycle([["A", "B"], ["A", "B"], ["A"], ["B"]])
+    sets_cycle  = (
+        itertools.cycle([["A"]]) if single_set
+        else itertools.cycle([["A", "B"], ["A", "B"], ["A"], ["B"]])
+    )
 
     # CO assignment cycle
     co_cycle = itertools.cycle(course_outcomes) if course_outcomes else None
@@ -458,8 +697,13 @@ def _mock_questions(
     # Non-MCQ type rotation for mixed sections
     non_mcq_cycle = itertools.cycle(_NON_MCQ_TYPES)
 
-    def _make(qtype: str, marks: float, section_label: str | None = None) -> dict:
-        unit, topic = next(topic_cycle)
+    def _make(
+        qtype: str,
+        marks: float,
+        section_label: str | None = None,
+        unit_topic: tuple[dict, str] | None = None,
+    ) -> dict:
+        unit, topic = unit_topic if unit_topic is not None else next(topic_cycle)
         bloom       = next(bloom_cycle)
         sets        = next(sets_cycle)
         unit_no     = int(unit.get("unit_no") or unit.get("unit_number") or 1)
@@ -515,6 +759,8 @@ def _mock_questions(
             "section_label":  section_label,
             "choice_group":   None,
             "co_ids":         co_ids,
+            "unit_numbers":   [unit_no],
+            "difficulty":     None,
             "options":        options,
             "correct_option": correct,
         }
@@ -535,6 +781,31 @@ def _mock_questions(
                 else:
                     qtype = next(non_mcq_cycle)
                 questions.append(_make(qtype, marks_each, section_label=label))
+        return questions
+
+    # ── Slot-driven generation — exactly one question per slot ──────────────
+    # Template papers pass compiled slots; legacy blueprint papers derive theirs
+    # from the blueprint rows. Both then follow the identical path.
+    effective_slots = slots if slots is not None else (_blueprint_slots(blueprint) if blueprint else None)
+    if effective_slots:
+        # Map each unit_number to a cycle of its own (unit_dict, topic) pairs so
+        # each question stays on the unit its slot asked for.
+        unit_cycles: dict[int, "itertools.cycle"] = {}
+        for u in (units or []):
+            un = int(u.get("unit_no") or u.get("unit_number") or 0)
+            pairs = [(u, str(t)) for t in (u.get("topics") or [u.get("title", "General Concepts")])]
+            unit_cycles[un] = itertools.cycle(pairs or [(u, "Core Concepts")])
+
+        for slot in effective_slots:
+            un = int(slot["unit_number"])
+            cyc = unit_cycles.get(un) or itertools.cycle(
+                [({"unit_no": un, "title": f"Unit {un}"}, "Core Concepts")]
+            )
+            # A template spec already says what type to write; only a legacy
+            # blueprint row leaves it to be inferred from the category and marks.
+            qtype = slot.get("question_type") or _type_for_row(slot.get("category"), slot["marks"])
+            q = _make(qtype, slot["marks"], unit_topic=next(cyc))
+            questions.append(_stamp_slot(q, slot))
         return questions
 
     # ── Board-exam guard — warn if only MCQs specified for a board exam ─────
@@ -573,8 +844,11 @@ async def generate_questions(
     course_code: str = "",
     exam_type: str = "END_SEM",
     section_config: list | None = None,
+    blueprint: list | None = None,
     course_outcomes: list | None = None,
     exam_workflow: str = "BOARD_EXAM",
+    slots: list | None = None,
+    template_prompt: str | None = None,
 ) -> tuple[list[dict], str, str]:
     """
     Generate exam questions from syllabus units.
@@ -583,7 +857,7 @@ async def generate_questions(
         units:                list of unit dicts from syllabus JSONB
         bloom_targets:        {bloom_level → percentage}
         question_format:      {mcq_count, short_count, long_count, problem_count}
-        total_marks:          target total marks for Set A
+        total_marks:          target total marks
         special_instructions: optional faculty hint
         course_title:         course name for richer prompt context
         course_code:          course code (e.g. "CS301")
@@ -591,11 +865,16 @@ async def generate_questions(
         section_config:       list of section dicts (label, total_q, answer_q, marks_each, mcq_only)
         course_outcomes:      list of CO dicts (co_code, description/co_description, id/co_id)
         exam_workflow:        "BOARD_EXAM" or "INTERNAL"
+        slots:                pre-compiled template slots (paper_template.compile_slots).
+                              When present the template owns the structure: exactly one
+                              question is written per slot and the paper is a single set.
+        template_prompt:      the template's own description of the paper, block by
+                              block (paper_template.describe_for_prompt).
 
     Returns:
         (questions, ai_model, prompt_hash)
         questions is a list of normalised question dicts ready for bulk_create.
-        Each dict includes: section_label, co_ids, choice_group (new H-35 fields).
+        Template papers additionally carry template_block_id / template_subpart_index.
     """
     from app.config import settings
 
@@ -605,15 +884,25 @@ async def generate_questions(
         and not (settings.AI_DEEPSEEK_ENABLED and settings.DEEPSEEK_API_KEY.strip())
     )
 
-    if no_keys:
-        logger.warning("No LLM API keys configured — using syllabus-aware fallback generation.")
-        questions = _mock_questions(
+    # A template owns the paper's structure, so its slots drive generation and the
+    # paper is a single set. Legacy blueprint/flat papers keep two-set behaviour.
+    is_template = slots is not None
+    single_set  = is_template
+
+    def _fallback() -> list[dict]:
+        return _mock_questions(
             units, question_format, bloom_targets, total_marks,
             section_config=section_config,
+            blueprint=blueprint,
             exam_workflow=exam_workflow,
             course_outcomes=course_outcomes,
+            slots=slots,
+            single_set=single_set,
         )
-        return questions, "mock", "mock"
+
+    if no_keys:
+        logger.warning("No LLM API keys configured — using syllabus-aware fallback generation.")
+        return _fallback(), "mock", "mock"
 
     prompt = _build_prompt(
         units=units,
@@ -625,26 +914,38 @@ async def generate_questions(
         course_code=course_code,
         exam_type=exam_type,
         section_config=section_config,
+        blueprint=blueprint,
         course_outcomes=course_outcomes,
         exam_workflow=exam_workflow,
+        template_prompt=template_prompt,
+        single_set=single_set,
     )
 
     try:
         raw, model_name, prompt_hash = await _call_llm(prompt)
         raw_questions = _parse_questions(raw)
         questions = [_normalise_question(q) for q in raw_questions]
+
+        bind_slots = slots if is_template else (
+            _blueprint_slots(blueprint) if (blueprint and not section_config) else None
+        )
+        if bind_slots:
+            # The template is the contract, and a model is free to ignore it: it
+            # can return the wrong marks, the wrong unit, or the wrong count. Bind
+            # its output onto the slots so the paper always reconstructs into the
+            # faculty's structure instead of spilling into a loose bucket.
+            questions = _bind_to_slots(questions, bind_slots, _fallback())
+            if single_set:
+                # One paper, one set — a question held back for "Set B" would be a
+                # hole in the structure the template promised.
+                for q in questions:
+                    q["set_membership"] = ["A"]
     except Exception as exc:
         logger.error(
             "Question generation failed: %s — falling back to syllabus-aware generation.", exc
         )
-        questions = _mock_questions(
-            units, question_format, bloom_targets, total_marks,
-            section_config=section_config,
-            exam_workflow=exam_workflow,
-            course_outcomes=course_outcomes,
-        )
+        questions = _fallback()
         model_name  = "mock-fallback"
-        prompt_hash = "error"
 
     return questions, model_name, hashlib.sha256(
         json.dumps({"units": len(units), "format": question_format}).encode()

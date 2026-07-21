@@ -24,8 +24,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Enum, Float,
-    ForeignKey, Index, Integer, Numeric, String, Text,
+    Boolean, Column, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text,
     UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -63,6 +62,14 @@ class QuestionType(str, enum.Enum):
     SHORT_ANSWER    = "SHORT_ANSWER"
     LONG_ANSWER     = "LONG_ANSWER"
     PROBLEM_SOLVING = "PROBLEM_SOLVING"
+    CASE_STUDY      = "CASE_STUDY"
+    PROGRAMMING     = "PROGRAMMING"
+
+
+class Difficulty(str, enum.Enum):
+    EASY   = "EASY"
+    MEDIUM = "MEDIUM"
+    HARD   = "HARD"
 
 
 class BloomLevel(str, enum.Enum):
@@ -142,6 +149,11 @@ class ExamPaper(Base):
     total_marks         = Column(Integer, nullable=False, default=100)
     duration_mins       = Column(Integer, nullable=False, default=180)
 
+    # How the paper was created: "AI" (Celery/LLM generation) or "MANUAL"
+    # (empty paper, faculty/board add questions by hand). Existing rows backfill
+    # to "AI". Manual mode never dispatches a generation task.
+    creation_mode       = Column(String, nullable=False, server_default="AI", default="AI")
+
     # Which units from the syllabus to cover
     units_included      = Column(JSONB, nullable=False, server_default="[]")
 
@@ -210,6 +222,29 @@ class ExamPaper(Base):
     # Optional Part A / Part B / Part C section structure
     # [{label, instruction, total_q, answer_q, marks_each, order}]
     section_config      = Column(JSONB, nullable=True)
+
+    # Optional per-unit paper blueprint:
+    #   [{unit_number: int, rows: [{count: int, marks: float}]}]
+    # Drives AI generation exactly (generate `count` questions of `marks` each for
+    # each unit) and serves as the target plan for manual papers. Generation
+    # priority: section_config > blueprint > question_format.
+    blueprint           = Column(JSONB, nullable=True)
+
+    # --- Paper Template — the SOURCE OF TRUTH for structure & PDF layout ---
+    # template_definition (v3, P1.19): sections of question definitions, and
+    # nothing else. Every university pattern is expressed by choosing sections,
+    # answer rules and question definitions:
+    #   {version: 3, sections: [{name, instruction, answer_rule, definitions: [...]}]}
+    # `blueprint` above is the internal generation model compiled FROM this.
+    # NULL for legacy papers → renderers fall back to blueprint / flat.
+    #
+    # template_type is LEGACY (v1/v2: UNIT | SECTION | FULL_QUESTION | HYBRID).
+    # v3 has no template types — faculty never choose one — so nothing writes this
+    # column any more. It is kept, and kept nullable, because sealed papers still
+    # carry it and a sealed paper is never rewritten. Read paper_template.py's
+    # normalise_definition(), which upgrades v1/v2 documents in memory instead.
+    template_type       = Column(String, nullable=True)
+    template_definition = Column(JSONB, nullable=True)
 
     # Per-CO advisory coverage — written by generation worker
     # [{co_id, co_code, covered: bool, question_count: int}]
@@ -293,6 +328,7 @@ class ExamQuestion(Base):
         Index("ix_exam_questions_type",    "question_type"),
         Index("ix_exam_questions_unit",    "unit_number"),
         Index("ix_exam_questions_section", "section_label"),
+        Index("ix_exam_questions_template_block", "exam_paper_id", "template_block_id"),
     )
 
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -339,6 +375,10 @@ class ExamQuestion(Base):
     ai_generated    = Column(Boolean, nullable=False, default=True)
     is_edited       = Column(Boolean, nullable=False, default=False)
 
+    # Explicit ordering for the manual builder (drag & drop). Backfilled per
+    # paper on migration; new questions append at max+1.
+    display_order   = Column(Integer, nullable=False, server_default="0", default=0)
+
     # --- H-35 productization additions ---
 
     # Section within the paper: "A", "B", "C"
@@ -349,6 +389,33 @@ class ExamQuestion(Base):
 
     # CO UUIDs from M02 CourseOutcome linked to this question (advisory)
     co_ids          = Column(JSONB, nullable=True, server_default="[]")
+
+    # --- P1.17: template binding ---
+
+    # The template block (or compiled blueprint row) this question belongs to.
+    # Assigned at generation so the editor and the PDF reconstruct the faculty's
+    # template exactly, instead of inferring it from (unit_number, marks).
+    # NULL only on legacy papers created before P1.17.
+    template_block_id      = Column(String, nullable=True)
+
+    # 0-based sub-part index within a full question (Q1 a/b/c); NULL otherwise
+    # and on legacy rows.
+    template_subpart_index = Column(Integer, nullable=True)
+
+    # --- P1.19: question definition attributes ---
+
+    # Every unit this question draws on. A question definition may pool several
+    # units and ask for them to be integrated into one question, which a single
+    # unit_number cannot express. unit_number remains the PRIMARY unit, so unit
+    # coverage reports, the index, and every legacy row keep working untouched.
+    unit_numbers    = Column(JSONB, nullable=True)
+
+    # EASY / MEDIUM / HARD — requested per question definition, honoured by the
+    # generator. NULL on legacy rows and where the faculty did not ask.
+    difficulty      = Column(
+        Enum(Difficulty, native_enum=False),
+        nullable=True,
+    )
 
     created_at      = Column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")

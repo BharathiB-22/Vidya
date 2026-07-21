@@ -1,18 +1,23 @@
 // M08 Exam Setter — Exam paper list (role-aware: Faculty/Admin vs Board)
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { FileText, Plus, ChevronRight } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { FileText, Plus, ChevronRight, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { PageLoading } from '@/components/shared/PageLoading'
 import { PageError } from '@/components/shared/PageError'
 import { PageEmpty } from '@/components/shared/PageEmpty'
-import { listExamPapers, listAllExamPapers, listBoardPending } from '@/lib/api/exam'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { listExamPapers, listAllExamPapers, listBoardPending, deleteExamPaper } from '@/lib/api/exam'
+import { examStatusLabel, examStatusColor, canDeletePaper } from '@/lib/examStatus'
+import { getErrorMessage } from '@/lib/api'
+import { useWorkspace } from '@/lib/workspace'
 import type { ExamPaper, ExamPaperStatus, ExamWorkflow } from '@/types/exam'
 
+// Shared status filter — labels stay workflow-neutral because a single backend
+// state (e.g. BOARD_APPROVED) backs both the Board and Dean flows. Per-paper
+// badges are workflow-aware via examStatusLabel().
 const STATUS_OPTS: Array<{ value: ExamPaperStatus | ''; label: string }> = [
   { value: '',               label: 'All' },
   { value: 'DRAFT',          label: 'Draft' },
@@ -20,8 +25,8 @@ const STATUS_OPTS: Array<{ value: ExamPaperStatus | ''; label: string }> = [
   { value: 'GENERATED',      label: 'Generated' },
   { value: 'FAILED',         label: 'Failed' },
   { value: 'SUBMITTED',      label: 'Submitted' },
-  { value: 'BOARD_APPROVED', label: 'Board Approved' },
-  { value: 'BOARD_RETURNED', label: 'Board Returned' },
+  { value: 'BOARD_APPROVED', label: 'Approved' },
+  { value: 'BOARD_RETURNED', label: 'Returned' },
   { value: 'SEALED',         label: 'Sealed' },
   { value: 'RELEASED',       label: 'Released' },
 ]
@@ -32,23 +37,14 @@ const WORKFLOW_OPTS: Array<{ value: ExamWorkflow | ''; label: string }> = [
   { value: 'BOARD_EXAM', label: 'Board Exam' },
 ]
 
-const STATUS_COLOR: Record<string, string> = {
-  DRAFT:          'bg-gray-100 text-gray-600',
-  GENERATING:     'bg-blue-100 text-blue-600',
-  GENERATED:      'bg-indigo-100 text-indigo-700',
-  FAILED:         'bg-red-100 text-red-600',
-  SUBMITTED:      'bg-yellow-100 text-yellow-700',
-  BOARD_APPROVED: 'bg-green-100 text-green-700',
-  BOARD_RETURNED: 'bg-orange-100 text-orange-700',
-  SEALED:         'bg-purple-100 text-purple-700',
-  RELEASED:       'bg-emerald-100 text-emerald-700',
-}
-
 export default function ExamPaperListPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const user = useCurrentUser()
-  const role = user?.role ?? ''
+  // Gate on the ACTIVE WORKSPACE (mirrors the backend's viewing_role), not the
+  // base login role — otherwise a base DEAN/BOARD acting in the Faculty
+  // workspace never sees the Delete button on their own papers.
+  const { activeWorkspace } = useWorkspace()
+  const role = activeWorkspace
 
   const isBoardPendingRoute = location.pathname === '/exams/board/pending'
   const isBoard = role === 'BOARD'
@@ -57,14 +53,34 @@ export default function ExamPaperListPage() {
   const [statusFilter, setStatusFilter] = useState<ExamPaperStatus | ''>('')
   const [workflowFilter, setWorkflowFilter] = useState<ExamWorkflow | ''>('')
   const [offset, setOffset] = useState(0)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const limit = 20
+  const queryClient = useQueryClient()
+
+  // Faculty/Admin delete their own papers from the list. Never offered on the
+  // Board review views, and never to a Dean (a returned paper is the Faculty's
+  // to delete, not the Dean's). The per-card status gate (canDeletePaper)
+  // decides which rows show the button; the backend re-checks role, ownership
+  // and state regardless.
+  const canDeleteHere =
+    !isBoardPendingRoute && (role === 'FACULTY' || role === 'ADMIN')
+
+  const deleteMut = useMutation({
+    mutationFn: (paperId: string) => deleteExamPaper(paperId),
+    onSuccess: () => {
+      setDeleteError(null)
+      queryClient.invalidateQueries({ queryKey: ['exam-papers'] })
+    },
+    onError: (err) => setDeleteError(getErrorMessage(err)),
+  })
 
   // Route-aware query: board/pending → listBoardPending, board on /exams → listAllExamPapers, faculty → own papers
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['exam-papers', role, isBoardPendingRoute, statusFilter, offset],
     queryFn: () => {
       if (isBoardPendingRoute) return listBoardPending({ offset, limit })
-      if (isBoard) return listAllExamPapers({ status: statusFilter || undefined, offset, limit })
+      // Workflow isolation: a BOARD user never sees INTERNAL papers.
+      if (isBoard) return listAllExamPapers({ status: statusFilter || undefined, workflow: 'BOARD_EXAM', offset, limit })
       return listExamPapers({ status: statusFilter || undefined, offset, limit })
     },
   })
@@ -113,7 +129,8 @@ export default function ExamPaperListPage() {
               </button>
             ))}
           </div>
-          {/* Workflow filter */}
+          {/* Workflow filter — hidden for BOARD (constrained to Board Exam papers) */}
+          {!isBoard && (
           <div className="flex flex-wrap gap-2">
             {WORKFLOW_OPTS.map(opt => (
               <button
@@ -129,6 +146,13 @@ export default function ExamPaperListPage() {
               </button>
             ))}
           </div>
+          )}
+        </div>
+      )}
+
+      {deleteError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+          {deleteError}
         </div>
       )}
 
@@ -163,6 +187,16 @@ export default function ExamPaperListPage() {
                     ? () => navigate(`/exams/internal-marks/course/${paper.course_id}`)
                     : undefined
                 }
+                onDelete={
+                  canDeleteHere && canDeletePaper(paper.status)
+                    ? () => {
+                        if (window.confirm(`Delete "${paper.title}"? This cannot be undone.`)) {
+                          deleteMut.mutate(paper.id)
+                        }
+                      }
+                    : undefined
+                }
+                deleting={deleteMut.isPending && deleteMut.variables === paper.id}
               />
             ))}
           </div>
@@ -192,7 +226,7 @@ export default function ExamPaperListPage() {
             </div>
           )}
           {workflowFilter && (
-            <p className="text-xs text-gray-400 pt-1">
+            <p className="text-xs text-gray-600 pt-1">
               {visibleItems.length} item{visibleItems.length !== 1 ? 's' : ''} on this page matching workflow filter.
             </p>
           )}
@@ -206,12 +240,16 @@ function PaperCard({
   paper,
   onClick,
   onMarksClick,
+  onDelete,
+  deleting,
 }: {
   paper: ExamPaper
   onClick: () => void
   onMarksClick?: () => void
+  onDelete?: () => void
+  deleting?: boolean
 }) {
-  const colorClass = STATUS_COLOR[paper.status] ?? 'bg-gray-100 text-gray-600'
+  const colorClass = examStatusColor(paper.status)
   const workflowBadge =
     paper.exam_workflow === 'INTERNAL'
       ? 'bg-amber-100 text-amber-700'
@@ -231,14 +269,14 @@ function PaperCard({
               {paper.exam_type.replace('_', ' ')} · {paper.total_marks} marks · {paper.duration_mins} min
             </p>
             {paper.release_at && (
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-600 mt-1">
                 Release: {new Date(paper.release_at).toLocaleString()}
               </p>
             )}
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0">
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${colorClass}`}>
-              {paper.status.replace(/_/g, ' ')}
+              {examStatusLabel(paper.status, paper.exam_workflow)}
             </span>
             <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${workflowBadge}`}>
               {workflowLabel}
@@ -247,15 +285,27 @@ function PaperCard({
         </div>
       </button>
 
-      {onMarksClick && (
-        <div className="px-4 pb-3 pt-0 border-t border-gray-100">
-          <button
-            onClick={e => { e.stopPropagation(); onMarksClick() }}
-            className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 transition-colors"
-          >
-            Internal Marks
-            <ChevronRight className="h-3 w-3" />
-          </button>
+      {(onMarksClick || onDelete) && (
+        <div className="flex items-center justify-between px-4 pb-3 pt-0 border-t border-gray-100">
+          {onMarksClick ? (
+            <button
+              onClick={e => { e.stopPropagation(); onMarksClick() }}
+              className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 transition-colors"
+            >
+              Internal Marks
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          ) : <span />}
+          {onDelete && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete() }}
+              disabled={deleting}
+              className="flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          )}
         </div>
       )}
     </div>
