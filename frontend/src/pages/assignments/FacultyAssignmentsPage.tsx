@@ -52,7 +52,7 @@ function AssignmentRow({ a, onOpen }: { a: EvaluationAssignment; onOpen: () => v
           {a.due_at && <span className="ml-2 text-amber-600">· Due {formatDateTime(a.due_at)}</span>}
         </div>
       </div>
-      <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+      <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
     </button>
   )
 }

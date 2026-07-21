@@ -22,6 +22,7 @@ from app.modules.m04_assignments.models import (
 )
 from app.modules.m04_assignments.repository import (
     COURSEWORK_TARGET_ENTITY,
+    AiEvaluationRepository,
     AssignmentRepository,
     SubmissionRepository,
 )
@@ -149,16 +150,37 @@ class AssignmentService:
         actor_role: str | None,
         db: AsyncSession,
     ) -> None:
-        """Who may read this coursework: whoever set it, the department — or an
-        evaluator it was handed to, who needs to see what their work belongs
-        to."""
+        """Who may read this coursework: whoever set it, the department, an
+        evaluator it was handed to — or a NOMINATED evaluator, who may open the
+        assignment directly the moment they are selected, before any student has
+        submitted (there is no allocation yet, but the work was routed to them
+        deliberately)."""
         if _is_privileged(actor_role) or assignment.created_by_user_id == actor_user_id:
+            return
+        nominees = {str(e) for e in (assignment.evaluator_user_ids or [])}
+        if str(actor_user_id) in nominees:
             return
         if await _has_allocation_on(assignment.id, actor_user_id, db=db):
             return
         raise AssignmentServiceError(
             "NOT_FOUND", "Assignment not found.", 404
         )
+
+    @staticmethod
+    async def assert_student_may_view(
+        assignment: Assignment, *, student_user_id: UUID, db: AsyncSession
+    ) -> None:
+        """A student may open an assignment ONLY when it is PUBLISHED/CLOSED and it
+        belongs to a course they are actively enrolled in. Everything else is a
+        404, so a student can never reach another course's coursework — not even
+        the detail or the question paper, and not even by guessing the id."""
+        if assignment.status not in (AssignmentStatus.PUBLISHED, AssignmentStatus.CLOSED):
+            raise AssignmentServiceError("NOT_FOUND", "Assignment not found.", 404)
+        enrolled = await AssignmentRepository.enrolled_syllabus_ids_for_student(
+            student_user_id, db=db
+        )
+        if assignment.syllabus_id is None or assignment.syllabus_id not in enrolled:
+            raise AssignmentServiceError("NOT_FOUND", "Assignment not found.", 404)
 
     @staticmethod
     async def create(
@@ -200,6 +222,7 @@ class AssignmentService:
         *,
         db: AsyncSession,
         syllabus_id: UUID | None = None,
+        syllabus_ids: list[UUID] | None = None,
         status: str | None = None,
         statuses: list[str] | None = None,
         created_by_user_id: UUID | None = None,
@@ -207,13 +230,15 @@ class AssignmentService:
         limit: int = 50,
     ) -> tuple[list[Assignment], int]:
         """`created_by_user_id` scopes the list to one faculty's own coursework.
-        The caller decides whether to pass it — see the router, where a faculty
-        always does and the department never does."""
+        `syllabus_ids` scopes it to a student's enrolled courses (an empty list
+        means "enrolled in nothing" → sees nothing). The caller decides which to
+        pass — see the router."""
         status_enum = AssignmentStatus(status) if status else None
         statuses_enum = [AssignmentStatus(s) for s in statuses] if statuses else None
         return await AssignmentRepository.list_assignments(
             db=db,
             syllabus_id=syllabus_id,
+            syllabus_ids=syllabus_ids,
             status=status_enum,
             statuses=statuses_enum,
             created_by_user_id=created_by_user_id,
@@ -265,6 +290,34 @@ class AssignmentService:
         return updated
 
     @staticmethod
+    async def delete(
+        assignment_id: UUID,
+        *,
+        actor_user_id: UUID,
+        actor_role: str | None,
+        db: AsyncSession,
+    ) -> None:
+        """Delete a DRAFT assignment.
+
+        Ownership is enforced on the ACTIVE workspace (actor_role = viewing_role):
+        only the owning faculty (or a privileged actor) may delete, and only while
+        the assignment is still a DRAFT — a published assignment can never be
+        deleted. Related draft data is removed safely (see repository.delete)."""
+        assignment = await _require_assignment(assignment_id, db=db)
+        await AssignmentService.assert_may_manage(
+            assignment, actor_user_id=actor_user_id, actor_role=actor_role
+        )
+        if assignment.status != AssignmentStatus.DRAFT:
+            raise AssignmentServiceError(
+                "NOT_DRAFT",
+                "Only DRAFT assignments can be deleted. A published assignment "
+                "cannot be deleted.",
+                409,
+            )
+        await AssignmentRepository.delete(assignment_id, db=db)
+        await db.commit()
+
+    @staticmethod
     async def publish(assignment_id: UUID, *, db: AsyncSession) -> Assignment:
         assignment = await _require_assignment(assignment_id, db=db)
         if assignment.status != AssignmentStatus.DRAFT:
@@ -274,6 +327,16 @@ class AssignmentService:
         if not (assignment.description or "").strip():
             raise AssignmentServiceError(
                 "NO_DESCRIPTION", "A description is required before publishing.", 400
+            )
+        # Root cause of "students can't see published assignments": an assignment
+        # with no course (syllabus) is tied to nobody, reaches no enrolled student
+        # and sends no notification. Block publishing one.
+        if assignment.syllabus_id is None:
+            raise AssignmentServiceError(
+                "NO_COURSE",
+                "Link the assignment to a course before publishing, so enrolled "
+                "students receive it.",
+                400,
             )
         updated = await AssignmentRepository.publish(assignment_id, db=db)
         await db.commit()
@@ -316,35 +379,89 @@ class AssignmentService:
         await db.refresh(updated)
         return updated
 
-    @staticmethod
-    async def finalize_marks(
-        assignment_id: UUID, *, actor_user_id: UUID, db: AsyncSession
-    ) -> Assignment:
-        """Ratify the marks for every submission — a human decision, recorded.
+    # finalize_marks() removed with the Dean ratification step. The owning
+    # faculty's review of the evaluator's recommendation is the ratification, and
+    # `release` below is the single human decision that acts on it.
 
-        Nothing computes or infers this transition, and no AI reaches it: a person
-        reviews the evaluated marks and commits to them. Once set, grading stops.
-        Every submission must carry a mark first, so finalizing can never silently
-        ratify an incomplete evaluation.
-        """
+    @staticmethod
+    async def release(assignment_id: UUID, *, db: AsyncSession) -> Assignment:
+        """Release the faculty-approved marks to students. -> RELEASED.
+
+        The owning faculty's single human decision. There is no separate
+        ratification step ahead of it: reviewing the evaluator's recommendation
+        and choosing to release IS the ratification, and the faculty is the
+        academic authority for their own coursework.
+
+        FINALIZED is still accepted as a source state so assignments ratified
+        under the old Dean workflow can still be released."""
         assignment = await _require_assignment(assignment_id, db=db)
-        if assignment.status != AssignmentStatus.SUBMITTED:
+        if assignment.status not in (
+            AssignmentStatus.PUBLISHED,
+            AssignmentStatus.CLOSED,
+            AssignmentStatus.SUBMITTED,
+            AssignmentStatus.FINALIZED,
+        ):
             raise AssignmentServiceError(
-                "NOT_UNDER_EVALUATION",
-                "Only an assignment submitted for evaluation can have its marks "
-                "finalized.",
+                "NOT_RELEASABLE",
+                "Only an assignment that is open for evaluation can have its marks "
+                "released to students.",
                 409,
             )
+        # Guard moved off the removed finalize step: releasing a half-evaluated
+        # class would show some students a mark and others nothing.
         ungraded = await SubmissionRepository.count_ungraded(assignment_id, db=db)
         if ungraded:
             raise AssignmentServiceError(
                 "EVALUATION_INCOMPLETE",
                 f"{ungraded} submission(s) are still not evaluated. Marks can only "
-                f"be finalized once every submission has been evaluated.",
+                f"be released once every submission has been evaluated.",
                 409,
             )
-        updated = await AssignmentRepository.finalize(
-            assignment_id, actor_user_id=actor_user_id, db=db
+        updated = await AssignmentRepository.set_status(
+            assignment_id, AssignmentStatus.RELEASED, db=db
+        )
+        await db.commit()
+        await db.refresh(updated)
+        return updated
+
+    @staticmethod
+    async def archive(
+        assignment_id: UUID, *, actor_user_id: UUID, actor_role: str | None, db: AsyncSession
+    ) -> Assignment:
+        """File a finished assignment away. FINALIZED / RELEASED -> ARCHIVED."""
+        assignment = await _require_assignment(assignment_id, db=db)
+        await AssignmentService.assert_may_manage(
+            assignment, actor_user_id=actor_user_id, actor_role=actor_role
+        )
+        if assignment.status not in (AssignmentStatus.FINALIZED, AssignmentStatus.RELEASED):
+            raise AssignmentServiceError(
+                "NOT_ARCHIVABLE",
+                "Only a FINALIZED or RELEASED assignment can be archived.",
+                409,
+            )
+        updated = await AssignmentRepository.set_status(
+            assignment_id, AssignmentStatus.ARCHIVED, db=db
+        )
+        await db.commit()
+        await db.refresh(updated)
+        return updated
+
+    @staticmethod
+    async def restore(
+        assignment_id: UUID, *, actor_user_id: UUID, actor_role: str | None, db: AsyncSession
+    ) -> Assignment:
+        """Bring an archived assignment back. ARCHIVED -> FINALIZED (re-release to
+        students afterwards if their marks should be visible again)."""
+        assignment = await _require_assignment(assignment_id, db=db)
+        await AssignmentService.assert_may_manage(
+            assignment, actor_user_id=actor_user_id, actor_role=actor_role
+        )
+        if assignment.status != AssignmentStatus.ARCHIVED:
+            raise AssignmentServiceError(
+                "NOT_ARCHIVED", "Only an ARCHIVED assignment can be restored.", 409
+            )
+        updated = await AssignmentRepository.set_status(
+            assignment_id, AssignmentStatus.FINALIZED, db=db
         )
         await db.commit()
         await db.refresh(updated)
@@ -372,6 +489,7 @@ class SubmissionService:
         content_text: str | None = None,
         content_url: str | None = None,
         tenant_id: UUID | None = None,
+        schema_name: str | None = None,
         db: AsyncSession,
     ) -> AssignmentSubmission:
         assignment = await _require_assignment(assignment_id, db=db)
@@ -427,7 +545,63 @@ class SubmissionService:
             assignment, submission, student_user_id,
             rota_index=rota_index, tenant_id=tenant_id, db=db,
         )
+
+        # Kick off the ADVISORY AI evaluation in the background. Fire-and-forget:
+        # the submission is already committed and this must never block or fail it.
+        await SubmissionService._enqueue_ai_evaluation(
+            assignment, submission, schema_name=schema_name, db=db,
+        )
         return submission
+
+    @staticmethod
+    async def _enqueue_ai_evaluation(
+        assignment: Assignment,
+        submission: AssignmentSubmission,
+        *,
+        schema_name: str | None,
+        db: AsyncSession,
+    ) -> None:
+        """Create the PENDING AI row and dispatch the background worker. A failure
+        here is logged and swallowed — no AI analysis yet just means the evaluator
+        grades by hand, exactly as before this feature existed."""
+        if schema_name is None:
+            return
+        try:
+            await AiEvaluationRepository.upsert_pending(submission.id, db=db)
+            await db.commit()
+        except Exception:
+            logger.exception("coursework AI: PENDING row not created for %s", submission.id)
+            return
+        try:
+            from app.workers.heavy.evaluate_coursework_submission import (
+                evaluate_coursework_submission,
+            )
+            evaluate_coursework_submission.apply_async(kwargs={
+                "submission_id": str(submission.id),
+                "assignment_id": str(assignment.id),
+                "schema_name":   schema_name,
+            })
+        except Exception:
+            logger.exception("coursework AI: worker not enqueued for %s", submission.id)
+
+    @staticmethod
+    async def request_reevaluation(
+        submission_id: UUID, *, assignment_id: UUID, schema_name: str | None, db: AsyncSession
+    ) -> None:
+        """Evaluator-triggered retry: reset the AI row to PENDING (bumping
+        retry_count) and re-dispatch the worker. Never affects human marks."""
+        await AiEvaluationRepository.upsert_pending(submission_id, db=db)
+        await db.commit()
+        if schema_name is None:
+            return
+        from app.workers.heavy.evaluate_coursework_submission import (
+            evaluate_coursework_submission,
+        )
+        evaluate_coursework_submission.apply_async(kwargs={
+            "submission_id": str(submission_id),
+            "assignment_id": str(assignment_id),
+            "schema_name":   schema_name,
+        })
 
     @staticmethod
     async def _create_evaluator_work_item(
@@ -554,6 +728,14 @@ class SubmissionService:
                 assignment_id, actor_user_id, db=db, offset=offset, limit=limit
             )
 
+        # A NOMINATED evaluator may open the assignment before any allocation
+        # exists — at/after publish, before students submit. Their desk is simply
+        # empty, not forbidden: return an empty list, not a 404. Once a submission
+        # is allocated to them, the branch above returns it automatically.
+        nominees = {str(e) for e in (assignment.evaluator_user_ids or [])}
+        if str(actor_user_id) in nominees:
+            return [], 0
+
         raise AssignmentServiceError("NOT_FOUND", "Assignment not found.", 404)
 
     @staticmethod
@@ -569,6 +751,15 @@ class SubmissionService:
             student_user_id, db=db, syllabus_id=syllabus_id, offset=offset, limit=limit
         )
 
+    # Statuses in which a submission may be graded — the assignment is open for
+    # evaluation. Grading is ROLLING: an allocated evaluator marks a submission the
+    # moment it is allocated, with no separate "submit for evaluation" step.
+    _EVALUABLE_STATUSES = (
+        AssignmentStatus.PUBLISHED,
+        AssignmentStatus.CLOSED,
+        AssignmentStatus.SUBMITTED,
+    )
+
     @staticmethod
     async def _assert_may_evaluate(
         sub: AssignmentSubmission,
@@ -578,21 +769,20 @@ class SubmissionService:
         actor_role: str | None,
         db: AsyncSession,
     ) -> None:
-        """Once an assignment is out for evaluation, only its allocated evaluator
-        may mark a submission.
+        """Only the ALLOCATED evaluator (or ADMIN) may mark a submission.
 
-        Allocation lives in the M09.6 assignment engine, so this reads that ledger
-        rather than keeping a second copy of who-evaluates-what. Before the
-        department takes over (status < SUBMITTED) the OWNING faculty still grades
-        as they always have, so earlier coursework is untouched.
+        Faculty NEVER grade — they create, publish and monitor. Grading is rolling:
+        it is allowed while the assignment is open for evaluation (PUBLISHED /
+        CLOSED / SUBMITTED), as soon as a submission is allocated to the evaluator,
+        without any intermediate "submit for evaluation" gate. Allocation lives in
+        the one M09.6 ledger, read here — not duplicated.
         """
-        if assignment.status != AssignmentStatus.SUBMITTED:
-            # Not out for evaluation yet — the faculty who set it grades it. Any
-            # other faculty is a peer with no claim on this coursework at all.
-            if _is_privileged(actor_role) or assignment.created_by_user_id == actor_user_id:
-                return
+        if assignment.status not in SubmissionService._EVALUABLE_STATUSES:
             raise AssignmentServiceError(
-                "NOT_FOUND", "Submission not found.", 404
+                "NOT_EVALUABLE",
+                "Marks can only be entered while the assignment is open for "
+                "evaluation.",
+                409,
             )
         if (actor_role or "").upper() == "ADMIN":
             return
@@ -603,8 +793,7 @@ class SubmissionService:
         if allocation is None:
             raise AssignmentServiceError(
                 "NO_EVALUATOR_ASSIGNED",
-                "This submission is awaiting evaluator allocation. The department "
-                "must assign an evaluator before it can be evaluated.",
+                "This submission is awaiting evaluator allocation.",
                 409,
             )
         if allocation != actor_user_id:
@@ -642,15 +831,47 @@ class SubmissionService:
             sub, assignment, actor_user_id=graded_by_user_id, actor_role=actor_role, db=db
         )
         previous_marks_obtained = sub.marks_obtained
+        # Who is saving decides what this grade MEANS. Anyone other than the
+        # assignment's owner is recommending — their numbers are preserved in the
+        # evaluator_* columns. The owner is deciding, and only touches the
+        # authoritative columns, leaving the recommendation intact for audit.
+        is_recommendation = graded_by_user_id != assignment.created_by_user_id
         updated = await SubmissionRepository.grade(
             submission_id,
             marks_obtained=marks_obtained,
             feedback=feedback,
             graded_by_user_id=graded_by_user_id,
+            is_evaluator_recommendation=is_recommendation,
             db=db,
         )
         await db.commit()
         await db.refresh(updated)
+
+        # The grade is the evaluator's final act on this work item — close it in
+        # the M09.6 ledger (ASSIGNED/IN_PROGRESS/SUBMITTED -> COMPLETED) so it
+        # leaves the evaluator's "My Evaluations" queue. Best-effort: a ledger
+        # hiccup must never undo a committed grade.
+        try:
+            alloc_id = await AssignmentRepository.active_allocation_id_for_submission(
+                submission_id, db=db
+            )
+            if alloc_id is not None:
+                from app.modules.m09_paper_admin.assignment_repository import (
+                    AssignmentRepository as _EvalRepo,
+                )
+                from app.modules.m09_paper_admin.assignment_models import (
+                    AssignmentStatus as _EvalStatus,
+                )
+                await _EvalRepo.set_status(
+                    alloc_id, _EvalStatus.COMPLETED.value,
+                    timestamp_field="completed_at", db=db,
+                )
+                await db.commit()
+        except Exception:
+            logger.exception(
+                "could not close evaluation work item for submission %s", submission_id
+            )
+
         return updated, previous_marks_obtained
 
     @staticmethod

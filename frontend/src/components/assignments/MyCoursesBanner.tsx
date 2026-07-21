@@ -37,15 +37,15 @@ function CourseRow({ a }: { a: Assignment }) {
         <p className="text-sm font-semibold text-gray-900 truncate">
           {a.course?.title ?? a.course_id}
           {a.course?.code && (
-            <span className="text-xs text-gray-400 font-normal ml-1.5">({a.course.code})</span>
+            <span className="text-xs text-gray-500 font-normal ml-1.5">({a.course.code})</span>
           )}
         </p>
         {a.semester && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Semester {a.semester.number}
             {a.semester.label ? ` — ${a.semester.label}` : ''}
             {a.section && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-semibold text-[10px]">
+              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold text-[10px]">
                 {a.section.name}
               </span>
             )}
@@ -55,7 +55,7 @@ function CourseRow({ a }: { a: Assignment }) {
       <span className={`text-[10px] font-bold px-2 py-0.5 rounded shrink-0 ${ROLE_COLORS[a.role_in_course]}`}>
         {ROLE_LABELS[a.role_in_course]}
       </span>
-      <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+      <ChevronRight className="h-4 w-4 text-gray-500 shrink-0" />
     </button>
   )
 }
@@ -94,7 +94,7 @@ export function MyCoursesBanner() {
           <CourseRow key={a.id} a={a} />
         ))}
         {data.total > 5 && (
-          <div className="px-4 py-2.5 text-xs text-gray-400 text-center">
+          <div className="px-4 py-2.5 text-xs text-gray-600 text-center">
             +{data.total - 5} more — <Link to="/my-courses" className="text-sv-primary font-semibold hover:underline">view all</Link>
           </div>
         )}

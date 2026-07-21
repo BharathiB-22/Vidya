@@ -7,16 +7,18 @@ import {
   useAssignmentSubmissions,
   useAssignmentStatistics,
   useAssignEvaluator,
-  useFinalizeMarks,
+  useReleaseMarks,
   useGradeSubmission,
   useReturnSubmission,
   useSubmitForEvaluation,
 } from '@/hooks/coursework'
 import { AssignmentQuestionsView } from '@/components/coursework/AssignmentQuestionsView'
+import { CourseworkAiPanel } from '@/components/coursework/CourseworkAiPanel'
 import { getQuestionPaperUrl, getSubmissionFileUrl, listEligibleEvaluators } from '@/lib/api/coursework'
 import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
+import { useAuth } from '@/lib/auth'
 import type { CourseworkSubmission, EligibleEvaluator } from '@/types/coursework'
 
 export function GradeRow({
@@ -62,6 +64,7 @@ export function GradeRow({
           <p className="text-xs text-gray-600 mt-0.5">
             Attempt {submission.attempt_number} · Submitted {new Date(submission.submitted_at).toLocaleString()}
             {submission.is_late && <span className="text-orange-600 font-medium"> · Late</span>}
+            {submission.graded_at && <> · Graded {new Date(submission.graded_at).toLocaleString()}</>}
           </p>
         </div>
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -113,6 +116,57 @@ export function GradeRow({
           )}
         </div>
       )}
+
+      {/* Read-only allocation, for viewers who cannot allocate — above all the
+          faculty who set this coursework. They hand it to the department and were
+          previously shown nothing back; the allocation is already in the payload,
+          it was simply gated behind the Dept/Admin editor above. Display only. */}
+      {!(evaluators && evaluators.length > 0 && onAssignEvaluator) && submission.evaluator_user_id && (
+        <p className="text-xs text-gray-600 flex items-center gap-1.5">
+          <UserCheck className="h-3 w-3 text-gray-400" />
+          Evaluator: <span className="font-medium text-gray-800">
+            {submission.evaluator_name ?? submission.evaluator_user_id}
+          </span>
+        </p>
+      )}
+
+      {/* The evaluator's RECOMMENDATION. Read-only and permanent: the input below
+          carries the faculty's own decision, and saving it never overwrites what
+          the evaluator recommended. "Accept" only prefills the input. */}
+      {submission.evaluator_marks_obtained != null && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs font-semibold text-gray-700">
+              <UserCheck className="h-3 w-3 inline mr-1 text-gray-500" />
+              Evaluator recommends: {submission.evaluator_marks_obtained}/{maxMarks}
+              {submission.evaluator_name && (
+                <span className="font-normal text-gray-600"> · {submission.evaluator_name}</span>
+              )}
+            </p>
+            {canGrade && (
+              <button
+                type="button"
+                onClick={() => setMarks(String(submission.evaluator_marks_obtained))}
+                className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+              >
+                Accept evaluator marks →
+              </button>
+            )}
+          </div>
+          {submission.evaluator_feedback && (
+            <p className="text-xs text-gray-700 mt-1 whitespace-pre-wrap">
+              {submission.evaluator_feedback}
+            </p>
+          )}
+          <p className="text-[10px] text-gray-500 mt-1">
+            A recommendation — your decision below is the final mark.
+          </p>
+        </div>
+      )}
+
+      {/* Advisory AI evaluation — prefills the input below via "Accept AI marks",
+          never sets the mark itself. Human is final authority. */}
+      <CourseworkAiPanel submissionId={submission.id} onAcceptMarks={(m) => setMarks(String(m))} />
 
       <div className="flex items-end gap-3 flex-wrap">
         <div>
@@ -170,10 +224,12 @@ export function AssignmentGradingPanel({ assignmentId, showHeader = true }: Assi
   const returnMutation = useReturnSubmission(assignmentId)
   const submitMutation = useSubmitForEvaluation()
   const assignEvaluatorMutation = useAssignEvaluator(assignmentId)
-  const finalizeMutation = useFinalizeMarks()
+  const releaseMutation = useReleaseMarks()
   // Active workspace, not base role — a FACULTY account holding a DEAN grant must
   // be able to allocate while acting in the Dean workspace (matches viewing_role).
   const { activeWorkspace } = useWorkspace()
+  const { user } = useAuth()
+  const currentUserId = user?.id ?? null
 
   const submissions = submissionsData?.items ?? []
 
@@ -182,8 +238,16 @@ export function AssignmentGradingPanel({ assignmentId, showHeader = true }: Assi
   const canAllocate    = activeWorkspace === 'ADMIN' || activeWorkspace === 'DEAN'
   const isClosed       = assignment?.status === 'CLOSED'
   const underEvaluation = assignment?.status === 'SUBMITTED'
-  const isFinalized    = assignment?.status === 'FINALIZED'
+  const isReleased     = assignment?.status === 'RELEASED'
+  // Grading closes on release, not on a separate ratification step.
+  const isFinalized    = isReleased || assignment?.status === 'FINALIZED'
   const allEvaluated   = submissions.length > 0 && submissions.every((s) => s.marks_obtained != null)
+  // Releasing is the owning faculty's decision. `useAssignment` only returns an
+  // assignment this user may view, and the API re-checks ownership — this just
+  // keeps the button off a peer evaluator's screen.
+  const isOwner = Boolean(
+    assignment && currentUserId && assignment.created_by_user_id === currentUserId
+  )
 
   // Only fetched when it can actually be used — the endpoint is Dept/Admin only.
   const { data: evaluators = [] } = useQuery({
@@ -210,9 +274,9 @@ export function AssignmentGradingPanel({ assignmentId, showHeader = true }: Assi
     )
   }
 
-  function handleFinalize() {
-    finalizeMutation.mutate(assignmentId, {
-      onSuccess: () => addToast('Marks finalized.', 'success'),
+  function handleRelease() {
+    releaseMutation.mutate(assignmentId, {
+      onSuccess: () => addToast('Marks released — students have been notified.', 'success'),
       onError: (err) => addToast(getErrorMessage(err), 'error'),
     })
   }
@@ -247,6 +311,45 @@ export function AssignmentGradingPanel({ assignmentId, showHeader = true }: Assi
         </div>
       )}
 
+      {/* Assignment context — shown on the standalone page (evaluator/faculty
+          open it from a notification or "My Evaluations"). Hidden inside a tab,
+          which renders its own header. */}
+      {showHeader && assignment && (
+        <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 grid gap-x-6 gap-y-3 sm:grid-cols-2 text-sm">
+          {(assignment.course_title || assignment.course_code) && (
+            <div>
+              <p className="text-xs font-medium text-gray-500">Course</p>
+              <p className="text-gray-800">
+                {assignment.course_code ? `${assignment.course_code} · ` : ''}
+                {assignment.course_title ?? '—'}
+              </p>
+            </div>
+          )}
+          <div>
+            <p className="text-xs font-medium text-gray-500">Faculty</p>
+            <p className="text-gray-800">{assignment.created_by_name ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500">Due</p>
+            <p className="text-gray-800">{new Date(assignment.due_date).toLocaleString()}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500">Evaluators</p>
+            <p className="text-gray-800">
+              {assignment.evaluator_names && assignment.evaluator_names.length > 0
+                ? assignment.evaluator_names.join(', ')
+                : 'Not yet assigned'}
+            </p>
+          </div>
+          {assignment.instructions && (
+            <div className="sm:col-span-2">
+              <p className="text-xs font-medium text-gray-500">Instructions</p>
+              <p className="text-gray-700 whitespace-pre-wrap">{assignment.instructions}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {assignment && (
         <AssignmentQuestionsView
           questions={assignment.questions ?? []}
@@ -273,9 +376,9 @@ export function AssignmentGradingPanel({ assignmentId, showHeader = true }: Assi
                   : ' — the department is allocating evaluators.'}
               </p>
             )}
-            {isFinalized && assignment?.finalized_at && (
+            {isReleased && (
               <p className="text-green-700 font-medium">
-                Marks finalized on {new Date(assignment.finalized_at).toLocaleString()}. Grading is closed.
+                Marks released to students. Grading is closed.
               </p>
             )}
           </div>
@@ -285,34 +388,54 @@ export function AssignmentGradingPanel({ assignmentId, showHeader = true }: Assi
               Submit for Evaluation
             </Button>
           )}
-          {underEvaluation && canAllocate && (
+          {/* Release is the owning faculty's single decision — there is no separate
+              ratification step, and the department does not take it. */}
+          {!isReleased && isOwner && (
             <Button
               size="sm"
-              onClick={handleFinalize}
-              disabled={finalizeMutation.isPending || !allEvaluated}
+              onClick={handleRelease}
+              disabled={releaseMutation.isPending || !allEvaluated}
               title={allEvaluated ? undefined : 'Every submission must be evaluated first.'}
             >
               <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-              Finalize Marks
+              Release Marks
             </Button>
           )}
         </div>
       )}
 
       {stats && (
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: 'Students', value: stats.total_students },
-            { label: 'Submitted', value: stats.submitted_count },
-            { label: 'Graded', value: stats.graded_count },
-            { label: 'Late', value: stats.late_count },
-          ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center">
-              <p className="text-xl font-bold text-gray-900">{s.value}</p>
-              <p className="text-xs text-gray-600 mt-0.5">{s.label}</p>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: 'Students', value: stats.total_students },
+              { label: 'Submitted', value: stats.submitted_count },
+              { label: 'Graded', value: stats.graded_count },
+              { label: 'Late', value: stats.late_count },
+            ].map((s) => (
+              <div key={s.label} className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center">
+                <p className="text-xl font-bold text-gray-900">{s.value}</p>
+                <p className="text-xs text-gray-600 mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          {/* Evaluation pipeline state, so the assignment's owner can see where it
+              has got to without expanding every row. Advisory AI counts only. */}
+          <p className="text-xs text-gray-600 -mt-3 flex items-center gap-x-4 gap-y-1 flex-wrap">
+            {(stats.evaluator_assigned_count ?? 0) > 0 && (
+              <span>{stats.evaluator_assigned_count} allocated to evaluators</span>
+            )}
+            {(stats.ai_completed_count ?? 0) > 0 && (
+              <span className="text-indigo-600">AI evaluation complete: {stats.ai_completed_count}</span>
+            )}
+            {(stats.ai_pending_count ?? 0) > 0 && (
+              <span className="text-indigo-400">AI running: {stats.ai_pending_count}</span>
+            )}
+            {(stats.ai_failed_count ?? 0) > 0 && (
+              <span className="text-orange-600">AI failed: {stats.ai_failed_count}</span>
+            )}
+          </p>
+        </>
       )}
 
       {isLoading ? (

@@ -14,7 +14,7 @@ export default function StudentAssignmentResultPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -36,7 +36,7 @@ export default function StudentAssignmentResultPage() {
   if (submission.marks_obtained == null || !assignment) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-3">
-        <Lock className="h-8 w-8 mx-auto text-gray-300" />
+        <Lock className="h-8 w-8 mx-auto text-gray-500" />
         <p className="text-sm text-gray-500">Your grade has not been finalised yet.</p>
         <Button variant="ghost" size="sm" onClick={() => navigate('/student/assignments')}>
           Back to Assignments

@@ -130,7 +130,10 @@ export default function StudentAssignmentSubmitPage() {
       setIsUploading(true)
       try {
         const urlResp = await requestSubmissionUploadUrl({
-          entity_type: 'assignment_submission',
+          // Must be the StorageEntityType enum value 'submission' (same as Labs).
+          // 'assignment_submission' is not a valid entity type and made
+          // /storage/upload-url reject with 400 INVALID_ENTITY_TYPE.
+          entity_type: 'submission',
           entity_id: assignmentId,
           original_filename: selectedFile.name,
           content_type: resolveContentType(selectedFile),

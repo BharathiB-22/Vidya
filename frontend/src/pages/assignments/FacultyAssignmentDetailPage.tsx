@@ -33,7 +33,7 @@ function Stepper({ status }: { status: AssignmentStatus }) {
               <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
                 done ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
               }`}>{i + 1}</div>
-              <span className={`mt-1 text-[11px] ${done ? 'text-blue-700' : 'text-gray-400'}`}>{s.label}</span>
+              <span className={`mt-1 text-[11px] ${done ? 'text-blue-700' : 'text-gray-600'}`}>{s.label}</span>
             </div>
             {i < STEPS.length - 1 && (
               <div className={`h-0.5 flex-1 mx-1 ${i < order ? 'bg-blue-600' : 'bg-gray-200'}`} />
@@ -48,7 +48,7 @@ function Stepper({ status }: { status: AssignmentStatus }) {
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-gray-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-gray-600">{label}</dt>
       <dd className="text-sm text-gray-800 mt-0.5">{value}</dd>
     </div>
   )

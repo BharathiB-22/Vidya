@@ -7,11 +7,18 @@ import { addToast } from '@/hooks/useToast'
 import { getErrorMessage } from '@/lib/api'
 import {
   listEligibleEvaluators,
+  listMyTeachingCourses,
   requestSubmissionUploadUrl,
   uploadFileToPresignedUrl,
   updateAssignment,
 } from '@/lib/api/coursework'
-import type { CourseworkAssignment, CourseworkQuestion, CourseworkType } from '@/types/coursework'
+import type {
+  CourseworkAssignment, CourseworkQuestion, CourseworkType, MyTeachingCourse,
+} from '@/types/coursework'
+
+const courseKey = (c: MyTeachingCourse) => `${c.course_id}::${c.section_id ?? ''}`
+const NO_SYLLABUS_MSG =
+  'This course does not yet have an approved syllabus. Please contact the Dean or Board before creating coursework.'
 
 const TYPE_OPTIONS: Array<{ value: CourseworkType; label: string }> = [
   { value: 'ESSAY', label: 'Essay' },
@@ -97,6 +104,32 @@ export function AssignmentForm({ assignmentId, syllabusId, onCreated, onUpdated 
     staleTime: 5 * 60 * 1000,
   })
 
+  // ── Course / syllabus resolution ──────────────────────────────────────────
+  // The subject page opens this form WITH a syllabusId (context is known). The
+  // standalone "New Assignment" page has none, so we resolve the course — and its
+  // approved syllabus — from the faculty's OWN teaching load, never a picker of
+  // all institution courses. Only fetched when creating without a context syllabus.
+  const needsCoursePicker = !isEdit && !syllabusId
+  const { data: myCourses = [], isLoading: coursesLoading } = useQuery({
+    queryKey: ['my-teaching-courses'],
+    queryFn: listMyTeachingCourses,
+    enabled: needsCoursePicker,
+    staleTime: 5 * 60 * 1000,
+  })
+  const [selectedCourseKey, setSelectedCourseKey] = useState('')
+  // Case 1: exactly one teaching assignment → auto-select, no picker shown.
+  useEffect(() => {
+    if (needsCoursePicker && myCourses.length === 1) {
+      setSelectedCourseKey(courseKey(myCourses[0]))
+    }
+  }, [needsCoursePicker, myCourses])
+  const selectedCourse = myCourses.find((c) => courseKey(c) === selectedCourseKey)
+  // The syllabus bound to the assignment: the context prop wins; otherwise the
+  // selected course's resolved approved syllabus.
+  const resolvedSyllabusId = syllabusId ?? selectedCourse?.syllabus_id ?? null
+  // Ready to create only when a syllabus is bound (or we're editing / have context).
+  const courseReady = !needsCoursePicker || (!!selectedCourse && !!selectedCourse.syllabus_id)
+
   useEffect(() => {
     if (existing) {
       setTitle(existing.title)
@@ -176,6 +209,20 @@ export function AssignmentForm({ assignmentId, syllabusId, onCreated, onUpdated 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
+    // Course / syllabus must be resolved before a standalone create. A course
+    // with no approved syllabus is blocked with a clear message (the backend
+    // NO_COURSE guard is only the safety net).
+    if (needsCoursePicker) {
+      if (!selectedCourse) {
+        addToast('Select the course this assignment is for.', 'error')
+        return
+      }
+      if (!selectedCourse.syllabus_id) {
+        addToast(NO_SYLLABUS_MSG, 'error')
+        return
+      }
+    }
+
     // Validate the question builder before anything is sent.
     if (questions.length > 0) {
       for (let i = 0; i < questions.length; i++) {
@@ -235,7 +282,7 @@ export function AssignmentForm({ assignmentId, syllabusId, onCreated, onUpdated 
         addToast('Assignment updated.', 'success')
         onUpdated?.(updated)
       } else {
-        const created = await create.mutateAsync({ ...payload, due_date: payload.due_date!, syllabus_id: syllabusId })
+        const created = await create.mutateAsync({ ...payload, due_date: payload.due_date!, syllabus_id: resolvedSyllabusId ?? undefined })
         // The draft exists now, so the paper can be uploaded against its id and
         // saved with a follow-up update (only DRAFT assignments accept edits).
         if (questions.length === 0 && questionPaperFile) {
@@ -265,6 +312,60 @@ export function AssignmentForm({ assignmentId, syllabusId, onCreated, onUpdated 
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Course — resolved from the faculty's own teaching load; syllabus binds
+            automatically. Hidden when the form is opened with a context syllabus
+            (subject page) or when editing. */}
+        {needsCoursePicker && (
+          <div>
+            <label className="text-sm font-medium text-gray-700">Course</label>
+            {coursesLoading ? (
+              <p className="mt-1 text-sm text-gray-500">Loading your courses…</p>
+            ) : myCourses.length === 0 ? (
+              <div className="mt-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                You have no assigned courses. Ask your Dean or Admin to assign you a course
+                before creating coursework.
+              </div>
+            ) : myCourses.length === 1 && selectedCourse ? (
+              <div className={`mt-1 rounded-lg px-3 py-2 text-sm border ${
+                selectedCourse.syllabus_id
+                  ? 'bg-gray-50 border-gray-200 text-gray-800'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                <span className="font-medium">{selectedCourse.course_code} — {selectedCourse.course_title}</span>
+                <span className="text-gray-500">
+                  {[selectedCourse.semester != null && `Sem ${selectedCourse.semester}`,
+                    selectedCourse.section_name && `Sec ${selectedCourse.section_name}`]
+                    .filter(Boolean).map((s) => ` · ${s}`).join('')}
+                </span>
+                {!selectedCourse.syllabus_id && <p className="mt-1">{NO_SYLLABUS_MSG}</p>}
+              </div>
+            ) : (
+              <>
+                <select
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  value={selectedCourseKey}
+                  onChange={(e) => setSelectedCourseKey(e.target.value)}
+                  required
+                >
+                  <option value="">— Select a course —</option>
+                  {myCourses.map((c) => (
+                    <option key={courseKey(c)} value={courseKey(c)}>
+                      {c.course_code} — {c.course_title}
+                      {c.semester != null ? ` · Sem ${c.semester}` : ''}
+                      {c.section_name ? ` · Sec ${c.section_name}` : ''}
+                      {!c.has_approved_syllabus ? ' (no approved syllabus)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedCourse && !selectedCourse.syllabus_id && (
+                  <div className="mt-1 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                    {NO_SYLLABUS_MSG}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         <div>
           <label className="text-sm font-medium text-gray-700">Title</label>
           <input
@@ -571,7 +672,7 @@ export function AssignmentForm({ assignmentId, syllabusId, onCreated, onUpdated 
         </div>
 
         <div className="flex justify-end pt-2">
-          <Button type="submit" disabled={saving}>
+          <Button type="submit" disabled={saving || !courseReady}>
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Draft'}
           </Button>
         </div>

@@ -85,6 +85,27 @@ class AssignmentUpdate(BaseModel):
     question_paper_url: str | None = None
 
 
+class AssignmentProgress(BaseModel):
+    """How far one assignment has travelled, derived on read.
+
+    The owning faculty hands a closed assignment to the department and, until
+    now, lost sight of it. This is that visibility: every number is computed
+    from assignment_submissions, assignment_evaluations and the M09.6 ledger at
+    request time, so there is nothing to keep in sync and no second source of
+    truth. AI counts are advisory state only — they never imply a mark.
+    """
+    total_students:           int = 0
+    submitted_count:          int = 0
+    graded_count:             int = 0
+    late_count:               int = 0
+    # Advisory AI pipeline (PENDING/EXTRACTING/EVALUATING collapse into pending).
+    ai_completed_count:       int = 0
+    ai_failed_count:          int = 0
+    ai_pending_count:         int = 0
+    # Submissions an evaluator currently owns, per the M09.6 assignment engine.
+    evaluator_assigned_count: int = 0
+
+
 class AssignmentResponse(BaseModel):
     id: UUID
     title: str
@@ -115,6 +136,14 @@ class AssignmentResponse(BaseModel):
     # Enriched from syllabi -> courses join (populated on detail endpoints only)
     course_title: str | None = None
     course_code: str | None = None
+    # Display names resolved on the detail endpoint (ids are otherwise opaque to
+    # an evaluator opening the assignment).
+    created_by_name: str | None = None
+    evaluator_names: list[str] = Field(default_factory=list)
+    # Live evaluation progress, populated on the list + detail endpoints so the
+    # owning faculty sees the state of their coursework without opening it.
+    # None = not computed for this response (e.g. the student-facing list).
+    progress: AssignmentProgress | None = None
 
     @field_validator("evaluator_user_ids", "questions", mode="before")
     @classmethod
@@ -126,6 +155,21 @@ class AssignmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MyTeachingCourse(BaseModel):
+    """One course the calling faculty teaches (from subject_assignments), with the
+    latest LOCKED/APPROVED syllabus resolved. Drives the create form's course
+    picker — scoped to the faculty's own load — so syllabus_id binds automatically
+    and a course without an approved syllabus is blocked with a clear message."""
+    course_id:             UUID
+    course_code:           str
+    course_title:          str
+    semester:              int | None = None
+    section_id:            UUID | None = None
+    section_name:          str | None = None
+    syllabus_id:           UUID | None = None
+    has_approved_syllabus: bool = False
+
+
 class EligibleEvaluator(BaseModel):
     """A user who may be allocated coursework to evaluate."""
     id:        UUID
@@ -135,27 +179,117 @@ class EligibleEvaluator(BaseModel):
 
 
 class MyCourseworkEvaluation(BaseModel):
-    """One coursework submission allocated to the calling evaluator.
+    """One ASSIGNMENT the calling evaluator is assigned to.
 
-    A read over the M09.6 ledger joined back to the coursework it belongs to —
-    enough for the evaluator to find the work and open it. No allocation logic
-    lives here; this only answers "what is on my desk, and where is it".
-    """
-    submission_id:   UUID
-    assignment_id:   UUID
-    assignment_title: str
-    course_title:    str | None = None
-    course_code:     str | None = None
-    student_name:    str | None = None
-    attempt_number:  int
-    submitted_at:    datetime
-    is_late:         bool
-    submission_status: str
+    Assignment-centric (not submission-centric): it appears the moment the
+    faculty publishes, before any student has submitted, so the evaluator can
+    open it, read the questions/rubric, and prepare. Per-evaluator counts show
+    how much of their allocated work is done."""
+    assignment_id:     UUID
+    assignment_title:  str
     assignment_status: str
-    max_marks:       float
-    marks_obtained:  float | None = None
-    due_at:          datetime | None = None
-    allocation_status: str
+    course_title:      str | None = None
+    course_code:       str | None = None
+    semester:          int | None = None
+    sections:          str | None = None
+    faculty_name:      str | None = None
+    evaluator_names:   str | None = None
+    due_date:          datetime | None = None
+    max_marks:         float
+    question_count:    int = 0
+    total_submissions: int = 0
+    # Assignment-level progress (the whole class) for the home card.
+    total_students:     int = 0
+    submitted_students: int = 0
+    reviewed_students:  int = 0
+    pending_submission: int = 0
+    pending_review:     int = 0
+    # Evaluator's own slice.
+    allocated_to_me:   int = 0
+    graded_by_me:      int = 0
+    pending_for_me:    int = 0
+
+
+# ---------------------------------------------------------------------------
+# Evaluation Center — the coursework-specific evaluator workspace. One
+# assignment's full class roster (every enrolled student, submitted or not),
+# plus live progress. Backed by Assignment (visibility from publish) + the
+# enrollment roster + submissions — never by the allocation ledger alone, so a
+# student who has not submitted still appears.
+# ---------------------------------------------------------------------------
+
+class EvaluationCenterStudent(BaseModel):
+    student_user_id:   UUID
+    student_name:      str | None = None
+    student_usn:       str | None = None
+    # Display status, derived: NOT_SUBMITTED | SUBMITTED | UNDER_REVIEW | REVIEWED.
+    # UNDER_REVIEW = submitted AND allocated to an evaluator but not yet graded.
+    submission_status: str
+    submission_id:     UUID | None = None
+    is_late:           bool = False
+    submitted_at:      datetime | None = None
+    marks_obtained:    float | None = None
+    graded_at:         datetime | None = None
+    evaluator_user_id: UUID | None = None
+    evaluator_name:    str | None = None
+    # Advisory AI state for this student's latest attempt; None = no row yet.
+    ai_status:         str | None = None
+
+
+class EvaluationCenterProgress(BaseModel):
+    total_students:     int = 0
+    submitted:          int = 0
+    pending_submission: int = 0
+    reviewed:           int = 0
+    pending_review:     int = 0
+    # Advisory AI pipeline across the roster (counted from the same rows).
+    ai_completed:       int = 0
+    ai_failed:          int = 0
+
+
+class AiEvaluationResponse(BaseModel):
+    """The ADVISORY AI evaluation of one submission. Read-only; never a mark of
+    record. `status` drives the evaluator UI (PENDING/EXTRACTING/EVALUATING/
+    COMPLETED/FAILED)."""
+    submission_id:           UUID
+    status:                  str
+    # Submission summary
+    extracted_text:          str | None = None
+    word_count:              int | None = None
+    file_type:               str | None = None
+    # Suggested marks (advisory)
+    suggested_marks:         list[dict] | None = None
+    overall_suggested_marks: float | None = None
+    percentage:              float | None = None
+    confidence_level:        str | None = None
+    # Feedback / rubric / bloom / CO
+    feedback:                dict | None = None
+    rubric_scores:           list[dict] | None = None
+    bloom_analysis:          dict | None = None
+    co_analysis:             dict | None = None
+    # Similarity (internal only)
+    similarity_score:        float | None = None
+    similarity_matches:      list[dict] | None = None
+    plagiarism_status:       str = "PLACEHOLDER"
+    # Reliability / reproducibility
+    ai_model:                str | None = None
+    provider_used:           str | None = None
+    fallback_chain:          str | None = None
+    processing_ms:           int | None = None
+    error_log:               str | None = None
+    retry_count:             int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class EvaluationCenterResponse(BaseModel):
+    assignment: AssignmentResponse
+    # Course semester, resolved from the syllabus -> course chain (the assignment
+    # itself does not carry it). Shown in the header so the evaluator has full
+    # context before any submission arrives.
+    semester:   int | None = None
+    progress:   EvaluationCenterProgress
+    students:   list[EvaluationCenterStudent] = Field(default_factory=list)
 
 
 class AssignEvaluatorRequest(BaseModel):
@@ -182,6 +316,12 @@ class AssignmentStatistics(BaseModel):
     graded_count: int
     late_count: int
     average_marks: float | None
+    # Advisory AI pipeline + evaluator allocation, so the faculty header can show
+    # the whole evaluation state in one place. Defaulted: older clients ignore them.
+    ai_completed_count:       int = 0
+    ai_failed_count:          int = 0
+    ai_pending_count:         int = 0
+    evaluator_assigned_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +356,38 @@ class SubmissionResponse(BaseModel):
     # the department allocates one. Read from that ledger, never stored here.
     evaluator_user_id: UUID | None = None
     evaluator_name: str | None = None
+    # Advisory AI evaluation state for this submission (PENDING/EXTRACTING/
+    # EVALUATING/COMPLETED/FAILED). None = the worker has not produced a row.
+    # Status only — the suggestions themselves stay on the detail endpoint.
+    ai_status: str | None = None
+    # What the EVALUATOR recommended, preserved permanently and shown only to the
+    # assignment's owner so they can compare it against their own decision.
+    # NULL when the owner graded it themselves, or on pre-0103ten rows.
+    evaluator_marks_obtained: float | None = None
+    evaluator_feedback: str | None = None
 
     model_config = {"from_attributes": True}
+
+    def for_student(self) -> "SubmissionResponse":
+        """This submission as a STUDENT may see it before release.
+
+        Everything the faculty has not yet released is stripped: marks, feedback,
+        who graded it and when, the evaluator's recommendation, and the AI
+        pipeline state. What remains is the student's own submission and whether
+        it is still being evaluated — which is all they are entitled to until the
+        owning faculty releases the results.
+        """
+        return self.model_copy(update={
+            "marks_obtained":           None,
+            "feedback":                 None,
+            "graded_by_user_id":        None,
+            "graded_at":                None,
+            "evaluator_user_id":        None,
+            "evaluator_name":           None,
+            "evaluator_marks_obtained": None,
+            "evaluator_feedback":       None,
+            "ai_status":                None,
+        })
 
 
 class SubmissionDetailResponse(SubmissionResponse):

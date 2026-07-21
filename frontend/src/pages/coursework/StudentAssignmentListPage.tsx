@@ -55,13 +55,19 @@ function StatusPill({
     )
   }
 
+  // Until the faculty releases results the API sends no marks, so a GRADED
+  // submission reads as "Under Evaluation" here — a mark exists internally but
+  // is not the student's to see yet. Once released, marks_obtained arrives and
+  // the score shows. RETURNED work carries its feedback as it always did.
+  const hasScore = submission.marks_obtained != null
   const CFG: Record<string, { label: string; cls: string }> = {
     SUBMITTED: { label: submission.is_late ? 'Submitted (Late)' : 'Submitted', cls: 'text-blue-700 bg-blue-50' },
-    GRADED:    { label: 'Graded',   cls: 'text-green-700 bg-green-50' },
+    GRADED:    hasScore
+      ? { label: 'Graded',           cls: 'text-green-700 bg-green-50' }
+      : { label: 'Under Evaluation', cls: 'text-amber-700 bg-amber-50' },
     RETURNED:  { label: 'Returned', cls: 'text-indigo-700 bg-indigo-50' },
   }
   const cfg = CFG[submission.status] ?? { label: submission.status, cls: 'text-gray-500 bg-gray-50' }
-  const hasScore = submission.marks_obtained != null
 
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.cls}`}>
@@ -102,11 +108,11 @@ function AssignmentRow({
             <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-purple-50 text-purple-700">
               {TYPE_LABELS[assignment.assignment_type] ?? assignment.assignment_type}
             </span>
-            <span className="text-xs text-gray-400">{assignment.max_marks} marks</span>
+            <span className="text-xs text-gray-600">{assignment.max_marks} marks</span>
           </div>
           <div className="flex items-center gap-3 mt-1 flex-wrap">
             <span className={`text-xs flex items-center gap-0.5 ${
-              isDeadlineSoon ? 'text-orange-600 font-medium' : 'text-gray-400'
+              isDeadlineSoon ? 'text-orange-600 font-medium' : 'text-gray-600'
             }`}>
               <Clock className="h-3 w-3" />
               Due {new Date(assignment.due_date).toLocaleString()}
@@ -114,7 +120,7 @@ function AssignmentRow({
             <StatusPill assignment={assignment} submission={submission} />
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+        <ChevronRight className="h-4 w-4 text-gray-500 shrink-0" />
       </div>
     </button>
   )
@@ -144,7 +150,7 @@ export default function StudentAssignmentListPage() {
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Assignments</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Theory coursework — essays, reports, and case studies.</p>
+        <p className="text-sm text-gray-600 mt-0.5">Theory coursework — essays, reports, and case studies.</p>
       </div>
 
       {isError && (
@@ -161,7 +167,7 @@ export default function StudentAssignmentListPage() {
       ) : assignments.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <ClipboardList className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No assignments available.</p>
+          <p className="text-sm text-gray-600">No assignments available.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">

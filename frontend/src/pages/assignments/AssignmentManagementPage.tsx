@@ -107,7 +107,7 @@ export default function AssignmentManagementPage({ mode }: Props) {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white p-3">
-        <Filter className="w-4 h-4 text-gray-400" />
+        <Filter className="w-4 h-4 text-gray-600" />
         <select value={status} onChange={(e) => setStatus(e.target.value as AssignmentStatus | 'ALL')}
           className="text-sm border border-gray-200 rounded-md px-2 py-1.5">
           {STATUS_FILTERS.map((s) => <option key={s} value={s}>{s === 'ALL' ? 'All statuses' : s.replace('_', ' ')}</option>)}
@@ -116,7 +116,7 @@ export default function AssignmentManagementPage({ mode }: Props) {
           className="text-sm border border-gray-200 rounded-md px-2 py-1.5">
           {TYPE_FILTERS.map((t) => <option key={t} value={t}>{t === 'ALL' ? 'All types' : TYPE_LABELS[t as AssignmentType]}</option>)}
         </select>
-        <span className="ml-auto text-xs text-gray-400">{rows.length} shown</span>
+        <span className="ml-auto text-xs text-gray-600">{rows.length} shown</span>
       </div>
 
       {isLoading ? (
@@ -129,7 +129,7 @@ export default function AssignmentManagementPage({ mode }: Props) {
         <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-400">
+              <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-600">
                 <th className="px-4 py-2.5 font-medium">Work Item</th>
                 <th className="px-4 py-2.5 font-medium">Type</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>

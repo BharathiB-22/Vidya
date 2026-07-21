@@ -18,7 +18,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Enum, ForeignKey, Index,
+    Boolean, Column, DateTime, Enum, Float, ForeignKey, Index,
     Integer, Numeric, String, Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -47,14 +47,18 @@ class AssignmentStatus(str, enum.Enum):
         CLOSED     the window has shut; no more student submissions.
         SUBMITTED  faculty has handed it to the department for evaluation, which
                    is what lets Admin/Dean allocate an Evaluator per submission.
-        FINALIZED  a human has ratified the marks. Terminal for grading.
-        ARCHIVED   filed away.
+        FINALIZED  a human (Dean) has ratified the marks. Grading is closed, but
+                   the marks are NOT yet visible to students.
+        RELEASED   the ratified marks have been released to students, who can now
+                   see their results. Reached only by an explicit human action.
+        ARCHIVED   filed away (from FINALIZED or RELEASED); restorable.
     """
     DRAFT     = "DRAFT"
     PUBLISHED = "PUBLISHED"
     CLOSED    = "CLOSED"
     SUBMITTED = "SUBMITTED"
     FINALIZED = "FINALIZED"
+    RELEASED  = "RELEASED"
     ARCHIVED  = "ARCHIVED"
 
 
@@ -208,10 +212,128 @@ class AssignmentSubmission(Base):
         nullable=False,
         default=SubmissionStatus.SUBMITTED,
     )
+    # The AUTHORITATIVE final grade. The assignment's owning faculty is the
+    # academic authority: an evaluator's save lands here as their recommendation
+    # standing unchallenged, and the faculty's review overwrites it.
     marks_obtained     = Column(Numeric(6, 2), nullable=True)
     feedback           = Column(Text, nullable=True)
+
+    # What the EVALUATOR recommended, preserved permanently. Written once per
+    # evaluator save and never touched by the faculty review, so the
+    # recommendation and the final decision can always be compared — and the
+    # faculty adjusting a mark can no longer destroy the evaluator's number.
+    # NULL on rows graded before this distinction existed, and on assignments the
+    # owning faculty graded themselves (there was no separate recommendation).
+    evaluator_marks_obtained = Column(Numeric(6, 2), nullable=True)
+    evaluator_feedback       = Column(Text, nullable=True)
+
     graded_by_user_id  = Column(UUID(as_uuid=True), nullable=True)
     graded_at          = Column(DateTime(timezone=True), nullable=True)
     returned_at        = Column(DateTime(timezone=True), nullable=True)
 
     assignment = relationship("Assignment", back_populates="submissions")
+    ai_evaluation = relationship(
+        "AssignmentEvaluation",
+        back_populates="submission",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+# ---------------------------------------------------------------------------
+# AssignmentEvaluation — the AI's ADVISORY analysis of one submission.
+# ---------------------------------------------------------------------------
+
+class AIEvalStatus(str, enum.Enum):
+    """Lifecycle of the background AI evaluation for one submission.
+
+        PENDING     enqueued, not started.
+        EXTRACTING  downloading + extracting text from the uploaded file.
+        EVALUATING  the LLM is scoring the submission.
+        COMPLETED   results stored; the evaluator can see them.
+        FAILED      something went wrong; error_log explains it. The submission
+                    and manual grading are UNAFFECTED — this row is advisory only.
+    """
+    PENDING    = "PENDING"
+    EXTRACTING = "EXTRACTING"
+    EVALUATING = "EVALUATING"
+    COMPLETED  = "COMPLETED"
+    FAILED     = "FAILED"
+
+
+class AssignmentEvaluation(Base):
+    """AI-generated, ADVISORY evaluation of a single coursework submission.
+
+    Kept in its own table (never on assignment_submissions) so the human's marks
+    and the AI's suggestions never share a column: the evaluator's marks live on
+    the submission and are authoritative; nothing here is ever copied into them
+    automatically. "AI advises, humans decide" is structural, not a convention.
+
+    One row per submission (unique). Written only by the background worker.
+    """
+    __tablename__ = "assignment_evaluations"
+    __table_args__ = (
+        Index("ix_assignment_evaluations_submission", "submission_id"),
+        Index("ix_assignment_evaluations_status",     "status"),
+    )
+
+    id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    submission_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("assignment_submissions.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+
+    status = Column(
+        Enum(AIEvalStatus, native_enum=False),
+        nullable=False, default=AIEvalStatus.PENDING, server_default="PENDING",
+    )
+
+    # --- Submission summary (Phase: file processing) ---
+    extracted_text = Column(Text, nullable=True)
+    word_count     = Column(Integer, nullable=True)
+    file_type      = Column(String, nullable=True)
+
+    # --- Suggested marks (advisory) ---
+    # suggested_marks JSONB: [{question_number, suggested, max, reason}]
+    suggested_marks         = Column(JSONB, nullable=True)
+    overall_suggested_marks = Column(Numeric(6, 2), nullable=True)
+    percentage              = Column(Numeric(5, 2), nullable=True)
+    confidence_level        = Column(String, nullable=True)  # HIGH | MEDIUM | LOW
+
+    # --- Structured feedback JSONB ---
+    # {strengths[], weaknesses[], missing_concepts[], writing_quality,
+    #  technical_correctness, suggestions[]}
+    feedback = Column(JSONB, nullable=True)
+
+    # --- Rubric evaluation JSONB: [{criterion, score, max, comment}] ---
+    rubric_scores = Column(JSONB, nullable=True)
+
+    # --- Bloom's analysis JSONB (advisory): {expected_level, detected_level,
+    #     alignment_percent, notes} ---
+    bloom_analysis = Column(JSONB, nullable=True)
+
+    # --- CO analysis JSONB (advisory): {covered[], weak[], missing[], notes} ---
+    co_analysis = Column(JSONB, nullable=True)
+
+    # --- Internal similarity (same-assignment cohort) ---
+    similarity_score   = Column(Float, nullable=True)   # 0..1 max cosine
+    similarity_matches = Column(JSONB, nullable=True)   # top-k [{submission_id, similarity}]
+    # No external/web plagiarism engine exists — never fabricate a score.
+    plagiarism_status  = Column(String, nullable=False, server_default="PLACEHOLDER")
+
+    # --- Reliability / reproducibility ---
+    ai_model      = Column(String, nullable=True)   # the model_used
+    # Which provider actually produced the result, and the fallback path taken,
+    # e.g. provider_used="groq", fallback_chain="gemini→groq".
+    provider_used  = Column(String, nullable=True)
+    fallback_chain = Column(String, nullable=True)
+    prompt_hash   = Column(String, nullable=True)
+    processing_ms = Column(Integer, nullable=True)
+    error_log     = Column(Text, nullable=True)
+    retry_count   = Column(Integer, nullable=False, server_default="0", default=0)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    submission = relationship("AssignmentSubmission", back_populates="ai_evaluation")
