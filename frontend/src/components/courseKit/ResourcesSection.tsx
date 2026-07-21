@@ -129,23 +129,23 @@ export function ResourcesSection({ kitId, resources, canUpload, isLoading }: Pro
       ) : resources.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <FileText className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No resources uploaded yet.</p>
+          <p className="text-sm text-gray-600">No resources uploaded yet.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
           {resources.map((r) => (
             <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-              <FileText className="h-5 w-5 text-gray-400 shrink-0" />
+              <FileText className="h-5 w-5 text-gray-600 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{r.original_filename}</p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-600">
                   {formatSize(r.size_bytes)} · {new Date(r.created_at).toLocaleDateString()}
                 </p>
               </div>
               <button
                 type="button"
                 title="Download"
-                className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors"
+                className="p-1.5 text-gray-600 hover:text-blue-600 transition-colors"
                 onClick={() => handleDownload(r)}
               >
                 <Download className="h-4 w-4" />
@@ -154,7 +154,7 @@ export function ResourcesSection({ kitId, resources, canUpload, isLoading }: Pro
                 <button
                   type="button"
                   title="Delete"
-                  className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                  className="p-1.5 text-gray-600 hover:text-red-500 transition-colors"
                   onClick={() => setPendingDelete(r)}
                 >
                   <Trash2 className="h-4 w-4" />

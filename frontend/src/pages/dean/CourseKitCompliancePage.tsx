@@ -126,7 +126,7 @@ export default function CourseKitCompliancePage() {
       ) : kits.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <Package className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No course kits found.</p>
+          <p className="text-sm text-gray-600">No course kits found.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -139,7 +139,7 @@ export default function CourseKitCompliancePage() {
                   <div className="mt-1 flex items-center gap-2 flex-wrap">
                     <CourseKitStatusBadge status={kit.status} />
                     {kit.course_code && (
-                      <span className="text-xs text-gray-400">{kit.course_code}</span>
+                      <span className="text-xs text-gray-600">{kit.course_code}</span>
                     )}
                   </div>
                 </div>

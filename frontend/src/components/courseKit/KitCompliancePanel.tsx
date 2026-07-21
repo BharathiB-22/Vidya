@@ -25,7 +25,7 @@ export function KitCompliancePanel({ kitId }: Props) {
       </div>
 
       {isLoading && (
-        <p className="text-sm text-gray-400 py-4 text-center">Running compliance check…</p>
+        <p className="text-sm text-gray-600 py-4 text-center">Running compliance check…</p>
       )}
 
       {isError && (

@@ -113,7 +113,7 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
           {[1, 2, 3].map((n) => <SkeletonAssignment key={n} />)}
         </div>
       ) : sorted.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
+        <p className="text-sm text-gray-600 py-4 text-center">
           No assignments yet.{isEditable ? ' Click "Add Assignment" to begin.' : ''}
         </p>
       ) : (
@@ -143,7 +143,7 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <span className="min-w-[2rem] text-sm font-bold text-gray-400 shrink-0">
+                  <span className="min-w-[2rem] text-sm font-bold text-gray-600 shrink-0">
                     A{a.assignment_number}
                   </span>
                   <div className="flex-1 min-w-0">
@@ -180,7 +180,7 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
                                     <span className="text-gray-500 flex-1">{rc.description}</span>
                                   )}
                                   {rc.max_marks != null && (
-                                    <span className="text-gray-400 shrink-0 tabular-nums">{rc.max_marks}m</span>
+                                    <span className="text-gray-600 shrink-0 tabular-nums">{rc.max_marks}m</span>
                                   )}
                                 </div>
                               ))}
@@ -194,7 +194,7 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
                           </div>
                         )}
                         {!showModelAnswer && a.model_answer && (
-                          <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                          <span className="flex items-center gap-1 text-[10px] text-gray-600">
                             <Lock className="h-3 w-3" /> model answer hidden
                           </span>
                         )}
@@ -224,7 +224,7 @@ export function AssignmentsSection({ kitId, assignments, isEditable, showModelAn
                         </span>
                       )}
                       {!showModelAnswer && !isExpanded && a.model_answer && (
-                        <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                        <span className="flex items-center gap-1 text-[10px] text-gray-600">
                           <Lock className="h-3 w-3" /> model answer hidden
                         </span>
                       )}

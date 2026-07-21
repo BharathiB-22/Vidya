@@ -41,7 +41,7 @@ export function CourseKitPanel({ kitId }: CourseKitPanelProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }

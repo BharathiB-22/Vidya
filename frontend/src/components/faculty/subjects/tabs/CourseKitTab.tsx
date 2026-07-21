@@ -21,7 +21,7 @@ export function CourseKitTab({ ctx }: FacultySubjectTabProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
           {data ? `${data.total} unit kit${data.total !== 1 ? 's' : ''}` : 'Course Kits'}
         </p>
         <div className="flex gap-2">
@@ -41,13 +41,13 @@ export function CourseKitTab({ ctx }: FacultySubjectTabProps) {
       </div>
 
       {isLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading course kits…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading course kits…</div>
       ) : isError ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Failed to load course kits.</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Failed to load course kits.</div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <Package className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No course kits created yet for this subject.</p>
+          <p className="text-sm text-gray-600">No course kits created yet for this subject.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -60,7 +60,7 @@ export function CourseKitTab({ ctx }: FacultySubjectTabProps) {
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">Unit {k.unit_number}</p>
-                <p className="text-xs text-gray-400">Version {k.version} · {k.complexity_level}</p>
+                <p className="text-xs text-gray-600">Version {k.version} · {k.complexity_level}</p>
               </div>
               <CourseKitStatusBadge status={k.status} />
             </button>

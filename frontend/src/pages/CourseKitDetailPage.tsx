@@ -113,7 +113,7 @@ export default function CourseKitDetailPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -156,7 +156,7 @@ export default function CourseKitDetailPage() {
             </p>
           )}
           {kit.tone && (
-            <p className="text-xs text-gray-400 mt-0.5 italic">Tone: {kit.tone}</p>
+            <p className="text-xs text-gray-600 mt-0.5 italic">Tone: {kit.tone}</p>
           )}
         </div>
       </div>
@@ -251,7 +251,7 @@ export default function CourseKitDetailPage() {
             )}
 
             {/* Metadata */}
-            <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
+            <div className="flex items-center gap-4 text-xs text-gray-600 flex-wrap">
               {kit.ai_model && (
                 <span>AI model: <span className="font-mono">{kit.ai_model}</span></span>
               )}
@@ -321,7 +321,7 @@ export default function CourseKitDetailPage() {
         )}
 
         {tab === 'exports' && (
-          <ExportPanel kit={kit} canExport={canExport} />
+          <ExportPanel kit={kit} canExport={canExport} canWrite={canWrite} />
         )}
       </div>
     </div>
@@ -353,7 +353,7 @@ function KitPipelineStepper({ status }: { status: CourseKitStatus }) {
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
               active ? 'bg-blue-100 text-blue-700'
               : done  ? 'bg-green-50 text-green-600'
-              :         'text-gray-400'
+              :         'text-gray-600'
             }`}>
               {done
                 ? <CheckCircle2 className="h-3.5 w-3.5" />

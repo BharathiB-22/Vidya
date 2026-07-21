@@ -180,7 +180,7 @@ export function SlideDialog({
           {/* Bullets */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Bullet Points <span className="text-xs text-gray-400">(one per line)</span>
+              Bullet Points <span className="text-xs text-gray-600">(one per line)</span>
             </label>
             <Textarea
               rows={4}
@@ -193,7 +193,7 @@ export function SlideDialog({
           {/* Key Concepts */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Key Concepts <span className="text-xs text-gray-400">(one per line)</span>
+              Key Concepts <span className="text-xs text-gray-600">(one per line)</span>
             </label>
             <Textarea
               rows={2}
@@ -206,7 +206,7 @@ export function SlideDialog({
           {/* Definitions */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Definitions <span className="text-xs text-gray-400">(one per line)</span>
+              Definitions <span className="text-xs text-gray-600">(one per line)</span>
             </label>
             <Textarea
               rows={3}
@@ -219,7 +219,7 @@ export function SlideDialog({
           {/* Examples */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Examples <span className="text-xs text-gray-400">(one per line)</span>
+              Examples <span className="text-xs text-gray-600">(one per line)</span>
             </label>
             <Textarea
               rows={3}

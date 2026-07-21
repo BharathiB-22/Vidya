@@ -122,7 +122,7 @@ export function AssignmentDialog({
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Assignment title"
             />
-            <p className="text-xs text-gray-400 mt-1">Minimum 3 characters required.</p>
+            <p className="text-xs text-gray-600 mt-1">Minimum 3 characters required.</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -159,7 +159,7 @@ export function AssignmentDialog({
               onChange={(e) => setQuestionText(e.target.value)}
               placeholder="Describe the assignment or question…"
             />
-            <p className="text-xs text-gray-400 mt-1">Minimum 10 characters required.</p>
+            <p className="text-xs text-gray-600 mt-1">Minimum 10 characters required.</p>
           </div>
           <div className="flex items-center gap-2">
             <input

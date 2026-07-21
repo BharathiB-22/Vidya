@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
 from app.modules.m03_course_kit.models import BloomLevel, AssignmentType, ComplexityLevel
+from app.modules.m03_course_kit.schemas import DiagramSpec
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +228,7 @@ class _SlideContentAI(BaseModel):
     examples:           list[str]  = Field(default_factory=list)
     image_hint:         str | None = None
     code_snippet:       str | None = None
+    diagram:            DiagramSpec | None = None
     diagram_prompt:     str | None = None
     classroom_activity: str | None = None
     teaching_notes:     str | None = None
@@ -237,6 +239,28 @@ class _SlideContentAI(BaseModel):
         if self.slide_type:
             up = self.slide_type.upper()
             self.slide_type = up if up in _VALID_SLIDE_TYPES else None
+        return self
+
+    @model_validator(mode="after")
+    def _normalise_diagram(self) -> _SlideContentAI:
+        """Drop a diagram the renderer cannot draw, and label a slide that has
+        a real one.
+
+        A DIAGRAM slide whose diagram is unusable is worse than a CONCEPT slide:
+        it promises a picture and delivers a bullet list under a DIAGRAM chip.
+        So an unrenderable diagram is discarded here — at the boundary, once —
+        rather than each renderer re-deciding whether to trust it.
+        """
+        if self.diagram is not None:
+            from app.modules.m03_course_kit.presentation.diagram import FULL, capability
+            if capability(self.diagram) != FULL:
+                self.diagram = None
+        # A DIAGRAM slide with no drawable diagram is worse than a CONCEPT slide:
+        # it promises a picture under a DIAGRAM chip and delivers a bullet list.
+        # Slide_type is otherwise left alone — _infer_slide_type owns the None
+        # case, and the export dispatches on the diagram's PRESENCE anyway.
+        if self.diagram is None and self.slide_type == "DIAGRAM":
+            self.slide_type = "CONCEPT"
         return self
 
 
@@ -554,10 +578,8 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "    consequence of getting it wrong in practice\n"
         "  key_concepts: the 4-5 terms that define this concept\n"
         "  definitions: 2-3 formal definitions of terms introduced here\n"
-        "  diagram_prompt: a specific, renderable diagram description — name the diagram type\n"
-        "    (flowchart / block diagram / sequence diagram / labelled architecture), list the\n"
-        "    exact boxes/nodes and the labelled arrows/relationships between them, in the order\n"
-        "    they should appear left-to-right or top-to-bottom\n\n"
+        "  diagram: OPTIONAL structured diagram (see the DIAGRAM slide spec below) when the\n"
+        "    concept genuinely has parts and flow between them; omit it entirely otherwise\n\n"
 
         "DEFINITION slide:\n"
         "  definitions: 5-6 entries in 'Term: formal definition' format — state the definition\n"
@@ -580,11 +602,21 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         "  teaching_notes: 2 specific syntax errors students commonly make here\n\n"
 
         "DIAGRAM slide (used in place of CODE for non-programming subjects):\n"
-        "  diagram_prompt: a specific, renderable description — name the diagram type,\n"
-        "    list every box/node and labelled arrow/relationship in presentation order,\n"
-        "    detailed enough that a designer with no subject knowledge could draw it\n"
-        "  bullets: 4-5 sentences walking through the diagram in the same order as drawn,\n"
-        "    each explaining what one part of the diagram means\n"
+        "  diagram: the diagram itself, AS DATA — it is drawn as real PowerPoint shapes,\n"
+        "    so emit structure, not a description of a picture:\n"
+        "      diagram_type: one of flowchart | block | cycle | hierarchy | sequence\n"
+        "        flowchart = a process with a start and an end;  cycle = a loop with no end;\n"
+        "        hierarchy = a tree (classification, org, inheritance);\n"
+        "        block = parts of a system shown together;  sequence = ordered exchange\n"
+        "      nodes: 3-6 boxes (HARD LIMIT 8, more will not be drawn), each\n"
+        "        {\"id\": \"short_snake_case_id\", \"label\": \"3-5 words, max 120 chars\"}\n"
+        "      edges: the arrows, each {\"from\": \"node_id\", \"to\": \"node_id\",\n"
+        "        \"label\": \"optional, 1-3 words, e.g. 'if valid'\"}\n"
+        "      every from/to MUST be an id that exists in nodes; ids are never displayed\n"
+        "    Keep labels SHORT — they are set inside a box, not read as prose. Put the\n"
+        "    explanation in bullets, never in the labels.\n"
+        "  bullets: 4-5 sentences walking through the diagram in the same order as the\n"
+        "    nodes, each explaining what one part means\n"
         "  key_concepts: the 3-4 labelled elements a student must be able to name\n\n"
 
         "COMMON_MISTAKES slide:\n"
@@ -660,8 +692,8 @@ def _build_prompt(ctx: KitGenerationContext) -> tuple[str, str]:
         f"  teaching_notes, student_summary, and speaker_notes.\n"
         f"- Slide 5 title MUST start with 'Worked Example: '.\n"
         f"- Slide 6 MUST include code_snippet with 10+ lines if the subject involves\n"
-        f"  programming; otherwise use DIAGRAM with a specific, fully-labelled diagram_prompt\n"
-        f"  (see DIAGRAM slide requirements in the system prompt).\n"
+        f"  programming; otherwise use DIAGRAM with a fully-populated `diagram` object\n"
+        f"  (nodes + edges — see DIAGRAM slide requirements in the system prompt).\n"
         f"- Slide 7 bullets MUST alternate Wrong/Correct pairs.\n"
         f"- Slide 9 bullets MUST be full written-out questions (no answers on slide face).\n\n"
         f"ASSIGNMENTS:\n"
@@ -1056,6 +1088,11 @@ def _normalize_groq_kit_response(raw: str) -> dict[str, Any]:
                 _sv = slide.get(_cf)
                 if isinstance(_sv, str) and _sv.strip():
                     content_dict[_cf] = _sv.strip()
+
+        # Same hoist for the diagram, which is an object rather than a string and
+        # so is missed by the loop above.
+        if not content_dict.get("diagram") and isinstance(slide.get("diagram"), dict):
+            content_dict["diagram"] = slide["diagram"]
 
         valid_slides.append(slide)
     data["slides"] = valid_slides

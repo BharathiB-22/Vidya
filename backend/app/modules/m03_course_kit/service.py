@@ -39,7 +39,6 @@ from app.modules.m03_course_kit.schemas import (
     ComplianceViolation,
     CourseKitCreate,
     CourseKitUpdate,
-    ForkRequest,
     KitAssignmentCreate,
     KitAssignmentUpdate,
     KitResourceConfirmRequest,
@@ -497,7 +496,7 @@ class CourseKitService:
         faculty_user_id: UUID | None = None,
         db: AsyncSession,
     ) -> None:
-        kit = await _require_editable(
+        await _require_editable(
             kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
         )
         deleted = await CourseKitRepository.delete(kit_id, db=db)
@@ -840,6 +839,149 @@ class CourseKitService:
             expires_in_seconds=86_400,
         )
         return asset, url
+
+    # -------------------------------------------------------------------------
+    # Export file lifecycle — upload an externally-edited deck, replace, delete.
+    # An uploaded deck is stored as a COURSE_KIT_EXPORT asset (same list + download
+    # path as a generated one), reusing the existing storage architecture. No new
+    # tables or presentation models are introduced.
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def generate_export_upload_url(
+        kit_id: UUID,
+        payload,
+        *,
+        tenant_slug: str,
+        current_user_id: UUID,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        """Presigned PUT URL for uploading an edited deck back as a kit export."""
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.schemas import GenerateUploadUrlRequest
+        from app.core.storage.service import StorageError, StorageService
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        try:
+            return await StorageService.generate_upload_url(
+                GenerateUploadUrlRequest(
+                    entity_type=StorageEntityType.COURSE_KIT_EXPORT.value,
+                    entity_id=kit_id,
+                    original_filename=payload.original_filename,
+                    content_type=payload.content_type,
+                    size_bytes=payload.size_bytes,
+                ),
+                tenant_slug=tenant_slug,
+                current_user_id=current_user_id,
+                db=db,
+            )
+        except StorageError as e:
+            raise KitServiceError(e.code, e.message, e.status_code)
+
+    @staticmethod
+    async def _require_kit_export(
+        kit_id: UUID,
+        asset_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.repository import StorageRepository
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+        asset = await StorageRepository.get_by_id(asset_id, db=db)
+        if (
+            asset is None
+            or asset.entity_type != StorageEntityType.COURSE_KIT_EXPORT.value
+            or asset.entity_id != kit_id
+        ):
+            raise KitServiceError("NOT_FOUND", "Export not found on this kit.", 404)
+        return asset
+
+    @staticmethod
+    async def add_export_upload(
+        kit_id: UUID,
+        payload,
+        *,
+        tenant_id: UUID,
+        tenant_slug: str,
+        current_user_id: UUID,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ):
+        """Register an uploaded deck as a COURSE_KIT_EXPORT asset.
+
+        When payload.replace_asset_id is set, that existing export is validated to
+        belong to this kit and soft-deleted AFTER the new asset is created — so a
+        Replace never leaves the kit with zero decks if the new upload is invalid.
+        """
+        from app.core.storage.models import StorageEntityType
+        from app.core.storage.repository import StorageRepository
+        from app.core.storage.service import StorageError, StorageService
+
+        await _require_kit(
+            kit_id, db=db, caller_role=caller_role, faculty_user_id=faculty_user_id
+        )
+
+        # If replacing, resolve (and validate) the old export up front so an invalid
+        # id fails before we create the new asset.
+        replace_id = getattr(payload, "replace_asset_id", None)
+        if replace_id is not None:
+            await CourseKitService._require_kit_export(
+                kit_id, replace_id,
+                caller_role=caller_role, faculty_user_id=faculty_user_id, db=db,
+            )
+
+        try:
+            asset = await StorageService.create_asset(
+                object_key=payload.object_key,
+                uploaded_by_user_id=current_user_id,
+                entity_type=StorageEntityType.COURSE_KIT_EXPORT.value,
+                entity_id=kit_id,
+                original_filename=payload.original_filename,
+                size_bytes=payload.size_bytes,
+                content_type=payload.content_type,
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                db=db,
+            )
+        except StorageError as e:
+            raise KitServiceError(e.code, e.message, e.status_code)
+
+        if replace_id is not None:
+            await StorageRepository.delete(replace_id, db=db)
+            await db.commit()
+
+        return asset
+
+    @staticmethod
+    async def delete_export(
+        kit_id: UUID,
+        asset_id: UUID,
+        *,
+        caller_role: str | None = None,
+        faculty_user_id: UUID | None = None,
+        db: AsyncSession,
+    ) -> None:
+        """Delete an exported/uploaded deck (soft-delete; S3 cleanup by the
+        retention job — the same semantics as resource deletion)."""
+        from app.core.storage.repository import StorageRepository
+
+        await CourseKitService._require_kit_export(
+            kit_id, asset_id,
+            caller_role=caller_role, faculty_user_id=faculty_user_id, db=db,
+        )
+        await StorageRepository.delete(asset_id, db=db)
+        await db.commit()
 
     # =========================================================================
     # Slides

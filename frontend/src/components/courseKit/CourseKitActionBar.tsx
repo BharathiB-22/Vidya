@@ -129,7 +129,7 @@ export function CourseKitActionBar({ kit }: Props) {
 
       {/* No actions */}
       {!hasAnyAction && kit.status !== 'AI_GENERATING' && (
-        <span className="text-sm text-gray-400">No actions available for your role.</span>
+        <span className="text-sm text-gray-600">No actions available for your role.</span>
       )}
 
       {/* Role chip */}

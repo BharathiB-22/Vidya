@@ -148,7 +148,7 @@ export default function CourseKitListPage() {
       ) : kits.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <Package className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-600">
             {statusFilter ? `No kits with status "${statusFilter}".` : 'No course kits yet.'}
           </p>
           {canCreate && syllabusId && !statusFilter && (
@@ -191,7 +191,7 @@ export default function CourseKitListPage() {
 
                     {/* Course code */}
                     {kit.course_code && (
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-gray-600 mt-0.5">
                         Course Code: <span className="font-medium text-gray-600">{kit.course_code}</span>
                       </p>
                     )}
@@ -201,16 +201,16 @@ export default function CourseKitListPage() {
                         v{kit.version}
                       </span>
                       <CourseKitStatusBadge status={kit.status} />
-                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                      <span className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
                         {kit.complexity_level}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-600 mt-1">
                       Created {new Date(kit.created_at).toLocaleDateString()}
                       {kit.published_at && ` · Published ${new Date(kit.published_at).toLocaleDateString()}`}
                     </p>
                   </div>
-                  <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
+                  <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-gray-500 shrink-0" />
                 </div>
               </button>
 
@@ -219,7 +219,7 @@ export default function CourseKitListPage() {
                 <button
                   type="button"
                   title="Delete draft"
-                  className="px-3 py-4 text-gray-300 hover:text-red-500 transition-colors shrink-0"
+                  className="px-3 py-4 text-gray-500 hover:text-red-500 transition-colors shrink-0"
                   onClick={(e) => {
                     e.stopPropagation()
                     setDeleteTarget(kit.id)
@@ -235,7 +235,7 @@ export default function CourseKitListPage() {
 
       {/* ── Pagination hint ── */}
       {data && data.total > kits.length && (
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-600 text-center">
           Showing {kits.length} of {data.total} kits
         </p>
       )}

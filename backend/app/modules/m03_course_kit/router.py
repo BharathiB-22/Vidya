@@ -54,6 +54,7 @@ from app.modules.m03_course_kit.schemas import (
     KitAssignmentCreate,
     KitExportJobResponse,
     KitExportRequest,
+    KitExportUploadConfirmRequest,
     KitAssignmentResponse,
     KitAssignmentUpdate,
     KitResourceConfirmRequest,
@@ -737,6 +738,106 @@ async def get_export_download(
         "size_bytes":      asset.size_bytes,
         "expires_in":      86_400,
     }
+
+
+# ---------------------------------------------------------------------------
+# Export file lifecycle — upload an externally-edited deck / replace / delete.
+# Declared before "/exports/{asset_id}" routes so the literal "upload-url" path
+# is never captured as an asset_id.
+# ---------------------------------------------------------------------------
+
+@router.post("/{kit_id}/exports/upload-url", response_model=GenerateUploadUrlResponse)
+async def generate_export_upload_url(
+    kit_id: UUID,
+    payload: KitResourceUploadUrlRequest,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> GenerateUploadUrlResponse:
+    """Presigned PUT URL to upload an externally-edited deck back as a kit export."""
+    try:
+        return await CourseKitService.generate_export_upload_url(
+            kit_id,
+            payload,
+            tenant_slug=tenant_info.slug,
+            current_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role,
+            faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+
+
+@router.post("/{kit_id}/exports", response_model=StorageAssetResponse, status_code=201)
+async def add_export_upload(
+    kit_id: UUID,
+    payload: KitExportUploadConfirmRequest,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    tenant_info: TenantInfo = Depends(resolve_tenant),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> StorageAssetResponse:
+    """Register an uploaded deck as an export asset. If replace_asset_id is set,
+    the old export is removed after the new one is stored (Replace)."""
+    try:
+        asset = await CourseKitService.add_export_upload(
+            kit_id,
+            payload,
+            tenant_id=tenant_info.id,
+            tenant_slug=tenant_info.slug,
+            current_user_id=current_user.user_id,
+            caller_role=current_user.viewing_role,
+            faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_EXPORT_UPLOADED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="StorageAsset",
+        target_id=str(asset.id),
+        metadata={
+            "kit_id": str(kit_id),
+            "original_filename": asset.original_filename,
+            "content_type": asset.content_type,
+            "size_bytes": asset.size_bytes,
+            "replaced": str(payload.replace_asset_id) if payload.replace_asset_id else None,
+        },
+    )
+    return asset
+
+
+@router.delete("/{kit_id}/exports/{asset_id}", status_code=200)
+async def delete_export(
+    kit_id: UUID,
+    asset_id: UUID,
+    current_user: CurrentUser = Depends(require_responsibility(*_WRITE)),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+) -> dict:
+    """Delete an exported/uploaded deck."""
+    try:
+        await CourseKitService.delete_export(
+            kit_id, asset_id,
+            caller_role=current_user.viewing_role, faculty_user_id=current_user.user_id,
+            db=db,
+        )
+    except KitServiceError as e:
+        raise _err(e)
+    await AuditService.log(
+        AuditEventType.COURSE_KIT_EXPORT_DELETED,
+        actor_user_id=current_user.user_id,
+        actor_role=current_user.role,
+        tenant_id=current_user.tenant_id,
+        schema_name=current_user.schema_name,
+        target_entity="StorageAsset",
+        target_id=str(asset_id),
+        metadata={"kit_id": str(kit_id)},
+    )
+    return {"status": "deleted"}
 
 
 # ===========================================================================

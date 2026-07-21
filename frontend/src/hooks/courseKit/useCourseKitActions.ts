@@ -69,3 +69,55 @@ export function useExportKit() {
     },
   })
 }
+
+// ── Export file lifecycle: upload an edited deck, replace, delete ──────────────
+
+/**
+ * Upload an externally-edited .pptx/.pdf back as a kit export.
+ * Presigned PUT to storage, then confirm. Pass replaceAssetId to REPLACE an
+ * existing export (old one is removed server-side after the new one is stored).
+ */
+export function useUploadExport() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (
+      { kitId, file, replaceAssetId }:
+      { kitId: string; file: File; replaceAssetId?: string },
+    ) => {
+      const { object_key, presigned_url } = await courseKitApi.generateExportUploadUrl(kitId, {
+        original_filename: file.name,
+        content_type:      file.type,
+        size_bytes:        file.size,
+      })
+      const putResp = await fetch(presigned_url, {
+        method:  'PUT',
+        headers: { 'Content-Type': file.type },
+        body:    file,
+      })
+      if (!putResp.ok) {
+        throw new Error(`Deck upload to storage failed (HTTP ${putResp.status}).`)
+      }
+      return courseKitApi.confirmExportUpload(kitId, {
+        object_key,
+        original_filename: file.name,
+        content_type:      file.type,
+        size_bytes:        file.size,
+        replace_asset_id:  replaceAssetId ?? null,
+      })
+    },
+    onSuccess: (_data, { kitId }) => {
+      qc.invalidateQueries({ queryKey: courseKitKeys.exports(kitId) })
+    },
+  })
+}
+
+export function useDeleteExport() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ kitId, assetId }: { kitId: string; assetId: string }) =>
+      courseKitApi.deleteExport(kitId, assetId),
+    onSuccess: (_data, { kitId }) => {
+      qc.invalidateQueries({ queryKey: courseKitKeys.exports(kitId) })
+    },
+  })
+}

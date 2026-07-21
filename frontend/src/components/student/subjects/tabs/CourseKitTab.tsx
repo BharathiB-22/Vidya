@@ -36,7 +36,7 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <Presentation className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">No approved syllabus yet — course kits aren't available.</p>
+        <p className="text-sm text-gray-600">No approved syllabus yet — course kits aren't available.</p>
       </div>
     )
   }
@@ -46,11 +46,11 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
       <UnitSelector units={subject.units} selected={unit} onSelect={setUnit} />
 
       {isListLoading || isKitLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading course kit…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading course kit…</div>
       ) : !kit ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <Presentation className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No published course kit for this unit yet.</p>
+          <p className="text-sm text-gray-600">No published course kit for this unit yet.</p>
         </div>
       ) : (
         <Tabs value={innerTab} onValueChange={setInnerTab}>
@@ -81,8 +81,8 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
                 )}
               </div>
               <div className="flex gap-4 flex-wrap text-gray-600">
-                <span><span className="text-gray-400">Slides:</span> {kit.slides.length}</span>
-                <span><span className="text-gray-400">Assignments:</span> {kit.assignments.length}</span>
+                <span><span className="text-gray-600">Slides:</span> {kit.slides.length}</span>
+                <span><span className="text-gray-600">Assignments:</span> {kit.assignments.length}</span>
               </div>
             </div>
           </TabsContent>
@@ -93,7 +93,7 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
 
           <TabsContent value="experiments">
             {kit.assignments.length === 0 ? (
-              <p className="text-sm text-gray-400 py-6 text-center">No activities in this course kit yet.</p>
+              <p className="text-sm text-gray-600 py-6 text-center">No activities in this course kit yet.</p>
             ) : (
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
                 {kit.assignments.map((ka) => (
@@ -104,7 +104,7 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
                         {ka.assignment_type}
                       </span>
                       {ka.bloom_level && (
-                        <span className="text-xs text-gray-400">{ka.bloom_level}</span>
+                        <span className="text-xs text-gray-600">{ka.bloom_level}</span>
                       )}
                     </div>
                     {ka.question_text && (
@@ -118,14 +118,14 @@ export function CourseKitTab({ subject }: SubjectTabProps) {
 
           <TabsContent value="resources">
             {!resources || resources.items.length === 0 ? (
-              <p className="text-sm text-gray-400 py-6 text-center">No resources uploaded for this kit yet.</p>
+              <p className="text-sm text-gray-600 py-6 text-center">No resources uploaded for this kit yet.</p>
             ) : (
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
                 {resources.items.map((r) => (
                   <div key={r.id} className="px-5 py-3 flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <p className="text-sm text-gray-800 truncate">{r.original_filename}</p>
-                      <p className="text-xs text-gray-400">{(r.size_bytes / 1024).toFixed(0)} KB</p>
+                      <p className="text-xs text-gray-600">{(r.size_bytes / 1024).toFixed(0)} KB</p>
                     </div>
                     <button
                       type="button"

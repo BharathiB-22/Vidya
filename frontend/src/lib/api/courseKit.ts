@@ -158,6 +158,31 @@ export async function getExportDownload(
   return data
 }
 
+// ---- Export file lifecycle: upload an edited deck / replace / delete ----
+
+export async function generateExportUploadUrl(
+  kitId: string,
+  payload: KitResourceUploadUrlRequest,
+): Promise<KitResourceUploadUrlResponse> {
+  const { data } = await api.post<KitResourceUploadUrlResponse>(
+    `${BASE}/${kitId}/exports/upload-url`,
+    payload,
+  )
+  return data
+}
+
+export async function confirmExportUpload(
+  kitId: string,
+  payload: KitResourceConfirmRequest & { replace_asset_id?: string | null },
+): Promise<KitExportAsset> {
+  const { data } = await api.post<KitExportAsset>(`${BASE}/${kitId}/exports`, payload)
+  return data
+}
+
+export async function deleteExport(kitId: string, assetId: string): Promise<void> {
+  await api.delete(`${BASE}/${kitId}/exports/${assetId}`)
+}
+
 // ---------------------------------------------------------------------------
 // Slides
 // ---------------------------------------------------------------------------

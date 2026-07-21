@@ -13,12 +13,12 @@ export function KitVersionHistory({ kitId, currentKitId }: Props) {
   const { data: versions, isLoading } = useCourseKitVersions(kitId)
 
   if (isLoading) {
-    return <p className="text-sm text-gray-400 text-center py-6">Loading versions…</p>
+    return <p className="text-sm text-gray-600 text-center py-6">Loading versions…</p>
   }
 
   if (!versions || versions.length <= 1) {
     return (
-      <p className="text-sm text-gray-400 text-center py-4">
+      <p className="text-sm text-gray-600 text-center py-4">
         No other versions — this is the only revision.
       </p>
     )
@@ -42,7 +42,7 @@ export function KitVersionHistory({ kitId, currentKitId }: Props) {
                 : 'hover:bg-gray-50 cursor-pointer group'
             }`}
           >
-            <GitFork className="h-4 w-4 text-gray-400 shrink-0" />
+            <GitFork className="h-4 w-4 text-gray-600 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-semibold text-gray-700">v{v.version}</span>
@@ -53,13 +53,13 @@ export function KitVersionHistory({ kitId, currentKitId }: Props) {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className="text-xs text-gray-600 mt-0.5">
                 {new Date(v.created_at).toLocaleDateString()}
                 {v.published_at && ` · Published ${new Date(v.published_at).toLocaleDateString()}`}
               </p>
             </div>
             {!isCurrent && (
-              <ExternalLink className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500 shrink-0" />
+              <ExternalLink className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-500 shrink-0" />
             )}
           </button>
         )

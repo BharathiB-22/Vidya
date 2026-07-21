@@ -27,6 +27,46 @@ _VALID_SLIDE_TYPES = {
 }
 
 
+class DiagramNode(BaseModel):
+    """One box in a diagram. `id` is referenced by edges and is never displayed."""
+    id:    str = Field(..., min_length=1, max_length=40)
+    label: str = Field(..., min_length=1, max_length=120)
+
+
+class DiagramEdge(BaseModel):
+    """A directed connection. `source`/`target` must match a node id.
+
+    Aliased to `from`/`to` because that is what a language model reliably emits
+    and `from` is a Python keyword; both spellings parse.
+    """
+    model_config = {"populate_by_name": True}
+
+    source: str           = Field(..., alias="from", min_length=1, max_length=40)
+    target: str           = Field(..., alias="to",   min_length=1, max_length=40)
+    label:  Optional[str] = Field(default=None, max_length=40)
+
+
+class DiagramSpec(BaseModel):
+    """A diagram as DATA, so it can be drawn as native PowerPoint shapes.
+
+    This replaces `diagram_prompt`, which was free prose ("a flowchart showing
+    the instruction cycle…") and therefore unrenderable by construction: the
+    export had no DIAGRAM renderer, so every diagram slide fell through to the
+    generic bullet renderer and printed the *description of* the diagram. The AI
+    was designing diagrams we then threw away.
+
+    Nodes and edges render as rounded rectangles and connectors, which stay
+    editable and on-brand in PowerPoint. `diagram_prompt` is retained on
+    SlideContent for kits generated before this existed.
+    """
+    diagram_type: str = Field(
+        default="flowchart",
+        description="flowchart | block | cycle | hierarchy | sequence",
+    )
+    nodes: list[DiagramNode] = Field(default_factory=list)
+    edges: list[DiagramEdge] = Field(default_factory=list)
+
+
 class SlideContent(BaseModel):
     """Structure stored in KitSlide.content JSONB.
 
@@ -39,7 +79,8 @@ class SlideContent(BaseModel):
     definitions:        list[str]      = Field(default_factory=list)
     examples:           list[str]      = Field(default_factory=list)
     code_snippet:       Optional[str]  = None
-    diagram_prompt:     Optional[str]  = None
+    diagram:            Optional[DiagramSpec] = None
+    diagram_prompt:     Optional[str]  = None   # pre-DiagramSpec kits; prose, unrenderable
     image_hint:         Optional[str]  = None   # kept for backward compat
     classroom_activity: Optional[str]  = None
     student_summary:    Optional[str]  = None
@@ -365,3 +406,15 @@ class KitResourceConfirmRequest(BaseModel):
     content_type:      str
     size_bytes:        int = Field(..., ge=1)
     status:  str = "queued"
+
+
+class KitExportUploadConfirmRequest(BaseModel):
+    """Confirm an externally-edited .pptx (or .pdf) uploaded back as a kit EXPORT
+    asset, so it lands in the same Exports list and downloads identically to a
+    generated deck. When replace_asset_id is set, that existing export is removed
+    after the new one is registered (Replace = upload new version + delete old)."""
+    object_key:        str
+    original_filename: str = Field(..., min_length=1)
+    content_type:      str
+    size_bytes:        int = Field(..., ge=1)
+    replace_asset_id:  UUID | None = None
