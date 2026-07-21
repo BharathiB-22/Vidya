@@ -14,7 +14,6 @@ Coverage:
   8. Business rules documented in service source
 """
 import inspect
-import pytest
 
 
 # ---------------------------------------------------------------------------

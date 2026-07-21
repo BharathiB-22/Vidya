@@ -34,7 +34,6 @@ import argparse
 import logging
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
 
 import psycopg2
 import psycopg2.extras

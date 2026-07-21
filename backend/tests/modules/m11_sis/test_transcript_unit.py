@@ -51,7 +51,6 @@ import importlib.util
 import inspect
 import pathlib
 
-import pytest
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -788,7 +787,6 @@ def test_degree_progress_has_expected_graduation_year():
 
 def test_degree_progress_graduation_year_optional():
     from app.modules.m11_sis.transcript_schemas import DegreeProgressRead
-    import typing
     field = DegreeProgressRead.model_fields["expected_graduation_year"]
     # Pydantic v2: Optional[int] annotation allows None values
     annotation = field.annotation

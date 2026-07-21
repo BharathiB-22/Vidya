@@ -15,7 +15,6 @@ Verifies:
 """
 from __future__ import annotations
 
-import pytest
 
 from tests.conftest import make_tenant_headers
 

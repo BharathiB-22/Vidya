@@ -1,9 +1,6 @@
 import uuid
-from unittest.mock import MagicMock
 
-import pytest
 
-from app.core.storage.schemas import GenerateUploadUrlRequest
 from app.core.storage.service import StorageError, StorageService
 
 
@@ -118,7 +115,6 @@ class TestUploadUrlValidation:
 
     def test_invalid_entity_type_rejected(self):
         """Test that invalid entity types are caught."""
-        from app.core.storage.service import StorageService
 
         # This would normally be tested with async, but we can verify the logic exists
         # by checking the service has the entity type validation

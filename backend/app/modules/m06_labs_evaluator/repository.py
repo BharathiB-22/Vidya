@@ -16,7 +16,6 @@ Re-exports TaskJobPublicRepository from M02 for Celery job tracking.
 """
 from __future__ import annotations
 
-import uuid as _uuid
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID

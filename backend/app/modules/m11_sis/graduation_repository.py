@@ -3,7 +3,6 @@ SIS Graduation Audit — H62 Repository layer.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID

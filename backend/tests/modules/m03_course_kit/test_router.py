@@ -9,12 +9,8 @@ DEAN gating verification confirms non-mutating masking:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
 
-import pytest
 
-from app.database import AsyncSessionLocal
-from sqlalchemy import text
 from tests.conftest import make_tenant_headers
 from tests.modules.m03_course_kit.conftest import (
     assign_faculty_to_course,

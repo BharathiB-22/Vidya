@@ -12,7 +12,6 @@ No automatic graduation. AI advises, humans decide.
 from __future__ import annotations
 
 import hashlib
-import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional

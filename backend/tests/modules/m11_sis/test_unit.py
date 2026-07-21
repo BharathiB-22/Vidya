@@ -18,7 +18,6 @@ Coverage:
  14. Migration: revision 0028, down_revision 0027
 """
 import importlib.util
-import inspect
 import pathlib
 import pytest
 
@@ -116,7 +115,6 @@ def test_school_out_from_attributes():
 
 
 def test_school_out_fields():
-    import inspect
     from app.modules.m11_sis.schemas import SchoolOut
     fields = set(SchoolOut.model_fields.keys())
     assert {"id", "code", "name", "description", "is_active", "created_at", "updated_at"} <= fields

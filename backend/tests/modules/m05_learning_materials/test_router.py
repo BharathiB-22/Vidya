@@ -20,7 +20,6 @@ import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import pytest_asyncio
 
 from tests.conftest import SCHEMA_A, SLUG_A, _insert_tenant_user, make_tenant_headers

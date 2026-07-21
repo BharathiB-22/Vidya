@@ -921,7 +921,6 @@ def test_migration_0013pub_downgrade_drops_table():
 
 def test_cert_verify_response_has_required_fields():
     from app.modules.m11_sis.graduation_schemas import CertificateVerifyResponse
-    import pydantic
     fields = CertificateVerifyResponse.model_fields
     assert "certificate_number" in fields
     assert "student_name_partial" in fields
@@ -1334,7 +1333,6 @@ def test_graduation_router_tags():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_cert_verify_router_has_verify_route():
-    from app.modules.m11_sis.graduation_router import cert_verify_router
     src = inspect.getsource(
         __import__("app.modules.m11_sis.graduation_router", fromlist=["verify_certificate"]).verify_certificate
     )
@@ -1342,8 +1340,6 @@ def test_cert_verify_router_has_verify_route():
 
 
 def test_cert_verify_route_no_auth_dependency():
-    from app.modules.m11_sis.graduation_router import cert_verify_router
-    from fastapi import Depends
     src = inspect.getsource(
         __import__("app.modules.m11_sis.graduation_router", fromlist=["verify_certificate"]).verify_certificate
     )

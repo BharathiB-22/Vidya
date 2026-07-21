@@ -31,7 +31,6 @@ Coverage:
   25. RolloverService imported inside rollover_router (wiring check)
 """
 import inspect
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +207,6 @@ def test_scope_semester_valid():
 # ---------------------------------------------------------------------------
 
 def test_row_out_status_annotation_contains_ready_blocked():
-    import typing
     from app.modules.m11_sis.rollover_schemas import RolloverRowOut
     annotation = str(RolloverRowOut.model_fields["status"].annotation)
     assert "ready" in annotation and "blocked" in annotation

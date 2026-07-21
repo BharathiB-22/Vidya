@@ -13,7 +13,6 @@ Architecture contract:
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -604,7 +603,6 @@ class VivaService:
                 # Append follow-up to session questions
                 from sqlalchemy import update as sa_update
                 from app.modules.m07_research_supervision.models import VivaSession
-                import json as _json
                 questions.append(new_followup)
                 await db.execute(
                     sa_update(VivaSession)

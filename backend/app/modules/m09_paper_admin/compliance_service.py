@@ -549,7 +549,7 @@ class ComplianceService:
 
         # Board-adjustment count comes from the field-level audit (more precise
         # than the generic SCRIPT_MARKS_UPDATED event).
-        board_adj_counts = await ComplianceRepository.mark_change_counts_by_actor(exam_paper_id, db=db)
+        await ComplianceRepository.mark_change_counts_by_actor(exam_paper_id, db=db)
 
         kpis = ComplianceKpis(
             total_events=sum(counts.values()),

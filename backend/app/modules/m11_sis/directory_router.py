@@ -36,7 +36,6 @@ from app.modules.m11_sis.directory_schemas import (
     StudentDirectoryItem,
     StudentProfileUpsert,
 )
-from app.modules.m11_sis.directory_repository import FacultyDirectoryRepository
 from app.modules.m11_sis.directory_service import (
     DirectoryServiceError,
     FacultyDirectoryService,

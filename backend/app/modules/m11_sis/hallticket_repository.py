@@ -15,9 +15,7 @@ Engine SQL computes eligibility for every student in a semester in one pass:
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
@@ -249,7 +247,7 @@ class HallTicketRepository:
         """)
 
         reasons = row.failure_reasons or []
-        result = await db.execute(sql, {
+        await db.execute(sql, {
             "id":             str(row.id),
             "student_id":     str(row.student_id),
             "semester_id":    str(row.semester_id),

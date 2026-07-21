@@ -77,9 +77,8 @@ def _pyflakes_issues(code: str) -> list[dict]:
     try:
         from pyflakes import api as pf_api  # type: ignore[import]
         from pyflakes import checker as pf_checker  # type: ignore[import]
-        import io
 
-        result = pf_api.check(code, "<submission>")
+        pf_api.check(code, "<submission>")
         # pyflakes returns a count; we need to collect messages
         # Use checker directly for structured output
         try:

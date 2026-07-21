@@ -34,7 +34,6 @@ import importlib.util
 import inspect
 import pathlib
 
-import pytest
 
 
 # ─────────────────────────────────────────────────────────────────────────────

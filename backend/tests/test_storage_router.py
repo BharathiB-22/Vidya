@@ -1,6 +1,5 @@
 """Tests for storage router structure and validation."""
 
-import pytest
 
 
 class TestStorageRouterStructure:

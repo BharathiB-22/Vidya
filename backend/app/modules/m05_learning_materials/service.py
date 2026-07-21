@@ -633,7 +633,6 @@ class LearningPackageService:
 
         from sqlalchemy import delete as sa_delete
         from app.modules.m05_learning_materials.models import PackageItem as _PackageItem
-        from sqlalchemy import text as sa_text
 
         await db.execute(
             sa_delete(_PackageItem).where(_PackageItem.id == item_id)

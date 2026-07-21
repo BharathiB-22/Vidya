@@ -290,7 +290,7 @@ def suggest_normalisation(
     """
     anomaly_types = {a["type"] for a in anomalies}
     mean    = raw_stats.get("mean", 0.0)
-    std     = raw_stats.get("std", 0.0)
+    raw_stats.get("std", 0.0)
     target  = round(0.60 * max_marks, 2)
 
     if not anomalies:

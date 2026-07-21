@@ -690,7 +690,6 @@ class ResultComputationService:
                     ResultStatus.PENDING, ResultStatus.PASS, ResultStatus.FAIL, ResultStatus.ABSENT
                 ):
                     continue
-                grace_preserved  = existing.grace_marks
                 existing.internal_marks    = internal_totals.get(key)
                 existing.external_marks    = ext.external_marks_obtained
                 existing.total_marks       = total

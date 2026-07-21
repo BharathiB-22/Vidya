@@ -22,7 +22,6 @@ Coverage groups:
 """
 import inspect
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +567,6 @@ def test_marks_router_has_lifecycle_routes():
 
 
 def test_sis_router_total_route_count():
-    from app.modules.m11_sis.router import router
     from app.modules.m11_sis.marks_router import marks_router
     # M11 base routes (schools) = 5
     # sub-routers merged: count marks_router explicitly

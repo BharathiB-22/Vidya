@@ -151,7 +151,6 @@ def test_compute_in_threshold_default():
 
 def test_override_in_status_pattern():
     from app.modules.m11_sis.hallticket_schemas import EligibilityOverrideIn
-    import uuid
     with pytest.raises(Exception):
         EligibilityOverrideIn(status="NOT_ELIGIBLE", reason="a" * 20)
 

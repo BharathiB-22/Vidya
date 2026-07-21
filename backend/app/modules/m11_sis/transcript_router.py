@@ -23,7 +23,6 @@ Public (no auth, mounted separately):
 """
 from __future__ import annotations
 
-import uuid as _uuid_module
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID

@@ -22,7 +22,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_tenant_context_dep, require_roles
 from app.core.auth.models import TenantRole

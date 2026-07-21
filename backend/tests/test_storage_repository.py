@@ -1,6 +1,5 @@
 import uuid
 
-import pytest
 
 from app.core.storage.repository import StorageRepository
 

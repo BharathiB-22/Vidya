@@ -21,7 +21,6 @@ Scenarios
 """
 from __future__ import annotations
 
-import uuid
 
 OCR_SEED_SCENARIOS: list[dict] = [
     {

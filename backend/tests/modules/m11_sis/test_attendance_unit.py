@@ -457,7 +457,6 @@ def test_notification_type_added():
 
 def test_attendance_shortage_threshold_is_configurable():
     """Threshold is a float parameter, not hardcoded — verify it can be changed."""
-    from app.modules.m11_sis.attendance_repository import DEFAULT_SHORTAGE_THRESHOLD
     # Default is 75 but function signatures accept a float parameter
     from app.modules.m11_sis.attendance_service import AttendanceService
     import inspect

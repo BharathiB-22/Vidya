@@ -10,7 +10,6 @@ import enum
 import io
 import types
 
-import pytest
 
 from app.workers.heavy.course_kit_export import _fill_slide_body, _generate_pptx
 
@@ -103,7 +102,6 @@ def _notes_text(prs, slide_index: int) -> str:
 
 def test_fill_body_empty_content_no_error():
     from pptx import Presentation
-    from pptx.util import Inches
 
     prs = Presentation()
     sl = prs.slides.add_slide(prs.slide_layouts[1])

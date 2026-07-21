@@ -200,7 +200,6 @@ def test_m06_audit_event_types_defined():
 def test_grade_ledger_has_submission_unique_constraint():
     """GradeLedger must have a UNIQUE constraint on submission_id."""
     from app.modules.m06_labs_evaluator.models import GradeLedger
-    from sqlalchemy import inspect as sa_inspect
     constraints = GradeLedger.__table_args__
     unique_cols = set()
     for c in constraints:

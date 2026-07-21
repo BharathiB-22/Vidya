@@ -538,7 +538,7 @@ class HallTicketService:
         db:           AsyncSession,
     ) -> FacultyAdvisoryOut:
         # Verify faculty is assigned to a course in this section
-        check_sql = __import__("sqlalchemy").text("""
+        __import__("sqlalchemy").text("""
             SELECT 1 FROM subject_assignments sa
             WHERE sa.faculty_user_id = :faculty_id
               AND sa.semester_id     = :semester_id
@@ -757,7 +757,7 @@ class HallTicketService:
                 400,
             )
 
-        meta = await HallTicketRepository.get_semester_meta(row.semester_id, db)
+        await HallTicketRepository.get_semester_meta(row.semester_id, db)
 
         return HallTicketOut(
             hall_ticket_number = row.hall_ticket_number,

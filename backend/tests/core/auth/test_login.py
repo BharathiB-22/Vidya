@@ -1,4 +1,3 @@
-import pytest
 from sqlalchemy import text
 
 from tests.conftest import SCHEMA_A, SLUG_A, _Session

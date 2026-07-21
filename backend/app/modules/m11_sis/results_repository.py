@@ -6,7 +6,6 @@ No cross-tenant queries. No raw SQL except where noted.
 """
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 

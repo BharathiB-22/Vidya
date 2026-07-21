@@ -23,7 +23,6 @@ Coverage:
  19.  StudentSelfServiceUpdate has no usn field
  20.  FacultySelfServiceUpdate has no employee_id field
 """
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +139,6 @@ def test_me_router_faculty_routes():
 
 def test_me_router_student_rbac():
     from app.modules.m11_sis.me_router import me_router
-    from app.core.auth.models import TenantRole
     # Find the GET /me/student-profile route and inspect its dependencies
     student_routes = [r for r in me_router.routes if r.path == "/me/student-profile"]
     assert len(student_routes) >= 1
@@ -200,7 +198,6 @@ def test_faculty_bio_multiline():
 # ---------------------------------------------------------------------------
 
 def test_admin_excluded_from_student_me_route():
-    from app.core.auth.models import TenantRole
     import app.modules.m11_sis.me_router as mr
     import inspect
     src = inspect.getsource(mr)

@@ -18,7 +18,6 @@ Returns ASTSimilarityResult with:
 from __future__ import annotations
 
 import ast
-import dataclasses
 import logging
 from uuid import UUID
 

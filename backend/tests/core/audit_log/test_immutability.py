@@ -15,7 +15,6 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, select, text
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.audit_log.models import AuditEventType, AuditLog
 from app.core.audit_log.service import AuditService
