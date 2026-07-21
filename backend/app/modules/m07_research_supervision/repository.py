@@ -20,7 +20,6 @@ from uuid import UUID
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.modules.m07_research_supervision.models import (
     DocumentStatus,
@@ -618,6 +617,40 @@ class VivaRepository:
                 ai_evaluation=ai_evaluation,
                 overall_ai_score=overall_ai_score,
                 ai_model=ai_model,
+                status=VivaStatus.EVALUATED,
+            )
+        )
+
+    @staticmethod
+    async def set_ai_evaluation_unavailable(
+        viva_id: UUID,
+        *,
+        reason: str,
+        db: AsyncSession,
+    ) -> None:
+        """Record that no AI advisory could be produced for this viva.
+
+        Written ONLY by the Celery process_viva_session task. The viva DOES
+        advance to EVALUATED, because the human gate is what EVALUATED gates: the
+        guide must be able to enter their own evaluation and ratify exactly as
+        they would with an AI advisory present. A missing advisory is not a
+        broken viva — the guide was always the authority.
+
+        `unavailable: true` marks it, and the absence of `per_question`
+        distinguishes it from a real evaluation. transcript and overall_ai_score
+        are left untouched (empty/NULL): nothing is invented to fill them.
+
+        No schema change — ai_evaluation is free-form JSONB.
+        """
+        await db.execute(
+            update(VivaSession)
+            .where(VivaSession.id == viva_id)
+            .values(
+                ai_evaluation={
+                    "unavailable":  True,
+                    "reason":       reason[:2000],
+                    "per_question": None,
+                },
                 status=VivaStatus.EVALUATED,
             )
         )

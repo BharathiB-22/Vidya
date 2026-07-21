@@ -76,12 +76,12 @@ function DocumentRow({ doc }: { doc: ResearchDocument }) {
   return (
     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0">
       <div className="flex items-center gap-3 min-w-0">
-        <FileText className="h-4 w-4 text-gray-400 shrink-0" />
+        <FileText className="h-4 w-4 text-gray-600 shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-800 truncate">
             {doc.file_name ?? `Document v${doc.version}`}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-600 mt-0.5">
             Version {doc.version} · Submitted {fmt(doc.submitted_at)}
           </p>
         </div>
@@ -91,7 +91,7 @@ function DocumentRow({ doc }: { doc: ResearchDocument }) {
           {doc.status.replace(/_/g, ' ')}
         </span>
         {doc.guide_comment && (
-          <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+          <ChevronRight className="h-3.5 w-3.5 text-gray-500" />
         )}
       </div>
     </div>
@@ -180,7 +180,7 @@ function DocumentUploadSection({
     <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
       <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
         <h2 className="text-sm font-semibold text-gray-700">Upload Research Document</h2>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="text-xs text-gray-600 mt-0.5">
           PDF or DOCX · Max {MAX_SIZE_MB} MB · New upload creates a new version
         </p>
       </div>
@@ -191,7 +191,7 @@ function DocumentUploadSection({
           className="rounded-lg border-2 border-dashed border-gray-200 px-4 py-6 flex flex-col items-center gap-2 cursor-pointer hover:border-gray-300 transition-colors"
           onClick={() => !uploading && fileRef.current?.click()}
         >
-          <Upload className="h-6 w-6 text-gray-300" />
+          <Upload className="h-6 w-6 text-gray-500" />
           {selectedFile ? (
             <div className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-indigo-500" />
@@ -200,13 +200,13 @@ function DocumentUploadSection({
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setSelectedFile(null); if (fileRef.current) fileRef.current.value = '' }}
                 disabled={uploading}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-600 hover:text-gray-600"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
           ) : (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-600">
               Click to select file
             </p>
           )}
@@ -379,20 +379,20 @@ export default function StudentResearchDetailPage() {
       {/* Meta row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Submitted</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Submitted</p>
           <p className="text-gray-800 mt-0.5">{fmt(problem.created_at)}</p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Last Updated</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Last Updated</p>
           <p className="text-gray-800 mt-0.5">{fmt(problem.updated_at)}</p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Guide</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Guide</p>
           <p className="text-gray-800 mt-0.5 truncate">{guideDisplay()}</p>
         </div>
         {problem.decided_at && (
           <div className="rounded-lg bg-gray-50 px-3 py-2">
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Decided</p>
+            <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Decided</p>
             <p className="text-gray-800 mt-0.5">{fmt(problem.decided_at)}</p>
           </div>
         )}
@@ -478,7 +478,7 @@ export default function StudentResearchDetailPage() {
               <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
                 <h2 className="text-sm font-semibold text-gray-700">
                   Submitted Documents
-                  <span className="ml-1.5 text-xs font-normal text-gray-400">({docs.length})</span>
+                  <span className="ml-1.5 text-xs font-normal text-gray-600">({docs.length})</span>
                 </h2>
               </div>
               <div>

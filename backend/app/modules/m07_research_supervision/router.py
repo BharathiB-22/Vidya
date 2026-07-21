@@ -236,6 +236,26 @@ async def guide_decide_problem(
         target_id=str(problem_id),
         metadata={"decision": payload.decision, "note": payload.guide_note},
     )
+
+    # The human gate has closed — tell the student what their guide decided.
+    # Only when a student owns this problem: an AI-generated problem not yet
+    # offered to anyone has no student to notify.
+    if problem.student_user_id:
+        _verdict = {
+            "ACCEPT": "accepted",
+            "REVISE": "returned for revision",
+            "REJECT": "not accepted",
+        }.get(payload.decision, payload.decision.lower())
+        await notify_user(
+            db,
+            notification_type=NotificationType.RESEARCH_PROPOSAL_DECIDED,
+            recipient_user_id=problem.student_user_id,
+            title=f"Proposal {_verdict}: {problem.title}",
+            body=(f"Your guide has {_verdict} your research proposal."
+                  + (f" Note: {payload.guide_note}" if payload.guide_note else "")),
+            entity_type="ResearchProblem",
+            entity_id=str(problem_id),
+        )
     return ProblemResponse.model_validate(problem)
 
 
@@ -342,6 +362,21 @@ async def guide_review_document(
         target_id=str(doc_id),
         metadata={"decision": payload.decision},
     )
+
+    # Student-facing, so it carries the PROBLEM id, not the document id: the
+    # student's single research surface is the problem page, which lists every
+    # document version and the guide's feedback on them. There is no
+    # student-facing document route to deep-link to.
+    await notify_user(
+        db,
+        notification_type=NotificationType.RESEARCH_DOCUMENT_REVIEWED,
+        recipient_user_id=doc.student_user_id,
+        title="Guide reviewed your research document",
+        body=(f"Your guide has reviewed version {doc.version} of your research document."
+              + (f" {doc.guide_comment}" if doc.guide_comment else "")),
+        entity_type="ResearchProblem",
+        entity_id=str(doc.research_problem_id),
+    )
     return DocumentResponse.model_validate(doc)
 
 
@@ -385,7 +420,10 @@ async def schedule_viva(
         body="A viva session has been scheduled for your research submission."
              + (f" Complete it by {viva.expires_at:%d %b %Y, %H:%M}." if viva.expires_at else ""),
         entity_type="VivaSession",
-        entity_id=str(viva.id),
+        # The session TOKEN, not the viva id. The student's viva route is
+        # /student/viva/:token, so sending the id produced a link that resolved to
+        # "session not found" — this notification's link never worked.
+        entity_id=str(viva.session_token),
     )
     return VivaSessionResponse.model_validate(viva)
 
@@ -451,6 +489,20 @@ async def ratify_viva(
             "has_note": bool(payload.ratification_note),
         },
     )
+
+    # The last human gate has closed. entity_id is the session TOKEN, not the
+    # viva id — the student's viva route is keyed by token, and that page renders
+    # the GUIDE_RATIFIED state. The guide's own evaluation stays masked from the
+    # student by _mask_guide_eval on the read path, exactly as before.
+    await notify_user(
+        db,
+        notification_type=NotificationType.VIVA_RATIFIED,
+        recipient_user_id=viva.student_user_id,
+        title="Viva evaluation ratified",
+        body="Your guide has ratified the evaluation of your viva session.",
+        entity_type="VivaSession",
+        entity_id=str(viva.session_token),
+    )
     return VivaSessionResponse.model_validate(viva)
 
 
@@ -509,6 +561,39 @@ async def list_active_guides(
 # Student — Problem proposals
 # ===========================================================================
 
+@router.get("/student/eligibility")
+async def student_research_eligibility(
+    current_user: CurrentUser = Depends(_STUDENT),
+    db: AsyncSession = Depends(get_tenant_db_dep),
+):
+    """Whether this student should see the Research (project/dissertation) area.
+
+    Research supervision is for project/dissertation students, so this is decided
+    from data, never hardcoded: the student is eligible if they are enrolled in a
+    project-type course (MAJOR_PROJECT / MINI_PROJECT) OR already have a research
+    record. A normal semester student with neither is not eligible, so the nav
+    item stays hidden for them.
+    """
+    from sqlalchemy import text as sa_text
+    eligible = (
+        await db.execute(
+            sa_text(
+                "SELECT ("
+                "  EXISTS (SELECT 1 FROM acad_enrollments ae "
+                "          JOIN subject_assignments sa "
+                "            ON sa.section_id = ae.section_id AND sa.is_active = true "
+                "          JOIN courses c ON c.id = sa.course_id "
+                "          WHERE ae.student_id = :uid AND ae.is_active = true "
+                "            AND upper(c.course_type) IN ('MAJOR_PROJECT', 'MINI_PROJECT')) "
+                "  OR EXISTS (SELECT 1 FROM research_problems WHERE student_user_id = :uid)"
+                ")"
+            ),
+            {"uid": str(current_user.user_id)},
+        )
+    ).scalar()
+    return {"eligible": bool(eligible)}
+
+
 @router.post("/student/problems", response_model=ProblemResponse, status_code=201)
 async def student_submit_proposal(
     payload: ProblemCreate,
@@ -535,6 +620,19 @@ async def student_submit_proposal(
         target_entity="research_problem",
         target_id=str(problem.id),
         metadata={"title": problem.title, "eval_job_id": str(job_id)},
+    )
+
+    # The guide owns the decision gate on this proposal, so they are told it
+    # exists. The AI advisory follows separately when the worker finishes.
+    await notify_user(
+        db,
+        notification_type=NotificationType.RESEARCH_PROPOSAL_SUBMITTED,
+        recipient_user_id=problem.guide_user_id,
+        title="Research proposal submitted",
+        body=(f"A student has submitted \"{problem.title}\" for your supervision. "
+              "AI screening is running; your decision is required."),
+        entity_type="ResearchProblem",
+        entity_id=str(problem.id),
     )
     return ProblemResponse.model_validate(problem)
 

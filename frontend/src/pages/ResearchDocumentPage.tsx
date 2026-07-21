@@ -8,7 +8,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getDocument, getDocumentDownloadUrl, reviewDocument } from '@/lib/api/research'
-import { useAuth } from '@/lib/auth'
+import { useAuth, hasAnyRole } from '@/lib/auth'
+import { useWorkspace } from '@/lib/workspace'
 import { addToast } from '@/hooks/useToast'
 
 // ── Score bar ─────────────────────────────────────────────────────────────────
@@ -40,7 +41,7 @@ function StatusBanner({ status }: { status: string }) {
   if (status === 'SUBMITTED') {
     return (
       <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 flex items-start gap-3">
-        <Clock className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+        <Clock className="h-4 w-4 text-gray-600 shrink-0 mt-0.5" />
         <div>
           <p className="text-sm font-medium text-gray-700">Awaiting AI Evaluation</p>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -75,9 +76,16 @@ export default function ResearchDocumentPage() {
   const navigate = useNavigate()
   const qc       = useQueryClient()
   const { user } = useAuth()
+  const { activeWorkspace } = useWorkspace()
 
+  // Reviewer = acting in the Faculty/Admin workspace, or holding a GUIDE grant
+  // (a responsibility, not a workspace — so it is checked via effective roles,
+  // which also covers legacy standalone GUIDE accounts). Uses the active
+  // workspace, never the base role, so a DEAN in the Faculty workspace can review.
   const isReviewer =
-    user?.role === 'GUIDE' || user?.role === 'FACULTY' || user?.role === 'ADMIN'
+    activeWorkspace === 'FACULTY' ||
+    activeWorkspace === 'ADMIN' ||
+    hasAnyRole(user, ['GUIDE'])
 
   const [decision, setDecision]       = useState<'APPROVE' | 'REQUEST_REVISION'>('APPROVE')
   const [comment, setComment]         = useState('')
@@ -124,7 +132,7 @@ export default function ResearchDocumentPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+      <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
     </div>
   )
 
@@ -168,7 +176,7 @@ export default function ResearchDocumentPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <FileText className="h-5 w-5 text-gray-400 shrink-0" />
+            <FileText className="h-5 w-5 text-gray-600 shrink-0" />
             <h1 className="text-xl font-bold text-gray-900">
               Research Document v{doc.version}
             </h1>
@@ -178,7 +186,7 @@ export default function ResearchDocumentPage() {
               {doc.status.replace(/_/g, ' ')}
             </span>
           </div>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-600 mt-1">
             Submitted {new Date(doc.submitted_at).toLocaleDateString()}
             {doc.file_name && ` · ${doc.file_name}`}
           </p>
@@ -229,7 +237,7 @@ export default function ResearchDocumentPage() {
             />
           </div>
           {doc.ai_model && (
-            <p className="text-xs text-gray-400">Model: {doc.ai_model}</p>
+            <p className="text-xs text-gray-600">Model: {doc.ai_model}</p>
           )}
         </div>
       )}
@@ -241,7 +249,7 @@ export default function ResearchDocumentPage() {
 
           {/* Word count */}
           {doc.evaluation_report.word_count != null && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-600">
               Word count: {doc.evaluation_report.word_count}
             </p>
           )}
@@ -299,7 +307,7 @@ export default function ResearchDocumentPage() {
           </div>
           <p className="text-sm text-gray-600 whitespace-pre-line">{doc.guide_comment}</p>
           {doc.guide_reviewed_at && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-600">
               Reviewed {new Date(doc.guide_reviewed_at).toLocaleDateString()}
             </p>
           )}

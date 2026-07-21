@@ -117,7 +117,7 @@ function ConductPanel({
             : 'Submit Responses & Trigger AI Evaluation'}
         </Button>
         {!allFilled && (
-          <p className="text-xs text-gray-400">All responses required before submitting.</p>
+          <p className="text-xs text-gray-600">All responses required before submitting.</p>
         )}
       </div>
     </div>
@@ -164,7 +164,7 @@ export default function VivaRatifyPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -188,10 +188,19 @@ export default function VivaRatifyPage() {
   const responses = viva.ai_responses ?? []
   const answered  = new Set(responses.map((r) => r.question_id))
   const eval_     = viva.ai_evaluation as {
-    per_question: Array<{ question_id: string; coherence: number; accuracy: number; depth: number; comment: string }>
-    overall_score: number
+    per_question: Array<{ question_id: string; coherence: number; accuracy: number; depth: number; comment: string }> | null
+    overall_score?: number
     summary?: string
+    /** Set by the worker when no AI advisory could be produced (e.g. ASR not
+     *  configured). The viva is still EVALUATED and fully ratifiable — the
+     *  guide simply evaluates without an AI second opinion. */
+    unavailable?: boolean
+    reason?: string
   } | null
+
+  // An advisory exists only when the AI actually produced per-question scores.
+  const aiUnavailable = Boolean(eval_?.unavailable) || !eval_?.per_question
+  const hasAiEval     = Boolean(eval_) && !aiUnavailable
 
   const isScheduled    = viva.status === 'SCHEDULED'
   const isProcessing   = viva.status === 'COMPLETED' || viva.status === 'ASR_PROCESSING'
@@ -210,13 +219,13 @@ export default function VivaRatifyPage() {
       {/* Title */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <Video className="h-5 w-5 text-gray-400 shrink-0" />
+          <Video className="h-5 w-5 text-gray-600 shrink-0" />
           <h1 className="text-xl font-bold text-gray-900">Viva Session</h1>
           <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${STATUS_COLOR[viva.status] ?? 'bg-gray-100 text-gray-600'}`}>
             {viva.status.replace(/_/g, ' ')}
           </span>
         </div>
-        <div className="text-xs text-gray-400 text-right">
+        <div className="text-xs text-gray-600 text-right">
           <p>Scheduled {fmt(viva.scheduled_at)}</p>
           {viva.completed_at && <p>Completed {fmt(viva.completed_at)}</p>}
           {viva.ratified_at  && <p>Ratified {fmt(viva.ratified_at)}</p>}
@@ -226,21 +235,23 @@ export default function VivaRatifyPage() {
       {/* Meta cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Questions</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Questions</p>
           <p className="text-sm font-semibold text-gray-800 mt-0.5">{questions.length}</p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Answered</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Answered</p>
           <p className="text-sm font-semibold text-gray-800 mt-0.5">{answered.size} / {questions.length}</p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">AI Score</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">AI Score</p>
           <p className="text-sm font-semibold text-gray-800 mt-0.5">
-            {eval_ ? `${eval_.overall_score.toFixed(1)} / 10` : '—'}
+            {hasAiEval && eval_?.overall_score != null
+              ? `${eval_.overall_score.toFixed(1)} / 10`
+              : aiUnavailable ? 'Unavailable' : '—'}
           </p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Guide Score</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Guide Score</p>
           <p className="text-sm font-semibold text-gray-800 mt-0.5">
             {viva.overall_guide_score != null ? `${viva.overall_guide_score} / 10` : '—'}
           </p>
@@ -257,7 +268,7 @@ export default function VivaRatifyPage() {
       )}
 
       {isScheduled && questions.length === 0 && (
-        <div className="rounded-xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
+        <div className="rounded-xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-600">
           Viva questions are still being generated. Refresh in a moment.
         </div>
       )}
@@ -295,7 +306,7 @@ export default function VivaRatifyPage() {
                       {resp ? (
                         <p className="text-sm text-gray-600 whitespace-pre-wrap">{resp.response_text}</p>
                       ) : (
-                        <p className="text-xs text-gray-400 italic">No response recorded.</p>
+                        <p className="text-xs text-gray-600 italic">No response recorded.</p>
                       )}
                     </div>
                   </div>
@@ -306,17 +317,35 @@ export default function VivaRatifyPage() {
         </div>
       )}
 
+      {/* ── AI advisory unavailable ──────────────────────────────────────────
+          No AI second opinion was produced. The viva is unaffected: the guide's
+          evaluation below is, and always was, the authoritative one. */}
+      {eval_ && aiUnavailable && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="text-sm font-medium text-amber-800">
+            AI viva evaluation unavailable. Please complete the guide evaluation manually.
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            The student&apos;s responses are recorded above and ready for your review.
+            Your evaluation is the authoritative one.
+          </p>
+          {eval_.reason && (
+            <p className="text-[11px] text-amber-600 mt-1.5">Reason: {eval_.reason}</p>
+          )}
+        </div>
+      )}
+
       {/* ── AI Evaluation (visible once EVALUATED or GUIDE_RATIFIED) ────────── */}
-      {eval_ && (
+      {hasAiEval && eval_ && (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-700">AI Evaluation</span>
             <span className="text-sm font-bold text-gray-900">
-              {eval_.overall_score.toFixed(1)} / 10
+              {(eval_.overall_score ?? 0).toFixed(1)} / 10
             </span>
           </div>
           <div className="divide-y divide-gray-100">
-            {eval_.per_question.map((q, i) => (
+            {(eval_.per_question ?? []).map((q, i) => (
               <div key={q.question_id} className="px-5 py-3 space-y-0.5">
                 <p className="text-xs font-medium text-gray-500">Q{i + 1}</p>
                 <div className="flex gap-4 text-sm">
@@ -363,7 +392,7 @@ export default function VivaRatifyPage() {
 
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">
-              Ratification note <span className="text-gray-400 font-normal">(optional)</span>
+              Ratification note <span className="text-gray-600 font-normal">(optional)</span>
             </label>
             <textarea
               rows={3}
@@ -392,14 +421,14 @@ export default function VivaRatifyPage() {
             {viva.overall_guide_score} / 10
           </p>
           {viva.ratified_at && (
-            <p className="text-xs text-gray-400 pl-7">Ratified {fmt(viva.ratified_at)}</p>
+            <p className="text-xs text-gray-600 pl-7">Ratified {fmt(viva.ratified_at)}</p>
           )}
         </div>
       )}
 
       {/* ── Catch-all for unexpected status (guard, shouldn't appear) ───────── */}
       {!isScheduled && !isProcessing && !canRatify && !isRatified && (
-        <div className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-400">
+        <div className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-600">
           <Clock className="h-4 w-4 mx-auto mb-1" />
           Status: {viva.status.replace(/_/g, ' ')} — waiting for next step.
         </div>

@@ -5,16 +5,17 @@ Responsibilities:
   1. generate_base_questions()  — LLM generates 5–8 structured questions from document.
   2. generate_followup()        — LLM generates one follow-up given a base Q + response.
   3. evaluate_responses()       — LLM scores each response (coherence, accuracy, depth).
-  4. transcribe_audio()         — Whisper ASR call; mock in dev when endpoint not set.
+  4. transcribe_audio()         — Whisper ASR call; raises TranscriptionUnavailable
+                                  when the endpoint is not configured. It never
+                                  fabricates a transcript.
 
 All LLM calls use Gemini → Groq fallback (same pattern as M06).
 Whisper endpoint is configured via settings.M07_WHISPER_ENDPOINT.
-If endpoint is blank, a mock transcript is returned (dev/test mode).
+If it is blank, transcription FAILS — see TranscriptionUnavailable below.
 """
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import logging
 import re
@@ -24,6 +25,16 @@ from typing import Any
 from app.config import settings
 
 logger = logging.getLogger("vidya.m07.viva_engine")
+
+
+class TranscriptionUnavailable(RuntimeError):
+    """ASR could not produce a transcript for a viva recording.
+
+    Raised instead of returning placeholder text. A viva evaluation built on an
+    invented transcript would be an academic record of an event that never
+    happened, so the absence of ASR is surfaced as a failure the guide is told
+    about — never papered over.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -367,18 +378,19 @@ async def transcribe_audio(audio_url: str) -> str:
     """
     Call Whisper ASR to transcribe a viva recording.
 
-    If M07_WHISPER_ENDPOINT is blank (dev mode), returns a mock transcript.
+    Raises TranscriptionUnavailable if M07_WHISPER_ENDPOINT is blank. It never
+    returns placeholder text — see the exception's docstring.
     Production: POST audio file to the Whisper endpoint.
     """
     if not settings.M07_WHISPER_ENDPOINT:
-        logger.info("Whisper endpoint not configured — returning mock transcript")
-        return (
-            "[Mock transcript — Whisper endpoint not configured]\n"
-            "Q: Can you describe your research methodology?\n"
-            "A: We used a mixed-methods approach combining qualitative interviews "
-            "and quantitative data analysis.\n"
-            "Q: What are the limitations of your study?\n"
-            "A: The sample size is limited to 50 participants from one region."
+        # Never fabricate a transcript. This text used to be invented wholesale
+        # ("50 participants from one region") and then flowed into the AI
+        # evaluation, into the report, and into something a guide could ratify —
+        # an academic record about a viva nobody gave. A missing transcript must
+        # fail loudly and leave the guide to proceed manually.
+        raise TranscriptionUnavailable(
+            "ASR is not configured (M07_WHISPER_ENDPOINT is unset), so this viva "
+            "could not be transcribed. No transcript has been recorded."
         )
 
     import httpx

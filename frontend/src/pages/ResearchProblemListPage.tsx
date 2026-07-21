@@ -188,7 +188,7 @@ export default function ResearchProblemListPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-600 mt-0.5">
                     {p.source === 'AI_GENERATED' ? 'AI-generated · ' : ''}
                     Submitted {new Date(p.created_at).toLocaleDateString()}
                   </p>
@@ -210,7 +210,7 @@ export default function ResearchProblemListPage() {
                     onClick={() => navigate(`/research/problems/${p.id}`)}
                     className="p-1 rounded hover:bg-gray-100"
                   >
-                    <ChevronRight className="h-4 w-4 text-gray-300" />
+                    <ChevronRight className="h-4 w-4 text-gray-500" />
                   </button>
                 </div>
               </div>

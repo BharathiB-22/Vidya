@@ -44,7 +44,7 @@ export function ResearchTab() {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <Microscope className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">You do not hold the Research Guide responsibility.</p>
+        <p className="text-sm text-gray-600">You do not hold the Research Guide responsibility.</p>
       </div>
     )
   }
@@ -57,7 +57,7 @@ export function ResearchTab() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <Users className="h-4 w-4 text-gray-400 mb-2" />
+          <Users className="h-4 w-4 text-gray-600 mb-2" />
           <p className="text-xl font-bold text-gray-900">{acceptedQ.isLoading ? '…' : (acceptedQ.data?.total ?? 0)}</p>
           <p className="text-xs text-gray-500 mt-0.5">Problems Under Your Supervision</p>
         </div>
@@ -67,7 +67,7 @@ export function ResearchTab() {
           <p className="text-xs text-gray-500 mt-0.5">Pending Your Evaluation</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <Video className="h-4 w-4 text-gray-400 mb-2" />
+          <Video className="h-4 w-4 text-gray-600 mb-2" />
           <p className="text-xl font-bold text-gray-900">{vivasQ.isLoading ? '…' : (vivasQ.data?.total ?? 0)}</p>
           <p className="text-xs text-gray-500 mt-0.5">Viva Sessions</p>
         </div>
@@ -75,7 +75,7 @@ export function ResearchTab() {
 
       {(pendingQ.data?.items.length ?? 0) > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Pending Evaluations</p>
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Pending Evaluations</p>
           <div className="rounded-xl border border-amber-200 divide-y divide-amber-100 bg-amber-50/40 overflow-hidden">
             {pendingQ.data!.items.slice(0, 5).map((p) => (
               <button
@@ -93,7 +93,7 @@ export function ResearchTab() {
 
       {(acceptedQ.data?.items.length ?? 0) > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Current Supervision</p>
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Current Supervision</p>
           <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
             {acceptedQ.data!.items.slice(0, 5).map((p) => (
               <button
@@ -110,13 +110,13 @@ export function ResearchTab() {
       )}
 
       <div>
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recent Viva</p>
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Recent Viva</p>
         {vivasQ.isLoading ? (
-          <div className="text-sm text-gray-400 py-6 text-center">Loading viva sessions…</div>
+          <div className="text-sm text-gray-600 py-6 text-center">Loading viva sessions…</div>
         ) : recentVivas.length === 0 ? (
           <div className="text-center py-8 rounded-xl border border-dashed border-gray-200">
             <Video className="h-6 w-6 mx-auto mb-2 text-gray-200" />
-            <p className="text-sm text-gray-400">No viva sessions yet.</p>
+            <p className="text-sm text-gray-600">No viva sessions yet.</p>
           </div>
         ) : (
           <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -143,7 +143,7 @@ export function ResearchTab() {
           Open Research Supervision
         </Button>
       </div>
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-gray-600">
         Research supervision is not yet tracked per-subject — figures above cover all students you guide.
       </p>
 

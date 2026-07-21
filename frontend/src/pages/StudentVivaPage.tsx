@@ -57,7 +57,7 @@ export default function StudentVivaPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+      <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
     </div>
   )
   if (isError || !viva) return (
@@ -92,7 +92,7 @@ export default function StudentVivaPage() {
         </span>
       </div>
 
-      <div className="text-xs text-gray-400">
+      <div className="text-xs text-gray-600">
         Expires {new Date(viva.expires_at).toLocaleString()}
         {isExpired && <span className="ml-2 text-red-500 font-medium">· EXPIRED</span>}
       </div>
@@ -132,7 +132,7 @@ export default function StudentVivaPage() {
       {/* Active Q&A */}
       {viva.status === 'IN_PROGRESS' && !allDone && currentQ && (
         <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
-          <div className="flex items-center justify-between text-xs text-gray-400">
+          <div className="flex items-center justify-between text-xs text-gray-600">
             <span>Question {currentQIdx + 1} of {questions.length}</span>
             <span>{answered.size} answered</span>
           </div>

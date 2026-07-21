@@ -83,7 +83,7 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">Select Guide</label>
           {guidesLoading ? (
-            <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+            <div className="flex items-center gap-2 py-2 text-sm text-gray-600">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading guides…
             </div>
           ) : guides.length === 0 ? (
@@ -150,7 +150,7 @@ function ProposeDialog({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={() => removeQuestion(i)}
-                  className="p-2 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
+                  className="p-2 rounded hover:bg-red-50 text-gray-600 hover:text-red-500"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -218,7 +218,7 @@ export default function StudentResearchPage() {
       ) : problems.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No proposals yet. Submit your first research proposal.</p>
+          <p className="text-sm text-gray-600">No proposals yet. Submit your first research proposal.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -236,12 +236,12 @@ export default function StudentResearchPage() {
                       {p.status.replace('_', ' ')}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-600 mt-0.5">
                     Submitted {new Date(p.created_at).toLocaleDateString()}
                     {p.guide_note && ' · Guide note available'}
                   </p>
                 </div>
-                <ChevronRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                <ChevronRight className="h-4 w-4 text-gray-500 flex-shrink-0" />
               </div>
             </div>
           ))}

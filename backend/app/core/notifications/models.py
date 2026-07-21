@@ -76,16 +76,36 @@ class NotificationType(str, enum.Enum):
     COURSE_KIT_REJECTED         = "COURSE_KIT_REJECTED"
 
     # Assignments — M04 (theory/coursework assignments, separate from M06 Labs)
-    ASSIGNMENT_PUBLISHED        = "ASSIGNMENT_PUBLISHED"
-    ASSIGNMENT_GRADED           = "ASSIGNMENT_GRADED"
-    ASSIGNMENT_RETURNED         = "ASSIGNMENT_RETURNED"
+    ASSIGNMENT_PUBLISHED         = "ASSIGNMENT_PUBLISHED"
+    ASSIGNMENT_GRADED            = "ASSIGNMENT_GRADED"
+    ASSIGNMENT_RETURNED          = "ASSIGNMENT_RETURNED"
+    ASSIGNMENT_EVALUATOR_ASSIGNED   = "ASSIGNMENT_EVALUATOR_ASSIGNED"    # -> evaluator, at publish
+    ASSIGNMENT_SUBMISSION_RECEIVED  = "ASSIGNMENT_SUBMISSION_RECEIVED"   # -> faculty, on student submit
+    ASSIGNMENT_EVALUATION_COMPLETED = "ASSIGNMENT_EVALUATION_COMPLETED"  # -> faculty, when all graded
+    ASSIGNMENT_RESULTS_RELEASED     = "ASSIGNMENT_RESULTS_RELEASED"      # -> students, on release
 
     # Labs & Assignment Evaluator — M06 (wired up in Phase 3; previously silent)
     LAB_PUBLISHED               = "LAB_PUBLISHED"
     LAB_GRADED                  = "LAB_GRADED"
 
-    # Research Supervision — M07 (wired up in Phase 3; previously silent)
-    VIVA_SCHEDULED              = "VIVA_SCHEDULED"
+    # Research Supervision — M07.
+    #
+    # One message at each end of the three human gates the module already has:
+    # the guide is told when something is waiting for their decision, and the
+    # student is told once that decision is made. The AI never decides — it only
+    # produces the advisory the guide reads, so the _EVALUATED pair goes to the
+    # guide, never to the student.
+    VIVA_SCHEDULED                = "VIVA_SCHEDULED"                # -> student
+    VIVA_RATIFIED                 = "VIVA_RATIFIED"                 # -> student
+    RESEARCH_PROPOSAL_SUBMITTED   = "RESEARCH_PROPOSAL_SUBMITTED"   # -> guide
+    RESEARCH_PROPOSAL_EVALUATED   = "RESEARCH_PROPOSAL_EVALUATED"   # -> guide
+    RESEARCH_PROPOSAL_DECIDED     = "RESEARCH_PROPOSAL_DECIDED"     # -> student
+    RESEARCH_DOCUMENT_EVALUATED   = "RESEARCH_DOCUMENT_EVALUATED"   # -> guide
+    RESEARCH_DOCUMENT_REVIEWED    = "RESEARCH_DOCUMENT_REVIEWED"    # -> student
+    # An AI stage could not run at all (e.g. ASR unavailable). Sent to the guide
+    # so a missing advisory is visible rather than silent — the human gate still
+    # holds, and they can proceed manually.
+    RESEARCH_EVALUATION_FAILED    = "RESEARCH_EVALUATION_FAILED"    # -> guide
 
 
 class Notification(Base):

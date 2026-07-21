@@ -63,12 +63,12 @@ export function DocumentRow({ doc, onOpen }: { doc: ResearchDocument; onOpen: ()
       className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
     >
       <div className="flex items-center gap-3 min-w-0">
-        <FileText className="h-4 w-4 text-gray-400 shrink-0" />
+        <FileText className="h-4 w-4 text-gray-600 shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-800 truncate">
             {doc.file_name ?? `Document v${doc.version}`}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-600 mt-0.5">
             Version {doc.version} · Submitted {fmt(doc.submitted_at)}
           </p>
         </div>
@@ -77,7 +77,7 @@ export function DocumentRow({ doc, onOpen }: { doc: ResearchDocument; onOpen: ()
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${DOC_STATUS_COLOR[doc.status] ?? 'bg-gray-100 text-gray-600'}`}>
           {doc.status.replace(/_/g, ' ')}
         </span>
-        <ChevronRight className="h-4 w-4 text-gray-300" />
+        <ChevronRight className="h-4 w-4 text-gray-500" />
       </div>
     </button>
   )
@@ -93,10 +93,10 @@ export function VivaRow({ viva, onOpen }: { viva: VivaSession; onOpen: () => voi
       className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
     >
       <div className="flex items-center gap-3 min-w-0">
-        <Video className="h-4 w-4 text-gray-400 shrink-0" />
+        <Video className="h-4 w-4 text-gray-600 shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-800">Viva Session</p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-600 mt-0.5">
             Scheduled {fmt(viva.scheduled_at)}
             {viva.completed_at ? ` · Completed ${fmt(viva.completed_at)}` : ''}
           </p>
@@ -106,7 +106,7 @@ export function VivaRow({ viva, onOpen }: { viva: VivaSession; onOpen: () => voi
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${VIVA_STATUS_COLOR[viva.status] ?? 'bg-gray-100 text-gray-600'}`}>
           {viva.status.replace(/_/g, ' ')}
         </span>
-        <ChevronRight className="h-4 w-4 text-gray-300" />
+        <ChevronRight className="h-4 w-4 text-gray-500" />
       </div>
     </button>
   )
@@ -245,7 +245,7 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
 
       {/* Title bar */}
       <div className="flex items-start gap-3 flex-wrap">
-        <BookOpen className="h-5 w-5 text-gray-400 mt-0.5 shrink-0" />
+        <BookOpen className="h-5 w-5 text-gray-600 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-start gap-2 flex-wrap">
             <h1 className="text-xl font-bold text-gray-900 flex-1">{problem.title}</h1>
@@ -262,22 +262,22 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
       {/* Meta row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Submitted</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Submitted</p>
           <p className="text-sm text-gray-800 mt-0.5">{fmt(problem.created_at)}</p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Updated</p>
+          <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Updated</p>
           <p className="text-sm text-gray-800 mt-0.5">{fmt(problem.updated_at)}</p>
         </div>
         {problem.decided_at && (
           <div className="rounded-lg bg-gray-50 px-3 py-2">
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Decided</p>
+            <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Decided</p>
             <p className="text-sm text-gray-800 mt-0.5">{fmt(problem.decided_at)}</p>
           </div>
         )}
         {problem.student_user_id && (
           <div className="rounded-lg bg-gray-50 px-3 py-2">
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Student ID</p>
+            <p className="text-xs text-gray-600 font-medium uppercase tracking-wide">Student ID</p>
             <p className="text-sm text-gray-800 mt-0.5 font-mono truncate">
               {problem.student_user_id.slice(0, 8)}…
             </p>
@@ -366,7 +366,7 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
               </span>
             )}
             {problem.decided_at && (
-              <span className="text-xs text-gray-400 ml-auto">{fmt(problem.decided_at)}</span>
+              <span className="text-xs text-gray-600 ml-auto">{fmt(problem.decided_at)}</span>
             )}
           </div>
           {problem.guide_note && (
@@ -412,7 +412,7 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
 
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">
-                  Guide note <span className="text-gray-400 font-normal">(optional)</span>
+                  Guide note <span className="text-gray-600 font-normal">(optional)</span>
                 </label>
                 <textarea
                   rows={3}
@@ -451,12 +451,12 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
           <h2 className="text-sm font-semibold text-gray-700">
             Research Documents
             {problemDocs.length > 0 && (
-              <span className="ml-1.5 text-xs font-normal text-gray-400">({problemDocs.length})</span>
+              <span className="ml-1.5 text-xs font-normal text-gray-600">({problemDocs.length})</span>
             )}
           </h2>
         </div>
         {problemDocs.length === 0 ? (
-          <div className="px-5 py-6 text-center text-sm text-gray-400">
+          <div className="px-5 py-6 text-center text-sm text-gray-600">
             {isAccepted
               ? 'No documents submitted yet. Student can upload after proposal is accepted.'
               : 'Documents will appear here once the proposal is accepted.'}
@@ -480,7 +480,7 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
           <h2 className="text-sm font-semibold text-gray-700">
             Viva Sessions
             {problemVivas.length > 0 && (
-              <span className="ml-1.5 text-xs font-normal text-gray-400">({problemVivas.length})</span>
+              <span className="ml-1.5 text-xs font-normal text-gray-600">({problemVivas.length})</span>
             )}
           </h2>
           {canScheduleViva && (
@@ -502,7 +502,7 @@ export function ResearchProblemPanel({ problemId }: ResearchProblemPanelProps) {
           )}
         </div>
         {problemVivas.length === 0 ? (
-          <div className="px-5 py-6 text-center text-sm text-gray-400">
+          <div className="px-5 py-6 text-center text-sm text-gray-600">
             {isAccepted && approvedDoc
               ? 'No viva scheduled. Use the Schedule Viva button above.'
               : isAccepted
