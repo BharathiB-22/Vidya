@@ -6,9 +6,35 @@ from __future__ import annotations
 import io
 from datetime import datetime
 
-from celery import shared_task
 
+from app.database import tenant_schema_scope
 from app.workers.celery_app import celery_app
+
+_async_engine = None
+
+
+def _get_async_engine():
+    """Worker-owned engine, mirroring every other heavy task.
+
+    Not `AsyncSessionLocal`: that is the API's request engine, and this task runs
+    its coroutine on a fresh event loop each time. A pooled asyncpg connection
+    belongs to the loop that created it, so reusing the request engine here raises
+    "Future attached to a different loop" — hence NullPool.
+    """
+    global _async_engine
+    if _async_engine is None:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
+        from app.config import settings
+        from app.database import bind_tenant_search_path
+        _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        bind_tenant_search_path(_async_engine)
+    return _async_engine
 
 
 @celery_app.task(
@@ -17,9 +43,13 @@ from app.workers.celery_app import celery_app
     max_retries=3,
     default_retry_delay=60,
 )
-def generate_graduation_report(self, audit_id: str) -> dict:
+def generate_graduation_report(self, schema_name: str, audit_id: str) -> dict:
     """
     Generate a PDF summary report for a graduation audit.
+
+    `schema_name` is the tenant this audit belongs to. It is required, not
+    optional: sis_graduation_* are tenant-schema tables, and without it the task
+    would read `public` and find nothing.
 
     Layout sections:
       1. Header: institution name, batch name, program, academic year
@@ -47,14 +77,17 @@ def generate_graduation_report(self, audit_id: str) -> dict:
 
     from sqlalchemy import select
 
-    from app.database import AsyncSessionLocal
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.modules.m11_sis.graduation_models import (
         SisGraduationAudit,
         SisGraduationCandidate,
     )
 
+    engine = _get_async_engine()
+
     async def _run() -> dict:
-        async with AsyncSessionLocal() as db:
+        async with AsyncSession(engine, expire_on_commit=False) as db:
             audit = (await db.execute(
                 select(SisGraduationAudit).where(
                     SisGraduationAudit.id == UUID(audit_id)
@@ -160,8 +193,12 @@ def generate_graduation_report(self, audit_id: str) -> dict:
 
             return {"audit_id": audit_id, "s3_key": s3_key, "size_bytes": len(pdf_bytes)}
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_run())
-    finally:
-        loop.close()
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_run())
+        finally:
+            loop.close()

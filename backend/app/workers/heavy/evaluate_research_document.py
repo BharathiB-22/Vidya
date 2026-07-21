@@ -26,6 +26,7 @@ import logging
 import sys
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -51,11 +52,19 @@ def _make_async_engine(schema_name: str):
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
     from app.config import settings
-    return create_async_engine(
+    engine = create_async_engine(
         settings.DATABASE_URL,
         poolclass=NullPool,
         connect_args={"server_settings": {"search_path": f"{schema_name},public"}},
     )
+    # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+    # session. A commit hands this connection back — NullPool closes it, a pool
+    # recycles it — so anything after the first commit would otherwise run with
+    # search_path = public, and a pooled connection could arrive still carrying
+    # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+    from app.database import bind_tenant_search_path
+    bind_tenant_search_path(engine)
+    return engine
 
 
 @celery_app.task(
@@ -76,16 +85,19 @@ def evaluate_research_document(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_document_evaluation(
-            document_id=UUID(document_id),
-            schema_name=schema_name,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_document_evaluation(
+                document_id=UUID(document_id),
+                schema_name=schema_name,
+            )
         )
-    )
 
 
 async def _run_document_evaluation(document_id: UUID, schema_name: str) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.audit_log.models import AuditEventType
@@ -106,8 +118,6 @@ async def _run_document_evaluation(document_id: UUID, schema_name: str) -> dict:
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
             try:
                 # 1. Load document + problem
                 doc = await DocumentRepository.get_by_id(document_id, db=session)
@@ -183,6 +193,31 @@ async def _run_document_evaluation(document_id: UUID, schema_name: str) -> dict:
                         "ai_model":         result.ai_model,
                     },
                 )
+
+                # 8. Tell the guide the advisory is ready. ADVISORY ONLY — the
+                # document sits at EVALUATED and their review gate is untouched.
+                # The student is not told: they hear from their guide.
+                try:
+                    from app.core.notifications.dispatch import notify_user
+                    from app.core.notifications.models import NotificationType
+                    await notify_user(
+                        session,
+                        notification_type=NotificationType.RESEARCH_DOCUMENT_EVALUATED,
+                        recipient_user_id=problem.guide_user_id,
+                        title=f"Document screening complete: {problem.title}",
+                        body=(f"AI screening finished for version {doc.version} "
+                              f"(similarity {result.plagiarism_score:.0%}, "
+                              f"AI-content {result.ai_content_score:.0%}, "
+                              f"format {result.format_score:.0%}). "
+                              "Advisory only — your review is required."),
+                        entity_type="ResearchDocument",
+                        entity_id=str(document_id),
+                    )
+                    await session.commit()
+                except Exception:
+                    logger.exception(
+                        "document eval: guide notification skipped for %s", document_id
+                    )
 
                 logger.info(
                     "Document evaluated: doc=%s plagiarism=%.2f ai_content=%.2f "

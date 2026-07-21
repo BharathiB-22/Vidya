@@ -24,6 +24,7 @@ import sys
 from datetime import datetime, timezone
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -43,6 +44,13 @@ def _get_async_engine():
         # asyncpg connections attached to the previous (closed) loop raise
         # "Future attached to a different loop". NullPool prevents this.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -70,13 +78,17 @@ def generate_course_kit(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_generation(
-            kit_id=UUID(kit_id),
-            tenant_id=UUID(tenant_id),
-            schema_name=schema_name,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_generation(
+                kit_id=UUID(kit_id),
+                tenant_id=UUID(tenant_id),
+                schema_name=schema_name,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +100,6 @@ async def _run_generation(
     tenant_id: UUID,
     schema_name: str,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.config import settings
@@ -117,8 +128,6 @@ async def _run_generation(
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
             # ------------------------------------------------------------------
             # 1. Load course kit
             # ------------------------------------------------------------------
@@ -342,9 +351,6 @@ async def _run_generation(
         # Best-effort: reset kit to DRAFT so faculty can retry.
         try:
             async with AsyncSession(engine, expire_on_commit=False) as reset_session:
-                await reset_session.execute(
-                    text(f"SET search_path TO {schema_name}, public")
-                )
                 await CourseKitRepository.reset_to_draft(kit_id, db=reset_session)
                 await reset_session.commit()
         except Exception:

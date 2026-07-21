@@ -24,9 +24,9 @@ import logging
 import re
 import sys
 import uuid as uuid_module
-from datetime import timezone
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -46,6 +46,13 @@ def _get_async_engine():
         # asyncpg connections attached to the previous (closed) loop raise
         # "Future attached to a different loop". NullPool prevents this.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -73,16 +80,20 @@ def export_course_kit(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_export(
-            kit_id=UUID(kit_id),
-            tenant_id=UUID(tenant_id),
-            schema_name=schema_name,
-            export_format=export_format,
-            requested_by_user_id=UUID(requested_by_user_id),
-            requested_by_role=requested_by_role,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_export(
+                kit_id=UUID(kit_id),
+                tenant_id=UUID(tenant_id),
+                schema_name=schema_name,
+                export_format=export_format,
+                requested_by_user_id=UUID(requested_by_user_id),
+                requested_by_role=requested_by_role,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +128,6 @@ async def _run_export(
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
             kit = await CourseKitRepository.get_detail(kit_id, db=session)
             if kit is None:
                 raise ValueError(f"Course kit {kit_id} not found.")
@@ -288,23 +297,27 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
     from pptx.util import Inches, Pt
     from pptx.enum.text import PP_ALIGN
 
-    # â”€â”€ Theme colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    _NAV  = RGBColor(0x0F, 0x20, 0x44)   # navy  â€“ cover bg / header bars
-    _ACC  = RGBColor(0x25, 0x63, 0xEB)   # blue  â€“ accent / key-concepts
-    _TEAL = RGBColor(0x08, 0x91, 0xB2)   # teal  â€“ examples / resources
-    _GRN  = RGBColor(0x05, 0x78, 0x50)   # green â€“ summary / definitions
-    _ORG  = RGBColor(0x92, 0x40, 0x0E)   # orange â€“ quiz slides
-    _WHT  = RGBColor(0xFF, 0xFF, 0xFF)
-    _TXT  = RGBColor(0x1E, 0x29, 0x3B)   # dark slate
-    _GRY  = RGBColor(0x64, 0x74, 0x8B)   # medium grey
-    _LGRY = RGBColor(0xF1, 0xF5, 0xF9)   # light grey (table alternates)
+    from app.modules.m03_course_kit.presentation import diagram as _diagram
+    from app.modules.m03_course_kit.presentation import text_metrics as _metrics
+    from app.modules.m03_course_kit.presentation.theme import Theme
+    from app.modules.m03_course_kit.schemas import DiagramSpec
 
-    if primary_color and primary_color.startswith('#') and len(primary_color) == 7:
-        try:
-            h = primary_color.lstrip('#')
-            _ACC = RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-        except Exception:
-            pass
+    # Palette and type scale now live in m03/presentation/theme.py. The short
+    # aliases below are views onto the theme, not a second definition of it —
+    # they keep the ~40 existing call sites unchanged.
+    _THEME = Theme.for_tenant(primary_color)
+    _PAL, _TYPE = _THEME.palette, _THEME.type
+
+    # â”€â”€ Theme colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    _NAV  = _PAL.navy   # navy  â€“ cover bg / header bars
+    _ACC  = _PAL.accent   # blue  â€“ accent / key-concepts
+    _TEAL = _PAL.teal   # teal  â€“ examples / resources
+    _GRN  = _PAL.green   # green â€“ summary / definitions
+    _ORG  = _PAL.orange   # orange â€“ quiz slides
+    _WHT  = _PAL.white
+    _TXT  = _PAL.text   # dark slate
+    _GRY  = _PAL.grey   # medium grey
+    _LGRY = _PAL.light_grey   # light grey (table alternates)
 
     prs = Presentation()
     W = prs.slide_width  = Inches(13.33)
@@ -344,12 +357,36 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         return box
 
     def _wrapped_lines(text: str, width_in: float, sz: int) -> int:
-        """Estimate how many lines `text` wraps to in a box `width_in` inches
-        wide at font size `sz` pt, so callers can space stacked text blocks
-        far enough apart to avoid overlapping — PowerPoint text boxes don't
-        clip overflow, they just render past their nominal height."""
-        chars_per_line = max(10, int(width_in * 96 / (sz * 0.55)))
-        return max(1, -(-len(text) // chars_per_line))  # ceil division
+        """How many lines `text` wraps to in a box `width_in` inches wide at
+        `sz` pt, so callers can space stacked blocks far enough apart to avoid
+        overlapping — PowerPoint text boxes don't clip overflow, they render
+        straight past their nominal height.
+
+        Measured against the real font metrics rather than estimated from an
+        average character width. The old estimate was well-tuned for average
+        prose but wrong at the tails: a line of wide glyphs came back one line
+        short (i.e. overlapping), and narrow text over-reserved space.
+        """
+        return _metrics.wrapped_lines(text, width_in, sz)
+
+    def _line_h(sz: int) -> float:
+        """Height of one line at `sz` pt, in inches — read from the font."""
+        return _metrics.line_height_in(sz)
+
+    def _fit_line(text: str, width_in: float, sz: int, *, max_lines: int = 1) -> str:
+        """Truncate `text` with an ellipsis so it occupies at most `max_lines`.
+
+        For the footnote strip at the bottom of a slide, which is boxed in on
+        two sides: the Bloom/CO footer sits at x=8.9", and the slide ends at
+        7.5" down. Left unbounded, a long summary either runs under the footer
+        or off the bottom edge, so it is cut rather than moved.
+        """
+        if _metrics.wrapped_lines(text, width_in, sz) <= max_lines:
+            return text
+        cut = len(text)
+        while cut > 1 and _metrics.wrapped_lines(text[:cut] + '…', width_in, sz) > max_lines:
+            cut -= 1
+        return text[:cut].rstrip() + '…'
 
     def _header(slide, title: str, subtitle: str = '', color: RGBColor = None):
         hc = color or _NAV
@@ -516,8 +553,8 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             if oy > Inches(6.5):
                 break
             obj_str = str(obj)
-            lines = _wrapped_lines(obj_str, 11.7, 14)
-            row_h = max(0.62, 0.06 + lines * 0.3)
+            lines = _wrapped_lines(obj_str, 11.7, _TYPE.body)
+            row_h = max(0.62, 0.10 + lines * _line_h(_TYPE.body))
             _rect(sl, Inches(0.45), oy, Inches(0.46), Inches(0.48), _GRN)
             _txt(sl, str(i), Inches(0.45), oy, Inches(0.46), Inches(0.48),
                  sz=15, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
@@ -528,8 +565,9 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             _txt(sl, 'Objectives will be listed here.',
                  Inches(0.45), Inches(1.52), Inches(12.5), Inches(0.4), sz=14, color=_GRY)
         if summary_txt:
-            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
-                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Renderer: WORKED_EXAMPLE -----------------------------------------------------
@@ -565,8 +603,8 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             for i, step in enumerate(steps[:max_steps], 1):
                 if sy > step_ceiling:
                     break
-                lines  = _wrapped_lines(str(step), 11.9, 13)
-                step_h = max(0.5, 0.04 + lines * 0.26)
+                lines  = _wrapped_lines(str(step), 11.9, _TYPE.body_tight)
+                step_h = max(0.5, 0.08 + lines * _line_h(_TYPE.body_tight))
                 _rect(sl, Inches(0.4), sy, Inches(0.4), Inches(0.4), _ACC)
                 _txt(sl, str(i), Inches(0.4), sy, Inches(0.4), Inches(0.4),
                      sz=13, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
@@ -582,8 +620,9 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                 _txt(sl, line, Inches(0.55), Inches(5.43 + li * 0.28),
                      Inches(12.2), Inches(0.26), sz=10, italic=True, color=_CODE_TXT)
         if summary_txt:
-            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
-                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Renderer: CODE ---------------------------------------------------------------
@@ -635,8 +674,9 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                      sz=11, bold=True, color=_ACC)
                 ry += Inches(0.42)
         if summary_txt:
-            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
-                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Renderer: COMMON_MISTAKES ----------------------------------------------------
@@ -687,8 +727,9 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                 _txt(sl, correct, Inches(6.9), ry + Inches(0.1),
                      Inches(5.75), Inches(0.75), sz=12, color=_RIGHT)
         if summary_txt:
-            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
-                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Renderer: ACTIVITY -----------------------------------------------------------
@@ -739,8 +780,9 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                      Inches(12.2), Inches(0.38), sz=12, italic=True, color=_TXT)
                 dy += Inches(0.42)
         if summary_txt:
-            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
-                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Renderer: QUIZ ---------------------------------------------------------------
@@ -815,8 +857,102 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
                  Inches(11.7), Inches(0.38), sz=14, color=_TXT)
             oy += Inches(0.62)
         if summary_txt and items and summary_txt not in items:
-            _txt(sl, f'\u21b3 {summary_txt}', Inches(0.45), Inches(6.85),
-                 Inches(12.5), Inches(0.4), sz=10, italic=True, color=_GRY)
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
+        _add_slide_footer(sl, ks, content, is_dean=is_dean)
+
+    # -- Renderer: DIAGRAM ------------------------------------------------------------
+    def _parse_diagram(content: dict):
+        """The slide's diagram, or None if there isn't a drawable one.
+
+        Kits generated before DiagramSpec existed carry `diagram_prompt` — prose
+        describing a picture, which cannot be drawn. Those still fall through to
+        the text renderers, exactly as they do today.
+        """
+        raw = content.get('diagram')
+        if not isinstance(raw, dict):
+            return None
+        try:
+            spec = DiagramSpec.model_validate(raw)
+        except Exception:
+            return None
+        return spec if _diagram.capability(spec) == _diagram.FULL else None
+
+    def _render_diagram(sl, ks, content, *, is_dean: bool) -> None:
+        """Diagram left, explanation right.
+
+        The diagram is drawn as native PowerPoint shapes, so faculty can drag a
+        box or fix a label. If it declines to draw, this slide falls back to the
+        generic renderer rather than shipping a slide with a hole in it.
+        """
+        # Decide BEFORE drawing anything: the generic renderer paints its own
+        # header, so handing over after this one is drawn stacks two of them.
+        spec = _parse_diagram(content)
+        if spec is None:
+            _render_generic(sl, ks, content, is_dean=is_dean)
+            return
+
+        bullets      = [str(b) for b in (content.get('bullets') or []) if b]
+        key_concepts = [str(k) for k in (content.get('key_concepts') or []) if k]
+        summary_txt  = (content.get('student_summary') or '').strip()
+
+        _header(sl, ks.title or f'Slide {ks.slide_number}',
+                subtitle=f'{course.code}  \xb7  Unit {kit.unit_number}  \xb7  Slide {ks.slide_number}',
+                color=_NAV)
+        _rect(sl, Inches(11.15), Inches(0.08), Inches(1.95), Inches(0.27), _ACC)
+        _txt(sl, 'DIAGRAM', Inches(11.15), Inches(0.1), Inches(1.95), Inches(0.27),
+             sz=_TYPE.chip, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+
+        has_side = bool(bullets or key_concepts)
+        region = (0.45, 1.15, 8.3 if has_side else 12.45, 5.5)
+        if not _diagram.render(sl, spec, region, _THEME):
+            # capability() approved it but drawing raised. The header is already
+            # down, so fill the space with the walkthrough rather than hand over
+            # to a renderer that would draw a second header over this one.
+            fy = Inches(1.3)
+            for b in bullets[:7]:
+                if fy > Inches(6.4):
+                    break
+                h = 0.06 + _wrapped_lines(f'• {b}', 12.4, _TYPE.body) * _line_h(_TYPE.body)
+                _txt(sl, f'• {b}', Inches(0.5), fy, Inches(12.4), Inches(h),
+                     sz=_TYPE.body, color=_TXT)
+                fy += Inches(h + 0.06)
+            _add_slide_footer(sl, ks, content, is_dean=is_dean)
+            return
+
+        ry = Inches(1.15)
+        if bullets:
+            _rect(sl, Inches(8.9), ry, Inches(4.1), Inches(0.25), _ACC)
+            _txt(sl, 'HOW IT WORKS', Inches(8.9), ry, Inches(4.1), Inches(0.25),
+                 sz=_TYPE.chip, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            ry += Inches(0.32)
+            for b in bullets[:6]:
+                if ry > Inches(5.9):
+                    break
+                lines = _wrapped_lines(f'• {b}', 4.0, _TYPE.caption)
+                h = 0.06 + lines * _line_h(_TYPE.caption)
+                _txt(sl, f'• {b}', Inches(8.95), ry, Inches(4.0), Inches(h),
+                     sz=_TYPE.caption, color=_TXT)
+                ry += Inches(h + 0.06)
+            ry += Inches(0.08)
+        if key_concepts and ry < Inches(5.9):
+            _rect(sl, Inches(8.9), ry, Inches(4.1), Inches(0.25), _GRN)
+            _txt(sl, 'LABELS TO KNOW', Inches(8.9), ry, Inches(4.1), Inches(0.25),
+                 sz=_TYPE.chip, bold=True, color=_WHT, align=PP_ALIGN.CENTER)
+            ry += Inches(0.32)
+            for kc in key_concepts[:4]:
+                if ry > Inches(6.4):
+                    break
+                lines = _wrapped_lines(f'• {kc}', 4.0, _TYPE.caption)
+                h = 0.06 + lines * _line_h(_TYPE.caption)
+                _txt(sl, f'• {kc}', Inches(8.95), ry, Inches(4.0), Inches(h),
+                     sz=_TYPE.caption, bold=True, color=_ACC)
+                ry += Inches(h + 0.04)
+        if summary_txt:
+            _txt(sl, _fit_line(f'↳ {summary_txt}', 8.2, _TYPE.footnote),
+                 Inches(0.45), Inches(6.85),
+                 Inches(8.2), Inches(0.4), sz=_TYPE.footnote, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Renderer: generic fallback ---------------------------------------------------
@@ -834,10 +970,10 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         key_concepts   = [str(k) for k in (content.get('key_concepts') or []) if k]
         definitions    = [str(d) for d in (content.get('definitions') or []) if d]
         examples       = [str(e) for e in (content.get('examples') or []) if e]
-        code_snippet   = (content.get('code_snippet') or '').strip()
+        (content.get('code_snippet') or '').strip()
         activity       = (content.get('classroom_activity') or '').strip()
         summary_txt    = (content.get('student_summary') or '').strip()
-        teaching_notes = (content.get('teaching_notes') or '').strip()
+        (content.get('teaching_notes') or '').strip()
         if not bullets:
             for _fk in ('points', 'body_points', 'slide_points', 'learning_points',
                         'content_points', 'teaching_points', 'body', 'slide_body'):
@@ -862,8 +998,8 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             if by > Inches(5.9):
                 break
             bullet_str = '  ' + str(bullet)
-            lines  = _wrapped_lines(bullet_str, 8.25, 14)
-            row_h  = max(0.65, 0.05 + lines * 0.32)
+            lines  = _wrapped_lines(bullet_str, 8.25, _TYPE.body)
+            row_h  = max(0.5, 0.10 + lines * _line_h(_TYPE.body))
             _txt(sl, bullet_str, Inches(0.45), by,
                  Inches(8.25), Inches(row_h), sz=14, color=_TXT)
             by += Inches(row_h + 0.03)
@@ -899,9 +1035,9 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
             _txt(sl, '    \xb7    '.join(str(e) for e in examples[:3]),
                  Inches(2.1), ey, Inches(11), Inches(0.27), sz=9, italic=True, color=_WHT)
         if summary_txt:
-            _txt(sl, f'\u21b3 {summary_txt}',
+            _txt(sl, _fit_line(f'\u21b3 {summary_txt}', 8.2, _TYPE.caption, max_lines=2),
                  Inches(0.4), Inches(6.5 if examples else 6.3),
-                 Inches(12.5), Inches(0.65), sz=11, italic=True, color=_GRY)
+                 Inches(8.2), Inches(0.65), sz=_TYPE.caption, italic=True, color=_GRY)
         _add_slide_footer(sl, ks, content, is_dean=is_dean)
 
     # -- Slide type registry ----------------------------------------------------------
@@ -913,7 +1049,25 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         'ACTIVITY':        _render_activity,
         'QUIZ':            _render_quiz,
         'SUMMARY':         _render_summary_slide,
+        'DIAGRAM':         _render_diagram,
     }
+
+    # Slide types whose own layout has no room for a diagram: a quiz needs its
+    # four options, a worked example its steps. Everything else defers to the
+    # diagram when there is one to draw.
+    _DIAGRAM_INCOMPATIBLE = {'QUIZ', 'CODE', 'WORKED_EXAMPLE', 'COMMON_MISTAKES', 'OBJECTIVES'}
+
+    def _pick_renderer(content: dict, stype: str):
+        """Dispatch on the diagram's PRESENCE, not only on the slide's label.
+
+        The AI decides a slide has a diagram by emitting one; whether it also
+        remembered to set slide_type='DIAGRAM' is a labelling detail, and a
+        drawable diagram silently rendered as a bullet list is the exact bug
+        this phase exists to fix.
+        """
+        if stype not in _DIAGRAM_INCOMPATIBLE and _parse_diagram(content) is not None:
+            return _render_diagram
+        return _SLIDE_REGISTRY.get(stype, _render_generic)
 
     # -- 3. CONTENT SLIDES ---------------------------------------------------------------
     for ks in slides_sorted:
@@ -922,7 +1076,7 @@ def _generate_pptx(buf, kit, course, *, is_dean: bool,
         _bg(sl, _WHT)
         content  = ks.content or {}
         stype    = (content.get('slide_type') or '').upper()
-        renderer = _SLIDE_REGISTRY.get(stype, _render_generic)
+        renderer = _pick_renderer(content, stype)
         renderer(sl, ks, content, is_dean=is_dean)
 
     # â”€â”€ 4. TEACHING PLAN TABLE SLIDE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1320,7 +1474,7 @@ def _generate_handout_pdf(buf, kit, course) -> None:
         canv.drawCentredString(0, 0, watermark_text)
         canv.restoreState()
 
-    HO_GRID = TableStyle([
+    TableStyle([
         ("FONTNAME",      (0, 0), (-1, 0),  "Helvetica-Bold"),
         ("FONTNAME",      (0, 1), (-1, -1), "Helvetica"),
         ("FONTSIZE",      (0, 0), (-1, -1), 8),

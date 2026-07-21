@@ -24,6 +24,7 @@ import asyncio
 import logging
 import sys
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -38,6 +39,13 @@ def _get_async_engine():
         from sqlalchemy.ext.asyncio import create_async_engine
         from app.config import settings
         _async_engine = create_async_engine(settings.DATABASE_URL, pool_pre_ping=True)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -63,12 +71,16 @@ def generate_exam_paper(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_generation(
-            paper_id=paper_id,
-            schema_name=schema_name,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_generation(
+                paper_id=paper_id,
+                schema_name=schema_name,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +89,6 @@ def generate_exam_paper(
 
 async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
     from uuid import UUID
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.config import settings
@@ -88,6 +99,11 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
         check_compliance,
     )
     from app.modules.m08_exam_setter.models import ExamPaperStatus
+    from app.modules.m08_exam_setter.paper_template import (
+        compile_specs,
+        describe_for_prompt,
+        has_template,
+    )
     from app.modules.m08_exam_setter.question_generator import generate_questions
     from app.modules.m08_exam_setter.repository import (
         BloomsRepository,
@@ -99,8 +115,6 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
     paper_uuid = UUID(paper_id)
 
     async with AsyncSession(engine, expire_on_commit=False) as session:
-        await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
         try:
             # 1. Load paper
             paper = await ExamPaperRepository.get_by_id(paper_uuid, db=session)
@@ -132,7 +146,21 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
             bloom_targets   = dict(paper.requested_dist or {})
             question_format = dict(paper.question_format or {})
             section_config  = list(paper.section_config) if paper.section_config else None
+            blueprint       = list(paper.blueprint) if paper.blueprint else None
             exam_workflow   = paper.exam_workflow or "BOARD_EXAM"
+
+            # The template owns the paper's structure. Compiling its slots here —
+            # with the same compiler the editor and the PDF use — is what makes
+            # generation, reconstruction and export agree by construction.
+            units_included = [int(u) for u in (paper.units_included or [])]
+            slots = template_prompt = None
+            if has_template(paper):
+                slots = compile_specs(paper.template_definition, units_included)
+                template_prompt = describe_for_prompt(paper.template_definition, units_included)
+                logger.info(
+                    "Paper %s is template-driven: %d question spec(s) across units %s.",
+                    paper_id, len(slots), units_included,
+                )
 
             questions_raw, ai_model, prompt_hash = await generate_questions(
                 units=units,
@@ -144,8 +172,11 @@ async def _run_generation(*, paper_id: str, schema_name: str) -> dict:
                 course_code=course_info.get("code", ""),
                 exam_type=paper.exam_type or "END_SEM",
                 section_config=section_config,
+                blueprint=blueprint,
                 course_outcomes=course_outcomes,
                 exam_workflow=exam_workflow,
+                slots=slots,
+                template_prompt=template_prompt,
             )
 
             if not questions_raw:
@@ -286,61 +317,84 @@ async def _fetch_syllabus_units(
     units_included: list[int],
     session,
 ) -> list[dict]:
-    """
-    Fetch syllabus units from M02 tables (same tenant schema, already set in search_path).
-    Returns a list of unit dicts compatible with question_generator.
-    Falls back to stub units if no syllabus found (graceful degradation in dev/test).
-    """
-    try:
-        from sqlalchemy import select, text as sa_text
-        from app.modules.m02_syllabus.models import Syllabus
+    """Fetch the course's approved syllabus units (same tenant schema).
 
-        # Get latest LOCKED or APPROVED (official) syllabus for this course
-        result = await session.execute(
-            select(Syllabus)
-            .where(Syllabus.course_id == course_id)
-            .where(Syllabus.status.in_(["LOCKED", "APPROVED"]))
-            .order_by(Syllabus.version.desc())
-            .limit(1)
+    The approved syllabus is the only source of units. There is no fallback: a
+    paper generated against invented units would be a paper about a syllabus that
+    does not exist, and the faculty would have no way to tell. Paper creation is
+    blocked without an approved syllabus, so reaching here without one means the
+    syllabus was withdrawn after the paper was queued — which is a real error and
+    is raised as one.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.modules.m02_syllabus.models import Syllabus
+
+    result = await session.execute(
+        select(Syllabus)
+        # Syllabus.units is lazy="select"; under an AsyncSession a lazy load
+        # raises MissingGreenlet instead of emitting SQL, so eager-load it here.
+        .options(selectinload(Syllabus.units))
+        .where(Syllabus.course_id == course_id)
+        .where(Syllabus.status.in_(["LOCKED", "APPROVED"]))
+        .order_by(Syllabus.version.desc())
+        .limit(1)
+    )
+    syllabus = result.scalar_one_or_none()
+    if syllabus is None:
+        raise ValueError(
+            f"Course {course_id} has no approved syllabus, so there are no units to "
+            f"generate questions from. Approve a syllabus and regenerate."
         )
-        syllabus = result.scalar_one_or_none()
 
-        if syllabus is None:
-            logger.warning(
-                "No approved syllabus found for course %s — using stub units.", course_id
-            )
-            return _stub_units(units_included)
+    # syllabus.units are SyllabusUnit ORM rows. Project them to the plain dicts
+    # the question generator expects, reading columns rather than dict keys.
+    #
+    # SyllabusUnit.topics is JSONB holding {title, description, hours_estimate}
+    # objects, but the generator treats topics as a list of plain strings
+    # (it ', '.join()s them). Flatten each topic to its title here so a topic
+    # object cannot TypeError the prompt builder.
+    def _topic_titles(topics) -> list[str]:
+        out: list[str] = []
+        for t in (topics or []):
+            if isinstance(t, dict):
+                label = (t.get("title") or "").strip()
+            else:
+                label = str(t).strip()
+            if label:
+                out.append(label)
+        return out
 
-        raw_units: list[dict] = syllabus.units or []
-
-        # Filter to requested units; fall back to all if filter produces empty
-        if units_included:
-            filtered = [
-                u for u in raw_units
-                if int(u.get("unit_no") or u.get("unit_number") or 0) in units_included
-            ]
-            return filtered if filtered else raw_units
-
-        return raw_units
-
-    except Exception as exc:
-        logger.warning("Failed to fetch syllabus units: %s — using stub units.", exc)
-        return _stub_units(units_included)
-
-
-def _stub_units(units_included: list[int]) -> list[dict]:
-    """Fallback stub units for dev/test when no syllabus exists."""
-    if not units_included:
-        units_included = [1, 2]
-    return [
+    raw_units: list[dict] = [
         {
-            "unit_no": n,
-            "title":   f"Unit {n}",
-            "topics":  ["Topic A", "Topic B"],
-            "hours":   6,
+            "unit_no":     u.unit_number,
+            "unit_number": u.unit_number,
+            "title":       u.title or "",
+            "content":     u.content or "",
+            "topics":      _topic_titles(u.topics),
+            "hours":       u.total_hours,
         }
-        for n in units_included
+        for u in (syllabus.units or [])
     ]
+    if not raw_units:
+        raise ValueError(
+            f"The approved syllabus for course {course_id} defines no units."
+        )
+
+    if units_included:
+        filtered = [
+            u for u in raw_units
+            if int(u.get("unit_no") or u.get("unit_number") or 0) in units_included
+        ]
+        if not filtered:
+            raise ValueError(
+                f"None of the paper's units {units_included} exist in the approved "
+                f"syllabus for course {course_id}. The syllabus may have changed "
+                f"since the paper was created."
+            )
+        return filtered
+
+    return raw_units
 
 
 async def _fetch_course_info(*, course_id, session) -> dict:
@@ -451,9 +505,13 @@ def _compute_unit_coverage(
     report: list[dict] = []
     all_covered = True
     for unit_no in sorted(set(int(u) for u in units_included)):
-        count   = sum(
+        # A question may integrate several units; it covers every one of them.
+        # unit_numbers is absent on legacy rows, where unit_number is the whole story.
+        count = sum(
             1 for q in questions
-            if int(q.get("unit_number") or 0) == unit_no
+            if unit_no in [
+                int(u) for u in (q.get("unit_numbers") or [q.get("unit_number") or 0])
+            ]
         )
         covered = count > 0
         if not covered:

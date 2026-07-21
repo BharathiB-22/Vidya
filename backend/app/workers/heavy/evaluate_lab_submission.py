@@ -29,6 +29,7 @@ import logging
 import sys
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -48,7 +49,15 @@ def _make_async_engine():
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
     from app.config import settings
-    return create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+    # session. A commit hands this connection back — NullPool closes it, a pool
+    # recycles it — so anything after the first commit would otherwise run with
+    # search_path = public, and a pooled connection could arrive still carrying
+    # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+    from app.database import bind_tenant_search_path
+    bind_tenant_search_path(engine)
+    return engine
 
 
 # ---------------------------------------------------------------------------
@@ -74,13 +83,17 @@ def evaluate_lab_submission(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_evaluation(
-            submission_id=UUID(submission_id),
-            assignment_id=UUID(assignment_id),
-            schema_name=schema_name,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_evaluation(
+                submission_id=UUID(submission_id),
+                assignment_id=UUID(assignment_id),
+                schema_name=schema_name,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +105,6 @@ async def _run_evaluation(
     assignment_id: UUID,
     schema_name: str,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.config import settings
@@ -101,7 +113,6 @@ async def _run_evaluation(
     from app.modules.m06_labs_evaluator.models import (
         AIScanStatus,
         ConfidenceLevel,
-        LabSubmission,
         SubmissionStatus,
         SubmissionType,
     )
@@ -114,8 +125,6 @@ async def _run_evaluation(
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
             try:
                 # 1. Load submission
                 sub = await SubmissionRepository.get_by_id(submission_id, db=session)
@@ -261,7 +270,7 @@ async def _run_evaluation(
                 ]
 
                 # 8. Write LabEvaluation row
-                evaluation = await EvaluationRepository.create(
+                await EvaluationRepository.create(
                     submission_id=submission_id,
                     rubric_scores=rubric_scores,
                     overall_ai_score=float(scoring_result.overall_ai_score),

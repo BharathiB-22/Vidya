@@ -214,12 +214,10 @@ async def _run_generation(
     tenant_id: UUID,
     schema_name: str,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.audit_log.models import AuditEventType
-    from app.core.audit_log.service import AuditService
-    from app.modules.m01_program_advisor.models import CourseType, ProgramOutcome
+    from app.modules.m01_program_advisor.models import CourseType
     from app.modules.m01_program_advisor.repository import (
         CourseRepository,
         ProgramOutcomeRepository,
@@ -256,8 +254,6 @@ async def _run_generation(
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
             # ------------------------------------------------------------------
             # Load syllabus
             # ------------------------------------------------------------------
@@ -466,7 +462,6 @@ async def _run_generation(
             # service layer filters them; faculty edits mappings post-approval).
             # ------------------------------------------------------------------
             mapping_items = []
-            co_code_to_id = {co.code: co.id for co in new_cos}
             for ai_co, db_co in zip(result.outcomes, new_cos):
                 strengths = ai_co.get("po_mapping_strengths", {})
                 for po_code in ai_co.get("suggested_po_codes", []):
@@ -609,9 +604,6 @@ async def _run_generation(
         # regenerates that unit alone.
         try:
             async with AsyncSession(engine, expire_on_commit=False) as reset_session:
-                await reset_session.execute(
-                    text(f"SET search_path TO {schema_name}, public")
-                )
                 await SyllabusRepository.update_status(
                     syllabus_id, SyllabusStatus.DRAFT, db=reset_session
                 )
@@ -746,11 +738,9 @@ async def _run_section_regeneration(
     unit_id: UUID | None,
     guidance: str | None,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.audit_log.models import AuditEventType
-    from app.core.audit_log.service import AuditService
     from app.modules.m01_program_advisor.models import CourseType
     from app.modules.m01_program_advisor.repository import (
         CourseRepository,
@@ -792,8 +782,6 @@ async def _run_section_regeneration(
     engine = _get_async_engine()
 
     async with AsyncSession(engine, expire_on_commit=False) as session:
-        await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
         syllabus = await SyllabusRepository.get_detail(syllabus_id, db=session)
         if syllabus is None:
             raise ValueError(f"Syllabus {syllabus_id} not found in {schema_name!r}.")

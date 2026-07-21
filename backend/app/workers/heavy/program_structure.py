@@ -5,6 +5,7 @@ import sys
 from datetime import datetime, timezone
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -27,6 +28,13 @@ def _get_async_engine():
         # NullPool: no connection caching between asyncio.run() calls.
         # Prevents "Future attached to a different loop" on Windows --pool=solo.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -191,14 +199,18 @@ def generate_program_structure(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_generation(
-            program_id=UUID(program_id),
-            schema_name=schema_name,
-            prompt_hint=prompt_hint,
-            ai_instructions=ai_instructions,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_generation(
+                program_id=UUID(program_id),
+                schema_name=schema_name,
+                prompt_hint=prompt_hint,
+                ai_instructions=ai_instructions,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -241,10 +253,8 @@ async def _run_generation(
     engine = _get_async_engine()
 
     async with AsyncSession(engine, expire_on_commit=False) as session:
-
         # Tenant isolation — all repository queries are schema-less;
         # search_path resolves them to the correct tenant schema.
-        await session.execute(text(f"SET search_path TO {schema_name}, public"))
 
         # ------------------------------------------------------------------
         # Load program

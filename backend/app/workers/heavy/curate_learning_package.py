@@ -27,6 +27,7 @@ import logging
 import sys
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -45,6 +46,13 @@ def _get_async_engine():
         # On Windows with --pool=solo each task runs in a fresh event loop; pooled
         # asyncpg connections raise "Future attached to a different loop". NullPool prevents that.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -75,16 +83,20 @@ def curate_learning_package(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_curation(
-            package_id=UUID(package_id),
-            tenant_id=UUID(tenant_id),
-            tenant_schema=tenant_schema,
-            syllabus_id=UUID(syllabus_id),
-            unit_number=unit_number,
-            top_n=top_n,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(tenant_schema):
+        return asyncio.run(
+            _run_curation(
+                package_id=UUID(package_id),
+                tenant_id=UUID(tenant_id),
+                tenant_schema=tenant_schema,
+                syllabus_id=UUID(syllabus_id),
+                unit_number=unit_number,
+                top_n=top_n,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +111,6 @@ async def _run_curation(
     unit_number: int,
     top_n: int | None,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.config import settings
@@ -131,10 +142,6 @@ async def _run_curation(
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(
-                text(f"SET search_path TO {tenant_schema}, public")
-            )
-
             # ------------------------------------------------------------------
             # 1. Load package
             # ------------------------------------------------------------------
@@ -495,9 +502,6 @@ async def _run_curation(
                 body_parts.append(f"Note: {warning}")
 
             async with _NotifSession(engine, expire_on_commit=False) as notif_session:
-                await notif_session.execute(
-                    text(f"SET search_path TO {tenant_schema}, public")
-                )
                 await NotificationService.send(
                     NotificationType.TASK_COMPLETE,
                     recipient_user_id=created_by_user_id,
@@ -529,9 +533,6 @@ async def _run_curation(
         # Best-effort reset to PENDING so faculty can retry.
         try:
             async with AsyncSession(engine, expire_on_commit=False) as reset_session:
-                await reset_session.execute(
-                    text(f"SET search_path TO {tenant_schema}, public")
-                )
                 await LearningPackageRepository.update_status(
                     package_id, PackageStatus.PENDING, db=reset_session
                 )

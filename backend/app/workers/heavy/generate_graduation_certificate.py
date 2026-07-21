@@ -14,7 +14,33 @@ from __future__ import annotations
 
 import io
 
+from app.database import tenant_schema_scope
 from app.workers.celery_app import celery_app
+
+_async_engine = None
+
+
+def _get_async_engine():
+    """Worker-owned engine, mirroring every other heavy task.
+
+    Not `AsyncSessionLocal`: that is the API's request engine, and this task runs
+    its coroutine on a fresh event loop each time. A pooled asyncpg connection
+    belongs to the loop that created it, so reusing the request engine here raises
+    "Future attached to a different loop" — hence NullPool.
+    """
+    global _async_engine
+    if _async_engine is None:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
+        from app.config import settings
+        from app.database import bind_tenant_search_path
+        _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. This task commits the pdf_s3_key mid-run; without a per-BEGIN
+        # SET LOCAL everything after that commit would run with search_path =
+        # public, and a pooled connection could arrive carrying ANOTHER tenant's.
+        bind_tenant_search_path(_async_engine)
+    return _async_engine
 
 
 @celery_app.task(
@@ -23,7 +49,10 @@ from app.workers.celery_app import celery_app
     max_retries=3,
     default_retry_delay=60,
 )
-def generate_graduation_certificate(self, cert_id: str) -> dict:
+def generate_graduation_certificate(self, schema_name: str, cert_id: str) -> dict:
+    """`schema_name` is the tenant this certificate belongs to. It is required,
+    not optional: sis_graduation_certificates is a tenant-schema table, and
+    without it the task would read `public` and find nothing."""
     try:
         from reportlab.graphics import renderPDF
         from reportlab.graphics.barcode.qr import QrCodeWidget
@@ -49,11 +78,14 @@ def generate_graduation_certificate(self, cert_id: str) -> dict:
 
     from sqlalchemy import select
 
-    from app.database import AsyncSessionLocal
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.modules.m11_sis.graduation_models import SisGraduationCertificate
 
+    engine = _get_async_engine()
+
     async def _run() -> dict:
-        async with AsyncSessionLocal() as db:
+        async with AsyncSession(engine, expire_on_commit=False) as db:
             cert = (await db.execute(
                 select(SisGraduationCertificate).where(
                     SisGraduationCertificate.id == UUID(cert_id)
@@ -117,7 +149,7 @@ def generate_graduation_certificate(self, cert_id: str) -> dict:
             elements.append(Spacer(1, 0.8*cm))
 
             elements.append(Paragraph(
-                f"has successfully completed the requirements for the degree of",
+                "has successfully completed the requirements for the degree of",
                 ParagraphStyle("Conferred", parent=centre, fontSize=11),
             ))
             elements.append(Spacer(1, 0.5*cm))
@@ -228,8 +260,12 @@ def generate_graduation_certificate(self, cert_id: str) -> dict:
                 "certificate_number": cert.certificate_number,
             }
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_run())
-    finally:
-        loop.close()
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_run())
+        finally:
+            loop.close()

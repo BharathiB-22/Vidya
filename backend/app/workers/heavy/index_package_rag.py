@@ -39,6 +39,7 @@ import sys
 import uuid
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -61,6 +62,13 @@ def _get_async_engine():
         # On Windows with --pool=solo each task runs in a fresh event loop; pooled
         # asyncpg connections raise "Future attached to a different loop". NullPool prevents that.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -100,13 +108,17 @@ def index_package_rag(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_indexing(
-            package_id=UUID(package_id),
-            tenant_id=UUID(tenant_id),
-            tenant_schema=tenant_schema,
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(tenant_schema):
+        return asyncio.run(
+            _run_indexing(
+                package_id=UUID(package_id),
+                tenant_id=UUID(tenant_id),
+                tenant_schema=tenant_schema,
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,14 +130,13 @@ async def _run_indexing(
     tenant_id: UUID,
     tenant_schema: str,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
     from qdrant_client.models import PointStruct
 
     from app.config import settings
     from app.core.audit_log.models import AuditEventType
     from app.core.audit_log.service import AuditService
-    from app.modules.m05_learning_materials.embedder import EmbedderError, embed_texts
+    from app.modules.m05_learning_materials.embedder import embed_texts
     from app.modules.m05_learning_materials.repository import (
         LearningPackageRepository,
         PackageItemRepository,
@@ -153,10 +164,6 @@ async def _run_indexing(
         # 2. Load items + index within a single DB session
         # ------------------------------------------------------------------
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(
-                text(f"SET search_path TO {tenant_schema}, public")
-            )
-
             items = await PackageItemRepository.list_by_package(
                 package_id, db=session
             )

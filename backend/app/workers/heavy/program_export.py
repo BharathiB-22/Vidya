@@ -6,6 +6,7 @@ import sys
 import uuid as uuid_module
 from uuid import UUID
 
+from app.database import tenant_schema_scope
 from app.workers.base_task import VidyaTask
 from app.workers.celery_app import celery_app
 
@@ -23,6 +24,13 @@ def _get_async_engine():
         # NullPool: no connection caching between asyncio.run() calls.
         # Prevents "Future attached to a different loop" on Windows --pool=solo.
         _async_engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        # Re-apply the schema at the START OF EVERY TRANSACTION, not once per
+        # session. A commit hands this connection back — NullPool closes it, a pool
+        # recycles it — so anything after the first commit would otherwise run with
+        # search_path = public, and a pooled connection could arrive still carrying
+        # ANOTHER tenant's search_path. A commit cannot undo a per-BEGIN SET LOCAL.
+        from app.database import bind_tenant_search_path
+        bind_tenant_search_path(_async_engine)
     return _async_engine
 
 
@@ -52,15 +60,19 @@ def export_program(
 ) -> dict:
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    return asyncio.run(
-        _run_export(
-            program_id=UUID(program_id),
-            tenant_id=UUID(tenant_id),
-            schema_name=schema_name,
-            export_format=export_format,
-            requested_by_user_id=UUID(requested_by_user_id),
+    # Which tenant every transaction in this task belongs to. Held for the whole
+    # run and dropped at the end of it: a worker process is long-lived and serves
+    # every tenant in turn, and a schema left set is one the next task inherits.
+    with tenant_schema_scope(schema_name):
+        return asyncio.run(
+            _run_export(
+                program_id=UUID(program_id),
+                tenant_id=UUID(tenant_id),
+                schema_name=schema_name,
+                export_format=export_format,
+                requested_by_user_id=UUID(requested_by_user_id),
+            )
         )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +86,6 @@ async def _run_export(
     export_format: str,
     requested_by_user_id: UUID,
 ) -> dict:
-    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.audit_log.models import AuditEventType
@@ -94,8 +105,6 @@ async def _run_export(
 
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            await session.execute(text(f"SET search_path TO {schema_name}, public"))
-
             program = await ProgramRepository.get_by_id(program_id, db=session)
             if program is None:
                 raise ValueError(f"Program {program_id} not found.")
