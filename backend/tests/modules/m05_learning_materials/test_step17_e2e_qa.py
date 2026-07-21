@@ -20,11 +20,9 @@ test_index_package_rag, test_step13_wiring):
 from __future__ import annotations
 
 import json
-import uuid
 from textwrap import dedent
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -907,7 +905,6 @@ class TestFacultyWorkflowSanity:
 
     @pytest.mark.asyncio
     async def test_trigger_curation_dispatches_celery_job(self):
-        from app.modules.m05_learning_materials.models import PackageStatus
         from app.modules.m05_learning_materials.schemas import CurationJobResponse
 
         syllabus_id = uuid4()
@@ -993,7 +990,6 @@ class TestFacultyWorkflowSanity:
     @pytest.mark.asyncio
     async def test_toggle_faculty_recommendation_on(self):
         from app.modules.m05_learning_materials.models import PackageStatus
-        from app.modules.m05_learning_materials.service import PackageServiceError
 
         pkg = MagicMock()
         pkg.id = uuid4()

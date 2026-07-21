@@ -12,9 +12,14 @@ No network, no DB, no Celery required.
 """
 import io
 import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for the string return annotation on _run_pptx; the real import stays
+    # inside that helper so the test still exercises availability at call time.
+    import pptx
 import types
 
-import pytest
 
 # Minimal env setup so app.config loads without real credentials.
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://x:x@localhost/x")
@@ -291,7 +296,6 @@ class TestPptxFallbacks:
     def test_no_placeholder_xml_in_content_slides(self):
         """No slide should have unset placeholder XML (<p:ph>) in its shapes."""
         from pptx.util import Inches  # noqa: F401
-        from lxml import etree
 
         slide_obj = _make_slide(1, "Normal Slide", bullets=["Test bullet"])
         kit  = _make_kit([slide_obj])

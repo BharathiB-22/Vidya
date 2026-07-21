@@ -34,7 +34,6 @@ Coverage:
  30.  FacultyDetailOut: active_assignments is a list
 """
 import importlib.util
-import inspect
 import pathlib
 import pytest
 
@@ -471,8 +470,7 @@ def test_student_profile_out_has_usn():
 # ---------------------------------------------------------------------------
 
 def test_faculty_detail_assignment_annotation():
-    from app.modules.m11_sis.directory_schemas import FacultyDetailOut, AssignmentMini
-    import typing
+    from app.modules.m11_sis.directory_schemas import FacultyDetailOut
     hint = FacultyDetailOut.model_fields["active_assignments"]
     # list[AssignmentMini] annotation should be present
     assert hint is not None

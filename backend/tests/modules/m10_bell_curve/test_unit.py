@@ -1293,7 +1293,7 @@ class TestReportBuilder:
 
 class TestCeleryTaskHumanGateInvariants:
     def test_task_does_not_import_decision_repository_write(self):
-        import ast, pathlib
+        import pathlib
         src = pathlib.Path(
             "app/workers/heavy/analyse_score_distribution.py"
         ).read_text()

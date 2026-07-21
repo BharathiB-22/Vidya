@@ -17,7 +17,6 @@ os.environ.setdefault("GROQ_API_KEY", "placeholder")
 
 from app.modules.m02_syllabus.ai_provider import (
     SyllabusAIParseError,
-    SyllabusAIValidationError,
     SyllabusGenerationContext,
     _SyllabusAI,
     _normalize_groq_response,

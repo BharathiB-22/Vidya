@@ -40,7 +40,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -530,7 +530,7 @@ async def test_start_attempt_already_submitted_rejected():
 async def test_save_response_rejects_submitted_attempt():
     db = AsyncMock()
     student_id = uuid.uuid4()
-    session = _make_session(status=DigitalExamSessionStatus.ACTIVE)
+    _make_session(status=DigitalExamSessionStatus.ACTIVE)
     attempt = _make_attempt(
         student_user_id=student_id,
         status=DigitalAttemptStatus.SUBMITTED,
@@ -621,11 +621,9 @@ def test_audit_event_type_includes_digital_exam_events():
 
 def test_model_imports():
     from app.modules.m09_paper_admin.models import (
-        DigitalAttemptStatus,
         DigitalExamAttempt,
         DigitalExamResponse,
         DigitalExamSession,
-        DigitalExamSessionStatus,
     )
     assert DigitalExamSession.__tablename__ == "digital_exam_sessions"
     assert DigitalExamAttempt.__tablename__ == "digital_exam_attempts"

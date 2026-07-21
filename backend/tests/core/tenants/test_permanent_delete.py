@@ -12,7 +12,7 @@ Key invariants:
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -242,10 +242,9 @@ async def test_restore_succeeds_for_soft_deleted():
 async def test_list_tenants_excludes_permanently_deleted():
     """PERMANENTLY_DELETED tenants must never appear in list results."""
     from app.core.tenants.repository import TenantRepository
-    from sqlalchemy import select
 
     normal = _make_tenant(status=TenantStatus.ACTIVE)
-    purged = _make_tenant(status=TenantStatus.PERMANENTLY_DELETED)
+    _make_tenant(status=TenantStatus.PERMANENTLY_DELETED)
 
     # Simulate the repository filtering: the query excludes PERMANENTLY_DELETED.
     # We test the filter clause is applied on the stmt, not the full DB roundtrip.

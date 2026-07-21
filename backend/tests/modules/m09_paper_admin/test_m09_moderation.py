@@ -47,8 +47,6 @@ from app.modules.m09_paper_admin.models import (
 )
 from app.modules.m09_paper_admin.repository import (
     ModerationRepository,
-    ScriptEvaluationRepository,
-    ScriptRepository,
 )
 from app.modules.m09_paper_admin.schemas import (
     ModerationFlagRequest,

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -289,7 +289,7 @@ def test_sis_router_total_routes_h643():
 # ---------------------------------------------------------------------------
 
 def test_lifecycle_migration_exists():
-    import importlib.util, pathlib
+    import pathlib
     p = pathlib.Path("backend/alembic/tenant_versions/0040ten_student_lifecycle.py")
     assert p.exists(), "Migration 0040ten not found"
 

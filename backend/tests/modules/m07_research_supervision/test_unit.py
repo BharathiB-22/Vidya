@@ -13,7 +13,6 @@ Coverage:
 """
 from __future__ import annotations
 
-import hashlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -380,7 +379,6 @@ class TestVivaEngineJsonParsing:
 
     def test_viva_session_response_ai_evaluation_is_dict(self):
         """VivaSessionResponse.ai_evaluation must be dict|None, not list[dict]|None."""
-        import inspect
         from app.modules.m07_research_supervision.schemas import VivaSessionResponse
         hints = VivaSessionResponse.model_fields["ai_evaluation"]
         annotation = str(hints.annotation)
@@ -885,7 +883,7 @@ class TestCreateStudentProposalValidation:
     async def test_invalid_guide_raises_clear_error(self):
         """Non-existent guide_user_id must raise INVALID_GUIDE, not 500."""
         from uuid import uuid4
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock
         from sqlalchemy.ext.asyncio import AsyncSession
         from app.modules.m07_research_supervision.service import ProblemService, ResearchServiceError
         from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
@@ -918,7 +916,7 @@ class TestCreateStudentProposalValidation:
     async def test_wrong_role_guide_raises_clear_error(self):
         """User with role != GUIDE must raise INVALID_GUIDE."""
         from uuid import uuid4
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import AsyncMock, MagicMock
         from sqlalchemy.ext.asyncio import AsyncSession
         from app.modules.m07_research_supervision.service import ProblemService, ResearchServiceError
         from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
@@ -957,7 +955,7 @@ class TestCreateStudentProposalValidation:
     async def test_duplicate_proposal_raises_clear_error(self):
         """Existing active proposal with same guide must raise DUPLICATE_PROPOSAL."""
         from uuid import uuid4
-        from unittest.mock import AsyncMock, MagicMock, call
+        from unittest.mock import AsyncMock, MagicMock
         from sqlalchemy.ext.asyncio import AsyncSession
         from app.modules.m07_research_supervision.service import ProblemService, ResearchServiceError
         from app.modules.m07_research_supervision.schemas import ProblemCreate, ResearchQuestion
@@ -1084,8 +1082,8 @@ class TestDocumentServiceSubmitDispatch:
     async def test_submit_with_file_url_queues_evaluate_research_document(self):
         """When file_url is provided in POST, evaluate_research_document.apply_async
         must be called with job_id, document_id, schema_name, queue='celery-heavy'."""
-        from uuid import UUID, uuid4
-        from unittest.mock import AsyncMock, MagicMock, patch, call
+        from uuid import uuid4
+        from unittest.mock import AsyncMock, MagicMock, patch
         from sqlalchemy.ext.asyncio import AsyncSession
         from app.modules.m07_research_supervision.service import DocumentService
         from app.modules.m07_research_supervision.schemas import DocumentSubmit
@@ -1322,7 +1320,6 @@ class TestVivaServiceConduct:
         from uuid import uuid4
         from app.modules.m07_research_supervision.service import VivaService, ResearchServiceError
         from app.modules.m07_research_supervision.schemas import VivaConductRequest, VivaOfflineResponse
-        from app.modules.m07_research_supervision.models import VivaStatus
 
         guide_id = uuid4()
         viva = self._make_scheduled_viva(uuid4(), uuid4())  # owned by different guide
@@ -1379,7 +1376,7 @@ class TestVivaServiceConduct:
     @pytest.mark.asyncio
     async def test_conduct_happy_path_dispatches_task(self):
         """Happy path: conduct queues process_viva_session and returns updated viva."""
-        from uuid import uuid4, UUID
+        from uuid import uuid4
         from unittest.mock import AsyncMock, MagicMock, patch
         from sqlalchemy.ext.asyncio import AsyncSession
         from app.modules.m07_research_supervision.service import VivaService
@@ -1524,7 +1521,6 @@ class TestVivaScheduleStudentIdDerivation:
         """VivaScheduleRequest must not raise ValidationError when
         student_user_id is absent from the payload."""
         from uuid import uuid4
-        import pydantic
         from app.modules.m07_research_supervision.schemas import VivaScheduleRequest
 
         # Must not raise

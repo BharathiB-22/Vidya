@@ -24,8 +24,7 @@ from sqlalchemy import text
 
 from app.database import AsyncSessionLocal
 from tests.conftest import (
-    SCHEMA_A, SCHEMA_B, SLUG_A, SLUG_B,
-    _insert_tenant_user, make_tenant_headers,
+    SCHEMA_A, SCHEMA_B, SLUG_A, _insert_tenant_user, make_tenant_headers,
 )
 
 BASE = "/course-assignments"

@@ -29,7 +29,6 @@ from app.modules.m01_program_advisor.service import ProgramService
 from app.modules.m02_syllabus.models import BloomLevel, SyllabusStatus
 from app.modules.m02_syllabus.schemas import (
     CourseOutcomeCreate,
-    SyllabusCreate,
     SyllabusUnitCreate,
     UnitTopicItem,
 )

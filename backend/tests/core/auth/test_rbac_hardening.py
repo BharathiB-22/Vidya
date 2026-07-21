@@ -25,7 +25,6 @@ from app.config import settings
 from app.core.auth.security import create_access_token, hash_password
 from tests.conftest import (
     SCHEMA_A,
-    SCHEMA_B,
     SLUG_A,
     SLUG_B,
     make_platform_headers,

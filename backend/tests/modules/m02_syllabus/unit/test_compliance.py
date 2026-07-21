@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
-from app.modules.m02_syllabus.models import BloomLevel, MappingStrength
+from app.modules.m02_syllabus.models import BloomLevel
 from app.modules.m02_syllabus.service import _run_compliance_check
 
 

@@ -1,4 +1,4 @@
-from tests.conftest import SLUG_A, make_tenant_headers
+from tests.conftest import make_tenant_headers
 
 
 async def _login(async_client, user):

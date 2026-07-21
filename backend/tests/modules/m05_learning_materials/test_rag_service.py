@@ -17,7 +17,7 @@ No real Qdrant, database, or network calls.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -805,7 +805,6 @@ def test_qdrant_singleton_reset_on_failure():
     import asyncio as _asyncio
 
     async def _run():
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
         with patch("app.modules.m05_learning_materials.rag_service.get_rag_client", return_value=broken_qdrant):
             from app.modules.m05_learning_materials.rag_service import _search_qdrant, RagServiceError
             with pytest.raises(RagServiceError):

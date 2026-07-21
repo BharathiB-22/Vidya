@@ -136,7 +136,7 @@ class TestCheckCompliance:
 
     def test_compliance_report_dataclass_fields(self):
         from app.modules.m08_exam_setter.blooms_analyser import (
-            ComplianceReport, BloomsViolation,
+            ComplianceReport,
         )
         r = ComplianceReport(
             requested_dist={"REMEMBER": 100.0},
@@ -198,7 +198,6 @@ class TestPaperSealer:
 
     def test_tampered_blob_raises_on_unseal(self):
         from app.modules.m08_exam_setter.paper_sealer import seal, unseal
-        from cryptography.fernet import InvalidToken
         blob, key_ref = seal({"x": 1})
         tampered = blob[:-5] + b"XXXXX"
         with pytest.raises(Exception):  # InvalidToken or similar

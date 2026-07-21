@@ -17,7 +17,6 @@ from app.modules.m03_course_kit.schemas import (
     CourseKitUpdate,
     KitAssignmentCreate,
     KitSlideCreate,
-    KitSlideReorder,
     KitSlideUpdate,
     RubricCriterion,
     SlideContent,

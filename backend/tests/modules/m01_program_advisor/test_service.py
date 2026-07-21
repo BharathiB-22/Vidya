@@ -23,7 +23,6 @@ from app.modules.m01_program_advisor.schemas import (
 from app.modules.m01_program_advisor.service import ProgramService, ProgramServiceError
 from tests.modules.m01_program_advisor.conftest import (
     approve_all_syllabi,
-    bind_to_batch,
     build_compliant_program,
     force_status,
     make_program_payload,
@@ -584,14 +583,65 @@ async def test_add_outcome_blocked_once_locked(tenant_db_a, admin_user_a):
     assert exc.value.code == "CURRICULUM_LOCKED"
 
 
-async def test_duplicate_course_code_rejected(tenant_db_a, admin_user_a):
-    program = await _create_draft(tenant_db_a, admin_user_a["id"])
-    course = CourseCreate(code="CS101", title="Course", credits=4, semester=1, is_elective=False)
-    await ProgramService.add_course(program.id, course, db=tenant_db_a)
+async def test_the_server_names_the_course_and_ignores_any_code_sent(tenant_db_a, admin_user_a):
+    """A course code is institutional: {PROGRAMME}{semester}{NN}. The Dean does not
+    type it, and anything he does type is discarded — a hand-typed 'CS101' on an
+    M.Sc curriculum, or an 'MCA120' in semester 4, is a code that lies about which
+    programme and which semester its course belongs to.
 
+    This replaces the old CODE_EXISTS test: a duplicate is no longer something to
+    reject, because the server never mints one. next_free_code() picks the first
+    code the programme does not already hold.
+    """
+    program = await _create_draft(tenant_db_a, admin_user_a["id"])
+    sent = CourseCreate(code="CS101", title="Course", credits=4, semester=1, is_elective=False)
+
+    first = await ProgramService.add_course(program.id, sent, db=tenant_db_a)
+    second = await ProgramService.add_course(program.id, sent, db=tenant_db_a)
+
+    # The programme is MSC (conftest.ACAD_PROGRAM_CODE), semester 1.
+    assert first.code == "MSC101"
+    assert second.code == "MSC102"
+    assert "CS101" not in (first.code, second.code)
+
+
+async def test_moving_a_course_to_another_semester_renumbers_it(tenant_db_a, admin_user_a):
+    """The first digit after the prefix IS the semester. Carrying a semester-1 code
+    into semester 4 would leave the code lying about where its course sits — which
+    is exactly how MCA120 'Main Project' came to sit in semester 4 of the MCA."""
+    from app.modules.m01_program_advisor.schemas import CourseUpdate
+
+    program = await _create_draft(tenant_db_a, admin_user_a["id"])
+    course = await ProgramService.add_course(
+        program.id,
+        CourseCreate(title="Main Project", credits=4, semester=1, is_elective=False),
+        db=tenant_db_a,
+    )
+    assert course.code == "MSC101"
+
+    moved = await ProgramService.update_course(
+        course.id, program.id, CourseUpdate(semester=4), db=tenant_db_a,
+    )
+    assert moved.semester == 4
+    assert moved.code == "MSC401"
+
+
+async def test_a_hand_typed_code_alone_is_not_an_update(tenant_db_a, admin_user_a):
+    """Sending only a code is sending nothing: it is discarded before the
+    emptiness check, rather than quietly renaming the course."""
+    from app.modules.m01_program_advisor.schemas import CourseUpdate
+
+    program = await _create_draft(tenant_db_a, admin_user_a["id"])
+    course = await ProgramService.add_course(
+        program.id,
+        CourseCreate(title="Course", credits=4, semester=1, is_elective=False),
+        db=tenant_db_a,
+    )
     with pytest.raises(ProgramServiceError) as exc:
-        await ProgramService.add_course(program.id, course, db=tenant_db_a)
-    assert exc.value.code == "CODE_EXISTS"
+        await ProgramService.update_course(
+            course.id, program.id, CourseUpdate(code="HACK999"), db=tenant_db_a,
+        )
+    assert exc.value.code == "NO_FIELDS"
 
 
 # ---------------------------------------------------------------------------
@@ -674,9 +724,9 @@ async def test_fork_program_copies_baskets_and_relinks_courses(tenant_db_a, admi
         program.id, ElectiveBasketCreate(semester=3, name="AI Electives", credits=4),
         admin_user_a["id"], db=tenant_db_a,
     )
-    await ProgramService.add_course(
+    ai_course = await ProgramService.add_course(
         program.id,
-        CourseCreate(code="AI301", title="Artificial Intelligence", credits=4, semester=3, elective_basket_id=basket.id),
+        CourseCreate(title="Artificial Intelligence", credits=4, semester=3, elective_basket_id=basket.id),
         db=tenant_db_a,
     )
     await force_status(program.id, ProgramStatus.APPROVED, tenant_db_a)
@@ -693,5 +743,7 @@ async def test_fork_program_copies_baskets_and_relinks_courses(tenant_db_a, admi
 
     from app.modules.m01_program_advisor.repository import CourseRepository
     forked_courses = await CourseRepository.list_by_program(forked.id, db=tenant_db_a)
-    forked_ai_course = next(c for c in forked_courses if c.code == "AI301")
+    # The code is the server's (MSC3NN), so match on the code it actually assigned —
+    # a fork carries codes forward unchanged.
+    forked_ai_course = next(c for c in forked_courses if c.code == ai_course.code)
     assert forked_ai_course.elective_basket_id == forked_baskets[0].id

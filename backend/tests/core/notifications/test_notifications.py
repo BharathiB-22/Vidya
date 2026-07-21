@@ -116,7 +116,7 @@ async def test_repo_create(test_tenant_a, admin_user_a):
     try:
         async with factory() as session:
             async with session.begin():
-                await session.execute(text(f"SET LOCAL search_path = tenant_test_a, public"))
+                await session.execute(text("SET LOCAL search_path = tenant_test_a, public"))
                 data = NotificationCreate(
                     recipient_user_id=admin_user_a["id"],
                     notification_type=NotificationType.GENERAL,

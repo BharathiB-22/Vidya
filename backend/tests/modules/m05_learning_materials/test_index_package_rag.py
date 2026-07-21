@@ -18,7 +18,7 @@ No real Qdrant, database, or network calls.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -290,7 +290,7 @@ async def test_chunk_ordering_in_payload():
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
         from app.workers.heavy.index_package_rag import _run_indexing
-        result = await _run_indexing(
+        await _run_indexing(
             package_id=PACKAGE_ID, tenant_id=TENANT_ID, tenant_schema=TENANT_SCHEMA
         )
 

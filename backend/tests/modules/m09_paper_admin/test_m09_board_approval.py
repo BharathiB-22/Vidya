@@ -40,15 +40,9 @@ from app.modules.m09_paper_admin.models import (
     BoardSessionStatus,
     ExamBoardCourseApproval,
     ExamBoardSession,
-    ScannedScript,
     ScriptStatus,
 )
-from app.modules.m09_paper_admin.repository import (
-    BoardCourseApprovalRepository,
-    BoardSessionRepository,
-)
 from app.modules.m09_paper_admin.schemas import (
-    BoardApproveRequest,
     BoardRejectRequest,
     BoardSessionCreateRequest,
 )
@@ -295,7 +289,7 @@ async def test_approve_open_session_succeeds():
               new=AsyncMock()) as mock_set_status,
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await BoardApprovalService.approve(
+        await BoardApprovalService.approve(
             session.id,
             board_remarks="Results reviewed and approved by the Board.",
             decided_by=uuid.uuid4(),
@@ -353,7 +347,7 @@ async def test_reject_open_session_succeeds():
               new=AsyncMock()),
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await BoardApprovalService.reject(
+        await BoardApprovalService.reject(
             session.id,
             "Statistical anomalies detected; re-evaluation required for Section B.",
             decided_by=uuid.uuid4(),
@@ -413,7 +407,7 @@ async def test_declare_approved_session_succeeds():
               new=AsyncMock()) as mock_declare,
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await BoardApprovalService.declare(
+        await BoardApprovalService.declare(
             session.id,
             declared_by=uuid.uuid4(),
             tenant_id=uuid.uuid4(),

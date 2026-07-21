@@ -33,7 +33,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -46,10 +46,6 @@ from app.modules.m09_paper_admin.models import (
     RevaluationStatus,
     ScannedScript,
     ScriptStatus,
-)
-from app.modules.m09_paper_admin.repository import (
-    RevaluationEvaluationRepository,
-    RevaluationRepository,
 )
 from app.modules.m09_paper_admin.schemas import (
     RevaluationBoardRejectRequest,
@@ -327,7 +323,7 @@ async def test_accept_request_success():
               new=AsyncMock()) as mock_accept,
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await RevaluationService.accept_request(
+        await RevaluationService.accept_request(
             req.id,
             new_evaluator,
             "Senior evaluator assigned for revaluation.",
@@ -407,7 +403,7 @@ async def test_reject_request_success():
               new=AsyncMock()) as mock_reject,
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await RevaluationService.reject_request(
+        await RevaluationService.reject_request(
             req.id,
             "Payment not verified. Request cannot be processed.",
             admin_user_id=uuid.uuid4(),
@@ -479,7 +475,7 @@ async def test_submit_revaluation_marks_success():
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
         marks = {str(q_id): RevaluationMarkEntry(revaluation_marks=9.0)}
-        result = await RevaluationService.submit_revaluation_marks(
+        await RevaluationService.submit_revaluation_marks(
             req.id, marks, None,
             evaluator_user_id=evaluator_id,
             tenant_id=uuid.uuid4(),
@@ -585,7 +581,7 @@ async def test_board_ratify_success():
               new=AsyncMock()) as mock_ratify,
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await RevaluationService.board_ratify(
+        await RevaluationService.board_ratify(
             req.id, None,
             decided_by=uuid.uuid4(),
             tenant_id=uuid.uuid4(),
@@ -637,7 +633,7 @@ async def test_board_reject_success():
               new=AsyncMock()) as mock_reject,
         patch("app.core.audit_log.service.AuditService.log", new=AsyncMock()),
     ):
-        result = await RevaluationService.board_reject(
+        await RevaluationService.board_reject(
             req.id,
             "Revaluation marks do not differ significantly; original assessment stands.",
             decided_by=uuid.uuid4(),

@@ -1,5 +1,4 @@
-from app.core.auth.security import create_access_token
-from tests.conftest import SCHEMA_A, SCHEMA_B, SLUG_A, SLUG_B, make_tenant_headers
+from tests.conftest import SCHEMA_A, SCHEMA_B, make_tenant_headers
 
 
 async def test_me_returns_correct_tenant_data(async_client, test_tenant_a, faculty_user_a):

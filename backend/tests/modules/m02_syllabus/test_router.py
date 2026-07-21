@@ -6,22 +6,13 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 
 from tests.conftest import make_tenant_headers
 from tests.modules.m02_syllabus.conftest import (
-    build_compliant_syllabus,
     force_syllabus_status_committed,
     make_syllabus_payload,
 )
 from app.modules.m02_syllabus.models import SyllabusStatus
-from app.modules.m02_syllabus.schemas import (
-    CourseOutcomeCreate,
-    BloomLevel,
-    SyllabusCreate,
-    SyllabusUnitCreate,
-    UnitTopicItem,
-)
 from app.database import AsyncSessionLocal
 from sqlalchemy import text
 
@@ -88,7 +79,7 @@ async def _assign_faculty_to_course(
 
 async def _build_compliant_via_db(syllabus_id: uuid.UUID, schema_name: str) -> None:
     """Seed compliant syllabus data directly in DB (bypasses HTTP — used for state-setup)."""
-    from app.modules.m02_syllabus.models import BloomLevel as BL, SyllabusUnit, CourseOutcome
+    from app.modules.m02_syllabus.models import BloomLevel as BL
     from app.modules.m02_syllabus.schemas import (
         CourseOutcomeCreate, SyllabusUnitCreate, UnitTopicItem,
     )

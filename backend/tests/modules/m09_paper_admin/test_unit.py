@@ -281,7 +281,6 @@ class TestScriptSubmitMarksRequest:
 class TestScannedScriptResponse:
     def test_student_identity_fields_are_optional(self):
         from app.modules.m09_paper_admin.schemas import ScannedScriptResponse
-        import inspect
         hints = ScannedScriptResponse.__annotations__
         # student_user_id and student_roll_ref should accept None
         assert "student_user_id" in hints
@@ -1646,7 +1645,7 @@ class TestScriptRepositoryQualityMethods:
     @pytest.mark.asyncio
     async def test_set_quality_result_passed_uses_ocr_processing(self):
         from uuid import uuid4
-        from unittest.mock import AsyncMock, patch, MagicMock, call
+        from unittest.mock import AsyncMock, patch, MagicMock
         from app.modules.m09_paper_admin.repository import ScriptRepository
         from app.modules.m09_paper_admin.models import ScriptStatus
 
@@ -1866,7 +1865,7 @@ class TestExtractTextFromPDF:
 
     def test_extracted_text_is_stripped(self):
         import io
-        from pypdf import PdfWriter, PdfReader
+        from pypdf import PdfWriter
         from app.workers.heavy.ocr_scanned_script import _extract_text_from_pdf
 
         # Build a minimal 1-page PDF; text extraction will be blank for blank pages
@@ -3143,7 +3142,7 @@ class TestIngestPipelineRouting:
         Regression for M09-BUG-001: ingest_script must call TaskJobPublicRepository.create
         with task_type='score_scanned_script' and queue_name='heavy'.
         """
-        from unittest.mock import AsyncMock, MagicMock, call, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
         from uuid import uuid4
 
         script = MagicMock()
@@ -3237,7 +3236,6 @@ class TestPaperPipelineStats:
 
     def test_schema_completion_pct_is_float(self):
         from app.modules.m09_paper_admin.schemas import PaperPipelineStats
-        import inspect
         annotation = PaperPipelineStats.model_fields["completion_pct"].annotation
         assert annotation is float, f"completion_pct must be float, got {annotation}"
 

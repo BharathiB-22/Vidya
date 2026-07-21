@@ -79,10 +79,23 @@ class TestNextFreeCode:
         with pytest.raises(ValueError, match="degree prefix"):
             next_free_code("", 3, set())
 
-    def test_exhaustion_raises_rather_than_looping_forever(self):
-        taken = {format_course_code("MCA", 3, s) for s in range(1, 1000)}
-        with pytest.raises(ValueError, match="Exhausted"):
+    def test_a_full_semester_raises_rather_than_lying_about_itself(self):
+        """The 100th course in a semester would be MCA1100 — a code whose first
+        digit no longer identifies the semester. Refuse it instead of minting it."""
+        taken = {format_course_code("MCA", 3, s) for s in range(1, 100)}
+        with pytest.raises(ValueError, match="already holds 99 courses"):
             next_free_code("MCA", 3, taken)
+
+    def test_the_99th_course_is_still_fine(self):
+        taken = {format_course_code("MCA", 3, s) for s in range(1, 99)}
+        assert next_free_code("MCA", 3, taken) == "MCA399"
+
+    def test_the_semester_is_always_the_first_digit(self):
+        # The contract the whole format exists for.
+        for semester in range(1, 10):
+            code = next_free_code("MCA", semester, set())
+            assert code == f"MCA{semester}01"
+            assert code[len("MCA")] == str(semester)
 
 
 class TestAssignCourseCodes:
@@ -144,3 +157,24 @@ class TestAssignCourseCodes:
     def test_no_prefix_is_refused_rather_than_guessed(self):
         with pytest.raises(ProgramCodePrefixError):
             assign_course_codes([{"code": "CS501", "semester": 1}], "", set())
+
+    def test_numbering_restarts_every_semester(self):
+        """The regression this whole format exists to prevent: numbering must NOT
+        run on across the programme (MCA101..MCA115), because then the code cannot
+        say which semester its course belongs to."""
+        courses = [
+            {"code": f"CS{i}", "semester": sem}
+            for sem, count in ((1, 6), (2, 4), (3, 3), (4, 2))
+            for i in range(count)
+        ]
+        assign_course_codes(courses, "MCA", set())
+
+        by_semester: dict[int, list[str]] = {}
+        for c in courses:
+            by_semester.setdefault(c["semester"], []).append(c["code"])
+
+        assert by_semester[1] == ["MCA101", "MCA102", "MCA103", "MCA104", "MCA105", "MCA106"]
+        assert by_semester[2] == ["MCA201", "MCA202", "MCA203", "MCA204"]
+        assert by_semester[3] == ["MCA301", "MCA302", "MCA303"]
+        # The one that was actually wrong in the database: MCA120/MCA121, not MCA401/2.
+        assert by_semester[4] == ["MCA401", "MCA402"]

@@ -21,8 +21,7 @@ Plus supplementary:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -548,7 +547,7 @@ class TestScrutinizerFlow:
             "app.modules.m08_exam_setter.service.ExamPaperRepository.set_scrutinizer",
             new=set_scrut_mock,
         ):
-            result = await ExamService.assign_scrutinizer(
+            await ExamService.assign_scrutinizer(
                 paper_id=paper.id,
                 payload=ScrutinizerAssignRequest(scrutinizer_id=scrutinizer_id),
                 assigning_user_id=uuid4(),
@@ -619,7 +618,7 @@ class TestScrutinizerFlow:
             "app.modules.m08_exam_setter.service.ExamPaperRepository.set_status",
             new=AsyncMock(),
         ) as set_status_mock:
-            result = await ExamService.scrutinize(
+            await ExamService.scrutinize(
                 paper_id=paper.id,
                 payload=ScrutinizerDecisionRequest(approved=True),
                 scrutinizer_user_id=scrut_id,
@@ -912,7 +911,7 @@ class TestInternalMarksSubmitGate:
             "app.modules.m08_exam_setter.service.InternalMarksRepository.set_submitted",
             new=set_submitted_mock,
         ):
-            result = await InternalMarksService.submit(
+            await InternalMarksService.submit(
                 ims_id=record.id,
                 faculty_user_id=uuid4(),
                 db=_db(),

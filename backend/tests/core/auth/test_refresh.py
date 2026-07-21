@@ -1,11 +1,10 @@
-import pytest
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
 from app.core.auth.security import hash_token, generate_refresh_token
-from tests.conftest import SCHEMA_A, SLUG_A, _Session, make_platform_headers
+from tests.conftest import SCHEMA_A, _Session
 
 
 async def _login(async_client, user):

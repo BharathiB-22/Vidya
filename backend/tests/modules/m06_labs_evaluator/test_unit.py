@@ -819,7 +819,7 @@ class TestGradeLedgerInvariant:
     @pytest.mark.asyncio
     async def test_ratify_already_ratified_raises(self):
         from app.modules.m06_labs_evaluator.service import ReviewService, LabServiceError
-        from app.modules.m06_labs_evaluator.models import LabSubmission, GradeLedger, SubmissionStatus
+        from app.modules.m06_labs_evaluator.models import LabSubmission, SubmissionStatus
 
         mock_db = AsyncMock()
         submission = MagicMock(spec=LabSubmission)

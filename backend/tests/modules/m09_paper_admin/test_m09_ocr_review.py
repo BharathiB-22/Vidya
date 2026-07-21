@@ -447,8 +447,6 @@ class TestOcrComplianceReports:
     def test_ocr_schemas_imported(self):
         from app.modules.m09_paper_admin.compliance_schemas import (
             OcrCorrectionHistoryRow,
-            OcrReviewerActivityRow,
-            OcrEscalationRow,
         )
         r = OcrCorrectionHistoryRow(
             queue_id="abc",

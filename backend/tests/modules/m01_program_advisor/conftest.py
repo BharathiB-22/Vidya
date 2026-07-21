@@ -111,6 +111,60 @@ async def force_status_committed(program_id: uuid.UUID, status: ProgramStatus) -
 # compliant without needing 32+ courses.
 # ---------------------------------------------------------------------------
 
+# The institutional programme every test curriculum belongs to.
+#
+# Not optional decoration: a course code is {PREFIX}{semester}{NN} and the PREFIX is
+# `acad_programs.code`, so a curriculum with no programme has no code to number its
+# courses under — add_course, add_choice and a semester move all refuse (422
+# ACAD_PROGRAM_REQUIRED) rather than invent a prefix. Fixed IDs so the row is
+# seeded once and every test's programme points at the same MSC.
+ACAD_DEPT_ID_A    = uuid.UUID("11111111-1111-4111-8111-111111111111")
+ACAD_PROGRAM_ID_A = uuid.UUID("22222222-2222-4222-8222-222222222222")
+ACAD_PROGRAM_CODE = "MSC"
+
+
+async def ensure_acad_program() -> uuid.UUID:
+    """Seed the department + programme the test curricula are numbered under.
+
+    Standalone session + commit, like force_status_committed: the router tests reach
+    the API over HTTP on a session of their own and never touch `tenant_db_a`, so
+    seeding inside that fixture would leave them with no programme to be numbered
+    under. Idempotent — every test in the module shares this one MSC.
+    """
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            await session.execute(text(f"SET LOCAL search_path = {SCHEMA_A}, public"))
+            await session.execute(
+                text(
+                    "INSERT INTO acad_departments (id, name, code, is_active) "
+                    "VALUES (:id, 'Computer Science', 'CS', true) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {"id": str(ACAD_DEPT_ID_A)},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO acad_programs "
+                    "  (id, department_id, name, code, degree_type, duration_years, is_active) "
+                    "VALUES (:id, :dept, 'M.Sc Computer Science', :code, 'PG', 2, true) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {
+                    "id": str(ACAD_PROGRAM_ID_A),
+                    "dept": str(ACAD_DEPT_ID_A),
+                    "code": ACAD_PROGRAM_CODE,
+                },
+            )
+    return ACAD_PROGRAM_ID_A
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _seed_acad_program(test_tenant_a):
+    """Every m01 test gets the programme its curricula are numbered under, so no
+    test can forget and fail on a 422 that has nothing to do with what it asserts."""
+    await ensure_acad_program()
+
+
 def make_program_payload(**overrides) -> dict:
     base = {
         "title": "M.Sc Computer Science",
@@ -118,6 +172,10 @@ def make_program_payload(**overrides) -> dict:
         "department": "Computer Science",
         "duration_years": 2,
         "total_credits": 60,
+        # A str, not a UUID: this payload is both splatted into ProgramCreate (which
+        # coerces it) and posted as JSON by the router tests (which cannot serialise
+        # a UUID). See ensure_acad_program above for why every curriculum is linked.
+        "acad_program_id": str(ACAD_PROGRAM_ID_A),
     }
     return {**base, **overrides}
 
@@ -255,12 +313,20 @@ async def approve_all_syllabi(program_id: uuid.UUID, tenant_db, approved_by: uui
     ).scalars().all()
 
     for course_id in course_ids:
+        # doc_type is NOT NULL since migration 0086ten (course-type intelligence):
+        # a syllabus records WHICH document it is — a theory syllabus, a lab manual,
+        # a project handbook. This helper predates that column and was still writing
+        # rows without it, so every test that needed an approved curriculum died on a
+        # NotNullViolation. Taken from the course, exactly as the migration's backfill
+        # does; an untyped course reads as THEORY, which is what it was generated as.
         await tenant_db.execute(
             text(
                 "INSERT INTO syllabi "
-                "(id, course_id, version, status, created_by_user_id, "
+                "(id, course_id, version, status, doc_type, created_by_user_id, "
                 " approved_by_user_id, approved_at, objectives, practical_components) "
-                "VALUES (:id, :c, 1, 'APPROVED', :u, :u, now(), '[]'::jsonb, '[]'::jsonb)"
+                "SELECT :id, :c, 1, 'APPROVED', coalesce(c.course_type, 'THEORY'), "
+                "       :u, :u, now(), '[]'::jsonb, '[]'::jsonb "
+                "  FROM courses c WHERE c.id = :c"
             ),
             {"id": str(uuid.uuid4()), "c": str(course_id), "u": str(approved_by)},
         )

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -128,7 +128,7 @@ async def test_admin_searches_all_four_categories():
     mock_result.all.return_value = []
     db.execute = AsyncMock(return_value=mock_result)
 
-    result = await global_search("test", actor_role="ADMIN", db=db)
+    await global_search("test", actor_role="ADMIN", db=db)
     assert db.execute.call_count == 4
 
 
@@ -139,7 +139,7 @@ async def test_dean_searches_all_four_categories():
     mock_result.all.return_value = []
     db.execute = AsyncMock(return_value=mock_result)
 
-    result = await global_search("test", actor_role="DEAN", db=db)
+    await global_search("test", actor_role="DEAN", db=db)
     assert db.execute.call_count == 4
 
 

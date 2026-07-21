@@ -15,13 +15,10 @@ from app.modules.m02_syllabus.schemas import (
     COPOMappingBulkUpdate,
     COPOMappingCreate,
     CourseOutcomeCreate,
-    CourseOutcomeUpdate,
     MappingStrength,
     SyllabusCreate,
-    SyllabusReferenceCreate,
     SyllabusUpdate,
     SyllabusUnitCreate,
-    SyllabusUnitUpdate,
     UnitTopicItem,
 )
 from app.modules.m02_syllabus.service import SyllabusService, SyllabusServiceError

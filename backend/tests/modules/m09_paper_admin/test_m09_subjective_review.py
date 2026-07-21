@@ -73,10 +73,7 @@ from app.modules.m09_paper_admin.repository import (
 from app.modules.m09_paper_admin.schemas import (
     FacultyScoreIn,
     SubjectivePendingAttempt,
-    SubjectiveQueueResponse,
-    SubjectiveResponseItem,
     SubjectiveReviewResponse,
-    SubjectiveScoreOut,
     SubjectiveSubmitIn,
     SubjectiveSubmitResult,
 )
@@ -831,12 +828,7 @@ async def test_check_faculty_course_access_no_assignment_raises_403():
 def test_schema_imports():
     from app.modules.m09_paper_admin.schemas import (
         FacultyScoreIn,
-        SubjectivePendingAttempt,
         SubjectiveQueueResponse,
-        SubjectiveResponseItem,
-        SubjectiveReviewResponse,
-        SubjectiveScoreOut,
-        SubjectiveSubmitIn,
         SubjectiveSubmitResult,
     )
     assert FacultyScoreIn is not None
