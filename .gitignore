@@ -27,3 +27,7 @@ infra/backups/
 
 # k6 load test result files — generated locally, not committed
 infra/load-tests/results/*.json
+
+# Generated presentation artifacts (M03 course-kit PPTX export renders these
+# locally during development). Build output, never source.
+*.pptx
