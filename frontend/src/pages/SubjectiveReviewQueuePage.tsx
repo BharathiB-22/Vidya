@@ -119,7 +119,7 @@ function SessionQueue({ sessionId }: { sessionId: string }) {
         <div className="text-sm text-gray-600">
           <span className="font-medium text-gray-900">{data.total}</span> attempt{data.total !== 1 ? 's' : ''} pending review
         </div>
-        <div className="text-xs text-gray-400 font-mono truncate max-w-[180px]">
+        <div className="text-xs text-gray-600 font-mono truncate max-w-[180px]">
           Session: {sessionId.slice(0, 8).toUpperCase()}…
         </div>
       </div>

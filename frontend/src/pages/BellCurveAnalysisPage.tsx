@@ -37,7 +37,7 @@ function StatusBadge({ status }: { status: AnalysisStatus }) {
 // ---------------------------------------------------------------------------
 
 function Histogram({ bins }: { bins: HistogramBin[] }) {
-  if (!bins.length) return <p className="text-xs text-gray-400">No histogram data.</p>
+  if (!bins.length) return <p className="text-xs text-gray-600">No histogram data.</p>
 
   const maxCount = Math.max(...bins.map(b => b.count), 1)
   const svgH = 100
@@ -65,7 +65,7 @@ function Histogram({ bins }: { bins: HistogramBin[] }) {
           )
         })}
       </svg>
-      <div className="flex justify-between text-xs text-gray-400 mt-1">
+      <div className="flex justify-between text-xs text-gray-600 mt-1">
         <span>{bins[0].bin_start.toFixed(1)}</span>
         <span>Score distribution</span>
         <span>{bins[bins.length - 1].bin_end.toFixed(1)}</span>
@@ -146,7 +146,7 @@ function GradeSummaryPanel({ summary }: { summary: GradeSummaryResponse }) {
             >
               <div className={`text-xs font-bold ${pal.text}`}>{g}</div>
               <div className="text-lg font-bold text-gray-800 leading-tight">{count}</div>
-              <div className="text-xs text-gray-400">{pct}%</div>
+              <div className="text-xs text-gray-600">{pct}%</div>
             </div>
           )
         })}
@@ -170,7 +170,7 @@ function GradeSummaryPanel({ summary }: { summary: GradeSummaryResponse }) {
       <div className="grid grid-cols-3 gap-2 text-center text-xs">
         <div className="rounded-lg border border-gray-100 bg-white p-2">
           <div className="text-base font-bold text-gray-800">{total}</div>
-          <div className="text-gray-400">Total</div>
+          <div className="text-gray-600">Total</div>
         </div>
         <div className="rounded-lg border border-green-100 bg-green-50 p-2">
           <div className="text-base font-bold text-green-700">{pass_count}</div>
@@ -200,7 +200,7 @@ const GRADE_COLORS: Record<string, string> = {
 }
 
 function GradeBadge({ letter }: { letter: string | null }) {
-  if (!letter) return <span className="text-gray-400">—</span>
+  if (!letter) return <span className="text-gray-600">—</span>
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${GRADE_COLORS[letter] ?? 'bg-gray-100 text-gray-700'}`}>
       {letter}
@@ -226,7 +226,7 @@ function NormalisedLedger({ paperId }: { paperId: string }) {
 
   const items: NormalisedScore[] = data?.items ?? []
   if (!items.length) return (
-    <p className="text-xs text-gray-400">No normalised scores recorded for this paper.</p>
+    <p className="text-xs text-gray-600">No normalised scores recorded for this paper.</p>
   )
 
   return (
@@ -259,7 +259,7 @@ function NormalisedLedger({ paperId }: { paperId: string }) {
                 {s.grade_point != null ? s.grade_point.toFixed(1) : '—'}
               </td>
               <td className="py-1.5 text-center">
-                {s.is_pass === null ? <span className="text-gray-400">—</span>
+                {s.is_pass === null ? <span className="text-gray-600">—</span>
                   : s.is_pass
                     ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 mx-auto" />
                     : <XCircle     className="w-3.5 h-3.5 text-red-500   mx-auto" />}
@@ -269,7 +269,7 @@ function NormalisedLedger({ paperId }: { paperId: string }) {
         </tbody>
       </table>
       {(data?.total ?? 0) > items.length && (
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-gray-600 mt-2">
           Showing {items.length} of {data?.total} scores.
         </p>
       )}
@@ -381,7 +381,7 @@ export default function BellCurveAnalysisPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+      <Loader2 className="w-6 h-6 animate-spin text-gray-600" />
     </div>
   )
 
@@ -412,7 +412,7 @@ export default function BellCurveAnalysisPage() {
             <h1 className="text-xl font-bold text-gray-900">Analysis Detail</h1>
             <StatusBadge status={analysis.status} />
           </div>
-          <p className="text-xs text-gray-400 font-mono mt-1 truncate">
+          <p className="text-xs text-gray-600 font-mono mt-1 truncate">
             Paper: {analysis.exam_paper_id}
           </p>
         </div>
@@ -475,7 +475,7 @@ export default function BellCurveAnalysisPage() {
             <TrendingUp className="w-4 h-4 text-indigo-500" />
             Score Distribution
             {analysis.score_count != null && (
-              <span className="text-xs text-gray-400 font-normal ml-1">({analysis.score_count} scripts)</span>
+              <span className="text-xs text-gray-600 font-normal ml-1">({analysis.score_count} scripts)</span>
             )}
           </h2>
 
@@ -566,7 +566,7 @@ export default function BellCurveAnalysisPage() {
                     : 'border-gray-100 bg-white text-gray-700'
                 }`}
               >
-                <span className="font-mono text-gray-400 shrink-0 truncate max-w-[120px]">
+                <span className="font-mono text-gray-600 shrink-0 truncate max-w-[120px]">
                   {ev.evaluator_id.slice(0, 8)}…
                 </span>
                 <span>Mean {ev.mean.toFixed(1)}</span>

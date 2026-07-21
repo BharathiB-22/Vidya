@@ -95,11 +95,11 @@ function SearchPanel({ syllabusId, onAdd, isPending }: SearchPanelProps) {
       </form>
 
       {isFetching && (
-        <p className="text-sm text-gray-400 text-center">Searching…</p>
+        <p className="text-sm text-gray-600 text-center">Searching…</p>
       )}
 
       {candidates && candidates.length === 0 && (
-        <p className="text-sm text-gray-400 text-center">No results found.</p>
+        <p className="text-sm text-gray-600 text-center">No results found.</p>
       )}
 
       {candidates && candidates.length > 0 && (
@@ -187,7 +187,7 @@ export function ReferencesSection({ syllabusId, references, isEditable }: Props)
       )}
 
       {references.length === 0 && !isEditable && (
-        <p className="text-sm text-gray-400 py-4 text-center">No references.</p>
+        <p className="text-sm text-gray-600 py-4 text-center">No references.</p>
       )}
     </div>
   )
@@ -206,7 +206,7 @@ function RefList({ refs, isEditable, onConfirm, onDelete, isPending }: RefListPr
     <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
       {refs.map((ref) => (
         <div key={ref.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50">
-          <BookOpen className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+          <BookOpen className="h-4 w-4 text-gray-600 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800">{ref.title}</p>
             <p className="text-xs text-gray-500">

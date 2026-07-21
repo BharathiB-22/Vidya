@@ -142,7 +142,7 @@ function RelevanceBar({ score }: { score: number | null }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-gray-400 tabular-nums">{pct}% match</span>
+      <span className="text-xs text-gray-600 tabular-nums">{pct}% match</span>
     </div>
   )
 }
@@ -181,7 +181,7 @@ function ItemMetaLine({ item }: { item: PackageItem }) {
   }
   if (parts.length === 0) return null
   return (
-    <p className="text-xs text-gray-400 mt-1 line-clamp-2">{parts.join(' · ')}</p>
+    <p className="text-xs text-gray-600 mt-1 line-clamp-2">{parts.join(' · ')}</p>
   )
 }
 
@@ -243,7 +243,7 @@ function ItemCard({
               className="text-sm font-medium text-gray-900 hover:text-blue-700 hover:underline underline-offset-2 flex items-start gap-1 group"
             >
               <span className="line-clamp-2">{item.title}</span>
-              <ExternalLink className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-300 group-hover:text-blue-500 transition-colors" />
+              <ExternalLink className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-500 group-hover:text-blue-500 transition-colors" />
             </a>
           ) : (
             <p className="text-sm font-medium text-gray-900 line-clamp-2">{item.title}</p>
@@ -274,7 +274,7 @@ function ItemCard({
                 className={`rounded-md p-1.5 transition-colors disabled:opacity-50 ${
                   item.faculty_recommended
                     ? 'text-amber-500 hover:text-amber-600 bg-amber-50'
-                    : 'text-gray-300 hover:text-amber-400'
+                    : 'text-gray-500 hover:text-amber-400'
                 }`}
               >
                 {isStar
@@ -292,7 +292,7 @@ function ItemCard({
                 className={`rounded-md p-1.5 transition-colors disabled:opacity-50 ${
                   confirmRemove
                     ? 'text-red-600 bg-red-50'
-                    : 'text-gray-300 hover:text-red-400'
+                    : 'text-gray-500 hover:text-red-400'
                 }`}
               >
                 {isRemove
@@ -340,7 +340,7 @@ function OverviewStats({
         </div>
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
           <p className={`text-xl font-bold ${indexedCount === items.length && items.length > 0 ? 'text-green-700' : 'text-gray-800'}`}>
-            {indexedCount}<span className="text-sm font-normal text-gray-400">/{items.length}</span>
+            {indexedCount}<span className="text-sm font-normal text-gray-600">/{items.length}</span>
           </p>
           <p className="text-xs text-gray-500 mt-0.5">RAG Indexed</p>
         </div>
@@ -357,7 +357,7 @@ function OverviewStats({
       {/* Content breakdown chips */}
       {sourceCounts.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-400 font-medium">Sources:</span>
+          <span className="text-xs text-gray-600 font-medium">Sources:</span>
           {sourceCounts.map(({ type, count }) => {
             const cfg  = SOURCE_CONFIG[type]
             const Icon = cfg.icon
@@ -366,13 +366,13 @@ function OverviewStats({
                 key={type}
                 className="inline-flex items-center gap-1 text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-0.5"
               >
-                <Icon className="h-3 w-3 text-gray-400" />
+                <Icon className="h-3 w-3 text-gray-600" />
                 {cfg.label} ({count})
               </span>
             )
           })}
           {pkg.ai_model && (
-            <span className="text-xs text-gray-400 font-mono ml-auto">
+            <span className="text-xs text-gray-600 font-mono ml-auto">
               {pkg.ai_model}
             </span>
           )}
@@ -593,7 +593,7 @@ export default function LearningPackagePage() {
 
   if (pkgLoading) {
     return (
-      <div className="flex items-center justify-center py-24 gap-2 text-gray-400">
+      <div className="flex items-center justify-center py-24 gap-2 text-gray-600">
         <Loader2 className="h-5 w-5 animate-spin" />
         <span className="text-sm">Loading package…</span>
       </div>
@@ -668,7 +668,7 @@ export default function LearningPackagePage() {
             size="sm"
             disabled
             title="PDF export is not yet available"
-            className="gap-1.5 text-gray-400"
+            className="gap-1.5 text-gray-600"
           >
             <Download className="h-4 w-4" />
             Export PDF
@@ -731,7 +731,7 @@ export default function LearningPackagePage() {
             >
               {tab.label}
               {count > 0 && (
-                <span className="ml-1.5 text-xs tabular-nums text-gray-400">{count}</span>
+                <span className="ml-1.5 text-xs tabular-nums text-gray-600">{count}</span>
               )}
             </button>
           )
@@ -742,7 +742,7 @@ export default function LearningPackagePage() {
       <div className="space-y-3">
         {/* List header row */}
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-gray-400 font-medium">
+          <p className="text-xs text-gray-600 font-medium">
             {filteredItems.length} resource{filteredItems.length !== 1 ? 's' : ''}
             {sourceFilter !== 'ALL' && ` · ${SOURCE_CONFIG[sourceFilter as MaterialSourceType]?.label ?? sourceFilter} only`}
           </p>
@@ -775,7 +775,7 @@ export default function LearningPackagePage() {
         ) : filteredItems.length === 0 ? (
           <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
             <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-600">
               {sourceFilter === 'ALL'
                 ? 'No learning materials in this package yet.'
                 : `No ${SOURCE_CONFIG[sourceFilter as MaterialSourceType]?.label ?? sourceFilter} resources.`}
@@ -791,7 +791,7 @@ export default function LearningPackagePage() {
             )}
             {canCurate && sourceFilter === 'ALL' && (
               <div className="mt-4 flex flex-col items-center gap-2">
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-600">
                   Trigger AI curation or add a resource manually.
                 </p>
                 <Button size="sm" variant="outline" onClick={() => navigate(curatePath)}>
@@ -824,7 +824,7 @@ export default function LearningPackagePage() {
                   )}
                   {showDivider && (
                     <div className="flex items-center gap-2 my-3">
-                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
                         Additional Resources
                       </span>
                       <div className="flex-1 h-px bg-gray-100" />
@@ -852,7 +852,7 @@ export default function LearningPackagePage() {
           qdrantIndexed={pkg.qdrant_indexed}
         />
         {!pkg.qdrant_indexed && canCurate && (
-          <p className="mt-2 text-xs text-center text-gray-400">
+          <p className="mt-2 text-xs text-center text-gray-600">
             Q&A requires RAG indexing.{' '}
             <button
               type="button"

@@ -82,7 +82,7 @@ export function UpcomingDeadlines({ sessionId }: UpcomingDeadlinesProps) {
   return (
     <WidgetCard title="Upcoming Deadlines" icon={CalendarClock} isLoading={isLoading} isError={isError}>
       {top.length === 0 ? (
-        <p className="text-sm text-gray-400 py-2">No upcoming deadlines.</p>
+        <p className="text-sm text-gray-600 py-2">No upcoming deadlines.</p>
       ) : (
         <ul className="space-y-2.5">
           {top.map((item) => (
@@ -90,9 +90,9 @@ export function UpcomingDeadlines({ sessionId }: UpcomingDeadlinesProps) {
               <item.icon className={`h-3.5 w-3.5 flex-shrink-0 mt-0.5 ${item.iconColor}`} />
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-gray-800 truncate">{item.label}</p>
-                <p className="text-xs text-gray-400 truncate">{item.detail}</p>
+                <p className="text-xs text-gray-600 truncate">{item.detail}</p>
               </div>
-              <span className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">
+              <span className="text-xs text-gray-600 flex-shrink-0 whitespace-nowrap">
                 {new Date(item.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
               </span>
             </li>

@@ -279,8 +279,17 @@ export interface Course {
   updated_at: string | null
 }
 
+/** A course plus the program that owns it. A course already determines its
+ *  semester and its program, so callers that identify work by course select the
+ *  course and read the program off the result. */
+export interface CourseWithProgram extends Course {
+  program_title: string
+  program_department: string | null
+}
+
 export interface CourseCreate {
-  code: string
+  /** Server-assigned — {PROGRAMME}{semester}{NN}. Ignored if sent. */
+  code?: string
   title: string
   credits: number
   semester: number

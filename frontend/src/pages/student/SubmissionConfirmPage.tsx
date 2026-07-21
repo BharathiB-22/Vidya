@@ -20,7 +20,7 @@ function ScoreSummary({ result }: { result: DigitalResultResponse }) {
             <span className="text-gray-600">MCQ Score</span>
             <span className="font-bold text-gray-900">
               {mcqScore} / {mcqMax}
-              <span className="text-gray-400 font-normal ml-2">({pct}%)</span>
+              <span className="text-gray-600 font-normal ml-2">({pct}%)</span>
             </span>
           </div>
           <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
@@ -31,7 +31,7 @@ function ScoreSummary({ result }: { result: DigitalResultResponse }) {
               style={{ width: `${pct}%` }}
             />
           </div>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             {correct_mcq} of {mcq_questions} MCQ correct
           </p>
         </div>
@@ -74,7 +74,7 @@ export default function SubmissionConfirmPage() {
   if (!passedResult && isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }

@@ -170,7 +170,7 @@ function PublishPanel({ programId }: { programId: string }) {
   if (program.status !== 'APPROVED') {
     return (
       <div className="mb-4 flex items-start gap-2 rounded-xl border border-gray-200 bg-white p-4">
-        <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-gray-400" />
+        <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-gray-600" />
         <div>
           <p className="font-semibold text-black">Still with the board.</p>
           <p className="mt-0.5 text-sm text-gray-600">
@@ -293,7 +293,7 @@ function DocumentRow({ course }: { course: Course }) {
       </div>
 
       {isLoading ? (
-        <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+        <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
       ) : latest ? (
         <>
           <DocumentStatus status={latest.status} />

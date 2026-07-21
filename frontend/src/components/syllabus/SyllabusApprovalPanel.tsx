@@ -52,18 +52,18 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
                   <div className={`h-10 w-10 rounded-full flex items-center justify-center border-2 transition-colors shrink-0 ${
                     done   ? 'border-green-500 bg-green-50 text-green-600' :
                     active ? 'border-blue-500 bg-blue-50 text-blue-600' :
-                             'border-gray-200 bg-white text-gray-300'
+                             'border-gray-200 bg-white text-gray-500'
                   }`}>
                     {done ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-4 w-4" />}
                   </div>
                   <span className={`text-xs font-semibold whitespace-nowrap ${
                     done   ? 'text-green-600' :
                     active ? 'text-blue-600' :
-                             'text-gray-400'
+                             'text-gray-600'
                   }`}>
                     {step.label}
                   </span>
-                  <span className="text-[10px] text-gray-400 text-center leading-tight px-1 hidden sm:block">
+                  <span className="text-[10px] text-gray-600 text-center leading-tight px-1 hidden sm:block">
                     {step.desc}
                   </span>
                   {/* Timestamp under completed steps */}
@@ -143,13 +143,13 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
           <div className="px-4 py-2 flex items-center gap-6 text-xs text-gray-500 flex-wrap">
             {syllabus.approved_at && (
               <span>
-                <span className="text-gray-400 font-medium">Dean approved: </span>
+                <span className="text-gray-600 font-medium">Dean approved: </span>
                 {new Date(syllabus.approved_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
               </span>
             )}
             {syllabus.locked_at && (
               <span>
-                <span className="text-gray-400 font-medium">Locked for semester: </span>
+                <span className="text-gray-600 font-medium">Locked for semester: </span>
                 {new Date(syllabus.locked_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
               </span>
             )}
@@ -162,11 +162,11 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Version History</h3>
 
         {isLoading && (
-          <p className="text-sm text-gray-400 text-center py-6">Loading versions…</p>
+          <p className="text-sm text-gray-600 text-center py-6">Loading versions…</p>
         )}
 
         {!isLoading && versions && versions.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-6">
+          <p className="text-sm text-gray-600 text-center py-6">
             No other versions — this is the only revision.
           </p>
         )}
@@ -187,7 +187,7 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
                       : 'hover:bg-gray-50 cursor-pointer group'
                   }`}
                 >
-                  <GitFork className="h-4 w-4 text-gray-400 shrink-0" />
+                  <GitFork className="h-4 w-4 text-gray-600 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-gray-700">v{v.version}</span>
@@ -203,11 +203,11 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-600">
                       {new Date(v.created_at).toLocaleDateString()}
                     </span>
                     {!isCurrent && (
-                      <ExternalLink className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-500" />
+                      <ExternalLink className="h-3.5 w-3.5 text-gray-500 group-hover:text-gray-500" />
                     )}
                   </div>
                 </button>
@@ -217,7 +217,7 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
         )}
 
         {versions && versions.length > 1 && (
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-gray-600 mt-2">
             Click a version to open it. Fork from an approved version to start a new revision.
           </p>
         )}
@@ -229,7 +229,7 @@ export function SyllabusApprovalPanel({ syllabus, onTabChange }: Props) {
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="px-4 py-3">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      <p className="text-xs text-gray-600 mb-1">{label}</p>
       {children}
     </div>
   )

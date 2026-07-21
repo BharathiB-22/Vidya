@@ -4,7 +4,7 @@ const STATUS_MAP: Record<AssignmentStatus, { label: string; className: string }>
   DRAFT:     { label: 'Draft',     className: 'bg-gray-100 text-gray-600 border-gray-200' },
   PUBLISHED: { label: 'Published', className: 'bg-green-50 text-green-700 border-green-200' },
   CLOSED:    { label: 'Closed',    className: 'bg-orange-50 text-orange-700 border-orange-200' },
-  ARCHIVED:  { label: 'Archived',  className: 'bg-gray-50 text-gray-400 border-gray-100' },
+  ARCHIVED:  { label: 'Archived',  className: 'bg-gray-50 text-gray-600 border-gray-100' },
 }
 
 interface Props { status: AssignmentStatus }

@@ -161,7 +161,7 @@ export default function ForgotPasswordPage() {
                 </Button>
                 <button
                   type="button"
-                  className="w-full text-xs text-gray-400 hover:text-gray-600 mt-1"
+                  className="w-full text-xs text-gray-600 hover:text-gray-600 mt-1"
                   onClick={() => { setStep('request'); setError('') }}
                 >
                   Resend code
@@ -224,7 +224,7 @@ export default function ForgotPasswordPage() {
           </div>
         </div>
 
-        <p className="text-xs text-center text-gray-400">
+        <p className="text-xs text-center text-gray-600">
           <Link to="/login" className="hover:text-gray-600 underline underline-offset-2">
             Back to sign in
           </Link>

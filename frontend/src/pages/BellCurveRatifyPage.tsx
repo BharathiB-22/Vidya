@@ -95,12 +95,12 @@ function MethodParams({
   }
   if (method === 'NONE') {
     return (
-      <p className="text-xs text-gray-400">No parameters required for NONE method.</p>
+      <p className="text-xs text-gray-600">No parameters required for NONE method.</p>
     )
   }
   if (method === 'CUSTOM') {
     return (
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-gray-600">
         Custom adjustments are not editable in this UI. Use the API directly to supply
         per-student deltas.
       </p>
@@ -216,7 +216,7 @@ export default function BellCurveRatifyPage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+      <Loader2 className="w-6 h-6 animate-spin text-gray-600" />
     </div>
   )
   if (isError || !analysis) return (
@@ -236,7 +236,7 @@ export default function BellCurveRatifyPage() {
         </Button>
         <div>
           <h1 className="text-xl font-bold text-gray-900">Gate 1 — Board Ratification</h1>
-          <p className="text-xs text-gray-400 font-mono mt-0.5 truncate">Analysis {id}</p>
+          <p className="text-xs text-gray-600 font-mono mt-0.5 truncate">Analysis {id}</p>
         </div>
       </div>
 
@@ -281,7 +281,7 @@ export default function BellCurveRatifyPage() {
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-gray-100 p-2">
                 <div className="font-bold text-gray-800">{value}</div>
-                <div className="text-gray-400">{label}</div>
+                <div className="text-gray-600">{label}</div>
               </div>
             ))}
           </div>
@@ -332,7 +332,7 @@ export default function BellCurveRatifyPage() {
                   <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-400">{METHOD_DESCRIPTIONS[method]}</p>
+              <p className="text-xs text-gray-600">{METHOD_DESCRIPTIONS[method]}</p>
             </div>
           )}
 

@@ -21,7 +21,7 @@ const WRITE_ROLES = ['ADMIN', 'FACULTY']
 function InfoCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg border border-gray-200 px-4 py-3 bg-white">
-      <p className="text-xs text-gray-400">{label}</p>
+      <p className="text-xs text-gray-600">{label}</p>
       <p className="text-sm font-semibold text-gray-800 mt-0.5">{String(value)}</p>
     </div>
   )
@@ -83,7 +83,7 @@ function EvaluatorsPanel({
       {evaluators.length === 0 ? (
         <div className="text-center py-10 rounded-xl border border-dashed border-gray-200">
           <UserCheck className="h-7 w-7 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No evaluators assigned.</p>
+          <p className="text-sm text-gray-600">No evaluators assigned.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden">
@@ -95,7 +95,7 @@ function EvaluatorsPanel({
                   <p className="text-sm font-medium text-gray-700">
                     {user ? `${user.full_name} (${user.email})` : ev.evaluator_user_id}
                   </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-600 mt-0.5">
                     Assigned {new Date(ev.assigned_at).toLocaleDateString()}
                   </p>
                 </div>
@@ -269,7 +269,7 @@ function RubricEditor({
               title="Remove criterion"
               disabled={rows.length <= 1}
               onClick={() => removeRow(row._key)}
-              className="text-gray-300 hover:text-red-500 disabled:opacity-30 transition-colors"
+              className="text-gray-500 hover:text-red-500 disabled:opacity-30 transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -285,7 +285,7 @@ function RubricEditor({
       )}
 
       <div className="flex items-center justify-between">
-        <div className="text-xs text-gray-400">
+        <div className="text-xs text-gray-600">
           Total max marks: {rows.reduce((s, r) => s + Number(r.max_marks), 0)}
         </div>
         <div className="flex gap-2">
@@ -330,7 +330,7 @@ export default function LabAssignmentDetailPage() {
 
   if (!assignment) {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-16 text-center text-gray-400 text-sm">
+      <div className="max-w-5xl mx-auto px-4 py-16 text-center text-gray-600 text-sm">
         Assignment not found.
       </div>
     )
@@ -350,7 +350,7 @@ export default function LabAssignmentDetailPage() {
         <div>
           {(assignment.course_code || assignment.course_title) && (
             <div className="flex items-center gap-1.5 mb-1.5">
-              <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+              <BookOpen className="h-3.5 w-3.5 text-gray-600" />
               <span className="text-xs font-medium text-gray-500">
                 {[assignment.course_code, assignment.course_title].filter(Boolean).join(' · ')}
               </span>
@@ -366,7 +366,7 @@ export default function LabAssignmentDetailPage() {
             </span>
           </div>
           {assignment.deadline && (
-            <p className="text-sm text-gray-400 mt-1 flex items-center gap-1">
+            <p className="text-sm text-gray-600 mt-1 flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
               Due {new Date(assignment.deadline).toLocaleString()}
               {assignment.allow_late && (
@@ -465,7 +465,7 @@ export default function LabAssignmentDetailPage() {
               {assignment.description ? (
                 <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{assignment.description}</p>
               ) : (
-                <p className="text-sm text-gray-400 italic">No problem statement yet. Edit this assignment to add one.</p>
+                <p className="text-sm text-gray-600 italic">No problem statement yet. Edit this assignment to add one.</p>
               )}
             </div>
           </div>
@@ -479,7 +479,7 @@ export default function LabAssignmentDetailPage() {
               {assignment.instructions ? (
                 <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{assignment.instructions}</p>
               ) : (
-                <p className="text-sm text-gray-400 italic">No specific submission instructions. Edit to add guidance for students.</p>
+                <p className="text-sm text-gray-600 italic">No specific submission instructions. Edit to add guidance for students.</p>
               )}
             </div>
           </div>
@@ -509,7 +509,7 @@ export default function LabAssignmentDetailPage() {
             ) : (
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
                 {assignment.rubric.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-sm text-gray-400">
+                  <div className="px-4 py-6 text-center text-sm text-gray-600">
                     No rubric criteria defined.
                   </div>
                 ) : (
@@ -522,7 +522,7 @@ export default function LabAssignmentDetailPage() {
                         </span>
                       </div>
                       {c.description && (
-                        <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>
+                        <p className="text-xs text-gray-600 mt-0.5">{c.description}</p>
                       )}
                     </div>
                   ))
@@ -543,7 +543,7 @@ export default function LabAssignmentDetailPage() {
                       {tc.is_hidden && (
                         <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Hidden</span>
                       )}
-                      <span className="text-xs text-gray-400 ml-auto">{tc.points} pts</span>
+                      <span className="text-xs text-gray-600 ml-auto">{tc.points} pts</span>
                     </div>
                     {tc.stdin && (
                       <pre className="text-xs text-gray-500 mt-1.5 font-mono bg-gray-50 rounded p-2 overflow-x-auto">
@@ -563,7 +563,7 @@ export default function LabAssignmentDetailPage() {
           {submissions.length === 0 ? (
             <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
               <Users className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-              <p className="text-sm text-gray-400">No submissions yet.</p>
+              <p className="text-sm text-gray-600">No submissions yet.</p>
             </div>
           ) : (
             <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">

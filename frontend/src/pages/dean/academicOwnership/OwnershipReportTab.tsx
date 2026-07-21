@@ -36,7 +36,7 @@ function CourseRow({ course }: { course: MatrixCourse }) {
             </span>
             <span className="text-sm font-medium text-foreground">{course.title}</span>
             {course.course_type && (
-              <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+              <span className="text-[10px] text-gray-600 uppercase tracking-wide">
                 {course.course_type}
               </span>
             )}
@@ -73,7 +73,7 @@ function SectionPanel({ section, vacantOnly }: { section: MatrixSection; vacantO
       >
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         <span>{section.name}</span>
-        <span className="text-gray-400 font-normal">{courses.length} course{courses.length !== 1 ? 's' : ''}</span>
+        <span className="text-gray-600 font-normal">{courses.length} course{courses.length !== 1 ? 's' : ''}</span>
         {vacantCount > 0 && (
           <span className="ml-auto text-amber-500 font-medium">{vacantCount} vacant</span>
         )}
@@ -86,7 +86,7 @@ function SectionPanel({ section, vacantOnly }: { section: MatrixSection; vacantO
         </div>
       )}
       {open && courses.length === 0 && (
-        <p className="ml-5 text-xs text-gray-400 py-2">No courses.</p>
+        <p className="ml-5 text-xs text-gray-600 py-2">No courses.</p>
       )}
     </div>
   )
@@ -116,7 +116,7 @@ function ProgramBlock({ prog, vacantOnly }: { prog: MatrixProgram; vacantOnly: b
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-xs text-gray-400 flex-shrink-0">
+        <div className="flex items-center gap-4 text-xs text-gray-600 flex-shrink-0">
           <span>{prog.semesters.length} sem</span>
           <span>{totalCourses} courses</span>
           {totalVacant > 0 && (
@@ -127,7 +127,7 @@ function ProgramBlock({ prog, vacantOnly }: { prog: MatrixProgram; vacantOnly: b
       {open && (
         <div className="px-4 py-3">
           {prog.semesters.length === 0 && (
-            <p className="text-xs text-gray-400 py-3 text-center">
+            <p className="text-xs text-gray-600 py-3 text-center">
               No active semesters. Create batches and semesters in the Academic Structure settings.
             </p>
           )}
@@ -156,9 +156,9 @@ function DepartmentBlock({ dept, vacantOnly }: { dept: MatrixDepartment; vacantO
         className="flex items-center gap-2 w-full text-left"
       >
         {open ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
-        <Building2 className="h-4 w-4 text-gray-400" />
+        <Building2 className="h-4 w-4 text-gray-600" />
         <span className="text-base font-bold text-foreground">{dept.name}</span>
-        {dept.code && <span className="text-xs text-gray-400 font-mono">{dept.code}</span>}
+        {dept.code && <span className="text-xs text-gray-600 font-mono">{dept.code}</span>}
       </button>
       {open && (
         <div className="pl-6 space-y-3">
@@ -252,7 +252,7 @@ export default function OwnershipReportTab() {
         </label>
 
         {programs && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             {programs.length} program{programs.length !== 1 ? 's' : ''} governed
           </p>
         )}
@@ -270,7 +270,7 @@ export default function OwnershipReportTab() {
           {visibleDepartments.length === 0 && (
             <div className="rounded-xl border border-dashed border-gray-200 py-16 text-center">
               <p className="text-sm font-medium text-gray-500">No programs in scope</p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-600 mt-1">
                 Contact your administrator to assign programs to your governance scope.
               </p>
             </div>

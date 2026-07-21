@@ -102,7 +102,7 @@ function CreateProgramDialog({ open, onClose, onCreated, departments }: {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Code <span className="text-gray-400 font-normal">(auto-uppercased)</span></label>
+              <label className="text-sm font-medium text-gray-700">Code <span className="text-gray-600 font-normal">(auto-uppercased)</span></label>
               <Input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="BTCSE" maxLength={10} required />
             </div>
             <div className="space-y-1">
@@ -129,7 +129,7 @@ function CreateProgramDialog({ open, onClose, onCreated, departments }: {
               is not asked to remember what his own MCA is worth. */}
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">
-              Total credits <span className="text-gray-400 font-normal">(optional)</span>
+              Total credits <span className="text-gray-600 font-normal">(optional)</span>
             </label>
             <Input
               type="number" min={1} max={9999} value={credits}
@@ -230,7 +230,7 @@ function EditProgramDialog({ prog, onClose, onUpdated }: {
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">
-                Total credits <span className="text-gray-400 font-normal">(optional)</span>
+                Total credits <span className="text-gray-600 font-normal">(optional)</span>
               </label>
               <Input
                 type="number" min={1} max={9999} value={credits}
@@ -352,7 +352,7 @@ export default function ProgramsPage() {
                 <td className="px-4 py-3"><DegreeBadge type={p.degree_type} /></td>
                 <td className="px-4 py-3 text-gray-600">{p.duration_years} yr</td>
                 <td className="px-4 py-3">
-                  {p.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-400">Inactive</span>}
+                  {p.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-600">Inactive</span>}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Button size="sm" variant="outline" onClick={() => setEditing(p)}>Edit</Button>

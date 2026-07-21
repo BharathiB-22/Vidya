@@ -41,7 +41,7 @@ function SubmissionRow({
               Late
             </span>
           )}
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-600">
             {new Date(sub.submitted_at).toLocaleDateString()}
           </span>
         </div>
@@ -56,7 +56,7 @@ function SubmissionRow({
             {sub.status === 'REVIEWED' ? 'Edit Recommendation' : 'Start Review'}
           </Button>
         ) : (
-          <span className="text-xs text-gray-400">Awaiting AI eval</span>
+          <span className="text-xs text-gray-600">Awaiting AI eval</span>
         )}
       </div>
     </div>
@@ -82,7 +82,7 @@ export default function EvaluatorSubmissionsPage() {
   if (assignmentLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -150,7 +150,7 @@ export default function EvaluatorSubmissionsPage() {
                   <span className="text-xs text-gray-500">{c.max_marks} marks</span>
                 </div>
                 {c.description && (
-                  <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">{c.description}</p>
                 )}
               </div>
             ))}
@@ -161,7 +161,7 @@ export default function EvaluatorSubmissionsPage() {
       {/* Submission list */}
       {subsLoading ? (
         <div className="flex items-center justify-center h-48">
-          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
         </div>
       ) : isError ? (
         <div className="text-center py-12">
@@ -171,7 +171,7 @@ export default function EvaluatorSubmissionsPage() {
       ) : submissions.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <Users className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No submissions yet.</p>
+          <p className="text-sm text-gray-600">No submissions yet.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white divide-y divide-gray-100 overflow-hidden">

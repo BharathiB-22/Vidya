@@ -185,7 +185,7 @@ export function ExamAnalyticsView({
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-xs text-gray-400 border-b">
+                      <tr className="text-left text-xs text-gray-600 border-b">
                         <th className="py-2 font-medium">Evaluator</th>
                         <th className="py-2 font-medium text-right">Scripts</th>
                         <th className="py-2 font-medium text-right">Avg awarded</th>
@@ -215,7 +215,7 @@ export function ExamAnalyticsView({
                       })}
                     </tbody>
                   </table>
-                  <p className="text-[10px] text-gray-400 pt-2">
+                  <p className="text-[10px] text-gray-600 pt-2">
                     ⚠ marks evaluators whose average deviates ≥15% from the institution benchmark — advisory only.
                   </p>
                 </div>

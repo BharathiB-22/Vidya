@@ -44,7 +44,7 @@ export default function FairnessReportPage() {
         </Button>
         <div>
           <h1 className="text-xl font-bold text-gray-900">Bell Curve Fairness Report</h1>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-600 mt-0.5">
             Generates a PDF summarising bell curve analyses and Board decisions.
           </p>
         </div>
@@ -102,7 +102,7 @@ export default function FairnessReportPage() {
         </Button>
       </div>
 
-      <p className="text-xs text-gray-400 text-center">
+      <p className="text-xs text-gray-600 text-center">
         The report is generated on the server and served synchronously.
         Large datasets may take a few seconds.
       </p>

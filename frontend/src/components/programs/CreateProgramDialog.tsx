@@ -104,7 +104,7 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Link to Academic Program
-              <span className="text-gray-400 font-normal ml-1">(optional)</span>
+              <span className="text-gray-600 font-normal ml-1">(optional)</span>
             </label>
             <select
               className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
@@ -183,7 +183,7 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               AI Instructions
-              <span className="text-gray-400 font-normal ml-1">(optional — curriculum design guidance)</span>
+              <span className="text-gray-600 font-normal ml-1">(optional — curriculum design guidance)</span>
             </label>
             <Textarea
               rows={3}
@@ -191,7 +191,7 @@ export function CreateProgramDialog({ open, onOpenChange }: Props) {
               onChange={(e) => set('ai_instructions', e.target.value)}
               placeholder="e.g. Final semester must contain only project and internship. Major project 10 credits. Internship 10 credits."
             />
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-600 mt-1">
               Stored on the program and passed to AI every time you generate the structure.
             </p>
           </div>

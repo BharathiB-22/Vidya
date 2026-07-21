@@ -68,7 +68,7 @@ function SessionAnalyticsRow({ session }: { session: DigitalExamSession }) {
             View stats <ChevronRight className="h-3 w-3" />
           </span>
         ) : (
-          <span className="text-xs text-gray-300">—</span>
+          <span className="text-xs text-gray-500">—</span>
         )}
       </td>
     </tr>
@@ -142,14 +142,14 @@ export default function DeanDigitalAnalyticsPage() {
       {/* Sessions table */}
       {all.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center space-y-2">
-          <Monitor className="h-8 w-8 mx-auto text-gray-300" />
+          <Monitor className="h-8 w-8 mx-auto text-gray-500" />
           <p className="text-sm text-gray-500">No digital exam sessions found.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-700">All Sessions</h2>
-            {isFetching && <Loader2 className="h-4 w-4 animate-spin text-gray-300" />}
+            {isFetching && <Loader2 className="h-4 w-4 animate-spin text-gray-500" />}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -175,7 +175,7 @@ export default function DeanDigitalAnalyticsPage() {
 
           {/* Footnote hint */}
           <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
-            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+            <p className="text-xs text-gray-600 flex items-center gap-1.5">
               <AlertTriangle className="h-3 w-3" />
               Detailed score analytics are available only for CLOSED sessions with scored results.
             </p>

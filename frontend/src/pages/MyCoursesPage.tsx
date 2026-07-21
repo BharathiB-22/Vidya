@@ -71,7 +71,7 @@ function CourseCard({ a }: { a: Assignment }) {
           </div>
 
           {a.course?.code && (
-            <p className="text-xs text-gray-400 mt-0.5 font-mono">{a.course.code}</p>
+            <p className="text-xs text-gray-600 mt-0.5 font-mono">{a.course.code}</p>
           )}
 
           {a.semester && (
@@ -86,7 +86,7 @@ function CourseCard({ a }: { a: Assignment }) {
             </p>
           )}
 
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-600 mt-1">
             Assigned {new Date(a.assigned_at).toLocaleDateString()}
           </p>
 

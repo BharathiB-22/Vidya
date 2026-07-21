@@ -262,7 +262,7 @@ export function SemesterGrid({ program, courses }: Props) {
         })}
 
         {semesters.length === 0 && (
-          <p className="text-sm text-gray-400 py-8 px-4">
+          <p className="text-sm text-gray-600 py-8 px-4">
             No semesters configured. Set duration_years to generate the grid.
           </p>
         )}

@@ -40,7 +40,7 @@ export function MarksTab({ ctx }: FacultySubjectTabProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
           {items.length} mark component{items.length !== 1 ? 's' : ''} · {publishedCount} published
         </p>
         <div className="flex gap-2">
@@ -63,13 +63,13 @@ export function MarksTab({ ctx }: FacultySubjectTabProps) {
       </div>
 
       {isLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading mark components…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading mark components…</div>
       ) : isError ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Failed to load mark components.</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Failed to load mark components.</div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <ClipboardCheck className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No internal mark components set up yet for this subject.</p>
+          <p className="text-sm text-gray-600">No internal mark components set up yet for this subject.</p>
           <div className="mt-3">
             <Button size="sm" variant="outline" onClick={() => setShowCreate(true)}>
               <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
@@ -92,7 +92,7 @@ export function MarksTab({ ctx }: FacultySubjectTabProps) {
                   className="min-w-0 text-left flex-1"
                 >
                   <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-600">
                     {c.component_type} · Max {c.max_marks}
                     {c.entries_count > 0 && (
                       <> · {c.filled_count}/{c.entries_count} entered{pending > 0 ? ` (${pending} pending)` : ''}</>

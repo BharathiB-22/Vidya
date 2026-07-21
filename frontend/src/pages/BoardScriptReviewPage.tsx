@@ -33,13 +33,13 @@ function ScriptEvalSummary({
   })
 
   if (isLoading) return (
-    <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+    <div className="flex items-center gap-2 text-xs text-gray-600 py-2">
       <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading evaluations…
     </div>
   )
 
   if (!evals || evals.length === 0) return (
-    <p className="text-xs text-gray-400 py-2">No evaluation rows found.</p>
+    <p className="text-xs text-gray-600 py-2">No evaluation rows found.</p>
   )
 
   const totalEvaluator = evals.reduce((s, e) => s + (e.evaluator_marks ?? 0), 0)
@@ -80,12 +80,12 @@ function EvalSummaryRow({ ev }: { ev: ScriptEvaluation }) {
       <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium shrink-0">
         {ev.question_type.replace('_', ' ')}
       </span>
-      <span className="font-mono text-gray-400 truncate flex-1">{ev.question_id}</span>
+      <span className="font-mono text-gray-600 truncate flex-1">{ev.question_id}</span>
       <span className="text-blue-500 shrink-0">AI: {ev.ai_suggested_marks ?? '—'}</span>
       <span className={`shrink-0 font-semibold ${ev.evaluator_marks != null ? 'text-indigo-700' : 'text-red-500'}`}>
         Eval: {ev.evaluator_marks ?? 'missing'}
       </span>
-      <span className="text-gray-400 shrink-0">/ {ev.max_marks}</span>
+      <span className="text-gray-600 shrink-0">/ {ev.max_marks}</span>
     </div>
   )
 }
@@ -143,7 +143,7 @@ function BoardScriptCard({
             Paper: <span className="font-mono">{script.exam_paper_id}</span>
           </p>
           {script.submitted_at && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-600">
               Submitted: {new Date(script.submitted_at).toLocaleString()}
             </p>
           )}

@@ -50,7 +50,7 @@ export default function ExamInstructionsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -70,7 +70,7 @@ export default function ExamInstructionsPage() {
   if (session.status !== 'ACTIVE') {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center space-y-3">
-        <Monitor className="h-8 w-8 mx-auto text-gray-300" />
+        <Monitor className="h-8 w-8 mx-auto text-gray-500" />
         <p className="font-medium text-gray-700">
           {session.status === 'DRAFT'
             ? 'This exam has not opened yet.'
@@ -146,7 +146,7 @@ export default function ExamInstructionsPage() {
       >
         {acknowledged
           ? <CheckSquare className="h-5 w-5 text-indigo-600 shrink-0 mt-0.5" />
-          : <Square className="h-5 w-5 text-gray-300 shrink-0 mt-0.5" />
+          : <Square className="h-5 w-5 text-gray-500 shrink-0 mt-0.5" />
         }
         <span className="text-sm text-gray-700">
           I have read and understood the instructions and exam rules. I am ready to begin.
@@ -166,7 +166,7 @@ export default function ExamInstructionsPage() {
         )}
       </Button>
 
-      <p className="text-center text-xs text-gray-400">
+      <p className="text-center text-xs text-gray-600">
         The timer begins the moment you click Start Exam.
       </p>
     </div>

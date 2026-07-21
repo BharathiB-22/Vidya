@@ -17,7 +17,7 @@ export default function StudentResultPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -44,7 +44,7 @@ export default function StudentResultPage() {
   if (!grade_entry) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-3">
-        <Lock className="h-8 w-8 mx-auto text-gray-300" />
+        <Lock className="h-8 w-8 mx-auto text-gray-500" />
         <p className="text-sm text-gray-500">Your grade has not been finalised yet.</p>
         <Button variant="ghost" size="sm" onClick={() => navigate('/student/labs')}>
           Back to Assignments
@@ -122,12 +122,12 @@ export default function StudentResultPage() {
                       <p className="text-sm font-medium text-gray-800">{rubric.name}</p>
                       {score?.human_note && (
                         <p className="text-xs text-gray-500 mt-0.5 italic">
-                          <span className="not-italic font-medium text-gray-400">Feedback: </span>
+                          <span className="not-italic font-medium text-gray-600">Feedback: </span>
                           "{score.human_note}"
                         </p>
                       )}
                       {score?.ai_justification && !score?.human_note && (
-                        <p className="text-xs text-gray-400 mt-0.5">
+                        <p className="text-xs text-gray-600 mt-0.5">
                           <span className="font-medium">AI: </span>{score.ai_justification}
                         </p>
                       )}
@@ -136,7 +136,7 @@ export default function StudentResultPage() {
                       <span className="text-sm font-bold text-gray-900">
                         {finalScore != null ? finalScore : '—'}
                       </span>
-                      <span className="text-xs text-gray-400"> / {rubric.max_marks}</span>
+                      <span className="text-xs text-gray-600"> / {rubric.max_marks}</span>
                     </div>
                   </div>
 
@@ -167,7 +167,7 @@ export default function StudentResultPage() {
               <div key={tr.id} className="px-4 py-2.5 flex items-center gap-3">
                 <span className={`h-2 w-2 rounded-full shrink-0 ${tr.passed ? 'bg-green-500' : 'bg-red-400'}`} />
                 <span className="text-sm text-gray-700 flex-1">{tr.name}</span>
-                <span className="text-xs text-gray-400">{tr.points_awarded} pts</span>
+                <span className="text-xs text-gray-600">{tr.points_awarded} pts</span>
               </div>
             ))}
           </div>

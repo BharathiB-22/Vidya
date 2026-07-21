@@ -125,7 +125,7 @@ function AnalysisCard({ analysis }: { analysis: BellCurveAnalysis }) {
           <div className="flex items-center gap-2 flex-wrap">
             <StatusBadge status={analysis.status} />
             {analysis.score_count != null && (
-              <span className="text-xs text-gray-400">{analysis.score_count} scripts</span>
+              <span className="text-xs text-gray-600">{analysis.score_count} scripts</span>
             )}
           </div>
           <p className="text-xs text-gray-500 font-mono truncate">
@@ -138,7 +138,7 @@ function AnalysisCard({ analysis }: { analysis: BellCurveAnalysis }) {
             </p>
           )}
           {analysis.triggered_at && (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-600">
               Triggered {new Date(analysis.triggered_at).toLocaleString()}
             </p>
           )}
@@ -153,7 +153,7 @@ function AnalysisCard({ analysis }: { analysis: BellCurveAnalysis }) {
               Ratify
             </Button>
           )}
-          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <ChevronRight className="w-4 h-4 text-gray-600" />
         </div>
       </div>
     </div>

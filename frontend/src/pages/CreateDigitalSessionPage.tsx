@@ -94,7 +94,7 @@ export default function CreateDigitalSessionPage() {
             </h2>
 
             {papersLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading papers…
               </div>
             ) : readyPapers.length === 0 ? (
@@ -160,7 +160,7 @@ export default function CreateDigitalSessionPage() {
           {/* Exam Window */}
           <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 space-y-4">
             <h2 className="text-sm font-semibold text-gray-800">
-              Exam Window <span className="text-gray-400 font-normal">(optional)</span>
+              Exam Window <span className="text-gray-600 font-normal">(optional)</span>
             </h2>
             <p className="text-xs text-gray-500">
               Set start and end times to restrict when students can enter the session.
@@ -190,7 +190,7 @@ export default function CreateDigitalSessionPage() {
           {/* Instructions */}
           <div className="rounded-xl border border-gray-200 bg-white px-5 py-4 space-y-3">
             <h2 className="text-sm font-semibold text-gray-800">
-              Instructions <span className="text-gray-400 font-normal">(optional)</span>
+              Instructions <span className="text-gray-600 font-normal">(optional)</span>
             </h2>
             <textarea
               rows={4}

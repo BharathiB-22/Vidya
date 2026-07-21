@@ -51,7 +51,7 @@ export function AttendanceTab({ ctx }: FacultySubjectTabProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Attendance Summary</p>
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Attendance Summary</p>
         <div className="flex gap-2">
           <Button size="sm" onClick={handleMarkAttendance} disabled={!sectionId}>
             {todaySession ? 'Mark Today’s Session' : 'Mark Attendance'}
@@ -64,11 +64,11 @@ export function AttendanceTab({ ctx }: FacultySubjectTabProps) {
       </div>
 
       {!sectionId ? (
-        <div className="text-sm text-gray-400 py-8 text-center">No section on record for this subject.</div>
+        <div className="text-sm text-gray-600 py-8 text-center">No section on record for this subject.</div>
       ) : summaryQ.isLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading attendance…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading attendance…</div>
       ) : summaryQ.isError || !summaryQ.data ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Failed to load attendance data.</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Failed to load attendance data.</div>
       ) : (
         <>
           {/* Today's session */}
@@ -89,7 +89,7 @@ export function AttendanceTab({ ctx }: FacultySubjectTabProps) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <StatusBadge session={todaySession} />
-                <ChevronRight className="h-4 w-4 text-gray-300" />
+                <ChevronRight className="h-4 w-4 text-gray-500" />
               </div>
             </button>
           )}
@@ -97,12 +97,12 @@ export function AttendanceTab({ ctx }: FacultySubjectTabProps) {
           {/* Analytics preview */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <CalendarCheck className="h-4 w-4 text-gray-400 mb-2" />
+              <CalendarCheck className="h-4 w-4 text-gray-600 mb-2" />
               <p className="text-xl font-bold text-gray-900">{summaryQ.data.total_sessions}</p>
               <p className="text-xs text-gray-500 mt-0.5">Sessions Held</p>
             </div>
             <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <CalendarCheck className="h-4 w-4 text-gray-400 mb-2" />
+              <CalendarCheck className="h-4 w-4 text-gray-600 mb-2" />
               <p className="text-xl font-bold text-gray-900">
                 {summaryQ.data.avg_attendance_pct != null ? `${summaryQ.data.avg_attendance_pct.toFixed(0)}%` : '—'}
               </p>
@@ -117,13 +117,13 @@ export function AttendanceTab({ ctx }: FacultySubjectTabProps) {
 
           {/* Recent attendance */}
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Recent Attendance</p>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Recent Attendance</p>
             {sessionsQ.isLoading ? (
-              <div className="text-sm text-gray-400 py-6 text-center">Loading sessions…</div>
+              <div className="text-sm text-gray-600 py-6 text-center">Loading sessions…</div>
             ) : recentSessions.length === 0 ? (
               <div className="text-center py-8 rounded-xl border border-dashed border-gray-200">
                 <CalendarCheck className="h-6 w-6 mx-auto mb-2 text-gray-200" />
-                <p className="text-sm text-gray-400">No attendance sessions recorded yet.</p>
+                <p className="text-sm text-gray-600">No attendance sessions recorded yet.</p>
               </div>
             ) : (
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -139,7 +139,7 @@ export function AttendanceTab({ ctx }: FacultySubjectTabProps) {
                         {new Date(s.session_date).toLocaleDateString()}
                         {s.period_number != null ? ` · Period ${s.period_number}` : ''}
                       </p>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-600">
                         {s.present_count}/{s.total_enrolled} present
                         {s.attendance_pct != null ? ` (${s.attendance_pct.toFixed(0)}%)` : ''}
                       </p>

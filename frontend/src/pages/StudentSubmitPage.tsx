@@ -71,10 +71,10 @@ function EvaluationTimeline({ submission }: { submission: LabSubmission }) {
                 )}
               </div>
               <div>
-                <p className={`text-sm font-medium ${done ? 'text-green-700' : active ? 'text-blue-700' : 'text-gray-300'}`}>
+                <p className={`text-sm font-medium ${done ? 'text-green-700' : active ? 'text-blue-700' : 'text-gray-500'}`}>
                   {step.label}
                 </p>
-                <p className={`text-xs ${done || active ? 'text-gray-400' : 'text-gray-200'}`}>
+                <p className={`text-xs ${done || active ? 'text-gray-600' : 'text-gray-200'}`}>
                   {step.desc}
                 </p>
               </div>
@@ -290,7 +290,7 @@ export default function StudentSubmitPage() {
             {assignment.submission_type}
           </span>
           {assignment.max_marks != null && (
-            <span className="text-xs text-gray-400">{assignment.max_marks} marks</span>
+            <span className="text-xs text-gray-600">{assignment.max_marks} marks</span>
           )}
           {assignment.ai_not_permitted && (
             <span className="text-xs text-red-600 bg-red-50 px-1.5 py-0.5 rounded">AI not permitted</span>
@@ -335,9 +335,9 @@ export default function StudentSubmitPage() {
               <div key={c.criterion_id} className="px-4 py-2.5 flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{c.name}</p>
-                  <p className="text-xs text-gray-400">{c.description}</p>
+                  <p className="text-xs text-gray-600">{c.description}</p>
                 </div>
-                <span className="text-xs text-gray-400 shrink-0">{c.max_marks} marks</span>
+                <span className="text-xs text-gray-600 shrink-0">{c.max_marks} marks</span>
               </div>
             ))}
           </div>
@@ -403,8 +403,8 @@ export default function StudentSubmitPage() {
         {!isCode && (
           <div>
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
-              <Github className="h-3.5 w-3.5 text-gray-400" />
-              GitHub Link <span className="text-xs font-normal text-gray-400">(optional)</span>
+              <Github className="h-3.5 w-3.5 text-gray-600" />
+              GitHub Link <span className="text-xs font-normal text-gray-600">(optional)</span>
             </label>
             <input
               type="url"
@@ -435,7 +435,7 @@ export default function StudentSubmitPage() {
               required={isCode}
             />
             <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-400">{content.length} characters</p>
+              <p className="text-xs text-gray-600">{content.length} characters</p>
               <Button type="submit" disabled={!canSubmit}>
                 {submitting ? 'Submitting…' : 'Submit'}
               </Button>
@@ -455,9 +455,9 @@ export default function StudentSubmitPage() {
                 htmlFor="submission-file"
                 className="flex flex-col items-center justify-center w-full h-36 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors"
               >
-                <Upload className="h-8 w-8 text-gray-300 mb-2" />
-                <p className="text-sm text-gray-400">Click to select file</p>
-                <p className="text-xs text-gray-300 mt-0.5">PDF · DOCX · ZIP</p>
+                <Upload className="h-8 w-8 text-gray-500 mb-2" />
+                <p className="text-sm text-gray-600">Click to select file</p>
+                <p className="text-xs text-gray-500 mt-0.5">PDF · DOCX · ZIP</p>
                 <input
                   id="submission-file"
                   ref={fileInputRef}
@@ -472,7 +472,7 @@ export default function StudentSubmitPage() {
                 <FileText className="h-8 w-8 text-purple-400 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{selectedFile.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-600 mt-0.5">
                     {mimeLabel(selectedFile)} · {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
                   </p>
 
@@ -493,7 +493,7 @@ export default function StudentSubmitPage() {
                   <button
                     type="button"
                     onClick={clearFile}
-                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                    className="p-1 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-600"
                     title="Remove file"
                   >
                     <X className="h-4 w-4" />
@@ -504,7 +504,7 @@ export default function StudentSubmitPage() {
 
             <div>
               <label className="text-sm font-medium text-gray-700">
-                Remarks <span className="text-xs font-normal text-gray-400">(optional)</span>
+                Remarks <span className="text-xs font-normal text-gray-600">(optional)</span>
               </label>
               <textarea
                 className="mt-1.5 w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y leading-relaxed"

@@ -91,7 +91,7 @@ function TrailRow({ entry, last }: { entry: TrailEntry; last: boolean }) {
               {entry.actor_role}
             </span>
           )}
-          <span className="mx-1.5 text-gray-300">·</span>
+          <span className="mx-1.5 text-gray-500">·</span>
           {new Date(entry.at).toLocaleString()}
         </p>
       </div>

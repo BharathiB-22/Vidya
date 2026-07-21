@@ -24,25 +24,25 @@ export function StudentsTab({ ctx }: FacultySubjectTabProps) {
   }, [data, search])
 
   if (!sectionId) {
-    return <div className="text-sm text-gray-400 py-8 text-center">No section on record for this subject.</div>
+    return <div className="text-sm text-gray-600 py-8 text-center">No section on record for this subject.</div>
   }
 
   if (isLoading) {
-    return <div className="text-sm text-gray-400 py-8 text-center">Loading students…</div>
+    return <div className="text-sm text-gray-600 py-8 text-center">Loading students…</div>
   }
 
   if (isError || !data) {
-    return <div className="text-sm text-gray-400 py-8 text-center">Failed to load the student roster.</div>
+    return <div className="text-sm text-gray-600 py-8 text-center">Failed to load the student roster.</div>
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
           {data.students.length} student{data.students.length !== 1 ? 's' : ''} · Section {data.section_name}
         </p>
         <div className="relative w-56">
-          <Search className="h-3.5 w-3.5 text-gray-300 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="h-3.5 w-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
@@ -56,7 +56,7 @@ export function StudentsTab({ ctx }: FacultySubjectTabProps) {
       {students.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <Users className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No students match your search.</p>
+          <p className="text-sm text-gray-600">No students match your search.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -64,7 +64,7 @@ export function StudentsTab({ ctx }: FacultySubjectTabProps) {
             <div key={s.student_id} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{s.student_name}</p>
-                <p className="text-xs text-gray-400 font-mono">{s.usn ?? '—'}</p>
+                <p className="text-xs text-gray-600 font-mono">{s.usn ?? '—'}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {s.is_at_risk && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
@@ -77,7 +77,7 @@ export function StudentsTab({ ctx }: FacultySubjectTabProps) {
         </div>
       )}
 
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-gray-600">
         Student profile pages are currently Admin/Dean-only; this roster is read-only for faculty.
       </p>
     </div>

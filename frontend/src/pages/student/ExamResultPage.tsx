@@ -17,7 +17,7 @@ function ResponseRow({ response, index }: { response: DigitalResponseOut; index:
       <td className="px-4 py-2.5 text-sm text-gray-700">
         {response.selected_option
           ? <span className="font-mono font-bold">{response.selected_option}</span>
-          : <span className="text-gray-400 italic">Not answered</span>
+          : <span className="text-gray-600 italic">Not answered</span>
         }
       </td>
       <td className="px-4 py-2.5">
@@ -26,7 +26,7 @@ function ResponseRow({ response, index }: { response: DigitalResponseOut; index:
             ? <span className="flex items-center gap-1 text-green-600 text-sm"><CheckCircle2 className="h-3.5 w-3.5" />Correct</span>
             : <span className="flex items-center gap-1 text-red-500 text-sm"><XCircle className="h-3.5 w-3.5" />Incorrect</span>
         ) : (
-          <span className="text-gray-400 text-sm">Pending</span>
+          <span className="text-gray-600 text-sm">Pending</span>
         )}
       </td>
       <td className="px-4 py-2.5 text-sm text-right font-medium">
@@ -46,7 +46,7 @@ export default function ExamResultPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -74,7 +74,7 @@ export default function ExamResultPage() {
   if (attempt.status === 'IN_PROGRESS') {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center space-y-3">
-        <Lock className="h-8 w-8 mx-auto text-gray-300" />
+        <Lock className="h-8 w-8 mx-auto text-gray-500" />
         <p className="text-sm text-gray-500">Your exam has not been submitted yet.</p>
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>Go Back</Button>
       </div>
@@ -104,7 +104,7 @@ export default function ExamResultPage() {
               <span className="text-sm text-gray-500">MCQ Score</span>
               <span className="text-2xl font-extrabold text-gray-900">
                 {mcqScore}
-                <span className="text-sm font-normal text-gray-400"> / {mcqMax}</span>
+                <span className="text-sm font-normal text-gray-600"> / {mcqMax}</span>
               </span>
             </div>
             <div className="h-3 rounded-full bg-gray-100 overflow-hidden">
@@ -115,7 +115,7 @@ export default function ExamResultPage() {
                 style={{ width: `${Math.min(100, pct)}%` }}
               />
             </div>
-            <div className="flex items-center justify-between text-xs text-gray-400">
+            <div className="flex items-center justify-between text-xs text-gray-600">
               <span>{correct_mcq} of {mcq_questions} correct</span>
               <span>{pct}%</span>
             </div>
@@ -139,7 +139,7 @@ export default function ExamResultPage() {
 
         {/* Timestamps */}
         {attempt.submitted_at && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-400">
+          <div className="flex items-center gap-1.5 text-xs text-gray-600">
             <Clock className="h-3.5 w-3.5" />
             Submitted {new Date(attempt.submitted_at).toLocaleString()}
           </div>

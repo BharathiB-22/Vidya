@@ -29,13 +29,13 @@ function RosterCard({ roster }: { roster: FacultyElectiveRoster }) {
         <ol className="divide-y divide-gray-100">
           {roster.students.map((s, i) => (
             <li key={s.student_id} className="flex items-center gap-3 px-4 py-2.5">
-              <span className="text-xs text-gray-400 w-6 shrink-0">{i + 1}.</span>
+              <span className="text-xs text-gray-600 w-6 shrink-0">{i + 1}.</span>
               <div className="min-w-0 flex-1">
                 <span className="text-sm font-medium text-gray-900">{s.student_name}</span>
                 {s.usn && <span className="text-xs text-gray-500 ml-2">{s.usn}</span>}
               </div>
               {s.section_name && (
-                <span className="text-xs text-gray-400 shrink-0">{s.section_name}</span>
+                <span className="text-xs text-gray-600 shrink-0">{s.section_name}</span>
               )}
             </li>
           ))}

@@ -171,7 +171,7 @@ export function MarkModal({
                         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
                           isPresent
                             ? 'bg-green-600 border-green-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-400'
+                            : 'bg-white border-gray-300 text-gray-600'
                         }`}>
                           {isPresent ? <Check size={15} /> : 'A'}
                         </span>

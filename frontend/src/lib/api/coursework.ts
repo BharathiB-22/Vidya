@@ -9,9 +9,12 @@ import type {
   CourseworkStatistics,
   CourseworkSubmission,
   CourseworkSubmissionListResponse,
+  AiEvaluation,
   CourseworkSubmitPayload,
   EligibleEvaluator,
+  EvaluationCenterResponse,
   MyCourseworkEvaluation,
+  MyTeachingCourse,
 } from '@/types/coursework'
 
 const BASE = '/assignments'
@@ -44,6 +47,11 @@ export async function updateAssignment(
   return data
 }
 
+export async function deleteAssignment(id: string): Promise<void> {
+  // DRAFT-only; the backend returns 409 for a published assignment.
+  await api.delete(`${BASE}/${id}`)
+}
+
 export async function publishAssignment(id: string): Promise<CourseworkAssignment> {
   const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/publish`)
   return data
@@ -51,6 +59,22 @@ export async function publishAssignment(id: string): Promise<CourseworkAssignmen
 
 export async function closeAssignment(id: string): Promise<CourseworkAssignment> {
   const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/close`)
+  return data
+}
+
+export async function releaseAssignmentMarks(id: string): Promise<CourseworkAssignment> {
+  // Dean/Admin: FINALIZED -> RELEASED; makes marks visible to students.
+  const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/release`)
+  return data
+}
+
+export async function archiveAssignment(id: string): Promise<CourseworkAssignment> {
+  const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/archive`)
+  return data
+}
+
+export async function restoreAssignment(id: string): Promise<CourseworkAssignment> {
+  const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/restore`)
   return data
 }
 
@@ -73,8 +97,22 @@ export async function listEligibleEvaluators(): Promise<EligibleEvaluator[]> {
 
 /** The coursework currently allocated to me. Reads the M09.6 ledger and resolves
  *  its target ids back to the coursework they point at. */
+export async function listMyTeachingCourses(): Promise<MyTeachingCourse[]> {
+  // The faculty's OWN courses (not institution-wide), each with the latest
+  // approved syllabus resolved — used to auto-bind syllabus_id on create.
+  const { data } = await api.get<MyTeachingCourse[]>(`${BASE}/my-teaching-courses`)
+  return data
+}
+
 export async function listMyCourseworkEvaluations(): Promise<MyCourseworkEvaluation[]> {
   const { data } = await api.get<MyCourseworkEvaluation[]>(`${BASE}/evaluator/my-work`)
+  return data
+}
+
+/** One assignment's Evaluation Center: full class roster + live progress. The
+ *  evaluator sees this from publish, before any student submits. */
+export async function getEvaluationCenter(assignmentId: string): Promise<EvaluationCenterResponse> {
+  const { data } = await api.get<EvaluationCenterResponse>(`${BASE}/${assignmentId}/evaluation-center`)
   return data
 }
 
@@ -88,11 +126,20 @@ export async function assignEvaluator(
   return data
 }
 
-/** Ratify the evaluated marks. Every submission must be evaluated first, and
- *  grading stops once this succeeds. */
-export async function finalizeAssignmentMarks(id: string): Promise<CourseworkAssignment> {
-  const { data } = await api.post<CourseworkAssignment>(`${BASE}/${id}/finalize`)
+// finalizeAssignmentMarks removed — POST /{id}/finalize no longer exists. The
+// owning faculty's release IS the ratification; see releaseAssignmentMarks.
+
+// ── AI evaluation (advisory, read-only) ─────────────────────────────────────
+
+/** The advisory AI evaluation for a submission, or null if none exists yet. */
+export async function getAiEvaluation(submissionId: string): Promise<AiEvaluation | null> {
+  const { data } = await api.get<AiEvaluation | null>(`${BASE}/submissions/${submissionId}/ai-evaluation`)
   return data
+}
+
+/** Evaluator-triggered retry of the background AI evaluation (202, async). */
+export async function reEvaluateSubmission(submissionId: string): Promise<void> {
+  await api.post(`${BASE}/submissions/${submissionId}/re-evaluate`)
 }
 
 // ── Faculty — Submissions ────────────────────────────────────────────────────

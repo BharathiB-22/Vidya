@@ -21,7 +21,7 @@ export default function SubjectDetailsPage() {
   if (isLoading) {
     return (
       <PageShell>
-        <div className="text-sm text-gray-400 py-16 text-center">Loading subject…</div>
+        <div className="text-sm text-gray-600 py-16 text-center">Loading subject…</div>
       </PageShell>
     )
   }

@@ -17,7 +17,7 @@ import {
   lockInternalMarks,
 } from '@/lib/api/exam'
 import { assignmentsApi } from '@/lib/api/assignments'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useWorkspace } from '@/lib/workspace'
 import type { InternalMarks } from '@/types/exam'
 
 // ─── Status display ───────────────────────────────────────────────────────────
@@ -60,8 +60,8 @@ export default function InternalExamReleasePage() {
 // ─── Course Picker ────────────────────────────────────────────────────────────
 
 function CoursePickerView() {
-  const user = useCurrentUser()
-  const role = user?.role ?? ''
+  // Active workspace, not base role — matches the backend's viewing_role.
+  const { activeWorkspace: role } = useWorkspace()
   const navigate = useNavigate()
   const isFacultyLike = ['FACULTY', 'ADMIN'].includes(role)
 
@@ -76,7 +76,7 @@ function CoursePickerView() {
       <PageShell>
         <PageHeader icon={BookOpen} title="Internal Marks" />
         <div className="text-center py-16 text-gray-500 space-y-3">
-          <Lock className="mx-auto h-10 w-10 text-gray-300" />
+          <Lock className="mx-auto h-10 w-10 text-gray-500" />
           <p className="text-sm max-w-md mx-auto">
             Open the{' '}
             <Link to="/exams" className="text-indigo-600 underline">
@@ -125,7 +125,7 @@ function CoursePickerView() {
                     {a.semester ? `Semester ${a.semester.number}` : 'No semester info'}
                   </p>
                 </div>
-                <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+                <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
               </div>
             </button>
           ))}
@@ -138,8 +138,9 @@ function CoursePickerView() {
 // ─── Marks Table ──────────────────────────────────────────────────────────────
 
 function MarksTableView({ courseId }: { courseId: string }) {
-  const user = useCurrentUser()
-  const role = user?.role ?? ''
+  // Active workspace, not base role — matches the backend's viewing_role, so a
+  // multi-responsibility account sees Submit (Faculty) / Lock (Dean) correctly.
+  const { activeWorkspace: role } = useWorkspace()
   const isFaculty = ['FACULTY', 'ADMIN'].includes(role)
   const isDean = ['DEAN', 'ADMIN'].includes(role)
 
@@ -326,7 +327,7 @@ function MarksRow({
     <tr className={isLocked ? 'bg-gray-50' : 'bg-white'}>
       <td className="px-4 py-3">
         <span className="font-mono text-xs text-gray-700">{ims.student_id.slice(0, 8)}…</span>
-        <span className="ml-2 text-xs text-gray-400">Sem {ims.semester} / {ims.academic_year}</span>
+        <span className="ml-2 text-xs text-gray-600">Sem {ims.semester} / {ims.academic_year}</span>
       </td>
       <td className="px-3 py-3 text-center text-gray-700">{fmt(ims.internal1_marks)}</td>
       <td className="px-3 py-3 text-center text-gray-700">{fmt(ims.internal2_marks)}</td>

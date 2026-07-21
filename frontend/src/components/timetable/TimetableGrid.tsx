@@ -153,7 +153,7 @@ export function TimetableGrid({
           <thead>
             <tr className="bg-slate-50">
               {/* The corner cell is sticky on both axes, so it outranks each. */}
-              <th className="sticky top-0 left-0 z-30 w-28 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-50 border-b border-gray-200">
+              <th className="sticky top-0 left-0 z-30 w-28 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-700 bg-slate-50 border-b border-gray-200">
                 Time
               </th>
               {days.map((dayIdx) => (
@@ -188,7 +188,7 @@ export function TimetableGrid({
                         <p className="text-xs font-semibold text-gray-900">
                           {p.label ?? `Period ${periodNumber}`}
                         </p>
-                        <p className="text-[11px] text-gray-400 tabular-nums">
+                        <p className="text-[11px] text-gray-600 tabular-nums">
                           {formatClockTime(p.start_time)}–{formatClockTime(p.end_time)}
                         </p>
                       </td>
@@ -200,7 +200,7 @@ export function TimetableGrid({
                             className="p-1.5 border-b border-l border-gray-100 align-top"
                           >
                             {skippedHalfDay ? (
-                              <div className="h-[84px] flex items-center justify-center rounded-xl bg-gray-50 text-[11px] text-gray-300">
+                              <div className="h-[84px] flex items-center justify-center rounded-xl bg-gray-50 text-[11px] text-gray-500">
                                 Half day
                               </div>
                             ) : (
@@ -347,11 +347,11 @@ function SlotCell({
       >
         {slot ? (
           <>
-            <p className="text-sm font-semibold text-gray-400 truncate">{slot.course_code}</p>
-            <p className="text-xs text-gray-400">{blocked ? 'Locked' : 'Swap here'}</p>
+            <p className="text-sm font-semibold text-gray-600 truncate">{slot.course_code}</p>
+            <p className="text-xs text-gray-600">{blocked ? 'Locked' : 'Swap here'}</p>
           </>
         ) : (
-          <p className="text-xs font-medium text-slate-500">Move here</p>
+          <p className="text-xs font-medium text-slate-700">Move here</p>
         )}
       </button>
     )
@@ -376,14 +376,14 @@ function SlotCell({
             detail, not scanning detail, so the card leaves them out. */}
         <div className="flex items-start justify-between gap-1">
           <p className="text-[13px] font-bold leading-tight text-gray-900 truncate">{slot.course_code}</p>
-          {locked && <Lock className="mt-px h-3 w-3 shrink-0 text-gray-400" aria-label="Locked" />}
+          {locked && <Lock className="mt-px h-3 w-3 shrink-0 text-gray-600" aria-label="Locked" />}
         </div>
         <p className="mt-0.5 text-xs font-medium leading-snug text-gray-700 line-clamp-2">{slot.course_title}</p>
         {slot.faculty_name && (
           <p className="mt-1 text-[11px] leading-tight text-gray-500 truncate">{slot.faculty_name}</p>
         )}
         {subLabel && (
-          <p className="text-[11px] leading-tight text-gray-400 truncate">{subLabel}</p>
+          <p className="text-[11px] leading-tight text-gray-600 truncate">{subLabel}</p>
         )}
         {slot.is_elective && (
           <span className="absolute bottom-1.5 right-2 rounded bg-violet-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-600">
@@ -395,7 +395,7 @@ function SlotCell({
           <button
             type="button"
             onClick={toggleMenu}
-            className="absolute top-1 right-1 rounded p-0.5 leading-none text-gray-300 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-700 focus:opacity-100 group-hover:opacity-100"
+            className="absolute top-1 right-1 rounded p-0.5 leading-none text-gray-500 opacity-0 transition-opacity hover:bg-gray-100 hover:text-gray-700 focus:opacity-100 group-hover:opacity-100"
             aria-label={`Actions for ${slot.course_code}`}
             aria-expanded={menuOpen}
           >
@@ -436,7 +436,7 @@ function SlotCell({
       <button
         type="button"
         onClick={() => onAddSlot(dayIdx, periodNumber)}
-        className={`flex w-full ${CELL_HEIGHT} items-center justify-center rounded-xl border border-dashed border-gray-200 text-gray-300 transition-colors hover:border-gray-400 hover:bg-gray-50 hover:text-gray-500`}
+        className={`flex w-full ${CELL_HEIGHT} items-center justify-center rounded-xl border border-dashed border-gray-200 text-gray-500 transition-colors hover:border-gray-400 hover:bg-gray-50 hover:text-gray-500`}
         aria-label="Add slot"
       >
         <Plus className="h-4 w-4" />
@@ -467,7 +467,7 @@ function CellMenuItem({
       title={disabled ? 'This entry is locked' : undefined}
       className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs font-medium transition-colors ${
         disabled
-          ? 'text-gray-300 cursor-not-allowed'
+          ? 'text-gray-500 cursor-not-allowed'
           : danger
             ? 'text-red-600 hover:bg-red-50'
             : 'text-gray-700 hover:bg-gray-50'

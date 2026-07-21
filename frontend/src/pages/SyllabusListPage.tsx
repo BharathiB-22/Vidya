@@ -126,7 +126,7 @@ export default function SyllabusListPage() {
       ) : syllabuses.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-600">
             {statusFilter ? `No syllabuses with status "${statusFilter}".` : 'No syllabuses found.'}
           </p>
 
@@ -167,7 +167,7 @@ export default function SyllabusListPage() {
 
                     {/* Course code */}
                     {s.course_code && s.course_code !== '—' && (
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-gray-600 mt-0.5">
                         Course Code: <span className="font-medium text-gray-600">{s.course_code}</span>
                       </p>
                     )}
@@ -180,7 +180,7 @@ export default function SyllabusListPage() {
                         Version {s.version}
                       </span>
 
-                      <span className="text-gray-300 text-xs select-none">·</span>
+                      <span className="text-gray-500 text-xs select-none">·</span>
 
                       <span className="text-[11px] text-gray-500">
                         Created {formatDate(s.created_at)}
@@ -188,7 +188,7 @@ export default function SyllabusListPage() {
                     </div>
                   </div>
 
-                  <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 mt-1" />
+                  <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-gray-500 shrink-0 mt-1" />
                 </div>
               </button>
             )
@@ -198,7 +198,7 @@ export default function SyllabusListPage() {
 
       {/* ── Pagination hint ── */}
       {data && data.total > syllabuses.length && (
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-600 text-center">
           Showing {syllabuses.length} of {data.total} syllabuses
         </p>
       )}

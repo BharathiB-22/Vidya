@@ -89,8 +89,8 @@ function KeywordHitsPanel({ hits }: { hits: KeywordHit[] }) {
             <div key={i} className="flex items-start gap-1.5">
               {h.found
                 ? <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
-                : <AlertTriangle className="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />}
-              <span className={h.found ? 'text-emerald-700' : 'text-gray-400'}>
+                : <AlertTriangle className="w-3 h-3 text-gray-600 shrink-0 mt-0.5" />}
+              <span className={h.found ? 'text-emerald-700' : 'text-gray-600'}>
                 {h.keyword}
                 {h.context && h.found && (
                   <span className="text-gray-500"> — "{h.context}"</span>
@@ -99,7 +99,7 @@ function KeywordHitsPanel({ hits }: { hits: KeywordHit[] }) {
             </div>
           ))}
           {missing.length > 0 && (
-            <p className="text-gray-400 mt-1">
+            <p className="text-gray-600 mt-1">
               {missing.length} keyword{missing.length > 1 ? 's' : ''} not found in OCR text.
             </p>
           )}
@@ -133,7 +133,7 @@ function RubricPanel({ items }: { items: RubricItem[] }) {
               {r.matched
                 ? <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
                 : <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />}
-              <span className={r.matched ? 'text-gray-700' : 'text-gray-400'}>
+              <span className={r.matched ? 'text-gray-700' : 'text-gray-600'}>
                 {r.criterion}
                 {r.note && <span className="text-gray-500"> — {r.note}</span>}
               </span>
@@ -175,9 +175,9 @@ function EvalRow({
             <span className="text-xs font-semibold px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
               {ev.question_type.replace('_', ' ')}
             </span>
-            <span className="text-xs text-gray-400 font-mono truncate">{ev.question_id}</span>
+            <span className="text-xs text-gray-600 font-mono truncate">{ev.question_id}</span>
             {ev.page_range && (
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-600">
                 pp. {ev.page_range.start}–{ev.page_range.end}
               </span>
             )}
@@ -649,7 +649,7 @@ export default function ScriptEvaluationPanel() {
                   : <Send className="w-4 h-4" />}
                 Submit All Marks (Gate 1)
               </Button>
-              <p className="text-xs text-gray-400 text-center">
+              <p className="text-xs text-gray-600 text-center">
                 Gate 1 submits marks to the Board for finalisation. You cannot edit after this.
               </p>
             </div>

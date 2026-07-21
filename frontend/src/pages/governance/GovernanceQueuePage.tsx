@@ -105,10 +105,10 @@ function StatTile({
       }`}
     >
       <div className="flex items-center justify-between">
-        <p className={`text-xs font-semibold uppercase tracking-wide ${emphasis ? 'text-gray-300' : 'text-gray-500'}`}>
+        <p className={`text-xs font-semibold uppercase tracking-wide ${emphasis ? 'text-gray-500' : 'text-gray-500'}`}>
           {label}
         </p>
-        <Icon className={`h-4 w-4 ${emphasis ? 'text-white' : 'text-gray-400'}`} />
+        <Icon className={`h-4 w-4 ${emphasis ? 'text-white' : 'text-gray-600'}`} />
       </div>
       <p className={`mt-1 text-3xl font-bold ${emphasis ? 'text-white' : 'text-black'}`}>{value}</p>
     </div>
@@ -127,7 +127,7 @@ function CurriculumList({
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
-        <Inbox className="mx-auto h-8 w-8 text-gray-400" />
+        <Inbox className="mx-auto h-8 w-8 text-gray-600" />
         <p className="mt-2 text-sm text-gray-600">{emptyMessage}</p>
       </div>
     )

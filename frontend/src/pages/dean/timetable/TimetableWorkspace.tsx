@@ -225,7 +225,7 @@ export function TimetableWorkspace({ id, onBack }: { id: string; onBack: () => v
               {data.status.replace('_', ' ')}
             </span>
             <span>{data.template ? data.template.name : 'No template — using plain Period 1–8'}</span>
-            <span className="text-gray-300">·</span>
+            <span className="text-gray-500">·</span>
             <span>{data.slots.length} entr{data.slots.length === 1 ? 'y' : 'ies'}</span>
           </div>
         </div>
@@ -292,7 +292,7 @@ export function TimetableWorkspace({ id, onBack }: { id: string; onBack: () => v
       />
 
       {editable && (
-        <p className="pb-2 text-[11px] leading-relaxed text-gray-400">
+        <p className="pb-2 text-[11px] leading-relaxed text-gray-600">
           Hover an entry for Edit · Move · Lock · Delete. A locked entry cannot be moved,
           overwritten or deleted, and Generate never fills a cell that already holds one.
         </p>

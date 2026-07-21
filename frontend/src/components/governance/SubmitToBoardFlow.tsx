@@ -254,7 +254,7 @@ function ConfirmSubmit({
 
         <div>
           <label className="mb-1 block text-sm font-semibold text-black">
-            Note for the {bodyLabel} <span className="font-normal text-gray-400">(optional)</span>
+            Note for the {bodyLabel} <span className="font-normal text-gray-600">(optional)</span>
           </label>
           <Textarea
             rows={2}

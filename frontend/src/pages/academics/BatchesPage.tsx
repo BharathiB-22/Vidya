@@ -83,7 +83,7 @@ function CreateBatchDialog({ open, onClose, onCreated, programs }: {
               </SelectContent>
             </Select>
             {selectedProg && (
-              <p className="text-xs text-gray-400">{selectedProg.duration_years}-year program — end year auto-calculated</p>
+              <p className="text-xs text-gray-600">{selectedProg.duration_years}-year program — end year auto-calculated</p>
             )}
           </div>
           <div className="space-y-1">
@@ -278,11 +278,11 @@ export default function BatchesPage() {
                 <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">
                   {progMap[b.program_id]?.name ?? '—'}
                   {progMap[b.program_id] && (
-                    <span className="ml-1.5 text-xs text-gray-400">({progMap[b.program_id].code})</span>
+                    <span className="ml-1.5 text-xs text-gray-600">({progMap[b.program_id].code})</span>
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  {b.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-400">Inactive</span>}
+                  {b.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-600">Inactive</span>}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-1.5">

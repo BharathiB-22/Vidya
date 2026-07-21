@@ -32,9 +32,9 @@ function CriterionRow({
       <div className="flex items-start justify-between gap-2 mb-2">
         <div>
           <p className="text-sm font-medium text-gray-800">{rubric.name}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{rubric.description}</p>
+          <p className="text-xs text-gray-600 mt-0.5">{rubric.description}</p>
         </div>
-        <span className="text-xs text-gray-400 shrink-0">/ {rubric.max_marks}</span>
+        <span className="text-xs text-gray-600 shrink-0">/ {rubric.max_marks}</span>
       </div>
 
       {aiScore != null && (
@@ -126,7 +126,7 @@ export default function EvaluatorReviewPanel() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -203,14 +203,14 @@ export default function EvaluatorReviewPanel() {
             <div>
               <span className="text-sm font-semibold text-gray-700">{assignment.title}</span>
               {(assignment.course_code || assignment.course_title) && (
-                <span className="ml-2 text-xs text-gray-400">
+                <span className="ml-2 text-xs text-gray-600">
                   {[assignment.course_code, assignment.course_title].filter(Boolean).join(' · ')}
                 </span>
               )}
             </div>
             {contextOpen
-              ? <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" />
-              : <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
+              ? <ChevronUp className="h-4 w-4 text-gray-600 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />
             }
           </button>
           {contextOpen && (
@@ -257,7 +257,7 @@ export default function EvaluatorReviewPanel() {
           <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700">Student Submission</span>
-              <span className="text-xs text-gray-400 font-mono">
+              <span className="text-xs text-gray-600 font-mono">
                 {submission.student_user_id}
               </span>
             </div>
@@ -274,7 +274,7 @@ export default function EvaluatorReviewPanel() {
               )
             ) : submission.content_url ? (
               <div className="p-4 flex flex-col items-center gap-2 text-sm text-gray-500">
-                <p className="text-xs text-gray-400">Student submitted a file upload.</p>
+                <p className="text-xs text-gray-600">Student submitted a file upload.</p>
                 <Button
                   size="sm"
                   variant="outline"
@@ -295,7 +295,7 @@ export default function EvaluatorReviewPanel() {
                 </Button>
               </div>
             ) : (
-              <div className="p-4 text-sm text-gray-400 text-center">
+              <div className="p-4 text-sm text-gray-600 text-center">
                 No content available.
               </div>
             )}
@@ -316,7 +316,7 @@ export default function EvaluatorReviewPanel() {
                       }`}
                     />
                     <span className="text-sm text-gray-700 flex-1">{tr.name}</span>
-                    <span className="text-xs text-gray-400">{tr.points_awarded} pts</span>
+                    <span className="text-xs text-gray-600">{tr.points_awarded} pts</span>
                   </div>
                 ))}
               </div>
@@ -328,7 +328,7 @@ export default function EvaluatorReviewPanel() {
             <div className="mt-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                 <span className="text-sm font-medium text-gray-700">Static Analysis</span>
-                <span className="ml-2 text-xs text-gray-400">
+                <span className="ml-2 text-xs text-gray-600">
                   Complexity: {evaluation.static_analysis.complexity_label} (
                   {evaluation.static_analysis.complexity_score})
                 </span>
@@ -342,7 +342,7 @@ export default function EvaluatorReviewPanel() {
                   ))}
                 </div>
               ) : (
-                <div className="px-4 py-3 text-xs text-gray-400">No issues found.</div>
+                <div className="px-4 py-3 text-xs text-gray-600">No issues found.</div>
               )}
             </div>
           )}

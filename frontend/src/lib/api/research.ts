@@ -131,6 +131,13 @@ export interface GuideUser {
   identifier: string | null
 }
 
+export async function studentResearchEligibility(): Promise<{ eligible: boolean }> {
+  // True only for project/dissertation students (enrolled in a MAJOR/MINI_PROJECT
+  // course) or students who already have a research record. Drives nav visibility.
+  const { data } = await api.get<{ eligible: boolean }>(`${BASE}/student/eligibility`)
+  return data
+}
+
 export async function listActiveGuides(): Promise<GuideUser[]> {
   const { data } = await api.get<GuideUser[]>(`${BASE}/guides`)
   return data

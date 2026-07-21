@@ -218,14 +218,14 @@ export default function ScriptUploadPage() {
         {/* ── File picker ──────────────────────────────────── */}
         <div className="space-y-1">
           <label className="block text-sm font-medium text-gray-700">
-            Scanned File <span className="text-gray-400">(PDF / JPG / PNG, max {MAX_SIZE_MB} MB)</span>
+            Scanned File <span className="text-gray-600">(PDF / JPG / PNG, max {MAX_SIZE_MB} MB)</span>
           </label>
 
           {file ? (
             <div className="flex items-center gap-3 border border-gray-200 rounded-lg px-3 py-2 bg-gray-50">
               <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
               <span className="text-sm text-gray-700 truncate flex-1">{file.name}</span>
-              <span className="text-xs text-gray-400 shrink-0">
+              <span className="text-xs text-gray-600 shrink-0">
                 {(file.size / 1024 / 1024).toFixed(1)} MB
               </span>
               <button
@@ -234,7 +234,7 @@ export default function ScriptUploadPage() {
                   setFile(null)
                   if (fileInputRef.current) fileInputRef.current.value = ''
                 }}
-                className="text-gray-400 hover:text-red-500 shrink-0"
+                className="text-gray-600 hover:text-red-500 shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -289,9 +289,9 @@ export default function ScriptUploadPage() {
                   >
                     <span className="font-medium">{s.full_name}</span>
                     {s.identifier && (
-                      <span className="text-gray-400 ml-2 text-xs">{s.identifier}</span>
+                      <span className="text-gray-600 ml-2 text-xs">{s.identifier}</span>
                     )}
-                    <span className="text-gray-400 ml-1 text-xs">· {s.email}</span>
+                    <span className="text-gray-600 ml-1 text-xs">· {s.email}</span>
                   </button>
                 ))}
               </div>
@@ -301,7 +301,7 @@ export default function ScriptUploadPage() {
                 Selected: <strong>{studentSearch}</strong>{' '}
                 <button
                   type="button"
-                  className="underline text-gray-400 hover:text-red-500"
+                  className="underline text-gray-600 hover:text-red-500"
                   onClick={() => { setStudentUserId(''); setStudentSearch('') }}
                 >
                   clear

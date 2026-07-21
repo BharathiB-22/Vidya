@@ -139,10 +139,10 @@ export default function ProgramOwnershipTab() {
                 {programs?.map(p => (
                   <SelectItem key={p.id} value={p.id}>
                     <span className="flex items-center gap-2">
-                      <GraduationCap className="h-3.5 w-3.5 text-gray-400" />
+                      <GraduationCap className="h-3.5 w-3.5 text-gray-600" />
                       {p.name}
                       {p.department && (
-                        <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <span className="text-xs text-gray-600 flex items-center gap-1">
                           <Building2 className="h-3 w-3" />
                           {p.department.code}
                         </span>
@@ -221,7 +221,7 @@ export default function ProgramOwnershipTab() {
           {(assignLoading) && <PageLoading />}
 
           {!assignLoading && (!filteredAssignments || filteredAssignments.length === 0) && (
-            <div className="py-10 text-center text-sm text-gray-400">
+            <div className="py-10 text-center text-sm text-gray-600">
               No assignments yet.
             </div>
           )}

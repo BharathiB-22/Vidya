@@ -29,7 +29,7 @@ function AssignmentMarksSection({ subject }: { subject: SubjectDetailOut }) {
             <div key={s.id} className="px-4 py-2.5 flex items-center justify-between gap-2 text-sm">
               <div>
                 <p className="font-medium text-gray-800">{a?.title ?? 'Assignment'}</p>
-                {s.feedback && <p className="text-xs text-gray-400 mt-0.5 italic">"{s.feedback}"</p>}
+                {s.feedback && <p className="text-xs text-gray-600 mt-0.5 italic">"{s.feedback}"</p>}
               </div>
               <span className="font-semibold text-gray-800 shrink-0">
                 {s.marks_obtained} / {a?.max_marks ?? '—'}
@@ -61,7 +61,7 @@ export function InternalMarksTab({ subject }: SubjectTabProps) {
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-400">
+            <thead className="bg-gray-50 text-xs uppercase text-gray-600">
               <tr>
                 <th className="px-4 py-2 text-left">Component</th>
                 <th className="px-4 py-2 text-left">Type</th>

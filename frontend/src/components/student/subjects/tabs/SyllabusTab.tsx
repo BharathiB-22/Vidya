@@ -103,7 +103,7 @@ function UnitAccordion({
           </span>
         )}
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+          className={`h-4 w-4 shrink-0 text-gray-600 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
@@ -114,14 +114,14 @@ function UnitAccordion({
         <div className="overflow-hidden">
           <div className="space-y-5 border-t border-gray-100 px-5 py-4">
             {!hasBody && (
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-gray-600">
                 No further detail was published for this unit.
               </p>
             )}
 
             {unit.content && (
               <div>
-                <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-600">
                   Description
                 </h4>
                 <p className="whitespace-pre-line text-sm leading-relaxed text-gray-700">
@@ -132,7 +132,7 @@ function UnitAccordion({
 
             {unit.topics.length > 0 && (
               <div>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-600">
                   Topics
                 </h4>
                 <ol className="space-y-2.5">
@@ -140,11 +140,11 @@ function UnitAccordion({
                     <li key={i} className="rounded-lg bg-gray-50 px-3.5 py-2.5">
                       <div className="flex items-start justify-between gap-3">
                         <span className="text-sm font-medium text-gray-800">
-                          <span className="mr-1.5 text-gray-400">{unit.unit_number}.{i + 1}</span>
+                          <span className="mr-1.5 text-gray-600">{unit.unit_number}.{i + 1}</span>
                           {topic.title}
                         </span>
                         {topic.hours_estimate != null && (
-                          <span className="shrink-0 text-xs text-gray-400">
+                          <span className="shrink-0 text-xs text-gray-600">
                             {topic.hours_estimate} hrs
                           </span>
                         )}
@@ -162,7 +162,7 @@ function UnitAccordion({
 
             {unit.pedagogy && (
               <div>
-                <h4 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <h4 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-600">
                   <Presentation className="h-3 w-3" />
                   Pedagogy
                 </h4>
@@ -193,7 +193,7 @@ export function SyllabusTab({ subject }: SubjectTabProps) {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <FileText className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-600">
           The official syllabus for this subject has not been published yet.
         </p>
       </div>
@@ -212,7 +212,7 @@ export function SyllabusTab({ subject }: SubjectTabProps) {
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-1.5 font-semibold text-gray-800">
-            <Lock className="h-3.5 w-3.5 text-gray-400" />
+            <Lock className="h-3.5 w-3.5 text-gray-600" />
             Official Syllabus
           </span>
           <span className="text-gray-500">Version {subject.syllabus_version}</span>
@@ -244,12 +244,12 @@ export function SyllabusTab({ subject }: SubjectTabProps) {
 
       <ListCard
         title="Course Objectives"
-        icon={<Target className="h-3.5 w-3.5 text-gray-400" />}
+        icon={<Target className="h-3.5 w-3.5 text-gray-600" />}
         items={subject.objectives}
       />
 
       {subject.units.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white px-5 py-8 text-center text-sm text-gray-400">
+        <div className="rounded-xl border border-gray-200 bg-white px-5 py-8 text-center text-sm text-gray-600">
           No units published yet.
         </div>
       ) : (
@@ -268,31 +268,31 @@ export function SyllabusTab({ subject }: SubjectTabProps) {
 
       <ListCard
         title="Practical Components"
-        icon={<Presentation className="h-3.5 w-3.5 text-gray-400" />}
+        icon={<Presentation className="h-3.5 w-3.5 text-gray-600" />}
         items={subject.practical_components}
       />
       <ListCard
         title="Internal Assessment"
-        icon={<FileText className="h-3.5 w-3.5 text-gray-400" />}
+        icon={<FileText className="h-3.5 w-3.5 text-gray-600" />}
         items={subject.internal_assessment}
       />
 
       {referenceSections.length > 0 && (
         <section className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-800">
-            <BookOpen className="h-3.5 w-3.5 text-gray-400" />
+            <BookOpen className="h-3.5 w-3.5 text-gray-600" />
             References
           </h3>
           <div className="space-y-4">
             {referenceSections.map((section) => (
               <div key={section.name}>
-                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-600">
                   {section.name}
                 </h4>
                 <ol className="space-y-2">
                   {section.refs.map((ref, i) => (
                     <li key={i} className="flex gap-2.5 text-sm leading-relaxed">
-                      <span className="shrink-0 text-gray-400">{i + 1}.</span>
+                      <span className="shrink-0 text-gray-600">{i + 1}.</span>
                       <span className="min-w-0">
                         <span className="text-gray-800">{ref.title}</span>
                         {citation(ref) && (

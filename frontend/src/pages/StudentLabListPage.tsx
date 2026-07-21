@@ -48,13 +48,13 @@ function AssignmentRow({
               {assignment.submission_type}
             </span>
             {assignment.max_marks != null && (
-              <span className="text-xs text-gray-400">{assignment.max_marks} marks</span>
+              <span className="text-xs text-gray-600">{assignment.max_marks} marks</span>
             )}
           </div>
           <div className="flex items-center gap-3 mt-1 flex-wrap">
             {assignment.deadline && (
               <span className={`text-xs flex items-center gap-0.5 ${
-                isDeadlineSoon ? 'text-orange-600 font-medium' : 'text-gray-400'
+                isDeadlineSoon ? 'text-orange-600 font-medium' : 'text-gray-600'
               }`}>
                 <Clock className="h-3 w-3" />
                 Due {new Date(assignment.deadline).toLocaleString()}
@@ -64,11 +64,11 @@ function AssignmentRow({
               <SubmissionPill submission={submission} />
             )}
             {!submission && assignment.ai_not_permitted && (
-              <span className="text-xs text-gray-400">AI not permitted</span>
+              <span className="text-xs text-gray-600">AI not permitted</span>
             )}
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+        <ChevronRight className="h-4 w-4 text-gray-500 shrink-0" />
       </div>
     </button>
   )
@@ -130,7 +130,7 @@ export default function StudentLabListPage() {
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Lab Assignments</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Submit your work and track evaluation status.</p>
+        <p className="text-sm text-gray-600 mt-0.5">Submit your work and track evaluation status.</p>
       </div>
 
       {isError && (
@@ -146,13 +146,13 @@ export default function StudentLabListPage() {
       ) : assignments.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <ClipboardList className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No assignments available.</p>
+          <p className="text-sm text-gray-600">No assignments available.</p>
         </div>
       ) : (
         <div className="space-y-6">
           {grouped.map((group) => (
             <div key={group.label}>
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              <h2 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
                 {group.label} ({group.items.length})
               </h2>
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">

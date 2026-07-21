@@ -32,7 +32,7 @@ function ComparisonRow({
         <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium">
           {primary.question_type.replace('_', ' ')}
         </span>
-        <span className="ml-2 font-mono text-gray-400 text-[10px] truncate">
+        <span className="ml-2 font-mono text-gray-600 text-[10px] truncate">
           {primary.question_id.slice(0, 8)}…
         </span>
       </div>
@@ -42,20 +42,20 @@ function ComparisonRow({
         <span className={`font-semibold ${primary.evaluator_marks != null ? 'text-indigo-700' : 'text-red-400'}`}>
           {primary.evaluator_marks ?? '—'}
         </span>
-        <span className="text-gray-400"> / {primary.max_marks}</span>
+        <span className="text-gray-600"> / {primary.max_marks}</span>
       </div>
 
       {/* Secondary evaluator marks */}
       <div className="text-center">
         {secondary ? (
           <>
-            <span className={`font-semibold ${secondary.evaluator_marks != null ? 'text-purple-700' : 'text-gray-400'}`}>
+            <span className={`font-semibold ${secondary.evaluator_marks != null ? 'text-purple-700' : 'text-gray-600'}`}>
               {secondary.evaluator_marks ?? '—'}
             </span>
-            <span className="text-gray-400"> / {secondary.max_marks}</span>
+            <span className="text-gray-600"> / {secondary.max_marks}</span>
           </>
         ) : (
-          <span className="text-gray-300">—</span>
+          <span className="text-gray-500">—</span>
         )}
       </div>
 
@@ -70,7 +70,7 @@ function ComparisonRow({
             {(primary.evaluator_marks - secondary.evaluator_marks).toFixed(1)}
           </span>
         ) : (
-          <span className="text-gray-300">—</span>
+          <span className="text-gray-500">—</span>
         )}
       </div>
 
@@ -86,7 +86,7 @@ function ComparisonRow({
           placeholder="Board mark"
           className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-300"
         />
-        <span className="text-gray-400 shrink-0">/{primary.max_marks}</span>
+        <span className="text-gray-600 shrink-0">/{primary.max_marks}</span>
       </div>
     </div>
   )
@@ -154,7 +154,7 @@ export default function DoubleEvaluationComparisonPage() {
   const savedAdjustmentsComplete = data?.board_adjustments_set ?? false
 
   if (isLoading) return (
-    <div className="flex items-center justify-center h-64 gap-2 text-gray-400">
+    <div className="flex items-center justify-center h-64 gap-2 text-gray-600">
       <Loader2 className="w-5 h-5 animate-spin" />
       Loading comparison view…
     </div>
@@ -194,7 +194,7 @@ export default function DoubleEvaluationComparisonPage() {
           <GitCompareArrows className="w-6 h-6 text-purple-600" />
           <h1 className="text-2xl font-bold text-gray-900">Double Evaluation Comparison</h1>
         </div>
-        <span className="font-mono text-sm text-gray-400 ml-2">{data.masked_id}</span>
+        <span className="font-mono text-sm text-gray-600 ml-2">{data.masked_id}</span>
       </div>
 
       {/* Advisory */}
@@ -278,7 +278,7 @@ export default function DoubleEvaluationComparisonPage() {
           </span>
         )}
         {!allAdjustmentsEntered && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-600">
             Enter a Board mark for every question to enable save.
           </span>
         )}

@@ -60,7 +60,7 @@ export default function LearningMaterialsPage() {
       />
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-300" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -82,7 +82,7 @@ export default function LearningMaterialsPage() {
       ) : groups.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <Library className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No learning materials available yet.</p>
+          <p className="text-sm text-gray-600">No learning materials available yet.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -94,7 +94,7 @@ export default function LearningMaterialsPage() {
                 className="w-full text-left px-5 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors"
               >
                 <span className="text-sm font-semibold text-gray-800">{g.subject.course_title}</span>
-                <span className="text-xs text-gray-400 ml-2">{g.subject.course_code} · {g.packages.length} package{g.packages.length === 1 ? '' : 's'}</span>
+                <span className="text-xs text-gray-600 ml-2">{g.subject.course_code} · {g.packages.length} package{g.packages.length === 1 ? '' : 's'}</span>
               </button>
               <div className="divide-y divide-gray-100">
                 {g.packages.map((pkg) => (
@@ -105,7 +105,7 @@ export default function LearningMaterialsPage() {
                     className="w-full text-left px-5 py-3 hover:bg-gray-50 transition-colors flex items-center justify-between gap-4"
                   >
                     <span className="text-sm text-gray-700">Unit {pkg.unit_number}</span>
-                    <span className="text-xs text-gray-400">{pkg.item_count} item{pkg.item_count === 1 ? '' : 's'}</span>
+                    <span className="text-xs text-gray-600">{pkg.item_count} item{pkg.item_count === 1 ? '' : 's'}</span>
                   </button>
                 ))}
               </div>

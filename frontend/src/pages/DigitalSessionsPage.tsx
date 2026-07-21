@@ -34,10 +34,10 @@ function SessionRow({ session }: { session: DigitalExamSession }) {
       onClick={() => navigate(`/exams/digital/${session.id}`)}
       className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/30 text-left transition-colors group"
     >
-      <Monitor className="h-4 w-4 text-gray-400 shrink-0" />
+      <Monitor className="h-4 w-4 text-gray-600 shrink-0" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900 truncate">{session.title}</p>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="text-xs text-gray-600 mt-0.5">
           {session.max_duration_mins} min
           {session.window_start && (
             <> · from {new Date(session.window_start).toLocaleString()}</>
@@ -56,7 +56,7 @@ function SessionRow({ session }: { session: DigitalExamSession }) {
           )}
           {STATUS_LABELS[session.status]}
         </span>
-        <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+        <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-indigo-500 transition-colors" />
       </div>
     </button>
   )
@@ -120,7 +120,7 @@ export default function DigitalSessionsPage() {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600" />
           <input
             type="text"
             placeholder="Search sessions…"
@@ -156,7 +156,7 @@ export default function DigitalSessionsPage() {
       {/* List */}
       {visible.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center space-y-3">
-          <Monitor className="h-8 w-8 mx-auto text-gray-300" />
+          <Monitor className="h-8 w-8 mx-auto text-gray-500" />
           <p className="text-sm text-gray-500">
             {all.length === 0 ? 'No sessions yet.' : 'No sessions match the filter.'}
           </p>
@@ -175,7 +175,7 @@ export default function DigitalSessionsPage() {
 
       {isFetching && (
         <div className="flex justify-center pt-4">
-          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+          <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
         </div>
       )}
     </PageShell>

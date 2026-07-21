@@ -18,19 +18,19 @@ export function OverviewTab({ subject, onNavigateTab }: SubjectTabProps) {
       <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
-            <div className="text-xs text-gray-400">Credits</div>
+            <div className="text-xs text-gray-600">Credits</div>
             <div className="font-semibold text-gray-800">{subject.credits}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-400">Semester</div>
+            <div className="text-xs text-gray-600">Semester</div>
             <div className="font-semibold text-gray-800">{subject.semester}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-400">Section</div>
+            <div className="text-xs text-gray-600">Section</div>
             <div className="font-semibold text-gray-800">{subject.section_name}</div>
           </div>
           <div>
-            <div className="text-xs text-gray-400">Type</div>
+            <div className="text-xs text-gray-600">Type</div>
             <div className="font-semibold text-gray-800">
               {subject.is_elective ? 'Elective' : subject.course_type ?? 'Core'}
             </div>
@@ -42,7 +42,7 @@ export function OverviewTab({ subject, onNavigateTab }: SubjectTabProps) {
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Quick links</h3>
+        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Quick links</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {QUICK_LINKS.map(({ key, label, icon: Icon }) => (
             <button
@@ -51,7 +51,7 @@ export function OverviewTab({ subject, onNavigateTab }: SubjectTabProps) {
               onClick={() => onNavigateTab(key)}
               className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm text-gray-700 transition-colors"
             >
-              <Icon className="h-4 w-4 text-gray-400" />
+              <Icon className="h-4 w-4 text-gray-600" />
               {label}
             </button>
           ))}

@@ -117,12 +117,12 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         {/* ── Global search ──────────────────────────────────── */}
         <button
           onClick={openSearch}
-          className="hidden md:flex items-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-3 py-[7px] text-sm text-gray-400 transition-colors w-52 lg:w-64 flex-shrink-0"
+          className="hidden md:flex items-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-3 py-[7px] text-sm text-gray-600 transition-colors w-52 lg:w-64 flex-shrink-0"
           aria-label="Search (⌘K)"
         >
-          <Search className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" />
-          <span className="flex-1 text-left text-[13px] text-gray-400">Search...</span>
-          <kbd className="hidden lg:inline-flex items-center text-[9px] font-semibold bg-white px-1.5 py-0.5 rounded border border-gray-200 text-gray-400">
+          <Search className="h-3.5 w-3.5 flex-shrink-0 text-gray-600" />
+          <span className="flex-1 text-left text-[13px] text-gray-600">Search...</span>
+          <kbd className="hidden lg:inline-flex items-center text-[9px] font-semibold bg-white px-1.5 py-0.5 rounded border border-gray-200 text-gray-600">
             ⌘K
           </kbd>
         </button>
@@ -177,7 +177,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             </div>
 
             <ChevronDown
-              className={`h-3.5 w-3.5 text-gray-400 hidden sm:block transition-transform duration-150 ${
+              className={`h-3.5 w-3.5 text-gray-600 hidden sm:block transition-transform duration-150 ${
                 userMenuOpen ? 'rotate-180' : ''
               }`}
             />
@@ -225,7 +225,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                     onClick={() => setUserMenuOpen(false)}
                     className="flex items-center gap-2.5 px-4 py-2 text-[13px] text-gray-700 hover:bg-gray-50 transition-colors"
                   >
-                    <Settings className="h-3.5 w-3.5 text-gray-400" />
+                    <Settings className="h-3.5 w-3.5 text-gray-600" />
                     Settings
                   </Link>
                 </div>

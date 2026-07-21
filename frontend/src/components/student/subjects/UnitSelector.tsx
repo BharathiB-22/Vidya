@@ -8,7 +8,7 @@ interface UnitSelectorProps {
 
 export function UnitSelector({ units, selected, onSelect }: UnitSelectorProps) {
   if (units.length === 0) {
-    return <p className="text-sm text-gray-400">No units published in the syllabus yet.</p>
+    return <p className="text-sm text-gray-600">No units published in the syllabus yet.</p>
   }
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-1">

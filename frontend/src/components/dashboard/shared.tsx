@@ -29,19 +29,30 @@ interface StatCardProps {
   accent?: boolean
 }
 
+/**
+ * The KPI tile behind every dashboard's stats strip.
+ *
+ * Readability, deliberately: the label was gray-400 at 10px, which is about
+ * 2.8:1 on white — under the 4.5:1 minimum, and the faintest thing on a card
+ * whose whole job is to be read at a glance. The value carries the meaning, so
+ * it is the largest thing here rather than the same 14px as body copy.
+ *
+ * `truncate` stays because this tile is shared with Admin/Dean, where the value
+ * is an institution name rather than a number.
+ */
 export function StatCard({ label, value, icon: Icon, accent }: StatCardProps) {
   return (
     <div className={`rounded-xl border px-4 py-3.5 flex items-start gap-3 ${
       accent
-        ? 'bg-sv-light border-sv-primary/20'
+        ? 'bg-sv-light border-sv-primary/30'
         : 'bg-white border-gray-200'
     }`}>
       <div className={`p-1.5 rounded-lg mt-0.5 ${accent ? 'bg-sv-primary/10' : 'bg-gray-100'}`}>
-        <Icon className={`h-3.5 w-3.5 ${accent ? 'text-sv-primary' : 'text-gray-400'}`} />
+        <Icon className={`h-4 w-4 ${accent ? 'text-sv-primary' : 'text-gray-500'}`} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
-        <p className={`text-sm font-bold mt-0.5 truncate ${accent ? 'text-sv-primary' : 'text-gray-900'}`}>
+        <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">{label}</p>
+        <p className={`text-lg font-bold mt-0.5 truncate tabular-nums ${accent ? 'text-sv-primary' : 'text-gray-900'}`}>
           {value}
         </p>
       </div>
@@ -61,10 +72,10 @@ export function ModuleCardItem({ card, onClick }: { card: ModuleCard; onClick: (
           <div className={`p-2 rounded-lg border ${card.badge}`}>
             <card.icon className="h-4 w-4" />
           </div>
-          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200" />
+          <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-sv-primary mt-0.5 transition-colors duration-200" />
         </div>
-        <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
+        <p className="text-sm font-bold text-gray-900 leading-snug">{card.title}</p>
+        <p className="text-xs text-gray-600 mt-1 leading-relaxed">{card.description}</p>
       </div>
     </button>
   )
@@ -87,15 +98,15 @@ export function AdminActionCard({ card, onClick }: { card: AdminCard; onClick?: 
             <card.icon className="h-4 w-4" />
           </div>
           {soon ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-gray-100 text-gray-400 border border-gray-200 self-start mt-0.5 flex-shrink-0">
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase bg-gray-100 text-gray-600 border border-gray-200 self-start mt-0.5 flex-shrink-0">
               Soon
             </span>
           ) : (
-            <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200 flex-shrink-0" />
+            <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-sv-primary mt-0.5 transition-colors duration-200 flex-shrink-0" />
           )}
         </div>
-        <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>
+        <p className="text-sm font-bold text-gray-900 leading-snug">{card.title}</p>
+        <p className="text-xs text-gray-600 mt-1 leading-relaxed">{card.description}</p>
       </div>
     </button>
   )

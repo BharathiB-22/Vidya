@@ -84,14 +84,14 @@ function MigRow({
 
         {/* Current version */}
         <td className="py-3 px-4">
-          <span className="text-xs font-mono text-gray-300">
+          <span className="text-xs font-mono text-gray-500">
             {shortRev(row.current_revision)}
           </span>
         </td>
 
         {/* Latest version */}
         <td className="py-3 px-4">
-          <span className="text-xs font-mono text-gray-300">
+          <span className="text-xs font-mono text-gray-500">
             {shortRev(row.head_revision)}
           </span>
         </td>
@@ -103,7 +103,7 @@ function MigRow({
 
         {/* Last migration */}
         <td className="py-3 px-4">
-          <span className="text-xs text-gray-400">{fmtDate(row.last_migration_at)}</span>
+          <span className="text-xs text-gray-600">{fmtDate(row.last_migration_at)}</span>
         </td>
 
         {/* Actions */}
@@ -195,7 +195,7 @@ export default function TenantMigrationsPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white">Tenant Migrations</h1>
-            <p className="text-sm text-gray-400">Schema version status for all tenants</p>
+            <p className="text-sm text-gray-600">Schema version status for all tenants</p>
           </div>
         </div>
         <button
@@ -225,7 +225,7 @@ export default function TenantMigrationsPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-white">{value}</p>
-              <p className="text-xs text-gray-400">{label}</p>
+              <p className="text-xs text-gray-600">{label}</p>
             </div>
           </div>
         ))}

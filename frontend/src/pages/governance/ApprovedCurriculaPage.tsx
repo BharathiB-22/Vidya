@@ -40,7 +40,7 @@ export default function ApprovedCurriculaPage() {
 
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-10 text-center">
-          <Inbox className="mx-auto h-8 w-8 text-gray-400" />
+          <Inbox className="mx-auto h-8 w-8 text-gray-600" />
           <p className="mt-2 text-sm text-gray-600">
             Nothing approved yet. Approved curricula appear here and stay locked.
           </p>

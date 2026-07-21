@@ -93,15 +93,15 @@ export default function ProgramDetailPage() {
             <h1 className="text-2xl font-bold text-gray-900">{program.title}</h1>
             <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 flex-wrap">
               <span>{program.department}</span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-500">·</span>
               <span>{program.degree_type}</span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-500">·</span>
               <span>{program.duration_years} yr / {program.total_credits} cr</span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-500">·</span>
               <span>v{program.version}</span>
               {linkedAcadProgram && (
                 <>
-                  <span className="text-gray-300">·</span>
+                  <span className="text-gray-500">·</span>
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
                     {linkedAcadProgram.name} ({linkedAcadProgram.code})
                   </span>

@@ -187,7 +187,7 @@ export default function SyllabusDetailPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -237,7 +237,7 @@ export default function SyllabusDetailPage() {
             )}
             <SyllabusStatusBadge status={syllabus.status} viewerRole={role} />
             <span className="text-xs text-gray-600 font-medium">Version {syllabus.version}</span>
-            <span className="text-gray-300 text-xs select-none">·</span>
+            <span className="text-gray-500 text-xs select-none">·</span>
             <span className="text-xs text-gray-500">
               Created {new Date(syllabus.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
             </span>

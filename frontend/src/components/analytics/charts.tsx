@@ -65,7 +65,7 @@ export function SectionCard({
 
 export function EmptyState({ message = 'No data available yet' }: { message?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-10 text-gray-400 text-sm gap-2">
+    <div className="flex flex-col items-center justify-center py-10 text-gray-600 text-sm gap-2">
       <BarChart2 className="h-6 w-6 opacity-50" />
       {message}
     </div>
@@ -103,7 +103,7 @@ export function BarList({ items, max }: { items: BarItem[]; max?: number }) {
           <div key={`${it.label}-${idx}`} className="flex items-center gap-3">
             <div className="w-32 shrink-0 truncate">
               <p className="text-xs font-medium text-gray-800 truncate">{it.label}</p>
-              {it.sublabel && <p className="text-[10px] text-gray-400 truncate">{it.sublabel}</p>}
+              {it.sublabel && <p className="text-[10px] text-gray-600 truncate">{it.sublabel}</p>}
             </div>
             <div className="flex-1 h-6 bg-gray-100 rounded-md overflow-hidden">
               <div
@@ -268,7 +268,7 @@ export function DonutChart({ segments, centerLabel, centervalue }: {
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: s.colorHex }} />
             <span className="text-gray-600">{s.label}</span>
             <span className="font-semibold text-gray-800">{s.value}</span>
-            <span className="text-gray-400">({Math.round(s.value / total * 100)}%)</span>
+            <span className="text-gray-600">({Math.round(s.value / total * 100)}%)</span>
           </div>
         ))}
       </div>

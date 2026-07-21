@@ -165,14 +165,14 @@ export default function DigitalMonitoringPage() {
       {/* Sessions table */}
       {sorted.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-16 text-center space-y-2">
-          <Monitor className="h-8 w-8 mx-auto text-gray-300" />
+          <Monitor className="h-8 w-8 mx-auto text-gray-500" />
           <p className="text-sm text-gray-500">No sessions to monitor.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-700">All Sessions</h2>
-            {isFetching && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+            {isFetching && <Loader2 className="h-4 w-4 animate-spin text-gray-600" />}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">

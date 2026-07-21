@@ -102,7 +102,7 @@ function QueueCard({ item, onClick }: { item: OcrQueueItem; onClick: () => void 
               </span>
             )}
             {item.exam_paper_id && (
-              <span className="text-gray-400 text-xs truncate max-w-[160px]">
+              <span className="text-gray-600 text-xs truncate max-w-[160px]">
                 Exam: {item.exam_paper_id.slice(0, 8)}…
               </span>
             )}
@@ -280,7 +280,7 @@ export default function OCRReviewQueuePage() {
             {PRIORITY_META[activePriority]?.label ?? activePriority}
           </Badge>
           <button
-            className="text-xs text-gray-400 hover:text-gray-600"
+            className="text-xs text-gray-600 hover:text-gray-600"
             onClick={() => setFilter('priority', '')}
           >
             Clear

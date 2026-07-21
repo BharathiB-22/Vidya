@@ -289,7 +289,7 @@ function LineListEditor({
     <div className="mt-2 space-y-2 print:hidden">
       {shown.map((line, i) => (
         <div key={i} className="flex items-start gap-2">
-          <GripVertical className="mt-2 h-4 w-4 shrink-0 text-gray-300" />
+          <GripVertical className="mt-2 h-4 w-4 shrink-0 text-gray-500" />
           <Textarea
             value={line}
             rows={2}

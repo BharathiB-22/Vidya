@@ -21,7 +21,7 @@ function StatTile({ icon: Icon, label, value, onClick }: {
       onClick={onClick}
       className={`rounded-xl border border-gray-200 bg-white p-4 text-left w-full ${onClick ? 'hover:border-sv-primary/30 hover:shadow-sm transition-all' : ''}`}
     >
-      <Icon className="h-4 w-4 text-gray-400 mb-2" />
+      <Icon className="h-4 w-4 text-gray-600 mb-2" />
       <p className="text-xl font-bold text-gray-900">{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
     </Tag>
@@ -47,52 +47,52 @@ export function OverviewTab({ ctx, onNavigateTab }: FacultySubjectTabProps) {
   return (
     <div className="space-y-5">
       <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Subject</p>
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Subject</p>
         <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
           <div>
-            <dt className="text-xs text-gray-400">Code</dt>
+            <dt className="text-xs text-gray-600">Code</dt>
             <dd className="font-medium text-gray-800">{assignment.course?.code ?? '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Title</dt>
+            <dt className="text-xs text-gray-600">Title</dt>
             <dd className="font-medium text-gray-800">{assignment.course?.title ?? '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Credits</dt>
+            <dt className="text-xs text-gray-600">Credits</dt>
             <dd className="font-medium text-gray-800">Not configured</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Semester</dt>
+            <dt className="text-xs text-gray-600">Semester</dt>
             <dd className="font-medium text-gray-800">
               {assignment.semester ? `${assignment.semester.number}${assignment.semester.label ? ` — ${assignment.semester.label}` : ''}` : '—'}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Section{sectionsHandled.length > 1 ? 's' : ''}</dt>
+            <dt className="text-xs text-gray-600">Section{sectionsHandled.length > 1 ? 's' : ''}</dt>
             <dd className="font-medium text-gray-800">{sectionsHandled.join(', ') || assignment.section?.name || '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Department</dt>
+            <dt className="text-xs text-gray-600">Department</dt>
             <dd className="font-medium text-gray-800">{departmentName ?? '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Faculty</dt>
+            <dt className="text-xs text-gray-600">Faculty</dt>
             <dd className="font-medium text-gray-800">
               {facultyName ?? '—'}
-              <span className="text-xs text-gray-400 font-normal ml-1.5">
+              <span className="text-xs text-gray-600 font-normal ml-1.5">
                 ({ROLE_LABELS[assignment.role_in_course] ?? assignment.role_in_course})
               </span>
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-gray-400">Assigned</dt>
+            <dt className="text-xs text-gray-600">Assigned</dt>
             <dd className="font-medium text-gray-800">{new Date(assignment.assigned_at).toLocaleDateString()}</dd>
           </div>
         </dl>
       </div>
 
       <div>
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Quick Statistics</p>
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Quick Statistics</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatTile
             icon={Users}
@@ -121,7 +121,7 @@ export function OverviewTab({ ctx, onNavigateTab }: FacultySubjectTabProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-gray-400">
+      <div className="flex items-center gap-2 text-xs text-gray-600">
         <BookMarked className="h-3.5 w-3.5" />
         Use the tabs above to manage this subject's assignments, labs, attendance, marks, and content.
       </div>

@@ -62,7 +62,7 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
                       <div className="h-2 w-2 rounded-full bg-white" />
                     </div>
                   ) : (
-                    <Circle className="h-6 w-6 text-gray-300 shrink-0" />
+                    <Circle className="h-6 w-6 text-gray-500 shrink-0" />
                   )}
                   <span
                     className={`text-xs text-center px-1 ${
@@ -70,12 +70,12 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
                         ? 'font-bold text-black'
                         : isPast
                         ? 'text-emerald-700'
-                        : 'text-gray-400'
+                        : 'text-gray-600'
                     }`}
                   >
                     {step.label}
                   </span>
-                  <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                  <span className="text-[10px] uppercase tracking-wide text-gray-600">
                     {step.actor}
                   </span>
                 </div>
@@ -198,9 +198,9 @@ export function ApprovalPanel({ program, linkedAcadProgram }: Props) {
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
         <h3 className="text-base font-bold text-black mb-3">Version History</h3>
         {isLoading ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <p className="text-sm text-gray-600">Loading…</p>
         ) : sortedVersions.length === 0 ? (
-          <p className="text-sm text-gray-400">No version history available.</p>
+          <p className="text-sm text-gray-600">No version history available.</p>
         ) : (
           <div className="space-y-2">
             {sortedVersions.map((v) => (

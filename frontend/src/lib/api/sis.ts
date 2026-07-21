@@ -1413,7 +1413,9 @@ export interface MarksComponent {
 
 export interface ComponentCreateIn {
   course_id: string
-  section_id: string
+  /** Omitted for an elective: the class is every student who chose it, across
+   *  all sections. Mirrors the backend schema, where section_id is Optional. */
+  section_id?: string
   semester_id: string
   component_type: string
   name: string

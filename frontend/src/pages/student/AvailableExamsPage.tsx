@@ -59,7 +59,7 @@ function SessionCard({ session }: { session: DigitalExamSession }) {
       )}
 
       <div className="flex items-center justify-between pt-1">
-        <span className="flex items-center gap-1 text-xs text-gray-400">
+        <span className="flex items-center gap-1 text-xs text-gray-600">
           <Clock className="h-3.5 w-3.5" />
           {formatWindow(session)}
         </span>
@@ -96,7 +96,7 @@ function CompletedRow({ session }: { session: DigitalExamSession }) {
         <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
         <span className="text-sm font-medium text-gray-700 truncate">{session.title}</span>
       </div>
-      <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+      <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
     </button>
   )
 }
@@ -111,7 +111,7 @@ export default function AvailableExamsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -144,9 +144,9 @@ export default function AvailableExamsPage() {
         </h2>
         {active.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-12 text-center">
-            <Monitor className="h-8 w-8 mx-auto text-gray-300 mb-2" />
+            <Monitor className="h-8 w-8 mx-auto text-gray-500 mb-2" />
             <p className="text-sm text-gray-500">No exams are currently open.</p>
-            <p className="text-xs text-gray-400 mt-1">Check back when your exam window opens.</p>
+            <p className="text-xs text-gray-600 mt-1">Check back when your exam window opens.</p>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-1">

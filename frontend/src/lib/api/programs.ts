@@ -4,6 +4,7 @@ import type {
   CourseCreate,
   CoursePrerequisite,
   CourseUpdate,
+  CourseWithProgram,
   ComplianceResult,
   ElectiveBasket,
   ElectiveBasketCreate,
@@ -164,6 +165,16 @@ export async function addCourse(programId: string, payload: CourseCreate): Promi
 
 export async function listCourses(programId: string): Promise<Course[]> {
   const { data } = await api.get<Course[]>(`${BASE}/${programId}/courses`)
+  return data
+}
+
+// Every course in the tenant, each carrying the program that owns it. Lets a
+// caller select a course directly and derive its program, rather than making the
+// user pick a program first.
+export async function listAllCourses(
+  params: { program_status?: string } = {},
+): Promise<CourseWithProgram[]> {
+  const { data } = await api.get<CourseWithProgram[]>(`${BASE}/courses`, { params })
   return data
 }
 

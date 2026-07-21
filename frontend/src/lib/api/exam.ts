@@ -11,6 +11,7 @@ import type {
   InternalMarks,
   InternalMarksListResponse,
   JobStatus,
+  ManualQuestionPayload,
   SealPayload,
 } from '@/types/exam'
 
@@ -36,6 +37,7 @@ export async function listExamPapers(params?: {
 
 export async function listAllExamPapers(params?: {
   status?: string
+  workflow?: string
   offset?: number
   limit?: number
 }): Promise<ExamPaperListResponse> {
@@ -46,6 +48,10 @@ export async function listAllExamPapers(params?: {
 export async function getExamPaper(paperId: string): Promise<ExamPaper> {
   const { data } = await api.get(`${BASE}/${paperId}`)
   return data
+}
+
+export async function deleteExamPaper(paperId: string): Promise<void> {
+  await api.delete(`${BASE}/${paperId}`)
 }
 
 // ---- Questions ----
@@ -81,6 +87,50 @@ export async function editQuestion(
 
 export async function deleteQuestion(paperId: string, questionId: string): Promise<void> {
   await api.delete(`${BASE}/${paperId}/questions/${questionId}`)
+}
+
+// ---- P1.16: Manual builder ----
+
+export async function addQuestion(
+  paperId: string,
+  payload: ManualQuestionPayload,
+): Promise<ExamQuestion> {
+  const { data } = await api.post(`${BASE}/${paperId}/questions`, payload)
+  return data
+}
+
+export async function reorderQuestions(
+  paperId:   string,
+  orderedIds: string[],
+): Promise<ExamQuestion[]> {
+  const { data } = await api.put(`${BASE}/${paperId}/questions/reorder`, { ordered_ids: orderedIds })
+  return data
+}
+
+export async function duplicateQuestion(
+  paperId:    string,
+  questionId: string,
+): Promise<ExamQuestion> {
+  const { data } = await api.post(`${BASE}/${paperId}/questions/${questionId}/duplicate`)
+  return data
+}
+
+// ---- P1.16: Dean review (INTERNAL papers) ----
+
+export async function listDeanPending(params?: {
+  offset?: number
+  limit?: number
+}): Promise<ExamPaperListResponse> {
+  const { data } = await api.get(`${BASE}/dean/pending`, { params })
+  return data
+}
+
+export async function deanDecision(
+  paperId: string,
+  payload: BoardDecisionPayload,
+): Promise<ExamPaper> {
+  const { data } = await api.post(`${BASE}/${paperId}/dean-decision`, payload)
+  return data
 }
 
 // ---- Bloom's report ----
@@ -154,13 +204,6 @@ export async function exportPdf(paperId: string, setLabel = 'A'): Promise<void> 
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
-}
-
-// ---- H-35: Faculty approve (INTERNAL workflow) ----
-
-export async function facultyApprovePaper(paperId: string): Promise<{ paper_id: string; status: string }> {
-  const { data } = await api.post(`${BASE}/${paperId}/faculty-approve`, {})
-  return data
 }
 
 // ---- H-35: Regenerate single question ----

@@ -114,7 +114,7 @@ function ProgramSelect({ value, onChange, programs, required }: ProgramSelectPro
         <SelectContent>
           {programs.map((p) => (
             <SelectItem key={p.id} value={p.id}>
-              {p.name} <span className="text-gray-400 text-xs">({p.code})</span>
+              {p.name} <span className="text-gray-600 text-xs">({p.code})</span>
             </SelectItem>
           ))}
         </SelectContent>
@@ -153,13 +153,13 @@ function GovernedPrograms({ value, onChange, programs, loading }: GovernedProgra
     <div className="space-y-1">
       <label className="text-sm font-medium text-gray-700">
         Governed programs{' '}
-        <span className="font-normal text-gray-400">
+        <span className="font-normal text-gray-600">
           (the programs this dean oversees)
         </span>
       </label>
 
       {loading ? (
-        <p className="text-xs text-gray-400">Loading…</p>
+        <p className="text-xs text-gray-600">Loading…</p>
       ) : programs.length === 0 ? (
         <p className="rounded border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-500">
           This tenant has no academic programs yet. Create one under Academics → Programs,
@@ -179,7 +179,7 @@ function GovernedPrograms({ value, onChange, programs, loading }: GovernedProgra
                 className="h-4 w-4 rounded border-gray-300 text-indigo-600"
               />
               <span className="text-sm text-gray-800">
-                {p.name} <span className="text-xs text-gray-400">({p.code})</span>
+                {p.name} <span className="text-xs text-gray-600">({p.code})</span>
               </span>
             </label>
           ))}
@@ -223,7 +223,7 @@ function DepartmentSelect({ value, onChange, departments, required }: Department
         <SelectContent>
           {departments.map((d) => (
             <SelectItem key={d.id} value={d.id}>
-              {d.name} <span className="text-gray-400 text-xs">({d.code})</span>
+              {d.name} <span className="text-gray-600 text-xs">({d.code})</span>
             </SelectItem>
           ))}
         </SelectContent>
@@ -364,7 +364,7 @@ function CreateUserDialog({ open, onClose, onCreated, programs, departments }: C
               {programId && (
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-gray-700">
-                    Batch <span className="text-gray-400 font-normal">(optional — enables immediate section enrollment)</span>
+                    Batch <span className="text-gray-600 font-normal">(optional — enables immediate section enrollment)</span>
                   </label>
                   <Select value={batchId} onValueChange={setBatchId}>
                     <SelectTrigger><SelectValue placeholder="Select batch" /></SelectTrigger>
@@ -412,7 +412,7 @@ function CreateUserDialog({ open, onClose, onCreated, programs, departments }: C
           )}
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">
-              Identifier <span className="text-gray-400 font-normal">(optional — student ID, staff no.)</span>
+              Identifier <span className="text-gray-600 font-normal">(optional — student ID, staff no.)</span>
             </label>
             <Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="e.g. ST2024001" />
           </div>
@@ -595,7 +595,7 @@ function EditUserDialog({ user, onClose, onUpdated, programs, departments }: Edi
             )}
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">
-                Identifier <span className="text-gray-400 font-normal">(optional — staff ID, employee no.)</span>
+                Identifier <span className="text-gray-600 font-normal">(optional — staff ID, employee no.)</span>
               </label>
               <Input
                 value={identifier}
@@ -781,14 +781,14 @@ export default function UsersPage() {
                   {/* Department */}
                   <td className="px-4 py-3 text-gray-600 text-xs">
                     {u.department_name
-                      ? <span>{u.department_name}{u.department_code ? <span className="text-gray-400 ml-1">({u.department_code})</span> : null}</span>
-                      : <span className="text-gray-300">—</span>}
+                      ? <span>{u.department_name}{u.department_code ? <span className="text-gray-600 ml-1">({u.department_code})</span> : null}</span>
+                      : <span className="text-gray-500">—</span>}
                   </td>
                   {/* Programs — comma-separated list */}
                   <td className="px-4 py-3 text-gray-600 text-xs max-w-[200px]">
                     {(u.program_names ?? []).length > 0
                       ? <span className="leading-relaxed">{u.program_names.join(', ')}</span>
-                      : <span className="text-gray-400 italic">
+                      : <span className="text-gray-600 italic">
                           {u.role === 'FACULTY' ? 'No assigned programs'
                            : u.role === 'DEAN'    ? 'No governed programs'
                            : '—'}
@@ -796,7 +796,7 @@ export default function UsersPage() {
                   </td>
                   {/* Academic ID: faculty_code | USN | blank */}
                   <td className="px-4 py-3 text-xs font-mono text-gray-600">
-                    {u.academic_id ?? <span className="text-gray-300">—</span>}
+                    {u.academic_id ?? <span className="text-gray-500">—</span>}
                   </td>
                   {/* Status */}
                   <td className="px-4 py-3">

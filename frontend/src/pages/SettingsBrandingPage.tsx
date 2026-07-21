@@ -220,7 +220,7 @@ export default function SettingsBrandingPage() {
                     <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1"
                          onError={() => setLogoUrl('')} />
                   ) : (
-                    <Image className="h-6 w-6 text-gray-300" />
+                    <Image className="h-6 w-6 text-gray-500" />
                   )}
                 </div>
 
@@ -244,7 +244,7 @@ export default function SettingsBrandingPage() {
                     <Upload className="h-3.5 w-3.5" />
                     {uploading ? 'Uploading…' : logoUrl ? 'Replace logo' : 'Upload logo'}
                   </Button>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-600 mt-1">
                     PNG, JPG, or SVG · Max 2 MB · Stored securely in your institution's workspace.
                   </p>
                   {logoUrl && (
@@ -284,7 +284,7 @@ export default function SettingsBrandingPage() {
                       maxLength={7}
                     />
                   </div>
-                  <p className="text-xs text-gray-400">Active nav items, buttons</p>
+                  <p className="text-xs text-gray-600">Active nav items, buttons</p>
                 </div>
                 <div className="space-y-1">
                   <label className="block text-sm font-medium text-gray-700" htmlFor="secondary-color">
@@ -306,7 +306,7 @@ export default function SettingsBrandingPage() {
                       maxLength={7}
                     />
                   </div>
-                  <p className="text-xs text-gray-400">Accent indicators, AI badges</p>
+                  <p className="text-xs text-gray-600">Accent indicators, AI badges</p>
                 </div>
               </div>
             </div>

@@ -81,7 +81,7 @@ function StatCard({ label, value, color = 'gray' }: { label: string; value: numb
 const selectCls =
   'w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 ' +
   'focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 ' +
-  'disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400'
+  'disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-600'
 
 // ---------------------------------------------------------------------------
 // Cascade academic context selector
@@ -238,7 +238,7 @@ function AcadContextSelector({
         {showSection && (
           <div className="col-span-2 space-y-1">
             <label className="text-xs font-medium text-gray-600">
-              Section <span className="text-gray-400 font-normal">(optional)</span>
+              Section <span className="text-gray-600 font-normal">(optional)</span>
             </label>
             <select
               className={selectCls}
@@ -259,11 +259,11 @@ function AcadContextSelector({
       {ctx.program && (
         <div className="flex items-center gap-1.5 flex-wrap mt-1">
           {ctx.dept && <ContextChip label={ctx.dept.code} />}
-          <ArrowRight className="h-3 w-3 text-gray-400" />
+          <ArrowRight className="h-3 w-3 text-gray-600" />
           {ctx.program && <ContextChip label={`${ctx.program.code}`} highlight />}
-          {ctx.batch && <><ArrowRight className="h-3 w-3 text-gray-400" /><ContextChip label={`${ctx.batch.start_year}`} /></>}
-          {ctx.semester && <><ArrowRight className="h-3 w-3 text-gray-400" /><ContextChip label={`Sem ${ctx.semester.number}`} /></>}
-          {ctx.section && <><ArrowRight className="h-3 w-3 text-gray-400" /><ContextChip label={`Sec ${ctx.section.name}`} /></>}
+          {ctx.batch && <><ArrowRight className="h-3 w-3 text-gray-600" /><ContextChip label={`${ctx.batch.start_year}`} /></>}
+          {ctx.semester && <><ArrowRight className="h-3 w-3 text-gray-600" /><ContextChip label={`Sem ${ctx.semester.number}`} /></>}
+          {ctx.section && <><ArrowRight className="h-3 w-3 text-gray-600" /><ContextChip label={`Sec ${ctx.section.name}`} /></>}
         </div>
       )}
     </div>
@@ -337,10 +337,10 @@ function PreviewTable({ data }: { data: CSVPreviewResponse }) {
 function PreviewRow({ row }: { row: CSVRowResult }) {
   return (
     <tr className={row.is_valid ? '' : 'bg-red-50'}>
-      <td className="px-3 py-2 text-gray-400 text-xs">{row.row_number}</td>
-      <td className="px-3 py-2 text-gray-800">{row.full_name || <span className="text-gray-400 italic">—</span>}</td>
-      <td className="px-3 py-2 text-gray-700 font-mono text-xs">{row.email || <span className="text-gray-400 italic">—</span>}</td>
-      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.identifier || <span className="text-gray-400">—</span>}</td>
+      <td className="px-3 py-2 text-gray-600 text-xs">{row.row_number}</td>
+      <td className="px-3 py-2 text-gray-800">{row.full_name || <span className="text-gray-600 italic">—</span>}</td>
+      <td className="px-3 py-2 text-gray-700 font-mono text-xs">{row.email || <span className="text-gray-600 italic">—</span>}</td>
+      <td className="px-3 py-2 text-gray-600 font-mono text-xs">{row.identifier || <span className="text-gray-600">—</span>}</td>
       <td className="px-3 py-2">
         {row.is_valid ? (
           <span className="inline-flex items-center gap-1 text-green-700 text-xs">
@@ -447,14 +447,14 @@ function DropZone({
       {isXlsx ? (
         <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-green-500" />
       ) : (
-        <Upload className={`h-8 w-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-gray-400'}`} />
+        <Upload className={`h-8 w-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-gray-600'}`} />
       )}
       {file ? (
         <p className="text-sm font-medium text-green-700">{file.name}</p>
       ) : (
         <>
           <p className="text-sm font-medium text-gray-700">Drop CSV or Excel (.xlsx) file here, or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">Max 5 MB · .csv or .xlsx</p>
+          <p className="text-xs text-gray-600 mt-1">Max 5 MB · .csv or .xlsx</p>
         </>
       )}
     </div>
@@ -603,7 +603,7 @@ function GenerateStudentsTab() {
       </div>
 
       {!ctx.program && (
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-600 text-center">
           Select Department and Program above to proceed.
         </p>
       )}
@@ -621,7 +621,7 @@ function GenerateStudentsTab() {
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-600">Batch year</label>
               <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 font-mono">
-                {batch_year_str || <span className="text-gray-400 italic">— select batch —</span>}
+                {batch_year_str || <span className="text-gray-600 italic">— select batch —</span>}
               </div>
             </div>
           </div>
@@ -838,7 +838,7 @@ function CSVImportTab({ role }: { role: ImportRole }) {
               </ul>
             </div>
           </div>
-          <p className="text-gray-400">DEAN and BOARD are standalone roles — they cannot carry GUIDE or EVALUATOR responsibilities.</p>
+          <p className="text-gray-600">DEAN and BOARD are standalone roles — they cannot carry GUIDE or EVALUATOR responsibilities.</p>
         </div>
       )}
 
@@ -884,7 +884,7 @@ function CSVImportTab({ role }: { role: ImportRole }) {
                   minLength={8}
                   className="max-w-xs"
                 />
-                <p className="text-xs text-gray-400">All imported users will be prompted to change this on first login.</p>
+                <p className="text-xs text-gray-600">All imported users will be prompted to change this on first login.</p>
               </div>
 
               <div className="flex items-center gap-3">

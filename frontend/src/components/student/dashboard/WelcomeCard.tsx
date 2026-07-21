@@ -5,8 +5,8 @@ import { getGreeting, getDisplayFirstName } from '@/components/dashboard/shared'
 function InfoChip({ icon: Icon, label, value }: { icon: React.FC<{ className?: string }>; label: string; value: string }) {
   return (
     <div className="flex items-center gap-1.5 text-xs text-gray-500">
-      <Icon className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-      <span className="text-gray-400">{label}:</span>
+      <Icon className="h-3.5 w-3.5 text-gray-600 flex-shrink-0" />
+      <span className="text-gray-600">{label}:</span>
       <span className="font-semibold text-gray-700 truncate">{value}</span>
     </div>
   )

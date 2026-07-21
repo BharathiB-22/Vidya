@@ -142,7 +142,7 @@ export default function LearningPackageListPage() {
       ) : packages.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-600">
             {statusFilter
               ? `No packages with status "${statusFilter}".`
               : 'No learning packages yet.'}
@@ -157,7 +157,7 @@ export default function LearningPackageListPage() {
             </button>
           ) : unitNumber && canCreate ? (
             <div className="mt-4">
-              <p className="text-xs text-gray-400 mb-3">
+              <p className="text-xs text-gray-600 mb-3">
                 Generate an AI-curated package for Unit {unitNumber}.
               </p>
               <Button
@@ -173,7 +173,7 @@ export default function LearningPackageListPage() {
               )}
             </div>
           ) : (
-            <p className="mt-2 text-xs text-gray-400">
+            <p className="mt-2 text-xs text-gray-600">
               Open a Course Kit and click "Learning Packages" to create one.
             </p>
           )}
@@ -194,22 +194,22 @@ export default function LearningPackageListPage() {
                       Unit {pkg.unit_number} — v{pkg.version}
                     </span>
                     <PackageStatusBadge status={pkg.status} />
-                    <span className="text-xs text-gray-400 tabular-nums">
+                    <span className="text-xs text-gray-600 tabular-nums">
                       {pkg.item_count} resource{pkg.item_count !== 1 ? 's' : ''}
                     </span>
                   </div>
                   {!syllabusId && (
-                    <p className="text-[11px] font-mono text-gray-400 truncate">
+                    <p className="text-[11px] font-mono text-gray-600 truncate">
                       Syllabus: {pkg.syllabus_id}
                     </p>
                   )}
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-600">
                     Created {new Date(pkg.created_at).toLocaleDateString()}
                     {pkg.curated_at &&
                       ` · Curated ${new Date(pkg.curated_at).toLocaleDateString()}`}
                   </p>
                 </div>
-                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" />
+                <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-gray-500 shrink-0" />
               </div>
             </button>
           ))}
@@ -218,7 +218,7 @@ export default function LearningPackageListPage() {
 
       {/* ── Pagination hint ── */}
       {data && data.total > packages.length && (
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-600 text-center">
           Showing {packages.length} of {data.total} packages
         </p>
       )}

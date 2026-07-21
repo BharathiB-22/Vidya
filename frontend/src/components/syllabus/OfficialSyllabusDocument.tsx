@@ -663,14 +663,14 @@ function UnitBlock({
                 onClick={onRegenerate}
                 disabled={isRegenerating}
                 title="Rewrite just this unit with AI — the rest of the syllabus is untouched"
-                className="text-gray-400 hover:text-blue-700 disabled:opacity-40"
+                className="text-gray-600 hover:text-blue-700 disabled:opacity-40"
               >
                 <Sparkles className="h-3.5 w-3.5" />
               </button>
               <button
                 onClick={() => setEditing(true)}
                 title="Edit this unit"
-                className="text-gray-400 hover:text-black"
+                className="text-gray-600 hover:text-black"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -683,7 +683,7 @@ function UnitBlock({
         <ul className="mt-2 space-y-0.5 text-sm text-gray-900">
           {printed.map((topic, i) => (
             <li key={`${i}-${topic.slice(0, 20)}`} className="flex gap-2">
-              <span className="text-gray-400">•</span>
+              <span className="text-gray-600">•</span>
               <span>{topic}</span>
             </li>
           ))}
@@ -812,7 +812,7 @@ function OutcomeRow({
             <button
               onClick={() => setEditing(true)}
               title={`Edit ${outcome.code}`}
-              className="mt-0.5 shrink-0 text-gray-400 opacity-0 transition hover:text-black group-hover/co:opacity-100 print:hidden"
+              className="mt-0.5 shrink-0 text-gray-600 opacity-0 transition hover:text-black group-hover/co:opacity-100 print:hidden"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
@@ -948,7 +948,7 @@ function EditableList({
             )}
             <button
               onClick={() => setEditing(true)}
-              className="text-gray-400 hover:text-black"
+              className="text-gray-600 hover:text-black"
               title={`Edit ${heading}`}
             >
               <Pencil className="h-3.5 w-3.5" />

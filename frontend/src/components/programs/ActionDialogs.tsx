@@ -176,7 +176,7 @@ export function EditProgramDialog({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               AI Instructions
-              <span className="text-gray-400 font-normal ml-1">(optional)</span>
+              <span className="text-gray-600 font-normal ml-1">(optional)</span>
             </label>
             <Textarea
               rows={3}
@@ -291,7 +291,7 @@ export function GenerateDialog({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               AI Instructions
-              <span className="text-gray-400 font-normal ml-1">(persisted on program)</span>
+              <span className="text-gray-600 font-normal ml-1">(persisted on program)</span>
             </label>
             <Textarea
               rows={3}
@@ -299,14 +299,14 @@ export function GenerateDialog({
               onChange={(e) => setInstructions(e.target.value)}
               placeholder="e.g. Final semester must contain only project and internship. Major project 10 credits."
             />
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-600 mt-1">
               Saved and reused every generation. Changes here update the program record.
             </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               One-time Prompt Hint
-              <span className="text-gray-400 font-normal ml-1">(this run only)</span>
+              <span className="text-gray-600 font-normal ml-1">(this run only)</span>
             </label>
             <Textarea
               rows={2}

@@ -132,12 +132,24 @@ const CARDS: ModuleCard[] = [
   // ── Evaluate ──────────────────────────────────────────────────────────────
   {
     title: 'My Evaluations',
-    description: 'Review and score assigned student submissions.',
+    description: 'Scripts, coursework and lab work assigned to you for evaluation.',
     to: '/evaluator',
+    // FACULTY too: work can be allocated to a faculty member who holds no
+    // separate EVALUATOR grant, and /evaluator aggregates every source.
+    roles: ['FACULTY', 'EVALUATOR'],
     icon: ClipboardCheck,
-    roles: ['EVALUATOR'],
     badge: 'bg-sky-50 text-sky-600 border-sky-100',
     bar:   'bg-sky-500',
+    section: 'evaluate',
+  },
+  {
+    title: 'Evaluation Center',
+    description: 'Coursework you evaluate — student queue, progress, and grading per assignment.',
+    to: '/faculty/evaluation-center',
+    roles: ['FACULTY', 'EVALUATOR'],
+    icon: ClipboardList,
+    badge: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    bar:   'bg-indigo-500',
     section: 'evaluate',
   },
 ]
@@ -246,10 +258,10 @@ function AdminOnboarding({ passwordChanged }: { passwordChanged: boolean }) {
           <li key={item.label} className="flex items-center gap-2.5">
             {item.done
               ? <CheckCircle className="h-4 w-4 text-sv-primary flex-shrink-0" />
-              : <Circle      className="h-4 w-4 text-gray-300 flex-shrink-0" />
+              : <Circle      className="h-4 w-4 text-gray-500 flex-shrink-0" />
             }
             {item.done ? (
-              <span className="text-sm text-gray-400 line-through">{item.label}</span>
+              <span className="text-sm text-gray-600 line-through">{item.label}</span>
             ) : (
               <Link to={item.href} className="text-sm text-sv-dark font-medium hover:text-sv-primary hover:underline">
                 {item.label}
@@ -571,7 +583,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-1.5 mb-2.5">
             <ShieldCheck className="h-3.5 w-3.5 text-sv-primary" />
             <span className="text-xs font-semibold text-gray-600">My Responsibilities</span>
-            <span className="text-[11px] text-gray-400">— one login, switch into each workflow.</span>
+            <span className="text-[11px] text-gray-600">— one login, switch into each workflow.</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {authUser!.responsibilities.map((r) => {

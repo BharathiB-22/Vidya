@@ -174,7 +174,7 @@ export function ElectiveBasketsSection({ program }: Props) {
 
       {baskets.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
-          <ListTree className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+          <ListTree className="h-8 w-8 mx-auto mb-2 text-gray-500" />
           <p className="text-sm text-gray-500">
             No elective papers yet.{isProgramEditable ? ' Use “New Elective Paper” to create one.' : ''}
           </p>
@@ -340,7 +340,7 @@ function BasketCard({
               <button type="button" onClick={handleRename} className="text-emerald-600 hover:text-emerald-700" title="Save">
                 <Check className="h-4 w-4" />
               </button>
-              <button type="button" onClick={cancelEdit} className="text-gray-400 hover:text-gray-600" title="Cancel">
+              <button type="button" onClick={cancelEdit} className="text-gray-600 hover:text-gray-600" title="Cancel">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -353,7 +353,7 @@ function BasketCard({
                 <button
                   type="button"
                   onClick={() => { setNameDraft(basket.name); setCreditsDraft(String(basket.credits)); setRenaming(true) }}
-                  className="text-gray-400 hover:text-gray-700 shrink-0"
+                  className="text-gray-600 hover:text-gray-700 shrink-0"
                   title="Rename paper / change credits"
                 >
                   <Pencil className="h-3.5 w-3.5" />
@@ -410,7 +410,7 @@ function BasketCard({
             <button
               type="button"
               onClick={onDeleteBasket}
-              className="text-gray-400 hover:text-red-600"
+              className="text-gray-600 hover:text-red-600"
               title="Delete paper"
             >
               <Trash2 className="h-4 w-4" />
@@ -460,7 +460,7 @@ function BasketCard({
                       type="button"
                       onClick={() => handleRemoveChoice(c.id)}
                       disabled={removeChoice.isPending}
-                      className="text-gray-400 hover:text-red-600 shrink-0"
+                      className="text-gray-600 hover:text-red-600 shrink-0"
                       title="Remove choice"
                     >
                       <Trash2 className="h-4 w-4" />

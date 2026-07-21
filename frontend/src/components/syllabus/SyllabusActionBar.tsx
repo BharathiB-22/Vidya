@@ -92,7 +92,7 @@ export function SyllabusActionBar({ syllabus }: Props) {
   if (!isOwner) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-        <Eye className="h-4 w-4 text-gray-400" />
+        <Eye className="h-4 w-4 text-gray-600" />
         <span className="text-sm text-gray-600">
           {deanOwned
             ? 'This document belongs to the Dean — what it contains depends on the host ' +

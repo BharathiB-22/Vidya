@@ -93,7 +93,7 @@ export function GenerateTimetableDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="h-4 w-4 text-gray-400" />
+            <Sparkles className="h-4 w-4 text-gray-600" />
             Generate from Published Curriculum
           </DialogTitle>
         </DialogHeader>
@@ -115,7 +115,7 @@ export function GenerateTimetableDialog({
           ) : (
             <>
               <section className="space-y-2.5">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-600">
                   Published Subjects
                 </h3>
                 <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
@@ -209,7 +209,7 @@ function CourseCard({ course }: { course: AutofillCourse }) {
         <p className="text-[11px] font-medium text-gray-500 tabular-nums">
           {course.credits} credit{course.credits === 1 ? '' : 's'}
         </p>
-        <p className="text-[11px] text-gray-400 tabular-nums">
+        <p className="text-[11px] text-gray-600 tabular-nums">
           {hours ? `L–T–P ${hours}` : 'L–T–P not set — using credits'}
         </p>
       </div>
@@ -218,7 +218,7 @@ function CourseCard({ course }: { course: AutofillCourse }) {
         <p className="text-base font-bold leading-none text-gray-900 tabular-nums">
           {periodsRequired(course)}
         </p>
-        <p className="mt-1 text-[10px] uppercase tracking-wide text-gray-400">periods</p>
+        <p className="mt-1 text-[10px] uppercase tracking-wide text-gray-600">periods</p>
       </div>
     </div>
   )
@@ -229,7 +229,7 @@ function Stat({ label, value, hint }: { label: string; value: number; hint?: str
     <div className="rounded-xl border border-gray-200 bg-gray-50/70 px-4 py-3">
       <p className="text-2xl font-bold leading-none text-gray-900 tabular-nums">{value}</p>
       <p className="mt-1.5 text-[11px] font-medium leading-snug text-gray-500">{label}</p>
-      {hint && <p className="mt-0.5 text-[10px] text-gray-400">{hint}</p>}
+      {hint && <p className="mt-0.5 text-[10px] text-gray-600">{hint}</p>}
     </div>
   )
 }

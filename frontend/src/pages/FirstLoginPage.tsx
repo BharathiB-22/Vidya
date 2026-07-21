@@ -110,7 +110,7 @@ export default function FirstLoginPage() {
             </form>
           </div>
         </div>
-        <p className="text-xs text-center text-gray-400">
+        <p className="text-xs text-center text-gray-600">
           This step is required for account security.
         </p>
       </div>

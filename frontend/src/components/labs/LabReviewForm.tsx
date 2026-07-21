@@ -31,9 +31,9 @@ export function CriterionRow({
       <div className="flex items-start justify-between gap-2 mb-2">
         <div>
           <p className="text-sm font-medium text-gray-800">{rubric.name}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{rubric.description}</p>
+          <p className="text-xs text-gray-600 mt-0.5">{rubric.description}</p>
         </div>
-        <span className="text-xs text-gray-400 shrink-0">/ {rubric.max_marks}</span>
+        <span className="text-xs text-gray-600 shrink-0">/ {rubric.max_marks}</span>
       </div>
 
       {/* AI score + justification */}
@@ -127,7 +127,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
       </div>
     )
   }
@@ -211,14 +211,14 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
             <div>
               <span className="text-sm font-semibold text-gray-700">{assignment.title}</span>
               {(assignment.course_code || assignment.course_title) && (
-                <span className="ml-2 text-xs text-gray-400">
+                <span className="ml-2 text-xs text-gray-600">
                   {[assignment.course_code, assignment.course_title].filter(Boolean).join(' · ')}
                 </span>
               )}
             </div>
             {contextOpen
-              ? <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" />
-              : <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
+              ? <ChevronUp className="h-4 w-4 text-gray-600 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />
             }
           </button>
           {contextOpen && (
@@ -246,7 +246,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
           <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700">Student Submission</span>
-              <span className="text-xs text-gray-400 font-mono">{submission.student_user_id}</span>
+              <span className="text-xs text-gray-600 font-mono">{submission.student_user_id}</span>
             </div>
 
             {submittedContent ? (
@@ -261,7 +261,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
               )
             ) : submission.content_url ? (
               <div className="p-4 flex flex-col items-center gap-2 text-sm text-gray-500">
-                <p className="text-xs text-gray-400">Student submitted a file upload.</p>
+                <p className="text-xs text-gray-600">Student submitted a file upload.</p>
                 <Button
                   size="sm"
                   variant="outline"
@@ -282,7 +282,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
                 </Button>
               </div>
             ) : (
-              <div className="p-4 text-sm text-gray-400 text-center">No content available.</div>
+              <div className="p-4 text-sm text-gray-600 text-center">No content available.</div>
             )}
           </div>
 
@@ -297,7 +297,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
                   <div key={tr.id} className="px-4 py-2.5 flex items-center gap-3">
                     <span className={`h-2 w-2 rounded-full shrink-0 ${tr.passed ? 'bg-green-500' : 'bg-red-400'}`} />
                     <span className="text-sm text-gray-700 flex-1">{tr.name}</span>
-                    <span className="text-xs text-gray-400">{tr.points_awarded} pts</span>
+                    <span className="text-xs text-gray-600">{tr.points_awarded} pts</span>
                     {tr.timed_out && <span className="text-xs text-orange-600">Timeout</span>}
                   </div>
                 ))}
@@ -310,7 +310,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
             <div className="mt-4 rounded-xl border border-gray-200 bg-white overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
                 <span className="text-sm font-medium text-gray-700">Static Analysis</span>
-                <span className="ml-2 text-xs text-gray-400">
+                <span className="ml-2 text-xs text-gray-600">
                   Complexity: {evaluation.static_analysis.complexity_label} ({evaluation.static_analysis.complexity_score})
                 </span>
               </div>
@@ -325,7 +325,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
                   ))}
                 </div>
               ) : (
-                <div className="px-4 py-3 text-xs text-gray-400">No issues found.</div>
+                <div className="px-4 py-3 text-xs text-gray-600">No issues found.</div>
               )}
             </div>
           )}
@@ -365,7 +365,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
                     {(evaluation.plagiarism_score * 100).toFixed(1)}%
                   </p>
                   {evaluation.plagiarism_matches && evaluation.plagiarism_matches.length > 0 && (
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-xs text-gray-600 mt-0.5">
                       Top match: {(evaluation.plagiarism_matches[0].similarity * 100).toFixed(1)}%
                     </p>
                   )}
@@ -433,7 +433,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
           ) : canRatify ? (
             <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
               <div className="flex items-start gap-2">
-                <Shield className="h-4 w-4 text-gray-400 mt-0.5 shrink-0" />
+                <Shield className="h-4 w-4 text-gray-600 mt-0.5 shrink-0" />
                 <p className="text-xs text-gray-500 leading-relaxed">
                   Ratification is permanent and writes to the grade ledger. Verify all human scores before proceeding.
                 </p>
@@ -471,7 +471,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
               {ratifyConfirm && (
                 <button
                   type="button"
-                  className="w-full text-xs text-gray-400 hover:text-gray-600 py-1"
+                  className="w-full text-xs text-gray-600 hover:text-gray-600 py-1"
                   onClick={() => { setRatifyConfirm(false); setRatifyNote('') }}
                 >
                   Cancel
@@ -480,7 +480,7 @@ export function LabReviewForm({ submissionId, onBack }: LabReviewFormProps) {
             </div>
           ) : !isRatified && evaluation && (
             <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-              <p className="text-xs text-gray-400 text-center">
+              <p className="text-xs text-gray-600 text-center">
                 Save scores to unlock ratification.
               </p>
             </div>

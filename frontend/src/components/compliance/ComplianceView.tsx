@@ -197,7 +197,7 @@ export function ComplianceView({
                 {REPORT_LABELS[name] ?? name}
               </button>
               <button
-                className="text-gray-400 hover:text-indigo-600 disabled:opacity-40"
+                className="text-gray-600 hover:text-indigo-600 disabled:opacity-40"
                 title="Export CSV"
                 disabled={exporting}
                 onClick={() => onExport(name)}
@@ -302,7 +302,7 @@ function ResultHistoryDrawer({
       <div className="h-full w-full max-w-xl overflow-y-auto bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Result change history</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-gray-600 hover:text-gray-700"><X className="h-4 w-4" /></button>
         </div>
         <p className="mt-0.5 text-xs text-gray-500">Script {data?.masked_id ?? scriptId}</p>
 
@@ -329,7 +329,7 @@ function ResultHistoryDrawer({
                           {m.previous_marks ?? '—'} → <span className="font-semibold">{m.new_marks ?? '—'}</span>
                           {m.delta != null && <span className={`ml-1 ${m.delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>({m.delta >= 0 ? '+' : ''}{m.delta})</span>}
                           {' '}/ {m.max_marks ?? '—'}
-                          <span className="ml-2 text-gray-400">by {m.actor_name ?? m.actor_role ?? '—'}</span>
+                          <span className="ml-2 text-gray-600">by {m.actor_name ?? m.actor_role ?? '—'}</span>
                         </div>
                         {m.reason && <p className="mt-0.5 text-gray-500 italic">“{m.reason}”</p>}
                       </li>
@@ -346,11 +346,11 @@ function ResultHistoryDrawer({
                   <ul className="space-y-2">
                     {data.question_history.map((q) => (
                       <li key={q.question_id} className="rounded-lg border border-gray-100 px-3 py-2">
-                        <p className="text-[11px] text-gray-400">Q {q.question_id.slice(0, 8)} · max {q.max_marks ?? '—'}</p>
+                        <p className="text-[11px] text-gray-600">Q {q.question_id.slice(0, 8)} · max {q.max_marks ?? '—'}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
                           {q.steps.map((s, i) => (
                             <span key={i} className="inline-flex items-center gap-1">
-                              {i > 0 && <span className="text-gray-300">→</span>}
+                              {i > 0 && <span className="text-gray-500">→</span>}
                               <span className="rounded bg-gray-100 px-1.5 py-0.5">
                                 <span className="text-gray-500">{s.stage}</span> <b>{s.marks ?? '—'}</b>
                               </span>

@@ -170,7 +170,7 @@ export default function InstitutionAdminProfilePage() {
         {/* Security — link to Settings */}
         <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-gray-400" />
+            <ShieldCheck className="h-4 w-4 text-gray-600" />
             <h2 className="text-sm font-semibold text-gray-800">Security</h2>
           </div>
           <div className="px-6 py-5 flex items-center justify-between">

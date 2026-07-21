@@ -48,12 +48,12 @@ function SourceList({ sources }: { sources: RAGSourceCitation[] }) {
   if (sources.length === 0) return null
   return (
     <div className="mt-2.5 pt-2 border-t border-gray-100 space-y-1.5">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">
         Sources
       </p>
       {sources.map((src) => (
         <div key={src.item_id} className="flex items-start gap-1.5 text-xs text-gray-500">
-          <ExternalLink className="h-3 w-3 mt-0.5 shrink-0 text-gray-300" />
+          <ExternalLink className="h-3 w-3 mt-0.5 shrink-0 text-gray-500" />
           <div className="min-w-0">
             {src.url ? (
               <a
@@ -68,11 +68,11 @@ function SourceList({ sources }: { sources: RAGSourceCitation[] }) {
               <span className="font-medium text-gray-700 line-clamp-1">{src.title}</span>
             )}
             {src.snippet && (
-              <p className="text-gray-400 line-clamp-2 mt-0.5">{src.snippet}</p>
+              <p className="text-gray-600 line-clamp-2 mt-0.5">{src.snippet}</p>
             )}
           </div>
           {src.relevance_score !== null && (
-            <span className="ml-auto shrink-0 tabular-nums text-gray-300">
+            <span className="ml-auto shrink-0 tabular-nums text-gray-500">
               {Math.round(src.relevance_score * 100)}%
             </span>
           )}
@@ -264,9 +264,9 @@ export function NotebookQA({
         {isInitializing ? (
           <InitSkeleton />
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-gray-300">
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-gray-500">
             <MessageCircle className="h-8 w-8" />
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-600">
               {qdrantIndexed
                 ? 'Ask a question about the learning materials.'
                 : 'Q&A will be available once RAG indexing completes.'}
@@ -293,7 +293,7 @@ export function NotebookQA({
                 ? 'Loading session…'
                 : 'Ask a question about this package…'
             }
-            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-300 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-400 transition-colors"
+            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder-gray-300 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-600 transition-colors"
           />
           <Button
             type="submit"

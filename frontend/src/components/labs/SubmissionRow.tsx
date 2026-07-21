@@ -24,7 +24,7 @@ export function SubmissionRow({ sub, onReview }: { sub: LabSubmission; onReview:
           {sub.is_late && (
             <span className="text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">Late</span>
           )}
-          <span className="text-xs text-gray-400">{new Date(sub.submitted_at).toLocaleDateString()}</span>
+          <span className="text-xs text-gray-600">{new Date(sub.submitted_at).toLocaleDateString()}</span>
         </div>
       </div>
       {canReview && (

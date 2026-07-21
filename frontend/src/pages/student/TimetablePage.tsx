@@ -32,7 +32,7 @@ function ClassRow({ s }: { s: TimetableSlot }) {
         <p className="text-sm font-semibold text-gray-800 truncate">
           {s.course_code} — {s.course_title}
         </p>
-        <p className="text-xs text-gray-400 truncate">
+        <p className="text-xs text-gray-600 truncate">
           {s.faculty_name ?? 'Faculty TBA'}
           {s.room && ` · Room ${s.room}`}
           {s.remarks && ` · ${s.remarks}`}
@@ -75,7 +75,7 @@ export default function TimetablePage() {
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Timetable</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Your weekly class schedule.</p>
+        <p className="text-sm text-gray-600 mt-0.5">Your weekly class schedule.</p>
       </div>
 
       {isError && (
@@ -89,7 +89,7 @@ export default function TimetablePage() {
       ) : !data ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <CalendarClock className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">Your timetable hasn't been published yet.</p>
+          <p className="text-sm text-gray-600">Your timetable hasn't been published yet.</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -109,7 +109,7 @@ export default function TimetablePage() {
                 <h2 className="text-sm font-semibold text-indigo-800">Today · {DAYS_OF_WEEK[today]}</h2>
               </div>
               {todaysClasses.length === 0 ? (
-                <p className="px-5 py-4 text-sm text-gray-400">No classes scheduled today.</p>
+                <p className="px-5 py-4 text-sm text-gray-600">No classes scheduled today.</p>
               ) : (
                 <div className="divide-y divide-gray-100">
                   {todaysClasses.map((s) => <ClassRow key={s.id} s={s} />)}
@@ -125,7 +125,7 @@ export default function TimetablePage() {
               {nextClass ? (
                 <div className="divide-y divide-gray-100"><ClassRow s={nextClass} /></div>
               ) : (
-                <p className="px-5 py-4 text-xs text-gray-400">No more classes today.</p>
+                <p className="px-5 py-4 text-xs text-gray-600">No more classes today.</p>
               )}
             </div>
           </div>

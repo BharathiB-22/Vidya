@@ -33,7 +33,7 @@ function ClassRow({ s }: { s: FacultyTimetableSlot }) {
         <p className="text-sm font-semibold text-gray-800 truncate">
           {s.course_code} — {s.course_title}
         </p>
-        <p className="text-xs text-gray-400 truncate">
+        <p className="text-xs text-gray-600 truncate">
           {s.program_name && `${s.program_name} · `}
           Sec {s.section_name} · {s.semester_name}
           {s.room && ` · Room ${s.room}`}
@@ -98,7 +98,7 @@ export default function FacultyTimetablePage() {
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">My Timetable</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Your weekly teaching schedule across all sections.</p>
+        <p className="text-sm text-gray-600 mt-0.5">Your weekly teaching schedule across all sections.</p>
       </div>
 
       {isError && (
@@ -112,7 +112,7 @@ export default function FacultyTimetablePage() {
       ) : activeDays.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <CalendarClock className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No published teaching slots yet.</p>
+          <p className="text-sm text-gray-600">No published teaching slots yet.</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -123,7 +123,7 @@ export default function FacultyTimetablePage() {
               <h2 className="text-sm font-semibold text-indigo-800">Today · {DAYS_OF_WEEK[today]}</h2>
             </div>
             {todaysClasses.length === 0 ? (
-              <p className="px-5 py-4 text-sm text-gray-400">No classes scheduled today.</p>
+              <p className="px-5 py-4 text-sm text-gray-600">No classes scheduled today.</p>
             ) : (
               <div className="divide-y divide-gray-100">
                 {todaysClasses.map((s) => <ClassRow key={s.id} s={s} />)}
@@ -139,7 +139,7 @@ export default function FacultyTimetablePage() {
                 <h2 className="text-sm font-semibold text-gray-700">Upcoming Today</h2>
               </div>
               {upcoming.length === 0 ? (
-                <p className="px-5 py-4 text-xs text-gray-400">No more classes today.</p>
+                <p className="px-5 py-4 text-xs text-gray-600">No more classes today.</p>
               ) : (
                 <div className="divide-y divide-gray-100">
                   {upcoming.map((s) => <ClassRow key={s.id} s={s} />)}
@@ -153,7 +153,7 @@ export default function FacultyTimetablePage() {
                 <h2 className="text-sm font-semibold text-gray-700">Free Periods Today</h2>
               </div>
               {freePeriodsToday.length === 0 ? (
-                <p className="px-5 py-4 text-xs text-gray-400">No free periods today.</p>
+                <p className="px-5 py-4 text-xs text-gray-600">No free periods today.</p>
               ) : (
                 <div className="px-5 py-4 flex flex-wrap gap-1.5">
                   {freePeriodsToday.map((p) => (

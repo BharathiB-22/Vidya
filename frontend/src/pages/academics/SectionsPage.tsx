@@ -55,7 +55,7 @@ function CreateSectionDialog({ open, onClose, onCreated, semesterId, semesterLab
         <form onSubmit={submit} className="space-y-3 mt-2">
           <p className="text-xs text-gray-500">Adding to: <span className="font-medium text-gray-700">{semesterLabel}</span></p>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Section name <span className="text-gray-400 font-normal">(auto-uppercased)</span></label>
+            <label className="text-sm font-medium text-gray-700">Section name <span className="text-gray-600 font-normal">(auto-uppercased)</span></label>
             <Input
               value={name}
               onChange={e => setName(e.target.value.toUpperCase())}
@@ -65,7 +65,7 @@ function CreateSectionDialog({ open, onClose, onCreated, semesterId, semesterLab
             />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Max strength <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="text-sm font-medium text-gray-700">Max strength <span className="text-gray-600 font-normal">(optional)</span></label>
             <Input
               type="number"
               value={maxStr}
@@ -136,7 +136,7 @@ function EditSectionDialog({ section, onClose, onUpdated }: {
               <Input value={name} onChange={e => setName(e.target.value.toUpperCase())} maxLength={10} required />
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Max strength <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="text-sm font-medium text-gray-700">Max strength <span className="text-gray-600 font-normal">(optional)</span></label>
               <Input type="number" value={maxStr} onChange={e => setMaxStr(e.target.value)} min={1} />
             </div>
             <div className="flex items-center gap-2">
@@ -277,8 +277,8 @@ export default function SectionsPage() {
 
       {/* Empty state when no semester selected */}
       {filterSem === 'NONE' && (
-        <div className="border rounded-lg py-12 text-center text-gray-400 bg-gray-50">
-          <LayoutList className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+        <div className="border rounded-lg py-12 text-center text-gray-600 bg-gray-50">
+          <LayoutList className="h-8 w-8 mx-auto mb-2 text-gray-500" />
           <p className="text-sm">Select a program → batch → semester to view sections.</p>
         </div>
       )}
@@ -287,7 +287,7 @@ export default function SectionsPage() {
       {filterSem !== 'NONE' && (
         loading ? (
           <div className="py-8">
-            <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
+            <div className="flex items-center justify-center gap-2 text-gray-600 text-sm">
               <div className="h-5 w-5 animate-spin rounded-full border-4 border-gray-300 border-t-gray-500" />
               Loading…
             </div>
@@ -327,7 +327,7 @@ export default function SectionsPage() {
                       {s.max_strength != null ? `${s.max_strength} students` : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {s.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-400">Inactive</span>}
+                      {s.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-600">Inactive</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button size="sm" variant="outline" onClick={() => setEditing(s)}>Edit</Button>

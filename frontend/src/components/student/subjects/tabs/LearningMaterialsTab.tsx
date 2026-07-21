@@ -62,7 +62,7 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <Library className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">No approved syllabus yet — learning materials aren't available.</p>
+        <p className="text-sm text-gray-600">No approved syllabus yet — learning materials aren't available.</p>
       </div>
     )
   }
@@ -72,21 +72,21 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
       <UnitSelector units={subject.units} selected={unit} onSelect={setUnit} />
 
       {isListLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading materials…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading materials…</div>
       ) : !pkg ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <Library className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No learning materials curated for this unit yet.</p>
+          <p className="text-sm text-gray-600">No learning materials curated for this unit yet.</p>
         </div>
       ) : (
         <>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Looking for slides or PPTs? See the <span className="font-medium text-gray-500">Course Kit</span> tab.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="h-4 w-4 text-gray-600 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={search}
@@ -114,9 +114,9 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
           </div>
 
           {isItemsLoading ? (
-            <div className="text-sm text-gray-400 py-8 text-center">Loading items…</div>
+            <div className="text-sm text-gray-600 py-8 text-center">Loading items…</div>
           ) : filtered.length === 0 ? (
-            <p className="text-sm text-gray-400 py-6 text-center">No materials match this filter.</p>
+            <p className="text-sm text-gray-600 py-6 text-center">No materials match this filter.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filtered.map((item) => (
@@ -144,7 +144,7 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
           )}
 
           <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
               <MessageCircle className="h-3.5 w-3.5" /> Notebook Q&amp;A
             </h3>
             {turns.length > 0 && (

@@ -63,7 +63,7 @@ function ImageViewer({ keys, currentPage, onChangePage }: {
   if (!key) {
     return (
       <div className="flex items-center justify-center h-80 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50">
-        <p className="text-gray-400 text-sm">No scan image available</p>
+        <p className="text-gray-600 text-sm">No scan image available</p>
       </div>
     )
   }
@@ -617,7 +617,7 @@ export default function OCRReviewDetailPage() {
                 {data.original_ocr_text}
               </div>
             ) : (
-              <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-400 italic text-center">
+              <div className="rounded-md border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-600 italic text-center">
                 No OCR text extracted
               </div>
             )}

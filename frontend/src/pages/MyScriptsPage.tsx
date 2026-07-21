@@ -144,12 +144,12 @@ function EvaluatorScriptCard({
           Paper: <span className="font-mono">{script.exam_paper_id}</span>
         </p>
         {script.submitted_at && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Submitted: {new Date(script.submitted_at).toLocaleString()}
           </p>
         )}
         {script.finalised_at && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Finalised: {new Date(script.finalised_at).toLocaleString()}
           </p>
         )}

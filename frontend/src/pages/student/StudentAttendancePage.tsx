@@ -14,7 +14,7 @@ function prettyDate(iso: string): string {
 }
 
 function pctColor(pct: number | null): string {
-  if (pct === null) return 'text-gray-400'
+  if (pct === null) return 'text-gray-600'
   if (pct < 75) return 'text-red-600'
   if (pct < 85) return 'text-amber-600'
   return 'text-emerald-600'
@@ -110,7 +110,7 @@ function Dashboard({ onOpen }: { onOpen: (c: CourseAttendanceSummary) => void })
                     <span>
                       {c.attended_sessions} present · {c.total_sessions - c.attended_sessions} absent
                     </span>
-                    <span className="inline-flex items-center gap-0.5 text-gray-400">
+                    <span className="inline-flex items-center gap-0.5 text-gray-600">
                       History <ChevronRight className="h-3.5 w-3.5" />
                     </span>
                   </div>

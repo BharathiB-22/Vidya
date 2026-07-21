@@ -19,8 +19,10 @@ export type CourseworkStatus =
   | 'CLOSED'
   /** Handed to the department; evaluators can now be allocated. */
   | 'SUBMITTED'
-  /** Marks ratified by a human. Terminal for grading. */
+  /** Marks ratified by a human (Dean). Not yet visible to students. */
   | 'FINALIZED'
+  /** Ratified marks released to students; results now visible. */
+  | 'RELEASED'
   | 'ARCHIVED'
 export type CourseworkSubmissionStatus = 'SUBMITTED' | 'GRADED' | 'RETURNED'
 
@@ -68,6 +70,27 @@ export interface CourseworkAssignment {
   updated_at: string
   course_title?: string | null
   course_code?: string | null
+  /** Display name of the faculty who created it (detail endpoint only). */
+  created_by_name?: string | null
+  /** Display names of the nominated evaluators (detail endpoint only). */
+  evaluator_names?: string[]
+  /** Live evaluation progress, derived server-side on the list + detail
+   *  endpoints. Undefined where it was not computed (e.g. the student list). */
+  progress?: CourseworkProgress
+}
+
+/** How far one assignment has travelled. Every number is derived on read from
+ *  submissions, AI evaluations and the M09.6 ledger — nothing is stored, so it
+ *  cannot drift. AI counts are advisory state, never marks. */
+export interface CourseworkProgress {
+  total_students: number
+  submitted_count: number
+  graded_count: number
+  late_count: number
+  ai_completed_count: number
+  ai_failed_count: number
+  ai_pending_count: number
+  evaluator_assigned_count: number
 }
 
 export interface CourseworkAssignmentListResponse {
@@ -134,6 +157,15 @@ export interface CourseworkSubmission {
    *  the department allocates one. */
   evaluator_user_id?: string | null
   evaluator_name?: string | null
+  /** Advisory AI evaluation state for this submission; null/undefined when the
+   *  worker has not produced a row yet. Status only — the suggestions come from
+   *  the per-submission AI endpoint. */
+  ai_status?: AiEvalStatus | null
+  /** What the EVALUATOR recommended, preserved permanently. Visible to the
+   *  assignment's owner so they can compare it with their own decision; never
+   *  sent to students. Null when the owner graded it themselves. */
+  evaluator_marks_obtained?: number | null
+  evaluator_feedback?: string | null
 }
 
 /** A user who may be allocated coursework to evaluate — the existing EVALUATOR
@@ -148,22 +180,122 @@ export interface EligibleEvaluator {
 /** One coursework submission on the calling evaluator's desk — the M09.6 ledger
  *  resolved back to the coursework it points at, so "My Evaluations" can list
  *  coursework beside scripts and labs. */
+/** One ASSIGNMENT the evaluator is assigned to (shown from publish, before any
+ *  submission exists) with per-evaluator progress counts. */
 export interface MyCourseworkEvaluation {
-  submission_id: string
   assignment_id: string
   assignment_title: string
+  assignment_status: CourseworkStatus
   course_title: string | null
   course_code: string | null
-  student_name: string | null
-  attempt_number: number
-  submitted_at: string
-  is_late: boolean
-  submission_status: CourseworkSubmissionStatus
-  assignment_status: CourseworkStatus
+  semester: number | null
+  sections: string | null
+  faculty_name: string | null
+  evaluator_names: string | null
+  due_date: string | null
   max_marks: number
+  question_count: number
+  total_submissions: number
+  // Assignment-level progress (whole class) for the home card.
+  total_students: number
+  submitted_students: number
+  reviewed_students: number
+  pending_submission: number
+  pending_review: number
+  // Evaluator's own slice.
+  allocated_to_me: number
+  graded_by_me: number
+  pending_for_me: number
+}
+
+/** One course the faculty teaches, with its resolved approved syllabus. Scopes
+ *  the create form's course picker to the faculty's own load. */
+export interface MyTeachingCourse {
+  course_id: string
+  course_code: string
+  course_title: string
+  semester: number | null
+  section_id: string | null
+  section_name: string | null
+  syllabus_id: string | null
+  has_approved_syllabus: boolean
+}
+
+// ── Evaluation Center — one assignment's full class roster + live progress ──
+export type EvaluationCenterStatus = 'NOT_SUBMITTED' | 'SUBMITTED' | 'UNDER_REVIEW' | 'REVIEWED'
+
+export interface EvaluationCenterStudent {
+  student_user_id: string
+  student_name: string | null
+  student_usn?: string | null
+  submission_status: EvaluationCenterStatus
+  submission_id: string | null
+  is_late: boolean
+  submitted_at: string | null
   marks_obtained: number | null
-  due_at: string | null
-  allocation_status: string
+  graded_at?: string | null
+  evaluator_user_id: string | null
+  evaluator_name: string | null
+  ai_status?: AiEvalStatus | null
+}
+
+export interface EvaluationCenterProgress {
+  total_students: number
+  submitted: number
+  pending_submission: number
+  reviewed: number
+  pending_review: number
+  ai_completed?: number
+  ai_failed?: number
+}
+
+export interface EvaluationCenterResponse {
+  assignment: CourseworkAssignment
+  semester: number | null
+  progress: EvaluationCenterProgress
+  students: EvaluationCenterStudent[]
+}
+
+// ── AI evaluation (advisory) ───────────────────────────────────────────────
+export type AiEvalStatus = 'PENDING' | 'EXTRACTING' | 'EVALUATING' | 'COMPLETED' | 'FAILED'
+
+export interface AiSuggestedMark {
+  question_number: number
+  suggested: number
+  max: number
+  reason: string
+}
+
+export interface AiEvaluation {
+  submission_id: string
+  status: AiEvalStatus
+  extracted_text: string | null
+  word_count: number | null
+  file_type: string | null
+  suggested_marks: AiSuggestedMark[] | null
+  overall_suggested_marks: number | null
+  percentage: number | null
+  confidence_level: 'HIGH' | 'MEDIUM' | 'LOW' | string | null
+  feedback: {
+    strengths?: string[]
+    weaknesses?: string[]
+    missing_concepts?: string[]
+    writing_quality?: string
+    technical_correctness?: string
+    suggestions?: string[]
+  } | null
+  rubric_scores: { criterion: string; score: number; max: number; comment?: string }[] | null
+  bloom_analysis: { expected_level?: string; detected_level?: string; alignment_percent?: number; notes?: string } | null
+  co_analysis: { covered?: string[]; weak?: string[]; missing?: string[]; notes?: string } | null
+  similarity_score: number | null
+  similarity_matches: { submission_id: string; similarity: number }[] | null
+  plagiarism_status: string
+  ai_model: string | null
+  provider_used: string | null
+  fallback_chain: string | null
+  processing_ms: number | null
+  error_log: string | null
+  retry_count: number
 }
 
 export interface AssignEvaluatorPayload {
@@ -195,4 +327,8 @@ export interface CourseworkStatistics {
   graded_count: number
   average_marks: number | null
   late_count: number
+  ai_completed_count?: number
+  ai_failed_count?: number
+  ai_pending_count?: number
+  evaluator_assigned_count?: number
 }

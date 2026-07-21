@@ -109,7 +109,7 @@ export default function ScriptListPage() {
         </div>
         {paperFilter && statsData && (
           <button
-            className="text-xs text-gray-400 hover:text-gray-600 transition-colors self-end pb-2"
+            className="text-xs text-gray-600 hover:text-gray-600 transition-colors self-end pb-2"
             onClick={() => { setPaperFilter(''); setOffset(0) }}
           >
             Clear filter
@@ -276,7 +276,7 @@ function PipelineStatsPanel({ stats }: { stats: PaperPipelineStats }) {
         <p className="text-sm font-semibold text-gray-700">Pipeline status</p>
         <div className="text-right">
           <span className={`text-2xl font-bold ${pctColor}`}>{stats.completion_pct}%</span>
-          <span className="text-xs text-gray-400 ml-1">complete</span>
+          <span className="text-xs text-gray-600 ml-1">complete</span>
         </div>
       </div>
 
@@ -292,15 +292,15 @@ function PipelineStatsPanel({ stats }: { stats: PaperPipelineStats }) {
         {STAT_ROWS.filter(r => (stats[r.key] as number) > 0).map(r => (
           <div key={r.key} className="text-center bg-white rounded-lg border border-gray-100 px-2 py-1.5">
             <p className={`text-lg font-bold ${r.color}`}>{stats[r.key] as number}</p>
-            <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{r.label}</p>
+            <p className="text-[10px] text-gray-600 leading-tight mt-0.5">{r.label}</p>
           </div>
         ))}
         {stats.total === 0 && (
-          <p className="col-span-5 text-xs text-gray-400 text-center py-2">No scripts uploaded for this paper yet.</p>
+          <p className="col-span-5 text-xs text-gray-600 text-center py-2">No scripts uploaded for this paper yet.</p>
         )}
       </div>
 
-      <p className="text-xs text-gray-400 text-right">
+      <p className="text-xs text-gray-600 text-right">
         {stats.board_finalised} of {stats.total} scripts finalised
       </p>
     </div>
@@ -335,17 +335,17 @@ function ScriptCard({
           Paper: <span className="font-mono">{script.exam_paper_id}</span>
         </p>
         {script.evaluator_id && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Evaluator: <span className="font-mono">{script.evaluator_id}</span>
           </p>
         )}
         {script.submitted_at && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Submitted: {new Date(script.submitted_at).toLocaleString()}
           </p>
         )}
         {script.finalised_at && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Finalised: {new Date(script.finalised_at).toLocaleString()}
           </p>
         )}

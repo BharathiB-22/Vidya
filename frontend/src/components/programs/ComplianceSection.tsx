@@ -35,7 +35,7 @@ export function ComplianceSection({ program }: Props) {
       </div>
 
       {!hasRun && !result && (
-        <p className="text-sm text-gray-400 text-center py-8">
+        <p className="text-sm text-gray-600 text-center py-8">
           Click "Run Check" to validate the program structure.
         </p>
       )}

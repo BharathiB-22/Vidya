@@ -91,7 +91,7 @@ export function ArticulationMap({ program, courses }: Props) {
 
   if (courses.length === 0) {
     return (
-      <p className="text-sm text-gray-400 text-center py-10">
+      <p className="text-sm text-gray-600 text-center py-10">
         No courses defined yet. Add courses via the Structure tab.
       </p>
     )
@@ -222,7 +222,7 @@ export function ArticulationMap({ program, courses }: Props) {
       </div>
 
       {!isLoading && !hasEdges && (
-        <p className="text-xs text-gray-400 text-center py-1">
+        <p className="text-xs text-gray-600 text-center py-1">
           No prerequisite relationships defined. Add prerequisites when editing a course.
         </p>
       )}

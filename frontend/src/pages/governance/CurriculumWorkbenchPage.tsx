@@ -277,7 +277,7 @@ function ReadinessTiles({ readiness }: { readiness: ReadinessSummary }) {
         <div key={label} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-            <Icon className="h-4 w-4 text-gray-400" />
+            <Icon className="h-4 w-4 text-gray-600" />
           </div>
           <p className="mt-1 text-3xl font-bold text-black">{value}</p>
         </div>
@@ -599,7 +599,7 @@ function SubjectRow({
             <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Button>
         ) : locked || !onPrepare ? (
-          <span className="text-xs text-gray-400">No syllabus</span>
+          <span className="text-xs text-gray-600">No syllabus</span>
         ) : (
           <div className="flex justify-end gap-1.5">
             <Button size="sm" onClick={() => onPrepare(item, 'AI')}>
@@ -728,7 +728,7 @@ function Checklist({ items }: { items: ChecklistItem[] }) {
             <span
               className={
                 stage.optional
-                  ? 'text-gray-400'
+                  ? 'text-gray-600'
                   : stage.state === 'DONE'
                     ? 'text-gray-600'
                     : stage.state === 'INCOMPLETE'
@@ -765,7 +765,7 @@ function StageIcon({ state }: { state: ChecklistItem['state'] }) {
   if (state === 'INCOMPLETE') {
     return <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />
   }
-  return <Circle className="mt-0.5 h-3 w-3 shrink-0 text-gray-300" />
+  return <Circle className="mt-0.5 h-3 w-3 shrink-0 text-gray-500" />
 }
 
 function SyllabusBadge({ status }: { status: ReadinessItem['syllabus_status'] }) {

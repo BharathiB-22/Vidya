@@ -136,7 +136,7 @@ function AssignDialog({
         <div className="space-y-4">
           <Field label="Semester">
             {loadingSemesters ? (
-              <p className="py-2 text-xs text-gray-400">Loading semesters…</p>
+              <p className="py-2 text-xs text-gray-600">Loading semesters…</p>
             ) : validSemesters.length === 0 ? (
               <p className="text-xs leading-relaxed text-red-500">
                 No active semesters found for this course's program. Set up the academic
@@ -179,7 +179,7 @@ function AssignDialog({
                   <SelectItem key={u.id} value={u.id}>
                     <span className="block truncate">
                       {u.full_name}{u.role === 'DEAN' && ' (Dean)'}
-                      <span className="text-gray-400"> · {u.email}</span>
+                      <span className="text-gray-600"> · {u.email}</span>
                     </span>
                   </SelectItem>
                 ))}
@@ -229,7 +229,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
     <div className="space-y-1.5">
       <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
         {label}
-        {hint && <span className="ml-1 font-medium normal-case tracking-normal text-gray-400">({hint})</span>}
+        {hint && <span className="ml-1 font-medium normal-case tracking-normal text-gray-600">({hint})</span>}
       </label>
       {children}
     </div>
@@ -272,8 +272,8 @@ function ProgramSection({
         onClick={() => setExpanded(!expanded)}
       >
         {expanded
-          ? <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
-          : <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+          ? <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />
+          : <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
         }
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-gray-900">{program.title}</p>
@@ -297,9 +297,9 @@ function ProgramSection({
       {/* Course rows */}
       {expanded && (
         isLoading ? (
-          <div className="px-4 py-3 text-sm text-gray-400">Loading courses…</div>
+          <div className="px-4 py-3 text-sm text-gray-600">Loading courses…</div>
         ) : courses.length === 0 ? (
-          <div className="px-4 py-3 text-sm text-gray-400">No courses in this program.</div>
+          <div className="px-4 py-3 text-sm text-gray-600">No courses in this program.</div>
         ) : (
           <div className="divide-y divide-gray-100">
             {courses.map(course => {
@@ -339,7 +339,7 @@ function ProgramSection({
                           type="button"
                           title="Revoke"
                           onClick={() => onRevoke(primary!.id)}
-                          className="text-gray-300 hover:text-red-500 transition-colors"
+                          className="text-gray-500 hover:text-red-500 transition-colors"
                         >
                           <X className="h-3.5 w-3.5" />
                         </button>
@@ -354,7 +354,7 @@ function ProgramSection({
                           type="button"
                           title="Revoke"
                           onClick={() => onRevoke(a.id)}
-                          className="text-gray-300 hover:text-red-500 transition-colors"
+                          className="text-gray-500 hover:text-red-500 transition-colors"
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -364,7 +364,7 @@ function ProgramSection({
                     <button
                       type="button"
                       onClick={() => onAssign(course.id, `${course.code} — ${course.title}`, course.semester)}
-                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-sv-primary
+                      className="flex items-center gap-1 text-xs text-gray-600 hover:text-sv-primary
                                  border border-dashed border-gray-300 hover:border-sv-primary/60
                                  px-2 py-0.5 rounded transition-colors"
                     >
@@ -527,7 +527,7 @@ export default function CourseOwnershipTab() {
       {loadingPrograms ? (
         <PageLoading />
       ) : programs.length === 0 ? (
-        <div className="text-center py-16 text-sm text-gray-400 rounded-xl border border-dashed border-gray-200">
+        <div className="text-center py-16 text-sm text-gray-600 rounded-xl border border-dashed border-gray-200">
           No programs found for this filter.
         </div>
       ) : (

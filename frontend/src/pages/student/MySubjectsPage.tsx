@@ -34,14 +34,14 @@ function SubjectRow({ subject, onClick }: { subject: MySubjectSummary; onClick: 
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-gray-400">
+          <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-gray-600">
             <span>{subject.credits} credits</span>
             <span>Semester {subject.semester}</span>
             <span>Section {subject.section_name}</span>
             {subject.faculty_name && <span>{subject.faculty_name}</span>}
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+        <ChevronRight className="h-4 w-4 text-gray-500 shrink-0" />
       </div>
     </button>
   )
@@ -89,7 +89,7 @@ export default function MySubjectsPage() {
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="h-4 w-4 text-gray-600 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
@@ -131,7 +131,7 @@ export default function MySubjectsPage() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <BookOpen className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-gray-600">
             {subjects.length === 0 ? 'No subjects enrolled yet.' : 'No subjects match your search.'}
           </p>
         </div>

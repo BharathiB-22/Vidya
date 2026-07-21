@@ -25,13 +25,13 @@ export function LabsTab({ subject }: SubjectTabProps) {
     else navigate(`/student/labs/${a.id}`)
   }
 
-  if (isLoading) return <div className="text-sm text-gray-400 py-8 text-center">Loading labs…</div>
+  if (isLoading) return <div className="text-sm text-gray-600 py-8 text-center">Loading labs…</div>
 
   if (assignments.length === 0) {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <FlaskConical className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">No lab assignments for this subject yet.</p>
+        <p className="text-sm text-gray-600">No lab assignments for this subject yet.</p>
       </div>
     )
   }
@@ -64,7 +64,7 @@ export function LabsTab({ subject }: SubjectTabProps) {
               </span>
             )}
             {a.deadline && (
-              <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="text-xs text-gray-600 flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {new Date(a.deadline).toLocaleDateString()}
               </span>
@@ -80,7 +80,7 @@ export function LabsTab({ subject }: SubjectTabProps) {
     const { grouped, ungrouped } = groupByLabGroup(items)
     return (
       <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
           {label} ({items.length})
         </h3>
         <div className="space-y-3">

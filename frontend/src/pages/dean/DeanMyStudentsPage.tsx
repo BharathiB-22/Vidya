@@ -31,10 +31,10 @@ function StudentCard({ item, onClick }: { item: StudentDirectoryItem; onClick: (
             <p className="text-xs text-gray-500 font-mono mt-0.5">{item.usn}</p>
           )}
           {item.program && (
-            <p className="text-xs text-gray-400 mt-0.5 truncate">{item.program.name}</p>
+            <p className="text-xs text-gray-600 mt-0.5 truncate">{item.program.name}</p>
           )}
           {item.batch && (
-            <p className="text-xs text-gray-400 truncate">{item.batch.name}</p>
+            <p className="text-xs text-gray-600 truncate">{item.batch.name}</p>
           )}
         </div>
       </div>
@@ -94,7 +94,7 @@ export default function DeanMyStudentsPage() {
       {!noDepartment && (
         <div className="flex gap-3">
           <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600" />
             <Input
               value={search}
               onChange={e => { setSearch(e.target.value); setPage(1) }}
@@ -114,7 +114,7 @@ export default function DeanMyStudentsPage() {
       )}
 
       {!isLoading && !profileLoading && !error && !noDepartment && items.length === 0 && (
-        <div className="text-center py-16 text-gray-400 text-sm">
+        <div className="text-center py-16 text-gray-600 text-sm">
           No students found in your department.
         </div>
       )}

@@ -76,7 +76,7 @@ function CreateSemesterDialog({ open, onClose, onCreated, batches }: {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Label <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="text-sm font-medium text-gray-700">Label <span className="text-gray-600 font-normal">(optional)</span></label>
             <Input
               value={label} onChange={e => setLabel(e.target.value)}
               placeholder="e.g. Odd Sem 2024"
@@ -137,7 +137,7 @@ function EditSemesterDialog({ semester, onClose, onUpdated }: {
         {semester && (
           <form onSubmit={submit} className="space-y-3 mt-2">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Label <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="text-sm font-medium text-gray-700">Label <span className="text-gray-600 font-normal">(optional)</span></label>
               <Input
                 value={label} onChange={e => setLabel(e.target.value)}
                 placeholder="e.g. Odd Sem 2024"
@@ -260,7 +260,7 @@ export default function SemestersPage() {
           <tbody className="divide-y divide-gray-100">
             {semesters.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-600">
                   No semesters found. Use <span className="font-medium">Batches → Generate Semesters</span> or add one manually.
                 </td>
               </tr>
@@ -270,16 +270,16 @@ export default function SemestersPage() {
               return (
                 <tr key={s.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-semibold text-gray-900">Sem {s.number}</td>
-                  <td className="px-4 py-3 text-gray-600">{s.label ?? <span className="text-gray-300">—</span>}</td>
+                  <td className="px-4 py-3 text-gray-600">{s.label ?? <span className="text-gray-500">—</span>}</td>
                   <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{batch?.name ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-500 hidden lg:table-cell">
                     {prog?.name ?? '—'}
-                    {prog && <span className="ml-1.5 text-xs text-gray-400">({prog.code})</span>}
+                    {prog && <span className="ml-1.5 text-xs text-gray-600">({prog.code})</span>}
                   </td>
                   <td className="px-4 py-3">
                     {s.is_active
                       ? <span className="text-green-700 font-medium">Active</span>
-                      : <span className="text-gray-400">Inactive</span>}
+                      : <span className="text-gray-600">Inactive</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button size="sm" variant="outline" onClick={() => setEditing(s)}>Edit</Button>

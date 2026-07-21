@@ -50,11 +50,11 @@ function CreateDeptDialog({ open, onClose, onCreated }: {
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="Computer Science" required />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Code <span className="text-gray-400 font-normal">(auto-uppercased)</span></label>
+            <label className="text-sm font-medium text-gray-700">Code <span className="text-gray-600 font-normal">(auto-uppercased)</span></label>
             <Input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="CSE" maxLength={10} required />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Description <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="text-sm font-medium text-gray-700">Description <span className="text-gray-600 font-normal">(optional)</span></label>
             <Input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional description" />
           </div>
           {err && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{err}</p>}
@@ -197,7 +197,7 @@ export default function DepartmentsPage() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                 {depts.length === 0 ? 'No departments yet.' : 'No departments match your search.'}
               </td></tr>
             ) : filtered.map(d => (
@@ -206,7 +206,7 @@ export default function DepartmentsPage() {
                 <td className="px-4 py-3"><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-semibold bg-gray-100 text-gray-700">{d.code}</span></td>
                 <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{d.description ?? '—'}</td>
                 <td className="px-4 py-3">
-                  {d.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-400">Inactive</span>}
+                  {d.is_active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-gray-600">Inactive</span>}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Button size="sm" variant="outline" onClick={() => setEditing(d)}>Edit</Button>

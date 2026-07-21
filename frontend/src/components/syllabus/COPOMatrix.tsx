@@ -66,7 +66,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 gap-2 text-gray-400">
+      <div className="flex items-center justify-center py-12 gap-2 text-gray-600">
         <Loader2 className="h-5 w-5 animate-spin" />
         <span className="text-sm">Loading matrix…</span>
       </div>
@@ -80,7 +80,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
   if (data.rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-gray-300 py-12 text-center">
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-600">
           Add course outcomes first to build the CO-PO matrix.
         </p>
       </div>
@@ -90,7 +90,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
   if (data.po_headers.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-gray-300 py-12 text-center">
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-600">
           No programme outcomes defined. CO-PO matrix unavailable.
         </p>
       </div>
@@ -139,7 +139,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
           {coveragePct}%
         </span>
         {updateMappings.isPending && (
-          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+          <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
         )}
       </div>
 
@@ -171,7 +171,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
                 <td className="sticky left-0 z-10 bg-white group-hover:bg-gray-50 border-r border-gray-200 px-3 py-2 whitespace-nowrap">
                   <span className="font-semibold text-gray-800">{row.co_code}</span>
                   <span
-                    className="ml-1 text-gray-400 font-normal truncate max-w-[8rem] inline-block align-bottom"
+                    className="ml-1 text-gray-600 font-normal truncate max-w-[8rem] inline-block align-bottom"
                     title={row.description}
                   >
                     — {row.description.substring(0, 30)}{row.description.length > 30 ? '…' : ''}
@@ -193,7 +193,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
                         className={`w-full h-7 rounded font-semibold transition-all text-[11px] tracking-wide ${
                           strength
                             ? CELL_STYLE[strength]
-                            : 'bg-gray-100 text-gray-300'
+                            : 'bg-gray-100 text-gray-500'
                         } ${isEditable && !updateMappings.isPending ? 'cursor-pointer hover:opacity-90 active:scale-95' : 'cursor-default'}`}
                       >
                         {strength ? CELL_LABEL[strength] : '·'}
@@ -202,7 +202,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
                   )
                 })}
                 <td className="px-2 py-2 text-center border-l border-gray-200">
-                  <span className={`text-xs font-semibold ${coMappingCount[row.co_id] > 0 ? 'text-gray-700' : 'text-gray-300'}`}>
+                  <span className={`text-xs font-semibold ${coMappingCount[row.co_id] > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
                     {coMappingCount[row.co_id]}
                   </span>
                 </td>
@@ -216,7 +216,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
               </td>
               {data.po_headers.map((po) => (
                 <td key={po.po_id} className="py-2 text-center">
-                  <span className={`text-xs font-semibold ${poMappingCount[po.po_id] > 0 ? 'text-gray-700' : 'text-gray-300'}`}>
+                  <span className={`text-xs font-semibold ${poMappingCount[po.po_id] > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
                     {poMappingCount[po.po_id]}
                   </span>
                 </td>
@@ -229,7 +229,7 @@ export function COPOMatrix({ syllabusId, isEditable }: Props) {
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-        {isEditable && <span className="text-gray-400">Click a cell to cycle:</span>}
+        {isEditable && <span className="text-gray-600">Click a cell to cycle:</span>}
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-5 h-5 rounded bg-orange-500" />
           <span>H — High (3)</span>

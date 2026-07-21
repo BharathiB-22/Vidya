@@ -97,7 +97,7 @@ function PackageStepper({ status }: { status: PackageStatus }) {
               active && status === 'OUTDATED' ? 'bg-orange-100 text-orange-700'
               : active ? 'bg-blue-100 text-blue-700'
               : done   ? 'bg-green-50 text-green-600'
-              :          'text-gray-400'
+              :          'text-gray-600'
             }`}>
               {done ? (
                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -166,7 +166,7 @@ function RelevancePill({ score }: { score: number | null }) {
   if (score === null) return null
   const pct = Math.round(score * 100)
   return (
-    <span className="text-[11px] tabular-nums text-gray-400 whitespace-nowrap">{pct}%</span>
+    <span className="text-[11px] tabular-nums text-gray-600 whitespace-nowrap">{pct}%</span>
   )
 }
 
@@ -202,7 +202,7 @@ function ItemCurateRow({
             className="text-sm font-medium text-gray-800 hover:text-blue-700 hover:underline underline-offset-2 flex items-center gap-1 group/link"
           >
             <span className="line-clamp-1">{item.title}</span>
-            <ExternalLink className="h-3 w-3 shrink-0 text-gray-300 group-hover/link:text-blue-500" />
+            <ExternalLink className="h-3 w-3 shrink-0 text-gray-500 group-hover/link:text-blue-500" />
           </a>
         ) : (
           <p className="text-sm font-medium text-gray-800 line-clamp-1">{item.title}</p>
@@ -226,7 +226,7 @@ function ItemCurateRow({
           className={`shrink-0 rounded-md p-1 transition-colors ${
             item.faculty_recommended
               ? 'text-amber-500 hover:text-amber-600'
-              : 'text-gray-300 hover:text-amber-400'
+              : 'text-gray-500 hover:text-amber-400'
           } disabled:opacity-50`}
         >
           {toggling ? (
@@ -244,7 +244,7 @@ function ItemCurateRow({
           title="Remove item"
           disabled={removing}
           onClick={onRemove}
-          className="shrink-0 rounded-md p-1 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
+          className="shrink-0 rounded-md p-1 text-gray-500 hover:text-red-500 transition-colors disabled:opacity-50"
         >
           {removing ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -593,7 +593,7 @@ export default function FacultyCuratePage() {
   // ── Loading / error states ─────────────────────────────────────────────
   if (pkgLoading) {
     return (
-      <div className="flex items-center justify-center py-24 gap-2 text-gray-400">
+      <div className="flex items-center justify-center py-24 gap-2 text-gray-600">
         <Loader2 className="h-5 w-5 animate-spin" />
         <span className="text-sm">Loading package…</span>
       </div>
@@ -735,7 +735,7 @@ export default function FacultyCuratePage() {
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-gray-800">
             Resources
-            <span className="ml-2 text-sm font-normal text-gray-400 tabular-nums">
+            <span className="ml-2 text-sm font-normal text-gray-600 tabular-nums">
               ({items.length})
             </span>
           </h2>
@@ -795,14 +795,14 @@ export default function FacultyCuratePage() {
         ) : items.length === 0 ? (
           <div className="text-center py-14 rounded-xl border border-dashed border-gray-200">
             <Database className="h-9 w-9 mx-auto mb-3 text-gray-200" />
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-600">
               No resources yet. Trigger curation or add a faculty item.
             </p>
           </div>
         ) : (
           <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
             {/* Column header */}
-            <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-gray-50 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+            <div className="hidden sm:flex items-center gap-3 px-4 py-2 bg-gray-50 text-[11px] font-semibold text-gray-600 uppercase tracking-wide">
               <span className="w-20 shrink-0">Source</span>
               <span className="flex-1">Title</span>
               <span className="w-8 text-right">Rel.</span>

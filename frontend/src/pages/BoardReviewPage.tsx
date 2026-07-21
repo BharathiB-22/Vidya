@@ -12,6 +12,7 @@ import {
   boardDecision, sealPaper, releasePaper, exportPdf,
 } from '@/lib/api/exam'
 import { getErrorMessage } from '@/lib/api'
+import { examStatusColor, examStatusLabel } from '@/lib/examStatus'
 import type {
   BoardDecisionPayload, ExamQuestion, BloomsComplianceReport,
   SectionConfig, CoCoverageEntry, UnitCoverageEntry,
@@ -126,6 +127,27 @@ export default function BoardReviewPage() {
 
   if (!paper) return <div className="p-8 text-red-600">Exam paper not found.</div>
 
+  // Workflow isolation: the Board never reviews INTERNAL papers — those belong to
+  // the Dean. Guard against a direct-URL landing on an internal paper.
+  if (paper.exam_workflow === 'INTERNAL') {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="flex gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-amber-800 text-sm">This is an Internal Assessment paper</p>
+            <p className="text-sm text-amber-700 mt-1">
+              Internal papers are reviewed by the Dean, not the Board.
+            </p>
+            <button onClick={() => navigate('/exams')} className="text-sm text-amber-700 underline mt-2">
+              Back to Exam Papers
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const alreadyDecided = paper.status !== 'SUBMITTED'
   const canSeal        = paper.status === 'BOARD_APPROVED'
   const canRelease     = paper.status === 'SEALED'
@@ -145,9 +167,7 @@ export default function BoardReviewPage() {
           <p className="text-sm text-gray-500">
             Board Review · {paper.exam_type.replace('_', ' ')}
             {' · '}
-            <span className={`font-medium ${paper.exam_workflow === 'INTERNAL' ? 'text-amber-600' : 'text-indigo-600'}`}>
-              {paper.exam_workflow === 'INTERNAL' ? 'Internal Assessment' : 'Board Exam'}
-            </span>
+            <span className="font-medium text-indigo-600">Board Exam</span>
             {' · '}{paper.total_marks} marks · {paper.duration_mins} min
           </p>
         </div>
@@ -157,7 +177,7 @@ export default function BoardReviewPage() {
       {alreadyDecided && !canSeal && !canRelease && !isTerminal && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-600">
           This paper has already been processed (status:{' '}
-          <strong>{paper.status.replace('_', ' ')}</strong>).
+          <strong>{examStatusLabel(paper.status, 'BOARD_EXAM')}</strong>).
           {paper.board_comment && (
             <p className="mt-1 text-gray-500">Board comment: {paper.board_comment}</p>
           )}
@@ -185,7 +205,7 @@ export default function BoardReviewPage() {
           </div>
 
           {qLoading && (
-            <div className="text-gray-400 text-sm py-4 flex items-center gap-2">
+            <div className="text-gray-600 text-sm py-4 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading questions with model answers…
             </div>
           )}
@@ -485,7 +505,7 @@ function SectionedAnswerList({
       })}
       {uncat.length > 0 && (
         <div className="space-y-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Other</p>
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Other</p>
           {uncat.map((q, idx) => (
             <BoardQuestionCard key={q.id} question={q} index={idx + 1} />
           ))}
@@ -509,7 +529,7 @@ function BoardQuestionCard({ question, index }: { question: ExamQuestion; index:
 
       {/* Question text */}
       <div className="flex items-start gap-3">
-        <span className="text-xs font-bold text-gray-400 mt-0.5 shrink-0">Q{index}</span>
+        <span className="text-xs font-bold text-gray-600 mt-0.5 shrink-0">Q{index}</span>
         <p className="text-sm text-gray-900 leading-snug flex-1">{question.question_text}</p>
       </div>
 
@@ -525,7 +545,7 @@ function BoardQuestionCard({ question, index }: { question: ExamQuestion; index:
                   isCorrect ? 'bg-green-50 text-green-800 font-medium' : 'text-gray-600'
                 }`}
               >
-                <span className={`font-semibold shrink-0 ${isCorrect ? 'text-green-600' : 'text-gray-400'}`}>
+                <span className={`font-semibold shrink-0 ${isCorrect ? 'text-green-600' : 'text-gray-600'}`}>
                   {opt.label}.
                 </span>
                 <span>{opt.text}</span>
@@ -553,10 +573,10 @@ function BoardQuestionCard({ question, index }: { question: ExamQuestion; index:
         )}
         <span className="text-xs text-gray-500">Unit {question.unit_number}</span>
         {question.co_ids && question.co_ids.length > 0 && (
-          <span className="text-xs text-gray-400">{question.co_ids.length} CO</span>
+          <span className="text-xs text-gray-600">{question.co_ids.length} CO</span>
         )}
         <span className="text-xs text-gray-500 ml-auto">{question.marks} marks</span>
-        <span className="text-xs text-gray-400">Set: {question.set_membership.join(', ')}</span>
+        <span className="text-xs text-gray-600">Set: {question.set_membership.join(', ')}</span>
         {question.is_edited && (
           <span className="text-xs text-orange-500 font-medium">edited</span>
         )}
@@ -641,7 +661,7 @@ function CoCoveragePanel({ report }: { report: CoCoverageEntry[] }) {
     <div className="border border-gray-200 rounded-xl bg-white p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-          <BookOpen className="w-3.5 h-3.5 text-gray-400" />
+          <BookOpen className="w-3.5 h-3.5 text-gray-600" />
           CO Coverage
         </h3>
         {allCovered ? (
@@ -666,11 +686,11 @@ function CoCoveragePanel({ report }: { report: CoCoverageEntry[] }) {
                 style={{ width: entry.covered ? '100%' : '20%' }}
               />
             </div>
-            <span className="text-gray-400 w-8 text-right shrink-0">{entry.question_count}Q</span>
+            <span className="text-gray-600 w-8 text-right shrink-0">{entry.question_count}Q</span>
           </div>
         ))}
       </div>
-      <p className="text-xs text-gray-400 italic">Advisory only — does not block workflow.</p>
+      <p className="text-xs text-gray-600 italic">Advisory only — does not block workflow.</p>
     </div>
   )
 }
@@ -681,7 +701,7 @@ function UnitCoveragePanel({ report }: { report: UnitCoverageEntry[] }) {
     <div className="border border-gray-200 rounded-xl bg-white p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-          <BarChart2 className="w-3.5 h-3.5 text-gray-400" />
+          <BarChart2 className="w-3.5 h-3.5 text-gray-600" />
           Unit Coverage
         </h3>
         {allCovered ? (
@@ -711,7 +731,7 @@ function UnitCoveragePanel({ report }: { report: UnitCoverageEntry[] }) {
           </div>
         ))}
       </div>
-      <p className="text-xs text-gray-400 italic">Advisory only — does not block workflow.</p>
+      <p className="text-xs text-gray-600 italic">Advisory only — does not block workflow.</p>
     </div>
   )
 }
@@ -754,20 +774,11 @@ function BloomsPanel({ report }: { report: BloomsComplianceReport }) {
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    DRAFT:          'bg-gray-100 text-gray-600',
-    GENERATING:     'bg-blue-100 text-blue-600',
-    GENERATED:      'bg-indigo-100 text-indigo-700',
-    FAILED:         'bg-red-100 text-red-600',
-    SUBMITTED:      'bg-yellow-100 text-yellow-700',
-    BOARD_APPROVED: 'bg-green-100 text-green-700',
-    BOARD_RETURNED: 'bg-orange-100 text-orange-700',
-    SEALED:         'bg-purple-100 text-purple-700',
-    RELEASED:       'bg-emerald-100 text-emerald-700',
-  }
+  // Board review is BOARD_EXAM-only (internal papers are guarded out), so Board
+  // terminology is always correct here.
   return (
-    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${colors[status] ?? 'bg-gray-100 text-gray-600'}`}>
-      {status.replace('_', ' ')}
+    <span className={`px-3 py-1 rounded-full text-sm font-semibold ${examStatusColor(status)}`}>
+      {examStatusLabel(status, 'BOARD_EXAM')}
     </span>
   )
 }

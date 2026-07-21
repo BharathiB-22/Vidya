@@ -31,13 +31,13 @@ function SubmissionsPanel({ labId, onReview }: { labId: string; onReview: (submi
   const submissions = data?.items ?? []
 
   if (isLoading) {
-    return <div className="text-sm text-gray-400 py-8 text-center">Loading submissions…</div>
+    return <div className="text-sm text-gray-600 py-8 text-center">Loading submissions…</div>
   }
   if (submissions.length === 0) {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <Users className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">No submissions yet.</p>
+        <p className="text-sm text-gray-600">No submissions yet.</p>
       </div>
     )
   }
@@ -80,7 +80,7 @@ export function LabsTab({ ctx }: FacultySubjectTabProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
           {data ? `${data.total} lab${data.total !== 1 ? 's' : ''}` : 'Labs'}
         </p>
         <div className="flex gap-2">
@@ -100,13 +100,13 @@ export function LabsTab({ ctx }: FacultySubjectTabProps) {
       </div>
 
       {isLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading labs…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading labs…</div>
       ) : isError ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Failed to load labs.</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Failed to load labs.</div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <FlaskConical className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No lab assignments yet for this subject.</p>
+          <p className="text-sm text-gray-600">No lab assignments yet for this subject.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -119,7 +119,7 @@ export function LabsTab({ ctx }: FacultySubjectTabProps) {
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{a.title}</p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-600">
                   {a.submission_type}
                   {a.max_marks != null ? ` · ${a.max_marks} marks` : ''}
                   {a.deadline ? ` · Due ${new Date(a.deadline).toLocaleDateString()}` : ''}

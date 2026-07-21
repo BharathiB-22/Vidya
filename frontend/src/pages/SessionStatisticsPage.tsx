@@ -56,13 +56,13 @@ function ScoreHistogram({ buckets, passThreshold }: { buckets: DigitalScoreBucke
                 </span>
               )}
             </div>
-            <span className="w-4 text-xs text-gray-400 shrink-0">{b.count}</span>
+            <span className="w-4 text-xs text-gray-600 shrink-0">{b.count}</span>
           </div>
         )
       })}
       <div className="flex items-center gap-3 pt-1">
         <span className="w-16" />
-        <div className="flex items-center gap-3 text-xs text-gray-400">
+        <div className="flex items-center gap-3 text-xs text-gray-600">
           <span className="flex items-center gap-1">
             <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-300" />
             Below threshold
@@ -81,7 +81,7 @@ function PassFailDonut({ passCount, failCount }: { passCount: number; failCount:
   const total = passCount + failCount
   if (total === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-32 text-gray-400 text-sm">
+      <div className="flex flex-col items-center justify-center h-32 text-gray-600 text-sm">
         No scored attempts
       </div>
     )
@@ -240,9 +240,9 @@ export default function SessionStatisticsPage() {
 
         {!hasScores && (
           <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-12 text-center space-y-2">
-            <Award className="h-8 w-8 mx-auto text-gray-300" />
+            <Award className="h-8 w-8 mx-auto text-gray-500" />
             <p className="text-sm text-gray-500">No scored attempts yet.</p>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-600">
               Score analytics will appear once students submit and MCQ auto-scoring runs.
             </p>
           </div>
@@ -281,7 +281,7 @@ export default function SessionStatisticsPage() {
             <div className="rounded-xl border border-gray-200 bg-white px-5 py-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-gray-800">Score Distribution</h2>
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-gray-600">
                   Pass zone ≥ {passThreshold}% (green)
                 </span>
               </div>
@@ -292,7 +292,7 @@ export default function SessionStatisticsPage() {
             </div>
 
             {/* Info footnote */}
-            <p className="text-xs text-gray-400 px-1">
+            <p className="text-xs text-gray-600 px-1">
               Scores are MCQ auto-scores only. Subjective answers are not included in these analytics.
             </p>
           </>

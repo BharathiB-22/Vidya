@@ -57,8 +57,8 @@ function FacultyCard({ item, onClick, courseCount }: {
           )}
           {item.primary_department && (
             <div className="flex items-center gap-1 mt-1">
-              <Building2 className="h-3 w-3 text-gray-400" />
-              <span className="text-xs text-gray-400 truncate">{item.primary_department.name}</span>
+              <Building2 className="h-3 w-3 text-gray-600" />
+              <span className="text-xs text-gray-600 truncate">{item.primary_department.name}</span>
             </div>
           )}
           {item.responsibilities.length > 0 && (
@@ -67,7 +67,7 @@ function FacultyCard({ item, onClick, courseCount }: {
             </div>
           )}
           {courseCount !== undefined && courseCount > 0 && (
-            <div className="flex items-center gap-1 mt-1.5 text-xs text-gray-400">
+            <div className="flex items-center gap-1 mt-1.5 text-xs text-gray-600">
               <BookOpen className="h-3 w-3" />
               <span>{courseCount} course{courseCount !== 1 ? 's' : ''} this semester</span>
             </div>
@@ -118,7 +118,7 @@ export default function DeanMyFacultyPage() {
 
       <div className="flex gap-3">
         <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600" />
           <Input
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}

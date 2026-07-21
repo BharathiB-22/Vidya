@@ -56,7 +56,7 @@ function AutoSaveIndicator({ state }: { state: SaveState }) {
   if (state === 'idle') return null
   return (
     <span className={`flex items-center gap-1 text-xs ${
-      state === 'saving'  ? 'text-gray-400' :
+      state === 'saving'  ? 'text-gray-600' :
       state === 'saved'   ? 'text-green-600' :
       'text-red-500'
     }`}>
@@ -88,7 +88,7 @@ function MCQOption({
       }`}
     >
       <span className={`mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 text-xs font-bold ${
-        selected ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-gray-300 text-gray-400'
+        selected ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-gray-300 text-gray-600'
       }`}>
         {label}
       </span>
@@ -330,7 +330,7 @@ export default function ActiveExamPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Question navigation sidebar — hidden on mobile, shown on lg+ */}
         <nav className="hidden lg:flex flex-col w-56 bg-white border-r border-gray-200 overflow-y-auto py-3 px-2">
-          <div className="text-xs font-semibold text-gray-400 uppercase px-2 mb-2">
+          <div className="text-xs font-semibold text-gray-600 uppercase px-2 mb-2">
             {answered.length} / {questions.length} answered
           </div>
 
@@ -352,15 +352,15 @@ export default function ActiveExamPage() {
                 <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center text-xs font-bold shrink-0 ${
                   active  ? 'border-indigo-500 bg-indigo-500 text-white' :
                   done    ? 'border-green-500 bg-green-50 text-green-600' :
-                  'border-gray-300 text-gray-400'
+                  'border-gray-300 text-gray-600'
                 }`}>
                   {done && !active ? <CheckCircle2 className="h-3 w-3" /> : i + 1}
                 </span>
                 <span className="truncate">
                   Q{i + 1}
-                  {q.section_label && <span className="text-xs text-gray-400 ml-1">§{q.section_label}</span>}
+                  {q.section_label && <span className="text-xs text-gray-600 ml-1">§{q.section_label}</span>}
                 </span>
-                <span className="ml-auto text-xs text-gray-400">{q.marks}m</span>
+                <span className="ml-auto text-xs text-gray-600">{q.marks}m</span>
               </button>
             )
           })}
@@ -400,7 +400,7 @@ export default function ActiveExamPage() {
                     Section {currentQ.section_label}
                   </span>
                 )}
-                <span className="ml-auto text-xs text-gray-400 font-medium">
+                <span className="ml-auto text-xs text-gray-600 font-medium">
                   {currentQ.marks} mark{currentQ.marks !== 1 ? 's' : ''}
                 </span>
               </div>
@@ -430,13 +430,13 @@ export default function ActiveExamPage() {
                   <div className="space-y-1">
                     <label className="text-xs text-gray-500">Your answer</label>
                     <textarea
-                      className="w-full min-h-[160px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-y focus:outline-none focus:border-indigo-400 focus:bg-white transition-colors"
+                      className="w-full min-h-[160px] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-600 resize-y focus:outline-none focus:border-indigo-400 focus:bg-white transition-colors"
                       placeholder="Write your answer here…"
                       value={responses[currentQ.id]?.response_text ?? ''}
                       onChange={e => handleTextChange(currentQ, e.target.value)}
                     />
                     {currentQ.question_type === 'LONG_ANSWER' && (
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-600">
                         {(responses[currentQ.id]?.response_text ?? '').length} characters
                       </p>
                     )}
@@ -457,7 +457,7 @@ export default function ActiveExamPage() {
                 Previous
               </Button>
 
-              <span className="text-sm text-gray-400">{currentIdx + 1} of {questions.length}</span>
+              <span className="text-sm text-gray-600">{currentIdx + 1} of {questions.length}</span>
 
               <Button
                 variant="outline"
@@ -490,7 +490,7 @@ export default function ActiveExamPage() {
           <div className="text-center space-y-3">
             <Loader2 className="h-10 w-10 animate-spin text-indigo-500 mx-auto" />
             <p className="font-semibold text-gray-700">Submitting your exam…</p>
-            <p className="text-sm text-gray-400">Scoring MCQ answers…</p>
+            <p className="text-sm text-gray-600">Scoring MCQ answers…</p>
           </div>
         </div>
       )}

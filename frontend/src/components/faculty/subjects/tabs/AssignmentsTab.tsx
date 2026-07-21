@@ -16,6 +16,12 @@ const STATUS_VARIANT: Record<CourseworkStatus, 'default' | 'success' | 'warning'
   DRAFT: 'default',
   PUBLISHED: 'success',
   CLOSED: 'warning',
+  // Out with the department for evaluator allocation.
+  SUBMITTED: 'info',
+  // Marks ratified — grading is closed (not yet visible to students).
+  FINALIZED: 'success',
+  // Ratified marks released to students.
+  RELEASED: 'success',
   ARCHIVED: 'info',
 }
 
@@ -55,7 +61,7 @@ export function AssignmentsTab({ ctx }: FacultySubjectTabProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
           {data ? `${data.total} assignment${data.total !== 1 ? 's' : ''}` : 'Assignments'}
         </p>
         <div className="flex gap-2">
@@ -75,13 +81,13 @@ export function AssignmentsTab({ ctx }: FacultySubjectTabProps) {
       </div>
 
       {isLoading ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Loading assignments…</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Loading assignments…</div>
       ) : isError ? (
-        <div className="text-sm text-gray-400 py-8 text-center">Failed to load assignments.</div>
+        <div className="text-sm text-gray-600 py-8 text-center">Failed to load assignments.</div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
           <ClipboardList className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-          <p className="text-sm text-gray-400">No assignments yet for this subject.</p>
+          <p className="text-sm text-gray-600">No assignments yet for this subject.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -94,7 +100,7 @@ export function AssignmentsTab({ ctx }: FacultySubjectTabProps) {
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{a.title}</p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-600">
                   {a.assignment_type} · {a.max_marks} marks · Due {new Date(a.due_date).toLocaleDateString()}
                 </p>
               </div>

@@ -12,7 +12,7 @@ function Stat({ icon: Icon, label, value, tone = 'default' }: {
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <Icon className={`h-4 w-4 mb-2 ${tone === 'warning' ? 'text-amber-500' : 'text-gray-400'}`} />
+      <Icon className={`h-4 w-4 mb-2 ${tone === 'warning' ? 'text-amber-500' : 'text-gray-600'}`} />
       <p className="text-xl font-bold text-gray-900">{value}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
     </div>
@@ -74,7 +74,7 @@ export function AnalyticsTab({ ctx }: FacultySubjectTabProps) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Subject Analytics</p>
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Subject Analytics</p>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <Stat
           icon={ClipboardList}

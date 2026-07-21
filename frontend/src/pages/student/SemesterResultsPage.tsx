@@ -69,7 +69,7 @@ export default function SemesterResultsPage() {
       ) : rows.length === 0 ? (
         <div className="text-center py-16 rounded-xl border border-dashed border-gray-200">
           <Award className="h-10 w-10 mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No semester results published yet.</p>
+          <p className="text-sm text-gray-600">No semester results published yet.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -91,7 +91,7 @@ export default function SemesterResultsPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-gray-400">
+                <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-gray-600">
                   {result.sgpa != null && <span>SGPA {result.sgpa.toFixed(2)}</span>}
                   {result.cgpa != null && <span>CGPA {result.cgpa.toFixed(2)}</span>}
                   {result.total_credits_earned != null && (
@@ -100,7 +100,7 @@ export default function SemesterResultsPage() {
                   {result.section_rank != null && <span>Section rank #{result.section_rank}</span>}
                 </div>
               </div>
-              <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+              <ChevronRight className="h-4 w-4 text-gray-500 shrink-0" />
             </button>
           ))}
         </div>

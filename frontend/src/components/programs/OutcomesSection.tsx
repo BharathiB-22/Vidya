@@ -41,7 +41,7 @@ export function OutcomesSection({ program }: Props) {
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">No outcomes defined yet.</p>
+        <p className="text-sm text-gray-600 text-center py-8">No outcomes defined yet.</p>
       ) : (
         <div className="space-y-2">
           {sorted.map((outcome) => (
@@ -55,7 +55,7 @@ export function OutcomesSection({ program }: Props) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-800">{outcome.description}</p>
                 {outcome.bloom_level && (
-                  <p className="text-xs text-gray-400 mt-0.5">Bloom: {outcome.bloom_level}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">Bloom: {outcome.bloom_level}</p>
                 )}
               </div>
               {isDraft && (

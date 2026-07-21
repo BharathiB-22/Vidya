@@ -128,7 +128,7 @@ export default function AcademicProgressPage() {
             <div className="h-4 w-3/4 rounded bg-gray-100" />
           </div>
         ) : semesters.length === 0 ? (
-          <p className="text-sm text-gray-400">No published semester results yet.</p>
+          <p className="text-sm text-gray-600">No published semester results yet.</p>
         ) : (
           <div className="divide-y divide-gray-100">
             {semesters.map((s) => (

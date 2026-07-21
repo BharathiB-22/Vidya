@@ -93,7 +93,7 @@ function WorkspaceCard({ card, onClick }: { card: WorkspaceCard; onClick: () => 
           <div className={`p-2 rounded-lg border ${card.badge}`}>
             <card.icon className="h-4 w-4" />
           </div>
-          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-sv-primary mt-0.5 transition-colors duration-200" />
+          <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-sv-primary mt-0.5 transition-colors duration-200" />
         </div>
         <p className="text-sm font-semibold text-gray-900 leading-snug">{card.title}</p>
         <p className="text-xs text-gray-500 mt-1 leading-relaxed">{card.description}</p>

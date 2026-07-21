@@ -51,7 +51,6 @@ import ElectivesPage from '@/pages/student/ElectivesPage'
 import CourseKitsPage from '@/pages/student/CourseKitsPage'
 import LearningMaterialsPage from '@/pages/student/LearningMaterialsPage'
 import SemesterResultsPage from '@/pages/student/SemesterResultsPage'
-import EventsPage from '@/pages/student/EventsPage'
 import AcademicProgressPage from '@/pages/student/AcademicProgressPage'
 import StudentTimetablePage from '@/pages/student/TimetablePage'
 import FacultyTimetablePage from '@/pages/FacultyTimetablePage'
@@ -63,10 +62,13 @@ import StudentAssignmentResultPage from '@/pages/coursework/StudentAssignmentRes
 import FacultyAssignmentListPage from '@/pages/coursework/FacultyAssignmentListPage'
 import FacultyAssignmentFormPage from '@/pages/coursework/FacultyAssignmentFormPage'
 import FacultyAssignmentGradingPage from '@/pages/coursework/FacultyAssignmentGradingPage'
+import EvaluationCenterPage from '@/pages/coursework/EvaluationCenterPage'
+import EvaluationCenterAssignmentPage from '@/pages/coursework/EvaluationCenterAssignmentPage'
 import ExamPaperListPage from '@/pages/ExamPaperListPage'
 import ExamPaperCreatePage from '@/pages/ExamPaperCreatePage'
 import ExamPaperEditorPage from '@/pages/ExamPaperEditorPage'
 import BoardReviewPage from '@/pages/BoardReviewPage'
+import DeanReviewPage from '@/pages/DeanReviewPage'
 import InternalExamReleasePage from '@/pages/InternalExamReleasePage'
 import ScriptListPage from '@/pages/ScriptListPage'
 import ScriptUploadPage from '@/pages/ScriptUploadPage'
@@ -86,7 +88,7 @@ import BulkOnboardingPage from '@/pages/BulkOnboardingPage'
 import SettingsPage from '@/pages/SettingsPage'
 import InstitutionAdminProfilePage from '@/pages/InstitutionAdminProfilePage'
 import SettingsBrandingPage from '@/pages/SettingsBrandingPage'
-import EvaluatorDashboardPage from '@/pages/EvaluatorDashboardPage'
+import MyEvaluationsPage from '@/pages/MyEvaluationsPage'
 import EvaluatorSubmissionsPage from '@/pages/EvaluatorSubmissionsPage'
 import EvaluatorReviewPanel from '@/pages/EvaluatorReviewPanel'
 import MyCoursesPage from '@/pages/MyCoursesPage'
@@ -133,11 +135,9 @@ import GradeCardPage from '@/pages/sis/GradeCardPage'
 import RankListPage from '@/pages/sis/RankListPage'
 import MyGradeCardPage from '@/pages/sis/MyGradeCardPage'
 import MyTranscriptPage from '@/pages/sis/MyTranscriptPage'
-import HallTicketDashboardPage from '@/pages/sis/HallTicketDashboardPage'
 import EligibilityDetailPage from '@/pages/sis/EligibilityDetailPage'
 import MyHallTicketPage from '@/pages/sis/MyHallTicketPage'
-import ExamCentersPage from '@/pages/sis/ExamCentersPage'
-import ExamSessionsPage from '@/pages/sis/ExamSessionsPage'
+import ExaminationSetupPage from '@/pages/sis/ExaminationSetupPage'
 import ExamSessionDetailPage from '@/pages/sis/ExamSessionDetailPage'
 import ExamInvigilationPage from '@/pages/sis/ExamInvigilationPage'
 import ExamSeatAllocationPage from '@/pages/sis/ExamSeatAllocationPage'
@@ -357,7 +357,10 @@ export default function App() {
 
           {/* Hall Ticket Management — Dean only */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
-            <Route path="/sis/hall-tickets"                element={<HallTicketDashboardPage />} />
+            {/* Consolidated: the three list pages now live under Examination Setup
+                as tabs. The old list route redirects to the matching step; the
+                detail route below is unchanged. */}
+            <Route path="/sis/hall-tickets"                element={<Navigate to="/sis/examination-setup?tab=hall-tickets" replace />} />
             <Route path="/sis/hall-tickets/:id"            element={<EligibilityDetailPage />} />
           </Route>
 
@@ -366,10 +369,14 @@ export default function App() {
             <Route path="/sis/hall-tickets/me"             element={<MyHallTicketPage />} />
           </Route>
 
-          {/* Exam Management — Dean only */}
+          {/* Exam Management — Dean only.
+              Examination Setup hosts Sessions / Centers / Hall Tickets as tabs
+              (reusing the existing pages verbatim). The old list routes redirect
+              to the matching tab; all detail routes are unchanged. */}
           <Route element={<AuthGuard allowedRoles={['DEAN']} />}>
-            <Route path="/sis/exam/centers"                       element={<ExamCentersPage />} />
-            <Route path="/sis/exam/sessions"                      element={<ExamSessionsPage />} />
+            <Route path="/sis/examination-setup"                  element={<ExaminationSetupPage />} />
+            <Route path="/sis/exam/centers"                       element={<Navigate to="/sis/examination-setup?tab=centers" replace />} />
+            <Route path="/sis/exam/sessions"                      element={<Navigate to="/sis/examination-setup?tab=sessions" replace />} />
             <Route path="/sis/exam/sessions/:id"                  element={<ExamSessionDetailPage />} />
             <Route path="/sis/exam/sessions/:id/invigilation"     element={<ExamInvigilationPage />} />
             <Route path="/sis/exam/sessions/:id/seats"            element={<ExamSeatAllocationPage />} />
@@ -450,12 +457,34 @@ export default function App() {
             <Route path="/faculty/assignments" element={<FacultyAssignmentListPage />} />
             <Route path="/faculty/assignments/new" element={<FacultyAssignmentFormPage />} />
             <Route path="/faculty/assignments/:id/edit" element={<FacultyAssignmentFormPage />} />
+          </Route>
+
+          {/* Grading — EVALUATOR too: this is where "My Evaluations" sends a
+              coursework work item. The backend returns only the submissions
+              allocated to them, and 404s for a faculty member who neither set
+              this coursework nor was given any of it. */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'EVALUATOR']} />}>
             <Route path="/faculty/assignments/:id/submissions" element={<FacultyAssignmentGradingPage />} />
           </Route>
 
-          {/* Evaluator area — EVALUATOR only */}
+          {/* Evaluation Center — the coursework-specific evaluator workspace.
+              Notifications for coursework evaluation land here (not the student
+              page, not generic My Evaluations). Visible from publish. */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'EVALUATOR']} />}>
+            <Route path="/faculty/evaluation-center" element={<EvaluationCenterPage />} />
+            <Route path="/faculty/evaluation-center/:id" element={<EvaluationCenterAssignmentPage />} />
+          </Route>
+
+          {/* My Evaluations — one desk for every source of evaluation work
+              (scripts, coursework, labs). FACULTY too: a script or coursework can
+              be allocated to a faculty member holding no separate EVALUATOR grant,
+              and they had their own duplicate "My Evaluations" before. */}
+          <Route element={<AuthGuard allowedRoles={['EVALUATOR', 'FACULTY']} />}>
+            <Route path="/evaluator" element={<MyEvaluationsPage />} />
+          </Route>
+
+          {/* Lab evaluation screens — EVALUATOR (base role or FACULTY grant) */}
           <Route element={<AuthGuard allowedRoles={['EVALUATOR']} />}>
-            <Route path="/evaluator" element={<EvaluatorDashboardPage />} />
             <Route path="/evaluator/:assignmentId/submissions" element={<EvaluatorSubmissionsPage />} />
             <Route path="/evaluator/submissions/:submissionId" element={<EvaluatorReviewPanel />} />
           </Route>
@@ -478,7 +507,9 @@ export default function App() {
             <Route path="/student/course-kits" element={<CourseKitsPage />} />
             <Route path="/student/learning-materials" element={<LearningMaterialsPage />} />
             <Route path="/student/semester-results" element={<SemesterResultsPage />} />
-            <Route path="/student/events" element={<EventsPage />} />
+            {/* Events merged into the Academic Calendar (P1.19) — the old link
+                still resolves rather than 404ing for anyone who bookmarked it. */}
+            <Route path="/student/events" element={<Navigate to="/student/calendar" replace />} />
             <Route path="/student/academic-progress" element={<AcademicProgressPage />} />
             <Route path="/student/timetable" element={<StudentTimetablePage />} />
           </Route>
@@ -499,13 +530,20 @@ export default function App() {
             <Route path="/research/documents" element={<Navigate to="/research/problems" replace />} />
           </Route>
 
-          {/* Exam Papers — FACULTY, ADMIN, BOARD */}
+          {/* Exam Papers — create/list/board: FACULTY, ADMIN, BOARD */}
           <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'BOARD']} />}>
             <Route path="/exams" element={<ExamPaperListPage />} />
             <Route path="/exams/create" element={<ExamPaperCreatePage />} />
             <Route path="/exams/board/pending" element={<ExamPaperListPage />} />
-            <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
             <Route path="/exams/:id/review" element={<BoardReviewPage />} />
+          </Route>
+          {/* Dean review queue (INTERNAL papers) — DEAN, ADMIN */}
+          <Route element={<AuthGuard allowedRoles={['DEAN', 'ADMIN']} />}>
+            <Route path="/exams/dean/pending" element={<DeanReviewPage />} />
+          </Route>
+          {/* Paper detail/editor — all paper roles incl. DEAN (read-only view) */}
+          <Route element={<AuthGuard allowedRoles={['FACULTY', 'ADMIN', 'BOARD', 'DEAN']} />}>
+            <Route path="/exams/:id" element={<ExamPaperEditorPage />} />
           </Route>
 
           {/* Internal Marks — FACULTY, DEAN, ADMIN */}

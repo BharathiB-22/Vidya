@@ -7,15 +7,16 @@ import {
   GraduationCap, UserPlus, ClipboardCheck, Palette,
   Building2, Calendar, CalendarRange, LayoutList, UserCheck, BookMarked,
   BookLock, School2, UsersRound, UserCircle2, RefreshCw, CalendarCheck,
-  Award, Ticket, MapPin, CalendarDays, History, Gauge, ShieldAlert,
+  Award, Ticket, CalendarDays, History, Gauge, ShieldAlert,
   Scale, ShieldCheck, ScanSearch, Crown, ListChecks,
-  Bell, Presentation, Library, PartyPopper, CalendarClock, TrendingUp, Briefcase,
+  Bell, Presentation, Library, CalendarClock, TrendingUp, Briefcase,
 } from 'lucide-react'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useAuth, effectiveRoles } from '@/lib/auth'
 import { useBranding } from '@/lib/branding'
 import { useWorkspace } from '@/lib/workspace'
 import { assignmentsApi } from '@/lib/api/assignments'
+import { studentResearchEligibility } from '@/lib/api/research'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 type LucideIconType = typeof LayoutDashboard
@@ -41,6 +42,9 @@ interface NavItem {
   // with a lab component. Computed once from the faculty's own assignment list
   // (see facultyHasLab below) — a pure visibility rule, no permission change.
   requiresLabAssignment?: boolean
+  // Student Research is for project/dissertation students only — gated on a
+  // data-driven eligibility check, never hardcoded.
+  requiresResearchEligibility?: boolean
 }
 
 interface NavSection {
@@ -84,14 +88,6 @@ const NAV_SECTIONS: NavSection[] = [
     heading: 'Research Supervision',
     items: [
       { label: 'Research Supervision', to: '/research/problems', icon: Microscope, roles: ['FACULTY'] },
-    ],
-  },
-
-  // ── FACULTY: Assessment ───────────────────────────────────────────────────
-  {
-    heading: 'Assessment',
-    items: [
-      { label: 'My Evaluations', to: '/scripts/evaluator', icon: ClipboardList, roles: ['FACULTY'] },
     ],
   },
 
@@ -161,10 +157,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Examinations',
     items: [
+      { label: 'Internal Paper Review', to: '/exams/dean/pending',   icon: ClipboardCheck, roles: ['DEAN'] },
       { label: 'OCR Review Queue', to: '/ocr-review',               icon: ScanSearch,    roles: ['DEAN'] },
-      { label: 'Hall Tickets',     to: '/sis/hall-tickets',         icon: Ticket,        roles: ['DEAN'] },
-      { label: 'Exam Sessions',    to: '/sis/exam/sessions',        icon: CalendarDays,  roles: ['DEAN'] },
-      { label: 'Exam Centers',     to: '/sis/exam/centers',         icon: MapPin,        roles: ['DEAN'] },
+      // Sessions + Centers + Hall Tickets consolidated into one guided page.
+      { label: 'Examination Setup', to: '/sis/examination-setup',   icon: CalendarDays,  roles: ['DEAN'] },
       { label: 'Results',          to: '/sis/results',              icon: ClipboardList, roles: ['DEAN'] },
     ],
   },
@@ -291,7 +287,7 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'Labs',                to: '/student/labs',               icon: FlaskConical,  roles: ['STUDENT'] },
       { label: 'Course Kits',         to: '/student/course-kits',        icon: Presentation,  roles: ['STUDENT'] },
       { label: 'Learning Materials',  to: '/student/learning-materials', icon: Library,       roles: ['STUDENT'] },
-      { label: 'Research',           to: '/student/research',            icon: Microscope,    roles: ['STUDENT'] },
+      { label: 'Research',           to: '/student/research',            icon: Microscope,    roles: ['STUDENT'], requiresResearchEligibility: true },
       { label: 'Electives',          to: '/student/electives',           icon: LayoutList,    roles: ['STUDENT'] },
     ],
   },
@@ -325,19 +321,35 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: 'Services',
     items: [
+      // One Academic Calendar. "Events" used to be a second page over the same
+      // endpoint, showing the holidays this one filtered out and hiding the
+      // deadlines it kept — so a student had to know which page a date lived on
+      // before they could look it up. /student/calendar now shows both.
       { label: 'Calendar',      to: '/student/calendar',   icon: CalendarRange, roles: ['STUDENT'] },
-      { label: 'Events',        to: '/student/events',     icon: PartyPopper,   roles: ['STUDENT'] },
       { label: 'Notifications', to: '/notifications',      icon: Bell,          roles: ['STUDENT'] },
     ],
   },
 
-  // ── EVALUATOR: Evaluate ───────────────────────────────────────────────────
+  // ── Evaluate ──────────────────────────────────────────────────────────────
+  // ONE "My Evaluations", whatever the work is and wherever it came from. There
+  // used to be two identically-named items — a FACULTY one pointing at assigned
+  // scripts and an EVALUATOR one pointing at lab work — so anyone holding both
+  // saw the label twice and coursework appeared under neither. /evaluator now
+  // aggregates all three sources, so one item covers everyone.
+  //
+  // FACULTY is listed alongside EVALUATOR because a script or a coursework
+  // submission can be allocated to a faculty member who holds no separate
+  // EVALUATOR grant.
+  //
   // excludeRoles: DEAN because a Dean with EVALUATOR grant uses the dean-scoped
   // /dean/evaluation-assignments view surfaced under My Responsibilities instead.
   {
     heading: 'Evaluate',
     items: [
-      { label: 'My Evaluations', to: '/evaluator', icon: ClipboardCheck, roles: ['EVALUATOR'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      { label: 'My Evaluations',    to: '/evaluator',                icon: ClipboardCheck, roles: ['FACULTY', 'EVALUATOR'], grantOverlay: true, excludeRoles: ['DEAN'] },
+      // Coursework-specific desk: assignment → student queue → grade. Coursework
+      // evaluation notifications open this, not the generic list above.
+      { label: 'Evaluation Center', to: '/faculty/evaluation-center', icon: ListChecks,     roles: ['FACULTY', 'EVALUATOR'], grantOverlay: true, excludeRoles: ['DEAN'] },
     ],
   },
 
@@ -468,6 +480,18 @@ export function Sidebar({ onClose }: SidebarProps) {
   // hiding it (which would flash/jump once the answer arrives). Only true inside
   // the FACULTY workspace, where the query is enabled — never for other roles.
   const labGateLoading = activeWorkspace === 'FACULTY' && assignmentsLoading
+
+  // Student Research visibility — project/dissertation students only. Same
+  // skeleton-while-loading treatment as Labs so the item never flashes. Only
+  // fetched inside the STUDENT workspace.
+  const { data: researchElig, isLoading: researchEligLoading } = useQuery({
+    queryKey: ['student-research-eligibility'],
+    queryFn: () => studentResearchEligibility(),
+    enabled: activeWorkspace === 'STUDENT',
+    staleTime: 5 * 60 * 1000,
+  })
+  const studentResearchEligible = !!researchElig?.eligible
+  const researchGateLoading = activeWorkspace === 'STUDENT' && researchEligLoading
   // Full effective role set (base role + active responsibility grants) —
   // used only for grant-overlay items (roles held ON TOP of the active
   // workspace, e.g. a FACULTY user who also evaluates) and for allRoles/
@@ -563,6 +587,7 @@ export function Sidebar({ onClose }: SidebarProps) {
             // Keep the slot while loading (rendered as a skeleton below); hide only
             // once we know the faculty has no lab assignment.
             if (item.requiresLabAssignment && !facultyHasLab && !labGateLoading) return false
+            if (item.requiresResearchEligibility && !studentResearchEligible && !researchGateLoading) return false
             return true
           })
           if (visibleItems.length === 0) return null
@@ -581,7 +606,8 @@ export function Sidebar({ onClose }: SidebarProps) {
                 {visibleItems.map((item) => {
                   // Lab-gated item, answer not in yet: reserve the row with a
                   // skeleton so the sidebar never jumps and Labs never flashes.
-                  if (item.requiresLabAssignment && labGateLoading) {
+                  if ((item.requiresLabAssignment && labGateLoading) ||
+                      (item.requiresResearchEligibility && researchGateLoading)) {
                     return (
                       <li key={item.to + item.label} className="relative" aria-hidden="true">
                         <div className="flex items-center gap-2.5 px-3 py-[9px]">

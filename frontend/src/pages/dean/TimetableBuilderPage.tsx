@@ -267,14 +267,14 @@ function CreateTemplateDialog({
                       <span className={r.period_type === 'BREAK' ? 'text-amber-700 font-medium' : 'text-gray-700'}>
                         {r.period_type === 'BREAK' ? r.label : `Period ${r.period_number}`}
                       </span>
-                      <span className="text-gray-400">
+                      <span className="text-gray-600">
                         {r.start_time.slice(0, 5)}–{r.end_time.slice(0, 5)}
                       </span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-[11px] text-gray-400">Enter valid timings to preview the generated schedule.</p>
+                <p className="text-[11px] text-gray-600">Enter valid timings to preview the generated schedule.</p>
               )}
             </div>
           )}
@@ -569,7 +569,7 @@ function TemplateDetail({ id, onBack }: { id: string; onBack: () => void }) {
 
       {sortedPeriods.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 px-6 py-14 text-center">
-          <p className="text-sm text-gray-400">No periods configured yet.</p>
+          <p className="text-sm text-gray-600">No periods configured yet.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white shadow-sm overflow-hidden">
@@ -588,7 +588,7 @@ function TemplateDetail({ id, onBack }: { id: string; onBack: () => void }) {
               <button
                 type="button"
                 onClick={() => deleteMut.mutate(p.id)}
-                className="text-gray-300 hover:text-red-500"
+                className="text-gray-500 hover:text-red-500"
                 aria-label="Remove"
               >
                 <X className="h-4 w-4" />
@@ -644,7 +644,7 @@ function TemplatesTab() {
   return (
     <div className="max-w-5xl space-y-4">
       <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-600">
           Configure working days, college hours, periods, and breaks before building section timetables.
         </p>
         <Button size="sm" onClick={() => setCreating(true)}>
@@ -664,7 +664,7 @@ function TemplatesTab() {
         <div className="rounded-xl border border-dashed border-gray-200 px-6 py-20 text-center">
           <Settings2 className="h-10 w-10 mx-auto mb-4 text-gray-200" />
           <p className="text-sm font-medium text-gray-500">No templates configured yet.</p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-gray-600">
             A template sets the working days, periods and breaks every timetable is built on.
           </p>
         </div>
@@ -684,7 +684,7 @@ function TemplatesTab() {
               <button
                 type="button"
                 onClick={() => setEditing(t)}
-                className="p-1.5 text-gray-400 hover:text-indigo-600 shrink-0"
+                className="p-1.5 text-gray-600 hover:text-indigo-600 shrink-0"
                 aria-label="Edit template"
               >
                 <Pencil className="h-4 w-4" />
@@ -692,7 +692,7 @@ function TemplatesTab() {
               <button
                 type="button"
                 onClick={() => setDeleting(t)}
-                className="p-1.5 text-gray-400 hover:text-red-500 shrink-0"
+                className="p-1.5 text-gray-600 hover:text-red-500 shrink-0"
                 aria-label="Delete template"
               >
                 <Trash2 className="h-4 w-4" />
@@ -983,7 +983,7 @@ function PendingReviewRow({ item }: { item: TimetableListItem }) {
           <p className="text-sm font-semibold text-gray-800">{timetableLabel(item)}</p>
           <p className="text-xs text-gray-500">Submitted {item.submitted_at ? new Date(item.submitted_at).toLocaleString() : '—'}</p>
         </div>
-        {expanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+        {expanded ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown className="h-4 w-4 text-gray-600" />}
       </button>
 
       {expanded && (
@@ -1117,7 +1117,7 @@ function PublishedTimetablesTab() {
         {approvedQ.isLoading ? (
           <div className="h-14 rounded-xl bg-gray-50 animate-pulse" />
         ) : approvedItems.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-200 px-5 py-6 text-center text-sm text-gray-400">
+          <p className="rounded-xl border border-dashed border-gray-200 px-5 py-6 text-center text-sm text-gray-600">
             No approved timetables waiting to publish.
           </p>
         ) : (

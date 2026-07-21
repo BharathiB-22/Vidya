@@ -61,7 +61,7 @@ function ResponseCard({
           {isScored ? (
             <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
           ) : (
-            <Circle className="h-4 w-4 text-gray-400 shrink-0" />
+            <Circle className="h-4 w-4 text-gray-600 shrink-0" />
           )}
           <span className="text-sm font-medium text-gray-700">
             Question {index + 1}
@@ -73,19 +73,19 @@ function ResponseCard({
       <div className="p-4 space-y-4">
         {/* Question text */}
         <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">Question</p>
+          <p className="text-xs uppercase tracking-wide text-gray-600 mb-1">Question</p>
           <p className="text-sm text-gray-900 leading-relaxed">{item.question_text}</p>
         </div>
 
         {/* Student response */}
         <div>
-          <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">Student Response</p>
+          <p className="text-xs uppercase tracking-wide text-gray-600 mb-1">Student Response</p>
           {item.response_text ? (
             <div className="rounded-md border border-gray-100 bg-gray-50 p-3 text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">
               {item.response_text}
             </div>
           ) : (
-            <p className="text-sm text-gray-400 italic">No response provided</p>
+            <p className="text-sm text-gray-600 italic">No response provided</p>
           )}
         </div>
 
@@ -126,7 +126,7 @@ function ResponseCard({
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-1">
-          <div className="text-xs text-gray-400">
+          <div className="text-xs text-gray-600">
             {isScored && !dirty && (
               <span className="text-green-600 font-medium">
                 Saved — {item.faculty_scored_at ? formatDate(item.faculty_scored_at) : ''}
@@ -296,14 +296,14 @@ export default function SubjectiveReviewPage() {
           <p className="text-xs text-gray-500 mb-0.5">MCQ Score</p>
           <p className="text-lg font-semibold text-gray-900">
             {data.auto_score ?? 0}
-            <span className="text-sm font-normal text-gray-400"> / {data.mcq_max_score ?? 0}</span>
+            <span className="text-sm font-normal text-gray-600"> / {data.mcq_max_score ?? 0}</span>
           </p>
         </div>
         <div className="rounded-lg border bg-white p-3 text-center">
           <p className="text-xs text-gray-500 mb-0.5">Subjective</p>
           <p className="text-lg font-semibold text-gray-900">
             {data.scored_count}
-            <span className="text-sm font-normal text-gray-400"> / {data.total_subjective}</span>
+            <span className="text-sm font-normal text-gray-600"> / {data.total_subjective}</span>
           </p>
         </div>
         <div className="rounded-lg border bg-white p-3 text-center">

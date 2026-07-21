@@ -67,7 +67,7 @@ export function COSection({ syllabusId, outcomes, isEditable }: Props) {
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
+        <p className="text-sm text-gray-600 py-4 text-center">
           No course outcomes yet.{isEditable ? ' Click "Add CO" to get started.' : ''}
         </p>
       ) : (

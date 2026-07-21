@@ -32,13 +32,13 @@ export function AssignmentsTab({ subject }: SubjectTabProps) {
     }
   }
 
-  if (isLoading) return <div className="text-sm text-gray-400 py-8 text-center">Loading assignments…</div>
+  if (isLoading) return <div className="text-sm text-gray-600 py-8 text-center">Loading assignments…</div>
 
   if (assignments.length === 0) {
     return (
       <div className="text-center py-12 rounded-xl border border-dashed border-gray-200">
         <ClipboardList className="h-8 w-8 mx-auto mb-2 text-gray-200" />
-        <p className="text-sm text-gray-400">No assignments for this subject yet.</p>
+        <p className="text-sm text-gray-600">No assignments for this subject yet.</p>
       </div>
     )
   }
@@ -57,7 +57,7 @@ export function AssignmentsTab({ subject }: SubjectTabProps) {
   const renderGroup = (label: string, items: CourseworkAssignment[]) =>
     items.length > 0 && (
       <div>
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+        <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
           {label} ({items.length})
         </h3>
         <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 bg-white overflow-hidden">
@@ -78,7 +78,7 @@ export function AssignmentsTab({ subject }: SubjectTabProps) {
                         {sub.marks_obtained}/{a.max_marks}
                       </span>
                     )}
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                    <span className="text-xs text-gray-600 flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       {new Date(a.due_date).toLocaleDateString()}
                     </span>

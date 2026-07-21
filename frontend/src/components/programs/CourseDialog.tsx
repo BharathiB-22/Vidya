@@ -151,7 +151,7 @@ export function CourseDialog({
 
     if (mode === 'add') {
       onAdd?.({
-        code: f.code,
+        // No `code`: the server assigns it. Anything sent here is ignored.
         title: f.title,
         credits: Number(f.credits),
         semester,
@@ -165,7 +165,7 @@ export function CourseDialog({
       })
     } else if (mode === 'edit' && initial) {
       onEdit?.(initial.id, {
-        code: f.code || undefined,
+        // No `code`: it is derived, and the server discards it if sent.
         title: f.title,
         credits: Number(f.credits),
         semester: initial.semester,
@@ -190,14 +190,23 @@ export function CourseDialog({
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
+          {/* The code is the SERVER's: {PROGRAMME}{semester}{NN}, where the first
+              digit is the semester. It is shown, never typed — a hand-typed MCA120
+              on a semester-4 course is a code that lies about where its course sits.
+              Moving a course to another semester renumbers it. */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Course Code</label>
             <Input
-              required
-              value={f.code}
-              onChange={(e) => setF((p) => ({ ...p, code: e.target.value }))}
-              placeholder="CS101"
+              readOnly
+              disabled
+              value={mode === 'edit' ? f.code : 'Assigned automatically'}
+              className="bg-gray-50 text-gray-500 font-mono"
             />
+            <p className="mt-1 text-xs text-gray-500">
+              {mode === 'edit'
+                ? 'Set by the programme and semester. Move the course to renumber it.'
+                : `Numbered from the programme code for semester ${semester}.`}
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -251,7 +260,7 @@ export function CourseDialog({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Credits
-                <span className="ml-1 text-xs font-normal text-gray-400">({bounds.hint})</span>
+                <span className="ml-1 text-xs font-normal text-gray-600">({bounds.hint})</span>
               </label>
               <Input
                 type="number"

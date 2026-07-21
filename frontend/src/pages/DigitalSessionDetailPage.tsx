@@ -176,7 +176,7 @@ export default function DigitalSessionDetailPage() {
 
         {session.status === 'CLOSED' && (
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-5 py-4 flex items-center gap-3">
-            <CheckCircle2 className="h-5 w-5 text-gray-400 shrink-0" />
+            <CheckCircle2 className="h-5 w-5 text-gray-600 shrink-0" />
             <div>
               <p className="text-sm font-medium text-gray-700">Session Closed</p>
               <p className="text-xs text-gray-500">
@@ -189,7 +189,7 @@ export default function DigitalSessionDetailPage() {
         {/* Upcoming result navigation hint */}
         {session.status === 'CLOSED' && session.scored_count > 0 && (
           <div className="flex items-center gap-2 px-1">
-            <Calendar className="h-4 w-4 text-gray-400" />
+            <Calendar className="h-4 w-4 text-gray-600" />
             <p className="text-xs text-gray-500">
               {session.scored_count} of {session.attempt_count} attempts scored.
             </p>

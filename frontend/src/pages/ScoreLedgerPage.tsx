@@ -177,7 +177,7 @@ function LedgerRow({ entry }: { entry: ExamScoreLedger }) {
           {entry.script_id.slice(0, 8)}…
         </td>
         <td className="px-4 py-3 text-gray-600">
-          {entry.student_roll_ref ?? <span className="text-gray-400 italic text-xs">—</span>}
+          {entry.student_roll_ref ?? <span className="text-gray-600 italic text-xs">—</span>}
         </td>
         <td className="px-4 py-3 text-right font-semibold text-gray-800">
           {entry.total_marks} / {entry.max_marks}
@@ -185,7 +185,7 @@ function LedgerRow({ entry }: { entry: ExamScoreLedger }) {
         <td className={`px-4 py-3 text-right font-semibold ${pctColor}`}>
           {pct}{pctNum != null ? '%' : ''}
         </td>
-        <td className="px-4 py-3 text-xs text-gray-400 hidden md:table-cell">
+        <td className="px-4 py-3 text-xs text-gray-600 hidden md:table-cell">
           {new Date(entry.finalised_at).toLocaleString()}
           {expanded
             ? <ChevronUp className="w-3 h-3 inline ml-1" />

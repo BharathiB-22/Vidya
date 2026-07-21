@@ -22,7 +22,9 @@ export function useAddCourse(programId: string) {
         {
           id: `optimistic-${Date.now()}`,
           program_id: programId,
-          code: payload.code,
+          // The server assigns the code, so there is nothing to show optimistically.
+          // onSettled invalidates and the real code arrives with the refetch.
+          code: payload.code ?? '…',
           title: payload.title,
           credits: payload.credits,
           semester: payload.semester,

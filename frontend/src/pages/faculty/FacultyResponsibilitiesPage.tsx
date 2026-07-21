@@ -70,7 +70,7 @@ function CourseRow({ c }: { c: FacultyCourseEntry }) {
           </span>
           {c.section_name && (
             <>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-500">·</span>
               <span className="text-xs font-medium text-foreground">Section {c.section_name}</span>
             </>
           )}
@@ -346,7 +346,7 @@ export default function FacultyResponsibilitiesPage() {
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-gray-200 py-16 text-center">
-              <Users className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+              <Users className="h-10 w-10 text-gray-500 mx-auto mb-3" />
               <p className="text-sm font-medium text-foreground">No responsibilities assigned yet</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Contact your dean or administrator to get assigned to programs and courses.

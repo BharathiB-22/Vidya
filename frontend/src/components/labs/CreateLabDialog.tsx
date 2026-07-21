@@ -94,7 +94,7 @@ export function CreateLabDialog({
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">
             Problem Statement
-            <span className="ml-1 text-xs text-gray-400">(required to publish)</span>
+            <span className="ml-1 text-xs text-gray-600">(required to publish)</span>
           </label>
           <textarea
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y"
@@ -108,7 +108,7 @@ export function CreateLabDialog({
         <div className="space-y-1">
           <label className="text-sm font-medium text-gray-700">
             Student Instructions
-            <span className="ml-1 text-xs text-gray-400">(optional)</span>
+            <span className="ml-1 text-xs text-gray-600">(optional)</span>
           </label>
           <textarea
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 resize-y"
@@ -122,7 +122,7 @@ export function CreateLabDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">
-              Lab Group <span className="text-xs font-normal text-gray-400">(optional)</span>
+              Lab Group <span className="text-xs font-normal text-gray-600">(optional)</span>
             </label>
             <input
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
@@ -133,7 +133,7 @@ export function CreateLabDialog({
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">
-              Program # <span className="text-xs font-normal text-gray-400">(optional)</span>
+              Program # <span className="text-xs font-normal text-gray-600">(optional)</span>
             </label>
             <input
               type="number"
@@ -178,7 +178,7 @@ export function CreateLabDialog({
             onChange={(e) => setRubricName(e.target.value)}
             placeholder="e.g. Correctness"
           />
-          <p className="text-xs text-gray-400">You can add more criteria after creation.</p>
+          <p className="text-xs text-gray-600">You can add more criteria after creation.</p>
         </div>
 
         <div className="flex gap-2 pt-2 justify-end">

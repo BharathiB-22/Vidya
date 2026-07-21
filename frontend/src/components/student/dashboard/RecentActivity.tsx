@@ -38,7 +38,7 @@ export function RecentActivity() {
   return (
     <WidgetCard title="Recent Activity" icon={History} isLoading={isLoading}>
       {items.length === 0 ? (
-        <p className="text-sm text-gray-400 py-2">
+        <p className="text-sm text-gray-600 py-2">
           Nothing recent yet. Submissions will appear here.
         </p>
       ) : (
@@ -46,7 +46,7 @@ export function RecentActivity() {
           {items.map((item) => (
             <li key={item.id} className="flex items-start justify-between gap-3 text-sm">
               <p className="text-gray-700 truncate">{item.label}</p>
-              <span className="text-xs text-gray-400 flex-shrink-0">
+              <span className="text-xs text-gray-600 flex-shrink-0">
                 {new Date(item.timestamp).toLocaleDateString()}
               </span>
             </li>
