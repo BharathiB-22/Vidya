@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
 import { listNotifications, notificationCategory, notificationHref } from '@/lib/api/notifications'
+import { useAuth } from '@/lib/auth'
 import { WidgetCard } from './WidgetCard'
 
 function timeAgo(dateStr: string): string {
@@ -15,6 +16,7 @@ function timeAgo(dateStr: string): string {
 
 export function NotificationsWidget() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { data, isLoading, isError } = useQuery({
     queryKey: ['notifications', 'dashboard-recent'],
     queryFn: () => listNotifications({ page_size: 5 }),
@@ -29,11 +31,11 @@ export function NotificationsWidget() {
       action={{ label: 'View All', to: '/notifications' }}
     >
       {!data?.items?.length ? (
-        <p className="text-sm text-gray-400 py-2">No notifications yet.</p>
+        <p className="text-sm text-gray-600 py-2">No notifications yet.</p>
       ) : (
         <ul className="space-y-2.5">
           {data.items.map((n) => {
-            const href = notificationHref(n)
+            const href = notificationHref(n, user?.role)
             return (
               <li
                 key={n.id}
@@ -45,9 +47,9 @@ export function NotificationsWidget() {
                   <span className={`truncate ${n.is_read ? 'text-gray-500' : 'font-semibold text-gray-800'}`}>
                     {n.title}
                   </span>
-                  <span className="ml-auto text-xs text-gray-400 flex-shrink-0">{timeAgo(n.created_at)}</span>
+                  <span className="ml-auto text-xs text-gray-600 flex-shrink-0">{timeAgo(n.created_at)}</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5">{notificationCategory(n.notification_type)}</p>
+                <p className="text-xs text-gray-600 mt-0.5">{notificationCategory(n.notification_type)}</p>
               </li>
             )
           })}

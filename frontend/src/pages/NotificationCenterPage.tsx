@@ -9,6 +9,7 @@ import {
   listNotifications, markNotificationRead, markAllRead,
   notificationCategory, notificationHref, type NotificationItem,
 } from '@/lib/api/notifications'
+import { useAuth } from '@/lib/auth'
 
 const PAGE_SIZE = 25
 
@@ -48,6 +49,9 @@ function CategoryChip({ category }: { category: string }) {
 export default function NotificationCenterPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  // The reader of these notifications is their recipient, so their role is what
+  // decides which surface a shared entity type should open.
+  const { user } = useAuth()
   const [tab, setTab] = useState<'all' | 'unread'>('all')
   const [page, setPage] = useState(1)
 
@@ -80,7 +84,7 @@ export default function NotificationCenterPage() {
 
   function handleClick(n: NotificationItem) {
     if (!n.is_read) readMut.mutate(n.id)
-    const href = notificationHref(n)
+    const href = notificationHref(n, user?.role)
     if (href) navigate(href)
   }
 
@@ -139,7 +143,7 @@ export default function NotificationCenterPage() {
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white divide-y divide-gray-100">
           {items.map(n => {
-            const href = notificationHref(n)
+            const href = notificationHref(n, user?.role)
             return (
               <div
                 key={n.id}

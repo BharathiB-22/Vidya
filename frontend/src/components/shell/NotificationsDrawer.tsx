@@ -7,6 +7,7 @@ import {
   listNotifications, markAllRead, markNotificationRead, notificationHref,
   type NotificationItem,
 } from '@/lib/api/notifications'
+import { useAuth } from '@/lib/auth'
 
 interface NotificationsDrawerProps {
   open: boolean
@@ -26,6 +27,9 @@ function timeAgo(dateStr: string): string {
 export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  // The reader of these notifications is their recipient, so their role is what
+  // decides which surface a shared entity type should open.
+  const { user } = useAuth()
 
   useEffect(() => {
     if (!open) return
@@ -61,7 +65,7 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
 
   function handleItemClick(n: NotificationItem) {
     if (!n.is_read) readMut.mutate(n.id)
-    const href = notificationHref(n)
+    const href = notificationHref(n, user?.role)
     if (href) { onClose(); navigate(href) }
   }
 
@@ -108,7 +112,7 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
             )}
             <button
               onClick={onClose}
-              className="p-1 rounded hover:bg-gray-100 text-gray-400 transition-colors"
+              className="p-1 rounded hover:bg-gray-100 text-gray-600 transition-colors"
               aria-label="Close notifications"
             >
               <X className="w-4 h-4" />
@@ -119,21 +123,21 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
         {/* List */}
         <div className="flex-1 overflow-y-auto">
           {isLoading && (
-            <div className="flex items-center justify-center gap-2 py-12 text-gray-400 text-sm">
+            <div className="flex items-center justify-center gap-2 py-12 text-gray-600 text-sm">
               <Loader2 className="w-4 h-4 animate-spin" />
               Loading…
             </div>
           )}
 
           {isError && (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm gap-2 px-4 text-center">
+            <div className="flex flex-col items-center justify-center py-12 text-gray-600 text-sm gap-2 px-4 text-center">
               <Bell className="w-6 h-6 text-gray-200" />
               Could not load notifications.
             </div>
           )}
 
           {!isLoading && !isError && items.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400 text-sm gap-3">
+            <div className="flex flex-col items-center justify-center py-16 text-gray-600 text-sm gap-3">
               <Bell className="w-8 h-8 text-gray-200" />
               No notifications
             </div>
@@ -156,7 +160,7 @@ export function NotificationsDrawer({ open, onClose }: NotificationsDrawerProps)
               {n.body && (
                 <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.body}</p>
               )}
-              <p className="text-[10px] text-gray-400 mt-1">{timeAgo(n.created_at)}</p>
+              <p className="text-[10px] text-gray-600 mt-1">{timeAgo(n.created_at)}</p>
             </div>
           ))}
         </div>
