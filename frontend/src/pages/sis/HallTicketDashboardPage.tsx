@@ -60,7 +60,7 @@ function PublishBadge({ status }: { status: string }) {
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="rounded-xl border border-white/8 bg-white/4 px-4 py-3">
-      <p className="text-[11px] text-slate-500 uppercase tracking-wide font-semibold">{label}</p>
+      <p className="text-[11px] text-slate-700 uppercase tracking-wide font-semibold">{label}</p>
       <p className="text-2xl font-black mt-0.5" style={{ color }}>{value}</p>
     </div>
   )
@@ -234,7 +234,7 @@ export default function HallTicketDashboardPage() {
       {/* Filters */}
       {semesterId && (
         <div className="px-6 pb-3 flex gap-2 flex-wrap">
-          <div className="flex items-center gap-1 text-xs text-slate-500">
+          <div className="flex items-center gap-1 text-xs text-slate-700">
             <Filter size={11} /> Filter:
           </div>
           {(['', 'ELIGIBLE', 'CONDITIONAL', 'NOT_ELIGIBLE'] as const).map(s => (
@@ -243,7 +243,7 @@ export default function HallTicketDashboardPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
                 statusFilter === s
                   ? 'bg-blue-600 text-white border-blue-500'
-                  : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                  : 'border-white/10 text-slate-800 hover:border-white/20 hover:text-slate-900'
               }`}>
               {s || 'All Status'}
             </button>
@@ -254,7 +254,7 @@ export default function HallTicketDashboardPage() {
               className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
                 publishFilter === s
                   ? 'bg-blue-600 text-white border-blue-500'
-                  : 'border-white/10 text-slate-400 hover:border-white/20 hover:text-slate-200'
+                  : 'border-white/10 text-slate-800 hover:border-white/20 hover:text-slate-900'
               }`}>
               {s || 'All Visibility'}
             </button>
@@ -265,14 +265,14 @@ export default function HallTicketDashboardPage() {
       {/* Table */}
       <div className="px-6 pb-8">
         {!semesterId && (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-20 text-slate-700">
             <Users size={36} className="mb-3 opacity-30" />
             <p className="text-sm">Select a semester to view eligibility</p>
           </div>
         )}
 
         {semesterId && dashQ.isLoading && (
-          <p className="text-sm text-slate-500 py-10 text-center">Loading…</p>
+          <p className="text-sm text-slate-700 py-10 text-center">Loading…</p>
         )}
 
         {semesterId && dashQ.isError && (
@@ -283,7 +283,7 @@ export default function HallTicketDashboardPage() {
           <div className="overflow-x-auto rounded-xl border border-white/8">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/8 text-left text-[11px] text-slate-500 uppercase tracking-wide">
+                <tr className="border-b border-white/8 text-left text-[11px] text-slate-700 uppercase tracking-wide">
                   <th className="px-4 py-3 font-semibold">Student</th>
                   <th className="px-4 py-3 font-semibold">USN</th>
                   <th className="px-4 py-3 font-semibold">Attendance</th>
@@ -299,9 +299,9 @@ export default function HallTicketDashboardPage() {
                     className="border-b border-white/5 hover:bg-white/[0.03] transition-colors">
                     <td className="px-4 py-3">
                       <p className="font-semibold text-white text-[13px]">{row.student_name}</p>
-                      <p className="text-[11px] text-slate-500">{row.email}</p>
+                      <p className="text-[11px] text-slate-700">{row.email}</p>
                     </td>
-                    <td className="px-4 py-3 text-slate-300 text-[13px]">{row.usn ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-900 text-[13px]">{row.usn ?? '—'}</td>
                     <td className="px-4 py-3 text-[13px]">
                       {row.attendance_pct != null ? (
                         <span className={row.has_shortage ? 'text-red-400' : 'text-green-400'}>
@@ -311,7 +311,7 @@ export default function HallTicketDashboardPage() {
                     </td>
                     <td className="px-4 py-3"><EligibilityBadge status={row.status} /></td>
                     <td className="px-4 py-3"><PublishBadge status={row.publish_status} /></td>
-                    <td className="px-4 py-3 text-[12px] text-slate-300 font-mono">
+                    <td className="px-4 py-3 text-[12px] text-slate-900 font-mono">
                       {row.hall_ticket_number ?? '—'}
                     </td>
                     <td className="px-4 py-3">
@@ -329,7 +329,7 @@ export default function HallTicketDashboardPage() {
         )}
 
         {semesterId && !dashQ.isLoading && rows.length === 0 && dash && (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-16 text-slate-700">
             <Ticket size={32} className="mb-3 opacity-30" />
             <p className="text-sm">No eligibility records found for the selected filters.</p>
             <p className="text-xs mt-1 text-slate-600">Click Compute to run eligibility checks.</p>

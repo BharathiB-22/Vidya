@@ -171,7 +171,7 @@ class BulkProfileImportService:
             ),
             {"emails": valid_emails},
         )
-        user_map: dict[str, dict] = {
+        {
             str(r["full_name"]).lower(): r  # temporary — we key by email below
             for r in result.mappings().all()
         }

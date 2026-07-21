@@ -55,7 +55,7 @@ export default function MyHallTicketPage() {
 
         {/* Semester picker */}
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Select Semester</label>
+          <label className="block text-xs text-slate-800 mb-1">Select Semester</label>
           <select
             value={semesterId}
             onChange={e => setSemesterId(e.target.value)}
@@ -70,7 +70,7 @@ export default function MyHallTicketPage() {
           </select>
         </div>
 
-        {eligQ.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {eligQ.isLoading && <p className="text-sm text-slate-700">Loading…</p>}
 
         {eligQ.isError && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/8 p-4">
@@ -87,8 +87,8 @@ export default function MyHallTicketPage() {
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <h2 className="text-base font-bold text-white">{elig.student_name}</h2>
-                  {elig.usn && <p className="text-xs text-slate-500 font-mono mt-0.5">{elig.usn}</p>}
-                  <p className="text-xs text-slate-400 mt-0.5">{elig.semester_name}</p>
+                  {elig.usn && <p className="text-xs text-slate-700 font-mono mt-0.5">{elig.usn}</p>}
+                  <p className="text-xs text-slate-800 mt-0.5">{elig.semester_name}</p>
                 </div>
                 <EligibilityBadge status={elig.status} />
               </div>
@@ -122,7 +122,7 @@ export default function MyHallTicketPage() {
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-slate-500 mt-3">
+                <p className="text-xs text-slate-700 mt-3">
                   Contact your Dean or Admin if you believe this is incorrect.
                 </p>
               </div>
@@ -139,7 +139,7 @@ export default function MyHallTicketPage() {
                       : <XCircle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />}
                     <div>
                       <p className="text-sm font-semibold text-white">{c.check_name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{c.detail}</p>
+                      <p className="text-xs text-slate-800 mt-0.5">{c.detail}</p>
                     </div>
                   </div>
                 ))}
@@ -149,7 +149,7 @@ export default function MyHallTicketPage() {
         )}
 
         {!semesterId && (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-16 text-slate-700">
             <Ticket size={36} className="mb-3 opacity-30" />
             <p className="text-sm">Select a semester to view your hall ticket eligibility</p>
           </div>

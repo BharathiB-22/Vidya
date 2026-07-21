@@ -52,11 +52,11 @@ function CreateSchoolDialog({ open, onClose, onCreated }: {
             <Input value={name} onChange={e => setName(e.target.value)} placeholder="School of Computing" required />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Code <span className="text-gray-400 font-normal">(auto-uppercased, max 10 chars)</span></label>
+            <label className="text-sm font-medium text-gray-700">Code <span className="text-gray-600 font-normal">(auto-uppercased, max 10 chars)</span></label>
             <Input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SOC" maxLength={10} required />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Description <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="text-sm font-medium text-gray-700">Description <span className="text-gray-600 font-normal">(optional)</span></label>
             <Input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional description" />
           </div>
           {err && <p className="text-sm text-red-600 bg-red-50 rounded px-3 py-2">{err}</p>}
@@ -322,7 +322,7 @@ export default function SchoolsPage() {
                 <td className="px-4 py-3">
                   {s.is_active
                     ? <span className="text-green-700 font-medium">Active</span>
-                    : <span className="text-gray-400">Inactive</span>}
+                    : <span className="text-gray-600">Inactive</span>}
                 </td>
                 {canWrite && (
                   <td className="px-4 py-3 text-right">

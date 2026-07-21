@@ -38,7 +38,7 @@ function SummaryCard({ icon: Icon, label, count, ok, color }: SummaryCardProps) 
         <span className="text-xs font-semibold" style={{ color: ok ? '#059669' : '#111827' }}>{label}</span>
       </div>
       {count === null ? (
-        <span className="text-xs text-gray-400">—</span>
+        <span className="text-xs text-gray-600">—</span>
       ) : ok ? (
         <span className="text-xs flex items-center gap-1" style={{ color: '#10b981' }}>
           <CheckCircle2 size={11} /> Clean

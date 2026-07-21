@@ -37,7 +37,7 @@ export default function MyExamTimetablePage() {
 
         {/* Session picker */}
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Select Exam Session</label>
+          <label className="block text-xs text-slate-800 mb-1">Select Exam Session</label>
           <select
             value={sessionId}
             onChange={e => setSessionId(e.target.value)}
@@ -52,7 +52,7 @@ export default function MyExamTimetablePage() {
           </select>
         </div>
 
-        {timetableQ.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {timetableQ.isLoading && <p className="text-sm text-slate-700">Loading…</p>}
 
         {timetableQ.isError && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/8 p-4">
@@ -66,17 +66,17 @@ export default function MyExamTimetablePage() {
         {tt?.seat && (
           <div className="rounded-2xl border border-blue-500/20 bg-blue-500/8 px-5 py-3 grid grid-cols-3 gap-4">
             <div>
-              <p className="text-[10px] text-slate-400">Seat</p>
+              <p className="text-[10px] text-slate-800">Seat</p>
               <p className="text-xl font-black text-white font-mono">{tt.seat.seat_number}</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400">Room</p>
+              <p className="text-[10px] text-slate-800">Room</p>
               <p className="text-base font-bold text-white">{tt.seat.room_number}</p>
             </div>
             <div>
-              <p className="text-[10px] text-slate-400">Center</p>
+              <p className="text-[10px] text-slate-800">Center</p>
               <p className="text-sm font-semibold text-white">{tt.seat.center_name}</p>
-              {tt.seat.address && <p className="text-xs text-slate-500">{tt.seat.address}</p>}
+              {tt.seat.address && <p className="text-xs text-slate-700">{tt.seat.address}</p>}
             </div>
           </div>
         )}
@@ -84,13 +84,13 @@ export default function MyExamTimetablePage() {
         {/* Timetable */}
         {tt && (
           <>
-            <p className="text-xs text-slate-500">
-              Session: <span className="text-slate-300 font-semibold">{tt.session_name}</span>
+            <p className="text-xs text-slate-700">
+              Session: <span className="text-slate-900 font-semibold">{tt.session_name}</span>
               {' · '}{tt.semester_name}
             </p>
 
             {dates.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+              <div className="flex flex-col items-center justify-center py-16 text-slate-700">
                 <CalendarDays size={36} className="mb-3 opacity-30" />
                 <p className="text-sm">No exams in this session.</p>
               </div>
@@ -100,8 +100,8 @@ export default function MyExamTimetablePage() {
               {dates.map(date => (
                 <div key={date}>
                   <div className="flex items-center gap-2 mb-2">
-                    <CalendarDays size={13} className="text-slate-500" />
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <CalendarDays size={13} className="text-slate-700" />
+                    <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                       {date === 'Unscheduled' ? 'Not yet scheduled' : date}
                     </p>
                   </div>
@@ -118,13 +118,13 @@ export default function MyExamTimetablePage() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <BookOpen size={12} className="text-blue-400" />
                               <span className="text-sm font-bold text-white">{row.course_code}</span>
-                              <span className="text-sm text-slate-300">{row.course_title}</span>
+                              <span className="text-sm text-slate-900">{row.course_title}</span>
                             </div>
                           </div>
                           {row.is_scheduled && row.start_time && row.end_time && (
                             <div className="text-right flex-shrink-0">
                               <p className="text-xs font-semibold text-white flex items-center gap-1">
-                                <Clock size={11} className="text-slate-400" />
+                                <Clock size={11} className="text-slate-800" />
                                 {String(row.start_time)} – {String(row.end_time)}
                               </p>
                             </div>
@@ -132,7 +132,7 @@ export default function MyExamTimetablePage() {
                         </div>
 
                         {row.is_scheduled && (
-                          <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-slate-500">
+                          <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-slate-700">
                             {row.center_name && (
                               <span className="flex items-center gap-1">
                                 <MapPin size={10} /> {row.center_name}
@@ -155,7 +155,7 @@ export default function MyExamTimetablePage() {
         )}
 
         {!sessionId && (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-16 text-slate-700">
             <Ticket size={36} className="mb-3 opacity-30" />
             <p className="text-sm">Select an exam session to view your timetable</p>
           </div>

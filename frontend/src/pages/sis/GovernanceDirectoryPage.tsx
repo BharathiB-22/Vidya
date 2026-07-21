@@ -58,7 +58,7 @@ function DeansTab() {
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-16 text-slate-500 text-sm">
+      <div className="text-center py-16 text-slate-700 text-sm">
         No deans found.
       </div>
     )
@@ -90,18 +90,18 @@ function DeanCard({ dean }: { dean: GovernanceDeanItem }) {
           <StatusDot isActive={dean.is_active} />
           <span className="font-semibold text-slate-900 text-sm">{dean.full_name}</span>
           {dean.designation && (
-            <span className="text-xs text-slate-500">{dean.designation}</span>
+            <span className="text-xs text-slate-700">{dean.designation}</span>
           )}
         </div>
-        <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
+        <div className="flex items-center gap-1 mt-1 text-xs text-slate-700">
           <Mail size={12} />
           <span>{dean.email}</span>
         </div>
         {dean.department && (
-          <div className="flex items-center gap-1 mt-0.5 text-xs text-slate-500">
+          <div className="flex items-center gap-1 mt-0.5 text-xs text-slate-700">
             <Building2 size={12} />
             <span>{dean.department.name}</span>
-            <span className="text-slate-400">({dean.department.code})</span>
+            <span className="text-slate-800">({dean.department.code})</span>
           </div>
         )}
         {dean.responsibilities.length > 0 && (
@@ -135,7 +135,7 @@ function BoardTab() {
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-16 text-slate-500 text-sm">
+      <div className="text-center py-16 text-slate-700 text-sm">
         No board members found.
       </div>
     )
@@ -167,18 +167,18 @@ function BoardCard({ member }: { member: GovernanceBoardItem }) {
           <StatusDot isActive={member.is_active} />
           <span className="font-semibold text-slate-900 text-sm">{member.full_name}</span>
           {member.designation && (
-            <span className="text-xs text-slate-500">{member.designation}</span>
+            <span className="text-xs text-slate-700">{member.designation}</span>
           )}
         </div>
-        <div className="flex items-center gap-1 mt-1 text-xs text-slate-500">
+        <div className="flex items-center gap-1 mt-1 text-xs text-slate-700">
           <Mail size={12} />
           <span>{member.email}</span>
         </div>
         {member.department && (
-          <div className="flex items-center gap-1 mt-0.5 text-xs text-slate-500">
+          <div className="flex items-center gap-1 mt-0.5 text-xs text-slate-700">
             <Building2 size={12} />
             <span>{member.department.name}</span>
-            <span className="text-slate-400">({member.department.code})</span>
+            <span className="text-slate-800">({member.department.code})</span>
           </div>
         )}
       </div>

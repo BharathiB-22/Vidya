@@ -229,10 +229,10 @@ export default function ExamSessionsPage() {
 
       {/* List */}
       <div className="px-6 py-6">
-        {sessionsQ.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {sessionsQ.isLoading && <p className="text-sm text-slate-700">Loading…</p>}
 
         {sessions.length === 0 && !sessionsQ.isLoading && (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-20 text-slate-700">
             <CalendarDays size={36} className="mb-3 opacity-30" />
             <p className="text-sm">No exam sessions found.</p>
             <p className="text-xs mt-1 text-slate-600">Click New Session to get started.</p>
@@ -251,14 +251,14 @@ export default function ExamSessionsPage() {
                     <SessionStatusBadge status={s.status} />
                   </div>
                   <h3 className="text-base font-bold text-white mt-1 truncate">{s.session_name}</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-800 mt-0.5">
                     {s.academic_year} · {s.start_date} → {s.end_date}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-slate-700 mt-1">
                     {s.schedule_count} schedule{s.schedule_count !== 1 ? 's' : ''}
                   </p>
                 </div>
-                <ChevronRight size={16} className="text-slate-500 flex-shrink-0 mt-1" />
+                <ChevronRight size={16} className="text-slate-700 flex-shrink-0 mt-1" />
               </div>
             </div>
           ))}

@@ -33,7 +33,7 @@ function Card({ title, icon: Icon, children }: { title: string; icon: typeof Use
   return (
     <div className="rounded-xl px-6 py-4 space-y-1 bg-white border border-gray-200 shadow-sm">
       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-        <Icon className="h-4 w-4 text-gray-400" />
+        <Icon className="h-4 w-4 text-gray-600" />
         <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
       </div>
       {children}
@@ -240,7 +240,7 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
     <div className="rounded-xl px-6 py-4 space-y-3 bg-white border border-gray-200 shadow-sm">
 
       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-        <Activity className="h-4 w-4 text-gray-400" />
+        <Activity className="h-4 w-4 text-gray-600" />
         <h3 className="text-sm font-semibold text-gray-700">Lifecycle Status</h3>
       </div>
 
@@ -265,7 +265,7 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
                 placeholder="Reason (optional)"
                 value={reason}
                 onChange={e => setReason(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
               />
               <Button
                 size="sm"
@@ -297,7 +297,7 @@ function FacultyLifecyclePanel({ facultyId, canManage }: { facultyId: string; ca
             <div className="mt-2 space-y-1">
               {data.history.map(h => (
                 <div key={h.id} className="text-xs text-gray-500 flex items-start gap-2 py-1 border-b border-gray-100">
-                  <span className="shrink-0 tabular-nums text-gray-400">{formatDt(h.changed_at)}</span>
+                  <span className="shrink-0 tabular-nums text-gray-600">{formatDt(h.changed_at)}</span>
                   <span>
                     {h.from_status
                       ? <><FacultyStatusBadge status={h.from_status} /> → <FacultyStatusBadge status={h.to_status} /></>
@@ -367,7 +367,7 @@ function EditProfileForm({
     onSave(body)
   }
 
-  const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
+  const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -482,7 +482,7 @@ export default function FacultyProfilePage() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -515,13 +515,13 @@ export default function FacultyProfilePage() {
           )}
           {!isDean && (
             <div className="mt-2">
-              <p className="text-xs text-gray-400 mb-0.5">Teaching Programs</p>
+              <p className="text-xs text-gray-600 mb-0.5">Teaching Programs</p>
               {(profile.teaching_programs?.length ?? 0) > 0 ? (
                 <p className="text-xs text-gray-600 leading-relaxed">
                   {profile.teaching_programs.map(p => p.name).join(' · ')}
                 </p>
               ) : (
-                <p className="text-xs text-gray-400 italic">No teaching programs assigned</p>
+                <p className="text-xs text-gray-600 italic">No teaching programs assigned</p>
               )}
             </div>
           )}
@@ -554,17 +554,17 @@ export default function FacultyProfilePage() {
           label="Faculty Code"
           value={profile.faculty_code
             ? <span className="font-mono">{profile.faculty_code}</span>
-            : <span className="text-gray-400">Not assigned</span>}
+            : <span className="text-gray-600">Not assigned</span>}
         />
         <InfoRow
           label="Institution Email"
           value={profile.institution_email
-            ? <span className="flex items-center gap-1 justify-end"><Mail className="h-3 w-3 text-gray-400" />{profile.institution_email}</span>
-            : <span className="text-gray-400">Not assigned</span>}
+            ? <span className="flex items-center gap-1 justify-end"><Mail className="h-3 w-3 text-gray-600" />{profile.institution_email}</span>
+            : <span className="text-gray-600">Not assigned</span>}
         />
         <InfoRow
           label="Personal Login"
-          value={<span className="flex items-center gap-1 justify-end"><KeyRound className="h-3 w-3 text-gray-400" />{profile.email}</span>}
+          value={<span className="flex items-center gap-1 justify-end"><KeyRound className="h-3 w-3 text-gray-600" />{profile.email}</span>}
         />
       </Card>
 
@@ -584,9 +584,9 @@ export default function FacultyProfilePage() {
       {/* Contact & Basics */}
       <Card title="Contact & Basics" icon={UserCheck}>
         <InfoRow label="Email"          value={profile.email} />
-        {profile.phone    && <InfoRow label="Phone"     value={<span className="flex items-center gap-1 justify-end"><Phone className="h-3 w-3 text-gray-400" />{profile.phone}</span>} />}
-        {profile.office_location && <InfoRow label="Office" value={<span className="flex items-center gap-1 justify-end"><MapPin className="h-3 w-3 text-gray-400" />{profile.office_location}</span>} />}
-        {profile.joining_date && <InfoRow label="Joined" value={<span className="flex items-center gap-1 justify-end"><Calendar className="h-3 w-3 text-gray-400" />{profile.joining_date}</span>} />}
+        {profile.phone    && <InfoRow label="Phone"     value={<span className="flex items-center gap-1 justify-end"><Phone className="h-3 w-3 text-gray-600" />{profile.phone}</span>} />}
+        {profile.office_location && <InfoRow label="Office" value={<span className="flex items-center gap-1 justify-end"><MapPin className="h-3 w-3 text-gray-600" />{profile.office_location}</span>} />}
+        {profile.joining_date && <InfoRow label="Joined" value={<span className="flex items-center gap-1 justify-end"><Calendar className="h-3 w-3 text-gray-600" />{profile.joining_date}</span>} />}
       </Card>
 
       {/* Academic */}

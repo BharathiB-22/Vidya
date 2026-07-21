@@ -40,7 +40,7 @@ function InfoRow({ label, value, mono = false }: { label: string; value: React.R
     <div className="flex items-start justify-between py-3 gap-4 border-b border-gray-100 last:border-0">
       <span className="text-sm text-gray-500 flex-shrink-0">{label}</span>
       <span className={`text-sm text-gray-900 font-medium text-right ${mono ? 'font-mono' : ''}`}>
-        {value || <span className="text-gray-400">—</span>}
+        {value || <span className="text-gray-600">—</span>}
       </span>
     </div>
   )
@@ -52,10 +52,10 @@ function Card({ title, icon: Icon, locked = false, children }: {
   return (
     <div className="rounded-xl px-6 py-4 space-y-1 bg-white border border-gray-200 shadow-sm">
       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-        <Icon className="h-4 w-4 text-gray-400" />
+        <Icon className="h-4 w-4 text-gray-600" />
         <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
         {locked && (
-          <span className="ml-auto flex items-center gap-1 text-xs text-gray-400">
+          <span className="ml-auto flex items-center gap-1 text-xs text-gray-600">
             <Shield className="h-3 w-3" /> Admin-managed
           </span>
         )}
@@ -65,7 +65,7 @@ function Card({ title, icon: Icon, locked = false, children }: {
   )
 }
 
-const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500"
+const inputCls = "w-full px-3 py-2 text-sm rounded-lg bg-white border border-gray-300 text-gray-900 placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
 const labelCls = "block text-xs text-gray-500 mb-1"
 
 /** Client-side completion % over the student's optional/editable profile fields. */
@@ -184,7 +184,7 @@ function StudentProfileView({ profile }: { profile: StudentDetailOut }) {
       {editing ? (
         <div className="rounded-xl px-6 py-5 bg-white border border-gray-200 shadow-sm">
           <div className="flex items-center gap-2 pb-3 mb-3 border-b border-gray-100">
-            <Phone className="h-4 w-4 text-gray-400" />
+            <Phone className="h-4 w-4 text-gray-600" />
             <h3 className="text-sm font-semibold text-gray-700">Edit contact details</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -333,7 +333,7 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
             })}
           </div>
         )}
-        <p className="pt-1 pb-1 text-[11px] text-gray-400">
+        <p className="pt-1 pb-1 text-[11px] text-gray-600">
           Responsibilities are granted by your Dean or Admin and control which dashboards you can access.
         </p>
       </Card>
@@ -342,7 +342,7 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
       {editing ? (
         <div className="rounded-xl px-6 py-5 bg-white border border-gray-200 shadow-sm">
           <div className="flex items-center gap-2 pb-3 mb-3 border-b border-gray-100">
-            <BookOpen className="h-4 w-4 text-gray-400" />
+            <BookOpen className="h-4 w-4 text-gray-600" />
             <h3 className="text-sm font-semibold text-gray-700">Edit contact & bio</h3>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -376,7 +376,7 @@ function FacultyProfileView({ profile }: { profile: FacultyDetailOut }) {
       ) : (
         <Card title="Contact & Bio" icon={Phone}>
           <InfoRow label="Phone"          value={profile.phone} />
-          <InfoRow label="Office"         value={<span className="flex items-center gap-1 justify-end"><MapPin className="h-3 w-3 text-gray-400" />{profile.office_location}</span>} />
+          <InfoRow label="Office"         value={<span className="flex items-center gap-1 justify-end"><MapPin className="h-3 w-3 text-gray-600" />{profile.office_location}</span>} />
           <InfoRow label="Specialization" value={profile.specialization} />
           {profile.bio && (
             <div className="py-3">

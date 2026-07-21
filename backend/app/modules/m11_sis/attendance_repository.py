@@ -23,15 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.models import User
 from app.modules.m11_sis.attendance_models import (
-    AttendanceStatus, SisAttendanceRecord, SisAttendanceSession,
+    SisAttendanceRecord, SisAttendanceSession,
 )
 from app.modules.m11_sis.attendance_schemas import (
-    AttendanceMarkEntry, AttendanceMarkResult, AttendanceRecordOut,
-    AttendanceDashboardOut, CourseAttendanceSummary,
-    MyCourseAttendanceDetail, MyAttendanceSummary,
-    SectionAttendanceOut, SectionStudentAttendance,
-    SessionOut, SessionRecordForStudent,
-    ShortageReportOut, ShortageStudentOut,
+    AttendanceMarkEntry, AttendanceRecordOut,
 )
 from app.modules.m11_sis.models import SisStudentProfile
 from app.modules.m_academics.models import AcadBatch, AcadProgram, AcadSection, AcadSemester

@@ -22,7 +22,7 @@ from app.modules.m_academics.models import (
 )
 from app.modules.m11_sis.enrollment_schemas import (
     BatchSummary, DashboardCountsOut, DeptSummary,
-    EnrollmentOut, EnrollmentSummary, ProgramSummary,
+    EnrollmentSummary, ProgramSummary,
     RosterStudentOut, SectionSummary, SemesterSummary,
     StudentProfileOut, StudentSummaryOut,
 )

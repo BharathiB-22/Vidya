@@ -158,13 +158,13 @@ export default function ExamInvigilationPage() {
 
       <div className="px-6 py-5 max-w-3xl">
         {sess && (
-          <p className="text-xs text-slate-500 mb-4">
-            Session: <span className="text-slate-300 font-semibold">{sess.session_name}</span>
+          <p className="text-xs text-slate-700 mb-4">
+            Session: <span className="text-slate-900 font-semibold">{sess.session_name}</span>
           </p>
         )}
 
         {assignments.length === 0 && !invigilationQ.isLoading && (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-16 text-slate-700">
             <Users size={32} className="mb-3 opacity-30" />
             <p className="text-sm">No invigilators assigned yet.</p>
           </div>
@@ -176,9 +176,9 @@ export default function ExamInvigilationPage() {
               className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/4 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-white">
-                  {a.faculty_name ?? <span className="font-mono text-xs text-slate-400">{a.faculty_user_id}</span>}
+                  {a.faculty_name ?? <span className="font-mono text-xs text-slate-800">{a.faculty_user_id}</span>}
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                <p className="text-xs text-slate-800 mt-0.5 flex items-center gap-2 flex-wrap">
                   {a.exam_date && (
                     <span className="flex items-center gap-1"><Clock size={10} /> {a.exam_date}</span>
                   )}

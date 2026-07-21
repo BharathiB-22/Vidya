@@ -88,14 +88,14 @@ function DropZone({
       />
       {isXlsx
         ? <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-green-500" />
-        : <Upload className={`h-8 w-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-gray-400'}`} />
+        : <Upload className={`h-8 w-8 mx-auto mb-2 ${file ? 'text-green-500' : 'text-gray-600'}`} />
       }
       {file ? (
         <p className="text-sm font-medium text-green-700">{file.name}</p>
       ) : (
         <>
           <p className="text-sm font-medium text-gray-700">Drop CSV or Excel (.xlsx) here, or click to browse</p>
-          <p className="text-xs text-gray-400 mt-1">Max 5 MB · .csv or .xlsx</p>
+          <p className="text-xs text-gray-600 mt-1">Max 5 MB · .csv or .xlsx</p>
         </>
       )}
     </div>
@@ -135,18 +135,18 @@ function TemplateBar() {
 function PreviewRow({ row }: { row: ProfileImportRowResult }) {
   return (
     <tr className={row.is_valid ? '' : 'bg-red-50'}>
-      <td className="px-3 py-2 text-gray-400 text-xs">{row.row_number}</td>
+      <td className="px-3 py-2 text-gray-600 text-xs">{row.row_number}</td>
       <td className="px-3 py-2 text-gray-800 text-xs font-mono truncate max-w-[160px]">
-        {row.email || <span className="text-gray-400 italic">—</span>}
+        {row.email || <span className="text-gray-600 italic">—</span>}
       </td>
       <td className="px-3 py-2 text-gray-700 text-xs truncate max-w-[120px]">
-        {row.student_name ?? <span className="text-gray-400 italic">not found</span>}
+        {row.student_name ?? <span className="text-gray-600 italic">not found</span>}
       </td>
       <td className="px-3 py-2 text-gray-600 font-mono text-xs">
-        {row.usn ?? <span className="text-gray-400">—</span>}
+        {row.usn ?? <span className="text-gray-600">—</span>}
       </td>
       <td className="px-3 py-2 text-gray-600 text-xs">
-        {row.admission_year ?? <span className="text-gray-400">—</span>}
+        {row.admission_year ?? <span className="text-gray-600">—</span>}
       </td>
       <td className="px-3 py-2">
         {row.is_valid ? (
@@ -339,7 +339,7 @@ export function BulkProfileImportModal({ open, onClose, onSuccess }: Props) {
         <div className="flex items-center gap-2 text-xs text-gray-500 -mt-1">
           {(['upload', 'preview', 'done'] as Step[]).map((s, i) => (
             <span key={s} className="flex items-center gap-2">
-              {i > 0 && <span className="text-gray-300">›</span>}
+              {i > 0 && <span className="text-gray-500">›</span>}
               <span className={step === s ? 'text-indigo-600 font-semibold' : ''}>
                 {s === 'upload' ? '1. Upload' : s === 'preview' ? '2. Review' : '3. Done'}
               </span>

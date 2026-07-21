@@ -267,7 +267,7 @@ export default function FacultyAttendanceDashboard() {
           </div>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -293,7 +293,7 @@ export default function FacultyAttendanceDashboard() {
             {search ? 'No classes match your search.' : 'No classes scheduled for this range.'}
           </p>
           {!search && (
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-600 mt-1">
               Classes come from your published timetable. If one is missing, ask your Dean to publish it.
             </p>
           )}
@@ -324,7 +324,7 @@ export default function FacultyAttendanceDashboard() {
                     <tr key={`${r.date}:${c.course_id}:${c.section_id ?? 'e'}:${c.period_number}`} className="hover:bg-gray-50/70 transition-colors">
                       <td className="px-4 py-2.5 whitespace-nowrap font-medium text-gray-700">{dateLabel(r.date)}</td>
                       <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">
-                        <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-gray-400" />{timeRange(c)}</span>
+                        <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-gray-600" />{timeRange(c)}</span>
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
@@ -340,7 +340,7 @@ export default function FacultyAttendanceDashboard() {
                       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{c.is_taken ? c.present_count : '—'}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-rose-600">{absent === null ? '—' : absent}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">
-                        <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5 text-gray-300" />{total}</span>
+                        <span className="inline-flex items-center gap-1"><Users className="h-3.5 w-3.5 text-gray-500" />{total}</span>
                       </td>
                       <td className="px-4 py-2.5 text-right"><ActionCell row={r} onOpen={() => openAttendance(r)} /></td>
                     </tr>
@@ -425,7 +425,7 @@ function ActionCell({ row, onOpen }: { row: Row; onOpen: () => void }) {
     return <Button size="sm" onClick={onOpen}>Take Attendance</Button>
   }
   if (!c.is_taken && !editable) {
-    return <span className="inline-flex items-center gap-1 text-xs text-gray-400"><Lock className="h-3.5 w-3.5" /> Locked</span>
+    return <span className="inline-flex items-center gap-1 text-xs text-gray-600"><Lock className="h-3.5 w-3.5" /> Locked</span>
   }
   if (c.is_taken && editable) {
     return <Button size="sm" variant="outline" onClick={onOpen}>Edit</Button>

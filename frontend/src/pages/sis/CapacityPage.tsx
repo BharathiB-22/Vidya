@@ -96,7 +96,7 @@ function CapacityCell({
         <button onClick={commit} disabled={isSaving} className="text-emerald-600 hover:text-emerald-700">
           <Check size={15} />
         </button>
-        <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-gray-600">
+        <button onClick={() => setEditing(false)} className="text-gray-600 hover:text-gray-600">
           <X size={15} />
         </button>
       </div>
@@ -111,7 +111,7 @@ function CapacityCell({
       {canEdit && (
         <button
           onClick={startEdit}
-          className="opacity-0 group-hover/cap:opacity-100 transition-opacity text-gray-400 hover:text-indigo-600"
+          className="opacity-0 group-hover/cap:opacity-100 transition-opacity text-gray-600 hover:text-indigo-600"
           aria-label="Edit capacity"
         >
           <Edit2 size={13} />

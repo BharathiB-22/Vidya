@@ -75,9 +75,9 @@ export default function ExamSeatAllocationPage() {
       <div className="px-6 py-5 max-w-3xl space-y-5">
 
         {sessionQ.data && (
-          <p className="text-xs text-slate-500">
-            Session: <span className="text-slate-300 font-semibold">{sessionQ.data.session_name}</span>
-            {' · '}Status: <span className="text-slate-300 font-semibold">{sessionQ.data.status}</span>
+          <p className="text-xs text-slate-700">
+            Session: <span className="text-slate-900 font-semibold">{sessionQ.data.session_name}</span>
+            {' · '}Status: <span className="text-slate-900 font-semibold">{sessionQ.data.status}</span>
           </p>
         )}
 
@@ -86,7 +86,7 @@ export default function ExamSeatAllocationPage() {
           <h3 className="text-sm font-bold text-white mb-4">Run Seat Allocation</h3>
 
           <div className="mb-3">
-            <label className="block text-xs text-slate-400 mb-1">Exam Center</label>
+            <label className="block text-xs text-slate-800 mb-1">Exam Center</label>
             <Select value={centerId || undefined} onValueChange={setCenterId}>
               <SelectTrigger className="w-full"><SelectValue placeholder="— Select center —" /></SelectTrigger>
               <SelectContent>
@@ -99,7 +99,7 @@ export default function ExamSeatAllocationPage() {
 
           <div className="mb-3">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs text-slate-400">Rooms</label>
+              <label className="block text-xs text-slate-800">Rooms</label>
               <button onClick={addRoom}
                 className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
                 <Plus size={11} /> Add room
@@ -141,20 +141,20 @@ export default function ExamSeatAllocationPage() {
             </div>
             <div className="grid grid-cols-3 gap-3 mb-3">
               <div>
-                <p className="text-[11px] text-slate-500">Allocated</p>
+                <p className="text-[11px] text-slate-700">Allocated</p>
                 <p className="text-xl font-black text-white">{result.allocated}</p>
               </div>
               <div>
-                <p className="text-[11px] text-slate-500">Rooms Used</p>
+                <p className="text-[11px] text-slate-700">Rooms Used</p>
                 <p className="text-xl font-black text-white">{result.rooms_used}</p>
               </div>
               <div>
-                <p className="text-[11px] text-slate-500">Total Capacity</p>
+                <p className="text-[11px] text-slate-700">Total Capacity</p>
                 <p className="text-xl font-black text-white">{result.total_capacity}</p>
               </div>
             </div>
             {result.details.map(d => (
-              <div key={d.room_number} className="flex justify-between text-xs text-slate-400 py-1 border-t border-white/5">
+              <div key={d.room_number} className="flex justify-between text-xs text-slate-800 py-1 border-t border-white/5">
                 <span>Room {d.room_number}</span>
                 <span>{d.assigned} / {d.capacity}</span>
               </div>
@@ -171,7 +171,7 @@ export default function ExamSeatAllocationPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/8 text-left text-[11px] text-slate-500 uppercase">
+                  <tr className="border-b border-white/8 text-left text-[11px] text-slate-700 uppercase">
                     <th className="px-3 py-2">Student</th>
                     <th className="px-3 py-2">USN</th>
                     <th className="px-3 py-2">Hall Ticket</th>
@@ -183,16 +183,16 @@ export default function ExamSeatAllocationPage() {
                   {seats.slice(0, 50).map(s => (
                     <tr key={s.student_id} className="border-b border-white/5 hover:bg-white/3">
                       <td className="px-3 py-2 text-white">{s.student_name ?? '—'}</td>
-                      <td className="px-3 py-2 text-slate-400 font-mono text-xs">{s.usn ?? '—'}</td>
-                      <td className="px-3 py-2 text-slate-300 font-mono text-xs">{s.hall_ticket_number ?? '—'}</td>
-                      <td className="px-3 py-2 text-slate-400">{s.room_number ?? '—'}</td>
-                      <td className="px-3 py-2 text-slate-400">{s.seat_number ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-800 font-mono text-xs">{s.usn ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-900 font-mono text-xs">{s.hall_ticket_number ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-800">{s.room_number ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-800">{s.seat_number ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {seats.length > 50 && (
-                <p className="text-xs text-slate-500 mt-2 text-center">Showing first 50 of {seats.length}</p>
+                <p className="text-xs text-slate-700 mt-2 text-center">Showing first 50 of {seats.length}</p>
               )}
             </div>
           </div>

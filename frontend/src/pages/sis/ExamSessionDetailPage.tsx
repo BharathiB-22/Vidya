@@ -203,7 +203,7 @@ export default function ExamSessionDetailPage() {
   const sortedDates = Object.keys(byDate).sort()
 
   if (sessionQ.isLoading)
-    return <PageShell><p className="p-8 text-slate-500 text-sm">Loading…</p></PageShell>
+    return <PageShell><p className="p-8 text-slate-700 text-sm">Loading…</p></PageShell>
 
   if (!sess)
     return <PageShell><p className="p-8 text-red-400 text-sm">Session not found.</p></PageShell>
@@ -235,10 +235,10 @@ export default function ExamSessionDetailPage() {
                 <SessionStatusBadge status={sess.status} />
               </div>
               <h2 className="text-lg font-bold text-white mt-1">{sess.session_name}</h2>
-              <p className="text-sm text-slate-400 mt-0.5">
+              <p className="text-sm text-slate-800 mt-0.5">
                 {sess.academic_year} · {sess.start_date} → {sess.end_date}
               </p>
-              {sess.notes && <p className="text-xs text-slate-500 mt-1 italic">{sess.notes}</p>}
+              {sess.notes && <p className="text-xs text-slate-700 mt-1 italic">{sess.notes}</p>}
             </div>
             <div className="flex gap-2 flex-wrap">
               {isDraft && (
@@ -264,11 +264,11 @@ export default function ExamSessionDetailPage() {
           {/* Quick-nav links */}
           <div className="mt-4 flex gap-2 flex-wrap">
             <Link to={`/sis/exam/sessions/${id}/invigilation`}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white border border-white/8 rounded-lg px-3 py-1.5 hover:bg-white/8 transition-colors">
+              className="flex items-center gap-1.5 text-xs text-slate-800 hover:text-white border border-white/8 rounded-lg px-3 py-1.5 hover:bg-white/8 transition-colors">
               <Users size={12} /> Invigilators
             </Link>
             <Link to={`/sis/exam/sessions/${id}/seating`}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white border border-white/8 rounded-lg px-3 py-1.5 hover:bg-white/8 transition-colors">
+              className="flex items-center gap-1.5 text-xs text-slate-800 hover:text-white border border-white/8 rounded-lg px-3 py-1.5 hover:bg-white/8 transition-colors">
               <LayoutList size={12} /> Seat Allocation
             </Link>
           </div>
@@ -286,7 +286,7 @@ export default function ExamSessionDetailPage() {
           </div>
 
           {schedules.length === 0 && (
-            <div className="text-center py-8 text-slate-500">
+            <div className="text-center py-8 text-slate-700">
               <CalendarDays size={28} className="mx-auto mb-2 opacity-30" />
               <p className="text-sm">No schedules yet. Add exam entries for each course + section.</p>
             </div>
@@ -295,7 +295,7 @@ export default function ExamSessionDetailPage() {
           {sortedDates.map(date => (
             <div key={date} className="mb-4">
               <div className="flex items-center gap-2 mb-2">
-                <div className="text-[11px] text-slate-500 uppercase tracking-wide font-bold">
+                <div className="text-[11px] text-slate-700 uppercase tracking-wide font-bold">
                   {new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}
                 </div>
                 <div className="flex-1 h-px bg-white/8" />
@@ -308,7 +308,7 @@ export default function ExamSessionDetailPage() {
                       <p className="text-sm font-semibold text-white">
                         {sch.course_code} — {sch.course_title}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-xs text-slate-800 mt-0.5">
                         {sch.section_name} · {sch.start_time.slice(0, 5)}–{sch.end_time.slice(0, 5)}
                         {sch.center_name && ` · ${sch.center_name}`}
                         {sch.room_number && ` Room ${sch.room_number}`}

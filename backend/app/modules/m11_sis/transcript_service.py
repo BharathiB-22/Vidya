@@ -26,8 +26,6 @@ from app.core.audit_log.service import AuditService
 from app.modules.m11_sis.transcript_models import (
     DegreeStatus,
     SisTranscript,
-    SisTranscriptSemesterLine,
-    SisTranscriptSubjectLine,
     SisTranscriptVerificationLog,
     TranscriptStatus,
     TranscriptType,
@@ -35,7 +33,6 @@ from app.modules.m11_sis.transcript_models import (
 )
 from app.modules.m11_sis.transcript_repository import (
     PublicTranscriptIndexRepo,
-    TranscriptLinesRepo,
     TranscriptRepo,
     VerificationLogRepo,
 )
@@ -143,7 +140,7 @@ class TranscriptLifecycleService:
 
         # Check at least one LOCKED declaration exists for this student
         from app.modules.m11_sis.results_models import DeclarationStatus, SisResultDeclaration
-        decl_result = await db.execute(
+        await db.execute(
             select(SisResultDeclaration).where(
                 SisResultDeclaration.status == DeclarationStatus.LOCKED.value,
             ).limit(1)

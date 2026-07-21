@@ -32,7 +32,7 @@ from app.core.audit_log.service import AuditService
 from app.core.auth.models import User
 from app.modules.m_academics.class_roster import is_elective_course, resolve_class_roster
 from app.modules.m11_sis.attendance_models import (
-    AttendanceStatus, SessionStatus, SisAttendanceRecord, SisAttendanceSession,
+    SessionStatus, SisAttendanceSession,
 )
 from app.modules.m11_sis.attendance_repository import (
     DEFAULT_SHORTAGE_THRESHOLD, AttendanceRepository,

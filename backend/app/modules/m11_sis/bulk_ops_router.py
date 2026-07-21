@@ -5,7 +5,7 @@ POST /faculty/bulk    — bulk DEACTIVATE or ARCHIVE faculty    (ADMIN only)
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_tenant_db_dep, require_roles

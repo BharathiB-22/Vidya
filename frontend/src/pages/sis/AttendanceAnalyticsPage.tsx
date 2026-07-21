@@ -24,7 +24,7 @@ function DashCard({ label, value, color, icon: Icon }: {
       style={{ background: `${color}10`, border: `1px solid ${color}33` }}>
       <div className="flex items-center gap-2 mb-2">
         <Icon size={14} style={{ color }} />
-        <p className="text-xs text-slate-400">{label}</p>
+        <p className="text-xs text-slate-800">{label}</p>
       </div>
       <p className="text-3xl font-bold" style={{ color }}>{value}</p>
     </div>
@@ -44,7 +44,7 @@ function pctColor(p: number) {
 function FlatShortageTable({ students }: { students: ShortageStudentOut[] }) {
   if (students.length === 0) {
     return (
-      <div className="rounded-xl py-10 text-center text-slate-500 text-sm"
+      <div className="rounded-xl py-10 text-center text-slate-700 text-sm"
         style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
         <CheckCircle2 size={28} className="mx-auto mb-2 text-green-400 opacity-60" />
         No students below threshold.
@@ -58,7 +58,7 @@ function FlatShortageTable({ students }: { students: ShortageStudentOut[] }) {
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             {['USN', 'Student', 'Course', 'Section', 'Sem', 'Attended', '%'].map(h => (
-              <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400">{h}</th>
+              <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-800">{h}</th>
             ))}
           </tr>
         </thead>
@@ -66,15 +66,15 @@ function FlatShortageTable({ students }: { students: ShortageStudentOut[] }) {
           {students.map((s, i) => (
             <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
               className="hover:bg-white/[0.02]">
-              <td className="px-4 py-3 text-xs font-mono text-slate-400">{s.usn ?? '—'}</td>
+              <td className="px-4 py-3 text-xs font-mono text-slate-800">{s.usn ?? '—'}</td>
               <td className="px-4 py-3">
-                <p className="text-xs text-slate-200 font-medium">{s.student_name}</p>
-                <p className="text-xs text-slate-500">{s.email}</p>
+                <p className="text-xs text-slate-900 font-medium">{s.student_name}</p>
+                <p className="text-xs text-slate-700">{s.email}</p>
               </td>
-              <td className="px-4 py-3 text-xs text-slate-300">{s.course_code} – {s.course_title}</td>
-              <td className="px-4 py-3 text-xs text-slate-400">{s.section_name}</td>
-              <td className="px-4 py-3 text-xs text-slate-400">{s.semester_number ?? '—'}</td>
-              <td className="px-4 py-3 text-xs text-slate-400">
+              <td className="px-4 py-3 text-xs text-slate-900">{s.course_code} – {s.course_title}</td>
+              <td className="px-4 py-3 text-xs text-slate-800">{s.section_name}</td>
+              <td className="px-4 py-3 text-xs text-slate-800">{s.semester_number ?? '—'}</td>
+              <td className="px-4 py-3 text-xs text-slate-800">
                 {s.attended_sessions}/{s.total_sessions}
               </td>
               <td className="px-4 py-3">
@@ -106,8 +106,8 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
       >
         <div className="flex items-center gap-3 text-left">
           <div>
-            <p className="text-sm font-semibold text-slate-200">{c.course_code} — {c.course_title}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{c.sections.length} section(s)</p>
+            <p className="text-sm font-semibold text-slate-900">{c.course_code} — {c.course_title}</p>
+            <p className="text-xs text-slate-800 mt-0.5">{c.sections.length} section(s)</p>
           </div>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -116,8 +116,8 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
             {c.total_at_risk} at risk
           </span>
           {expanded
-            ? <ChevronDown size={16} className="text-slate-400" />
-            : <ChevronRight size={16} className="text-slate-400" />
+            ? <ChevronDown size={16} className="text-slate-800" />
+            : <ChevronRight size={16} className="text-slate-800" />
           }
         </div>
       </button>
@@ -128,10 +128,10 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
             <div key={sec.section_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <div className="px-5 py-2.5 flex items-center justify-between"
                 style={{ background: 'rgba(255,255,255,0.02)' }}>
-                <p className="text-xs font-semibold text-slate-300">
+                <p className="text-xs font-semibold text-slate-900">
                   Section {sec.section_name} · Sem {sec.semester_number}
                 </p>
-                <div className="flex items-center gap-3 text-xs text-slate-400">
+                <div className="flex items-center gap-3 text-xs text-slate-800">
                   {sec.avg_pct !== null && (
                     <span>Avg: <span style={{ color: pctColor(sec.avg_pct) }}>{sec.avg_pct.toFixed(1)}%</span></span>
                   )}
@@ -142,7 +142,7 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                     {['USN', 'Student', 'Attended / Total', '%'].map(h => (
-                      <th key={h} className="px-4 py-2 text-left text-xs font-medium text-slate-500">{h}</th>
+                      <th key={h} className="px-4 py-2 text-left text-xs font-medium text-slate-700">{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -150,12 +150,12 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
                   {sec.students.map((s, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
                       className="hover:bg-white/[0.02]">
-                      <td className="px-4 py-2 text-xs font-mono text-slate-400">{s.usn ?? '—'}</td>
+                      <td className="px-4 py-2 text-xs font-mono text-slate-800">{s.usn ?? '—'}</td>
                       <td className="px-4 py-2">
-                        <p className="text-xs text-slate-200">{s.student_name}</p>
-                        <p className="text-xs text-slate-500">{s.email}</p>
+                        <p className="text-xs text-slate-900">{s.student_name}</p>
+                        <p className="text-xs text-slate-700">{s.email}</p>
                       </td>
-                      <td className="px-4 py-2 text-xs text-slate-400">
+                      <td className="px-4 py-2 text-xs text-slate-800">
                         {s.attended_sessions}/{s.total_sessions}
                       </td>
                       <td className="px-4 py-2">
@@ -178,7 +178,7 @@ function GroupedCourseRow({ c }: { c: ShortageCourseGroup }) {
 function GroupedShortageView({ courses }: { courses: ShortageCourseGroup[] }) {
   if (courses.length === 0) {
     return (
-      <div className="rounded-xl py-10 text-center text-slate-500 text-sm"
+      <div className="rounded-xl py-10 text-center text-slate-700 text-sm"
         style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
         <CheckCircle2 size={28} className="mx-auto mb-2 text-green-400 opacity-60" />
         No students below threshold.
@@ -269,7 +269,7 @@ export default function AttendanceAnalyticsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mt-6 mb-5 items-end">
         <div>
-          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Semester</label>
+          <label className="block text-xs text-slate-800 mb-1.5 font-medium">Semester</label>
           <Select value={semesterId || 'ALL'} onValueChange={v => setSemesterId(v === 'ALL' ? '' : v)}>
             <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Semesters" /></SelectTrigger>
             <SelectContent>
@@ -281,7 +281,7 @@ export default function AttendanceAnalyticsPage() {
           </Select>
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Program</label>
+          <label className="block text-xs text-slate-800 mb-1.5 font-medium">Program</label>
           <Select value={programId || 'ALL'} onValueChange={v => { setProgramId(v === 'ALL' ? '' : v); setBatchId('') }}>
             <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Programs" /></SelectTrigger>
             <SelectContent>
@@ -293,7 +293,7 @@ export default function AttendanceAnalyticsPage() {
           </Select>
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Batch</label>
+          <label className="block text-xs text-slate-800 mb-1.5 font-medium">Batch</label>
           <Select value={batchId || 'ALL'} onValueChange={v => setBatchId(v === 'ALL' ? '' : v)} disabled={!programId}>
             <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Batches" /></SelectTrigger>
             <SelectContent>
@@ -305,13 +305,13 @@ export default function AttendanceAnalyticsPage() {
           </Select>
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1.5 font-medium">Shortage Threshold (%)</label>
+          <label className="block text-xs text-slate-800 mb-1.5 font-medium">Shortage Threshold (%)</label>
           <div className="flex gap-2">
             <input type="number" min={0} max={100} value={thresholdInput}
               onChange={e => setThresholdInput(e.target.value)}
               className="w-24 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500" />
             <Button onClick={applyThreshold} variant="outline"
-              className="border-slate-600 text-slate-300 text-sm">
+              className="border-slate-600 text-slate-900 text-sm">
               Apply
             </Button>
           </div>
@@ -324,8 +324,8 @@ export default function AttendanceAnalyticsPage() {
             onChange={e => setFinalizedOnly(e.target.checked)}
             className="accent-indigo-500"
           />
-          <label htmlFor="finalized-only-analytics" className="text-xs text-slate-400 flex items-center gap-1.5 cursor-pointer">
-            <Lock size={11} className="text-slate-500" />
+          <label htmlFor="finalized-only-analytics" className="text-xs text-slate-800 flex items-center gap-1.5 cursor-pointer">
+            <Lock size={11} className="text-slate-700" />
             Finalized only
           </label>
         </div>
@@ -354,13 +354,13 @@ export default function AttendanceAnalyticsPage() {
       {/* Shortage report section */}
       <div className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h2 className="text-sm font-semibold text-slate-200">
+          <h2 className="text-sm font-semibold text-slate-900">
             Shortage Report
-            <span className="text-slate-400 font-normal ml-2">— students below {threshold}%</span>
+            <span className="text-slate-800 font-normal ml-2">— students below {threshold}%</span>
           </h2>
           <div className="flex items-center gap-3">
             {atRisk > 0 && (
-              <span className="text-xs text-slate-400">{atRisk} students</span>
+              <span className="text-xs text-slate-800">{atRisk} students</span>
             )}
             {/* View mode toggle */}
             <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
@@ -371,7 +371,7 @@ export default function AttendanceAnalyticsPage() {
                   className="px-3 py-1.5 text-xs font-medium transition-colors"
                   style={{
                     background: viewMode === mode ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.03)',
-                    color: viewMode === mode ? '#a5b4fc' : '#94a3b8',
+                    color: viewMode === mode ? '#a5b4fc' : '#334155',
                     borderRight: mode === 'flat' ? '1px solid rgba(255,255,255,0.08)' : undefined,
                   }}
                 >
@@ -384,7 +384,7 @@ export default function AttendanceAnalyticsPage() {
 
         {/* Finalized-only indicator */}
         {finalizedOnly && (
-          <div className="rounded-lg p-2.5 flex gap-2 text-xs text-slate-400"
+          <div className="rounded-lg p-2.5 flex gap-2 text-xs text-slate-800"
             style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)' }}>
             <Lock size={11} className="shrink-0 mt-0.5 text-indigo-400" />
             Showing data from LOCKED sessions only. Open/pending sessions are excluded.
@@ -392,10 +392,10 @@ export default function AttendanceAnalyticsPage() {
         )}
 
         {/* Advisory disclaimer */}
-        <div className="rounded-lg p-3 flex gap-2 text-xs text-slate-400"
+        <div className="rounded-lg p-3 flex gap-2 text-xs text-slate-800"
           style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)' }}>
           <Info size={13} className="shrink-0 mt-0.5 text-indigo-400" />
-          This report is <strong className="text-slate-300 mx-1">advisory only</strong>.
+          This report is <strong className="text-slate-900 mx-1">advisory only</strong>.
           Attendance action (e.g., detainment, counselling) requires explicit DEAN or ADMIN decision.
           No automatic action is taken by the system.
         </div>
@@ -412,7 +412,7 @@ export default function AttendanceAnalyticsPage() {
           groupedLoading ? <PageLoading /> : grouped ? (
             <>
               {grouped.total_courses_with_shortage > 0 && (
-                <div className="flex gap-3 text-xs text-slate-400 mb-1">
+                <div className="flex gap-3 text-xs text-slate-800 mb-1">
                   <span>{grouped.total_courses_with_shortage} course(s) with shortage</span>
                   <span>·</span>
                   <span>{grouped.total_students_at_risk} unique student(s)</span>

@@ -123,10 +123,10 @@ export default function ExamCentersPage() {
       />
 
       <div className="px-6 py-6 max-w-2xl">
-        {centersQ.isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+        {centersQ.isLoading && <p className="text-sm text-slate-700">Loading…</p>}
 
         {centers.length === 0 && !centersQ.isLoading && (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-20 text-slate-700">
             <MapPin size={36} className="mb-3 opacity-30" />
             <p className="text-sm">No exam centers defined yet.</p>
           </div>
@@ -140,17 +140,17 @@ export default function ExamCentersPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-bold text-white">{c.center_name}</p>
-                  <span className="text-[10px] font-mono text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] font-mono text-slate-700 bg-white/5 px-1.5 py-0.5 rounded">
                     {c.center_code}
                   </span>
                 </div>
-                {c.address && <p className="text-xs text-slate-400 mt-0.5">{c.address}</p>}
+                {c.address && <p className="text-xs text-slate-800 mt-0.5">{c.address}</p>}
                 {c.capacity != null && (
-                  <p className="text-xs text-slate-500 mt-0.5">Capacity: {c.capacity}</p>
+                  <p className="text-xs text-slate-700 mt-0.5">Capacity: {c.capacity}</p>
                 )}
               </div>
               <button onClick={() => setModal(c)}
-                className="text-slate-500 hover:text-blue-400 transition-colors flex-shrink-0">
+                className="text-slate-700 hover:text-blue-400 transition-colors flex-shrink-0">
                 <Pencil size={13} />
               </button>
             </div>

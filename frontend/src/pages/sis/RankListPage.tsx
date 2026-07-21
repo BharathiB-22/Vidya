@@ -17,7 +17,7 @@ const RESULT_COLORS: Record<string, string> = {
 
 const MEDAL_COLORS: Record<number, string> = {
   1: 'text-yellow-500',
-  2: 'text-gray-400',
+  2: 'text-gray-600',
   3: 'text-amber-600',
 }
 

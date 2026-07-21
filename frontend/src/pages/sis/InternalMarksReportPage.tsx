@@ -5,11 +5,13 @@ import { PageShell } from '@/components/shell/PageShell'
 import { PageHeader } from '@/components/shell/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { sisApi, MarksComponent, SectionReadinessOut } from '@/lib/api/sis'
+import { academicsApi } from '@/lib/api/academics'
+import { listAllCourses } from '@/lib/api/programs'
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT:     'bg-yellow-100 text-yellow-800 border-yellow-200',
@@ -20,6 +22,12 @@ const STATUS_COLORS: Record<string, string> = {
 export default function InternalMarksReportPage() {
   const qc = useQueryClient()
 
+  // Friendly academic selectors — the user never types a UUID. Program → Batch →
+  // Semester → Section resolves to the sectionId the report API needs; the
+  // optional Course dropdown resolves to courseId.
+  const [programId, setProgramId]   = useState('')
+  const [batchId, setBatchId]       = useState('')
+  const [semesterId, setSemesterId] = useState('')
   const [sectionId, setSectionId]   = useState('')
   const [courseId, setCourseId]     = useState('')
   const [submitted, setSubmitted]   = useState('')
@@ -48,6 +56,26 @@ export default function InternalMarksReportPage() {
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['marks-section-report'] }); setReopenTarget(null); setReopenReason('') },
   })
 
+  // Cascading academic dropdowns (reuse existing academic list APIs).
+  const { data: programs = [] } = useQuery({
+    queryKey: ['imr-programs'], queryFn: () => academicsApi.listPrograms(),
+  })
+  const { data: batches = [] } = useQuery({
+    queryKey: ['imr-batches', programId], queryFn: () => academicsApi.listBatches(programId || undefined),
+    enabled: !!programId,
+  })
+  const { data: semesters = [] } = useQuery({
+    queryKey: ['imr-semesters', batchId], queryFn: () => academicsApi.listSemesters(batchId || undefined),
+    enabled: !!batchId,
+  })
+  const { data: sections = [] } = useQuery({
+    queryKey: ['imr-sections', semesterId], queryFn: () => academicsApi.listSections(semesterId || undefined),
+    enabled: !!semesterId,
+  })
+  const { data: courses = [] } = useQuery({
+    queryKey: ['imr-courses'], queryFn: () => listAllCourses(),
+  })
+
   return (
     <PageShell>
       <PageHeader icon={BookMarked} title="Internal Marks Report" subtitle="Review, lock, and reopen marks by section." />
@@ -60,17 +88,55 @@ export default function InternalMarksReportPage() {
         </span>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3 items-end mb-6">
-        <div className="flex-1">
-          <p className="text-xs font-medium mb-1">Section ID</p>
-          <Input value={sectionId} onChange={e => setSectionId(e.target.value)} placeholder="UUID" />
+      {/* Filters — friendly academic selectors (no UUIDs) */}
+      <div className="flex flex-wrap gap-3 items-end mb-6">
+        <div>
+          <p className="text-xs font-medium mb-1 text-gray-700">Program</p>
+          <Select value={programId} onValueChange={v => { setProgramId(v); setBatchId(''); setSemesterId(''); setSectionId('') }}>
+            <SelectTrigger className="w-[190px]"><SelectValue placeholder="Select program" /></SelectTrigger>
+            <SelectContent>
+              {programs.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
-        <div className="flex-1">
-          <p className="text-xs font-medium mb-1">Course ID (optional)</p>
-          <Input value={courseId} onChange={e => setCourseId(e.target.value)} placeholder="UUID" />
+        <div>
+          <p className="text-xs font-medium mb-1 text-gray-700">Batch</p>
+          <Select value={batchId} onValueChange={v => { setBatchId(v); setSemesterId(''); setSectionId('') }} disabled={!programId}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Select batch" /></SelectTrigger>
+            <SelectContent>
+              {batches.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
-        <Button onClick={() => setSubmitted(sectionId)} disabled={!sectionId}>Load</Button>
+        <div>
+          <p className="text-xs font-medium mb-1 text-gray-700">Semester</p>
+          <Select value={semesterId} onValueChange={v => { setSemesterId(v); setSectionId('') }} disabled={!batchId}>
+            <SelectTrigger className="w-[160px]"><SelectValue placeholder="Select semester" /></SelectTrigger>
+            <SelectContent>
+              {semesters.map(s => <SelectItem key={s.id} value={s.id}>Sem {s.number}{s.label ? ` — ${s.label}` : ''}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="text-xs font-medium mb-1 text-gray-700">Section</p>
+          <Select value={sectionId} onValueChange={setSectionId} disabled={!semesterId}>
+            <SelectTrigger className="w-[150px]"><SelectValue placeholder="Select section" /></SelectTrigger>
+            <SelectContent>
+              {sections.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="text-xs font-medium mb-1 text-gray-700">Course (optional)</p>
+          <Select value={courseId || 'ALL'} onValueChange={v => setCourseId(v === 'ALL' ? '' : v)}>
+            <SelectTrigger className="w-[220px]"><SelectValue placeholder="All courses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All courses</SelectItem>
+              {courses.map(c => <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} — ${c.title}` : c.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button onClick={() => setSubmitted(sectionId)} disabled={!sectionId}>Load Report</Button>
       </div>
 
       {(rLoading || readLoading) && <p className="text-muted-foreground">Loading…</p>}

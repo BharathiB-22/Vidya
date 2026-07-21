@@ -44,7 +44,7 @@ function CheckRow({ label, passed, detail }: { label: string; passed: boolean; d
         : <XCircle size={15} className="text-red-400 mt-0.5 flex-shrink-0" />}
       <div>
         <p className="text-sm font-semibold text-white">{label}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{detail}</p>
+        <p className="text-xs text-slate-800 mt-0.5">{detail}</p>
       </div>
     </div>
   )
@@ -80,7 +80,7 @@ export default function EligibilityDetailPage() {
   const row = q.data
 
   if (q.isLoading)
-    return <PageShell><p className="p-8 text-slate-500 text-sm">Loading…</p></PageShell>
+    return <PageShell><p className="p-8 text-slate-700 text-sm">Loading…</p></PageShell>
 
   if (!row)
     return <PageShell><p className="p-8 text-red-400 text-sm">Eligibility record not found.</p></PageShell>
@@ -110,29 +110,29 @@ export default function EligibilityDetailPage() {
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <h2 className="text-lg font-bold text-white">{row.student_name}</h2>
-              <p className="text-sm text-slate-400 mt-0.5">{row.email}</p>
-              {row.usn && <p className="text-xs text-slate-500 mt-0.5 font-mono">{row.usn}</p>}
+              <p className="text-sm text-slate-800 mt-0.5">{row.email}</p>
+              {row.usn && <p className="text-xs text-slate-700 mt-0.5 font-mono">{row.usn}</p>}
             </div>
             <EligibilityBadge status={row.override_status ?? row.status} />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Semester</p>
+              <p className="text-[11px] text-slate-700 uppercase tracking-wide mb-0.5">Semester</p>
               <p className="text-white font-semibold">{row.computed_semester_name || '—'}</p>
             </div>
             <div>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Academic Year</p>
+              <p className="text-[11px] text-slate-700 uppercase tracking-wide mb-0.5">Academic Year</p>
               <p className="text-white font-semibold">{row.computed_academic_year || '—'}</p>
             </div>
             <div>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Publish Status</p>
-              <p className={row.publish_status === 'PUBLISHED' ? 'text-blue-400 font-semibold' : 'text-slate-400 font-semibold'}>
+              <p className="text-[11px] text-slate-700 uppercase tracking-wide mb-0.5">Publish Status</p>
+              <p className={row.publish_status === 'PUBLISHED' ? 'text-blue-400 font-semibold' : 'text-slate-800 font-semibold'}>
                 {row.publish_status}
               </p>
             </div>
             <div>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wide mb-0.5">Hall Ticket #</p>
+              <p className="text-[11px] text-slate-700 uppercase tracking-wide mb-0.5">Hall Ticket #</p>
               <p className="text-white font-mono font-semibold">{row.hall_ticket_number ?? '—'}</p>
             </div>
           </div>
@@ -163,11 +163,11 @@ export default function EligibilityDetailPage() {
               <ShieldCheck size={14} className="text-amber-400" />
               <p className="text-sm font-bold text-amber-400">Override Applied</p>
             </div>
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-slate-900">
               Status changed to <strong>{row.override_status}</strong> by admin/dean.
             </p>
             {row.override_reason && (
-              <p className="text-xs text-slate-400 mt-1 italic">"{row.override_reason}"</p>
+              <p className="text-xs text-slate-800 mt-1 italic">"{row.override_reason}"</p>
             )}
           </div>
         )}

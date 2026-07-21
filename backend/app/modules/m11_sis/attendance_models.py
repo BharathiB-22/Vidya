@@ -21,7 +21,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Index,
+    Column, Date, DateTime, ForeignKey, Index,
     SmallInteger, String, Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import UUID

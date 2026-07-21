@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit_log.models import AuditEventType
 from app.core.audit_log.service import AuditService
-from app.modules.m11_sis.marks_models import ComponentStatus, SisMarksComponent, SisMarksEntry
+from app.modules.m11_sis.marks_models import ComponentStatus, SisMarksComponent
 from app.modules.m11_sis.marks_repository import MarksRepository
 from app.modules.m11_sis.marks_schemas import (
     BulkMarkEntryIn, BulkMarkEntryResult, ComponentCreateIn, ComponentOut,
@@ -999,7 +999,6 @@ class MarksService:
         raw = await MarksRepository.get_section_marks_raw(section_id, course_id, db)
 
         # Aggregate per student
-        from collections import defaultdict
         student_map: dict[str, dict] = {}
         component_max: dict[str, Decimal] = {str(r["id"]): r["max_marks"] for r in comp_rows}
 
@@ -1067,7 +1066,6 @@ class MarksService:
         raw = await MarksRepository.get_student_marks_raw(student_id, db)
 
         # Group by course+section
-        from collections import defaultdict
         course_map: dict[tuple, dict] = {}
         for row in raw:
             key = (str(row["course_id"]), str(row["section_id"]))
@@ -1130,7 +1128,6 @@ class MarksService:
     async def get_my_courses_overview(faculty_id: UUID, db: AsyncSession) -> list[FacultyCourseComponentSummary]:
         rows = await MarksRepository.list_components_enriched(faculty_id=faculty_id, db=db)
 
-        from collections import defaultdict
         group: dict[tuple, dict] = {}
         for row in rows:
             key = (str(row["course_id"]), str(row["section_id"]))

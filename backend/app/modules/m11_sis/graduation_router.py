@@ -29,6 +29,7 @@ Platform verify route (no tenant prefix, no auth):
 """
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -61,6 +62,8 @@ from app.modules.m11_sis.graduation_service import (
     StudentGraduationService,
 )
 
+logger = logging.getLogger("vidya.m11.graduation")
+
 _ADMIN    = [TenantRole.ADMIN]
 _DEAN     = [TenantRole.DEAN]
 _BOARD    = [TenantRole.BOARD, TenantRole.DEAN]
@@ -76,6 +79,41 @@ async def _tenant_code(current_user: CurrentUser, db: AsyncSession) -> str:
         {"tid": str(current_user.tenant_id)},
     )).mappings().one_or_none()
     return (t_row["slug"] if t_row else "UNK").upper().replace("-", "")[:8]
+
+
+def _dispatch_certificate_pdfs(schema_name: str | None, certs: list) -> None:
+    """Queue the certificate PDF render for certificates that have just been ISSUED.
+
+    Called ONLY after `db.commit()`. The service flushes but never commits, so
+    dispatching any earlier would hand the worker a row its own connection cannot
+    see yet — and would leave an orphan PDF job behind if the commit then failed.
+
+    Exactly once per certificate: `issue_certificate` refuses a candidate already
+    at certificate_status=ISSUED, so the same id cannot reach this twice.
+
+    Best-effort. The certificate is already issued and committed at this point; a
+    broker outage must not turn a completed issuance into an HTTP error. The PDF
+    is a rendering of durable data and can be regenerated.
+    """
+    if not certs or not schema_name:
+        return
+    try:
+        from app.workers.heavy.generate_graduation_certificate import (
+            generate_graduation_certificate,
+        )
+    except Exception:
+        logger.exception("graduation: certificate PDF worker unavailable")
+        return
+    for cert in certs:
+        try:
+            generate_graduation_certificate.delay(
+                schema_name=schema_name,
+                cert_id=str(cert.id),
+            )
+        except Exception:
+            logger.exception(
+                "graduation: certificate PDF not queued for %s", cert.id
+            )
 
 
 graduation_router = APIRouter(prefix="/graduation", tags=["SIS Graduation"])
@@ -233,6 +271,8 @@ async def issue_all_certificates(
             audit_id, current_user, tc, db
         )
         await db.commit()
+        # Gate 3 complete and durable — render each certificate's PDF.
+        _dispatch_certificate_pdfs(current_user.schema_name, certs)
         return [GraduationCertificateRead.model_validate(c) for c in certs]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -274,7 +314,14 @@ async def get_audit_report_url(
     db:           AsyncSession = Depends(get_tenant_db_dep),
 ):
     from app.workers.heavy.generate_graduation_report import generate_graduation_report
-    task = generate_graduation_report.delay(str(audit_id))
+    # The tenant travels with the job. sis_graduation_* are tenant-schema tables,
+    # so a task dispatched without the caller's schema would read `public` and
+    # find nothing. Passed by keyword — both arguments are strings, and position
+    # is not something a future edit should be able to get silently wrong.
+    task = generate_graduation_report.delay(
+        schema_name=current_user.schema_name,
+        audit_id=str(audit_id),
+    )
     return AuditReportDispatchResponse(
         audit_id=audit_id,
         celery_task_id=task.id,
@@ -387,6 +434,8 @@ async def issue_single_certificate(
             candidate_id, current_user, tc, db
         )
         await db.commit()
+        # Gate 3 complete and durable — render this certificate's PDF.
+        _dispatch_certificate_pdfs(current_user.schema_name, [cert])
         return GraduationCertificateRead.model_validate(cert)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

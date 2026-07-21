@@ -307,7 +307,7 @@ export default function FacultyDirectoryPage() {
                 </Button>
               </>
             )}
-            <button onClick={exitSelectMode} className="p-1 rounded text-slate-500 hover:text-slate-300">
+            <button onClick={exitSelectMode} className="p-1 rounded text-slate-700 hover:text-slate-900">
               <X size={16} />
             </button>
           </div>
@@ -341,12 +341,12 @@ export default function FacultyDirectoryPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-3 pt-2">
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 disabled:opacity-30">
+            className="p-1.5 rounded-lg text-slate-700 hover:text-slate-900 disabled:opacity-30">
             <ChevronLeft className="h-4 w-4" />
           </button>
           <span className="text-xs" style={{ color: '#4B5563' }}>Page {page} of {totalPages} · {total} total</span>
           <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 disabled:opacity-30">
+            className="p-1.5 rounded-lg text-slate-700 hover:text-slate-900 disabled:opacity-30">
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>

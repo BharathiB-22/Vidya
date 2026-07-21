@@ -87,7 +87,7 @@ function LifecyclePanel({
   if (!canManage) return null
   if (isLoading || !data) return (
     <div className="rounded-xl px-6 py-4 bg-white border border-gray-200 shadow-sm">
-      <p className="text-sm text-gray-400">Loading lifecycle…</p>
+      <p className="text-sm text-gray-600">Loading lifecycle…</p>
     </div>
   )
 
@@ -95,7 +95,7 @@ function LifecyclePanel({
     <div className="rounded-xl px-6 py-4 space-y-3 bg-white border border-gray-200 shadow-sm">
 
       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-        <Activity className="h-4 w-4 text-gray-400" />
+        <Activity className="h-4 w-4 text-gray-600" />
         <h3 className="text-sm font-semibold text-gray-700">Lifecycle Status</h3>
       </div>
 
@@ -124,7 +124,7 @@ function LifecyclePanel({
                 placeholder="Reason (optional)"
                 value={reason}
                 onChange={e => setReason(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-gray-50 border border-gray-200 text-gray-900 placeholder:text-gray-400"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-gray-50 border border-gray-200 text-gray-900 placeholder:text-gray-600"
               />
               <Button
                 size="sm"
@@ -157,13 +157,13 @@ function LifecyclePanel({
             <div className="mt-2 space-y-1">
               {data.history.map(h => (
                 <div key={h.id} className="text-xs text-gray-500 flex items-start gap-2 py-1 border-b border-gray-50 last:border-0">
-                  <span className="shrink-0 tabular-nums text-gray-400">{formatDt(h.changed_at)}</span>
+                  <span className="shrink-0 tabular-nums text-gray-600">{formatDt(h.changed_at)}</span>
                   <span>
                     {h.from_status
                       ? <><LifecycleBadge status={h.from_status} /> → <LifecycleBadge status={h.to_status} /></>
                       : <>Set to <LifecycleBadge status={h.to_status} /></>
                     }
-                    {h.reason && <span className="ml-1 text-gray-400">— {h.reason}</span>}
+                    {h.reason && <span className="ml-1 text-gray-600">— {h.reason}</span>}
                   </span>
                 </div>
               ))}
@@ -192,7 +192,7 @@ function Card({ title, icon: Icon, children }: { title: string; icon: typeof Use
   return (
     <div className="rounded-xl px-6 py-4 space-y-1 bg-white border border-gray-200 shadow-sm">
       <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-        <Icon className="h-4 w-4 text-gray-400" />
+        <Icon className="h-4 w-4 text-gray-600" />
         <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
       </div>
       {children}
@@ -253,7 +253,7 @@ function MoveSectionDialog({
               {others.map(s => <SelectItem key={s.id} value={s.id}>Section {s.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          {others.length === 0 && <p className="text-xs text-slate-500">No other active sections in this semester.</p>}
+          {others.length === 0 && <p className="text-xs text-slate-700">No other active sections in this semester.</p>}
           {err && <p className="text-xs text-red-400">{err}</p>}
         </div>
         <DialogFooter>
@@ -299,7 +299,7 @@ export default function StudentProfilePage() {
   if (isLoading) return <PageLoading message="Loading student profile…" />
   if (!profile) return (
     <PageShell>
-      <p className="text-center py-16 text-slate-500">Student not found.</p>
+      <p className="text-center py-16 text-slate-700">Student not found.</p>
     </PageShell>
   )
 
@@ -312,7 +312,7 @@ export default function StudentProfilePage() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate(-1)}
-          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+          className="p-1.5 rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -323,7 +323,7 @@ export default function StudentProfilePage() {
         </div>
         <Link
           to="/sis/roster"
-          className="ml-auto text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          className="ml-auto text-xs text-gray-600 hover:text-gray-600 transition-colors"
         >
           ← Roster
         </Link>
@@ -362,7 +362,7 @@ export default function StudentProfilePage() {
             <InfoRow label="Batch"      value={profile.batch ? `${profile.batch.name} (${profile.batch.start_year}–${profile.batch.end_year})` : '—'} />
           </>
         ) : (
-          <p className="py-3 text-sm text-slate-500">No program assigned.</p>
+          <p className="py-3 text-sm text-slate-700">No program assigned.</p>
         )}
       </Card>
 
@@ -380,7 +380,7 @@ export default function StudentProfilePage() {
             />
           </>
         ) : (
-          <p className="py-3 text-sm text-slate-500">Not currently enrolled in any section.</p>
+          <p className="py-3 text-sm text-slate-700">Not currently enrolled in any section.</p>
         )}
       </Card>
 

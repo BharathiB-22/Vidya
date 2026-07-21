@@ -74,7 +74,7 @@ async def create_component(
         return await MarksService.create_component(
             body,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -99,7 +99,7 @@ async def list_components(
             semester_id=semester_id,
             status=status,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             db=db,
         )
     except MarksServiceError as e:
@@ -116,7 +116,7 @@ async def get_component(
         return await MarksService.get_component(
             component_id,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             db=db,
         )
     except MarksServiceError as e:
@@ -134,7 +134,7 @@ async def update_component(
         return await MarksService.update_component(
             component_id, body,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -153,7 +153,7 @@ async def delete_component(
         await MarksService.delete_component(
             component_id,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -176,7 +176,7 @@ async def publish_component(
         return await MarksService.publish_component(
             component_id,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -195,7 +195,7 @@ async def lock_component(
         return await MarksService.lock_component(
             component_id,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -215,7 +215,7 @@ async def reopen_component(
         return await MarksService.reopen_component(
             component_id, body,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -238,7 +238,7 @@ async def get_entries(
         return await MarksService.get_entries(
             component_id,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             db=db,
         )
     except MarksServiceError as e:
@@ -259,7 +259,7 @@ async def bulk_enter_marks(
         return await MarksService.bulk_enter_marks(
             component_id, body,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -283,7 +283,7 @@ async def edit_entry(
         return await MarksService.edit_single_entry(
             component_id, entry_id, body,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
@@ -330,7 +330,7 @@ async def import_preview(
             content=content,
             filename=file.filename or "marks.xlsx",
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             db=db,
         )
     except MarksServiceError as e:
@@ -356,7 +356,7 @@ async def import_commit(
             filename=file.filename or "marks.xlsx",
             edit_reason=edit_reason,
             actor_id=current_user.user_id,
-            actor_role=current_user.role,
+            actor_role=current_user.viewing_role,
             tenant_id=current_user.tenant_id,
             schema_name=current_user.schema_name,
             db=db,
