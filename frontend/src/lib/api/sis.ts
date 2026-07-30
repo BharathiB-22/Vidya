@@ -483,8 +483,9 @@ export interface FacultyDay {
   on_date: string
   weekday: number
   today:   FacultyDayClass[]
-  /** False when on_date is older than the configured edit window (or future):
-   *  the day is read-only — no Take/Edit actions. */
+  /** False when the day is read-only — no Take/Edit actions. That means a future
+   *  date, or a past date beyond the optional backward cap the server may be
+   *  configured with (off by default, so normally only future dates). */
   editable: boolean
 }
 

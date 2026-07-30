@@ -47,10 +47,18 @@ class Settings(BaseSettings):
     STORAGE_ASSET_RETENTION_YEARS: int = 3
 
     # Attendance
-    # How many days back (including today) faculty may take or edit attendance.
-    # Sessions dated older than this are read-only. Configurable so the policy can
-    # be tuned per deployment; a Dean/Admin override may layer on top later.
-    ATTENDANCE_EDIT_WINDOW_DAYS: int = 7
+    # Optional cap on how many days back (including today) faculty may take or
+    # edit attendance.
+    #
+    # 0 (the default) means NO backward limit: faculty may mark any past teaching
+    # date. This is deliberate — a 7-day cap made it impossible to enter genuine
+    # historical attendance (a late timetable publish, a corrected register, a
+    # faculty returning from leave), and there was no override path.
+    #
+    # Set to a positive number to restore a rolling window, e.g.
+    # ATTENDANCE_EDIT_WINDOW_DAYS=7 reinstates the previous behaviour exactly.
+    # Future dates are ALWAYS rejected regardless of this setting.
+    ATTENDANCE_EDIT_WINDOW_DAYS: int = 0
 
     # Google OAuth (for Super Admin Google Sign-In)
     GOOGLE_CLIENT_ID: str = ""

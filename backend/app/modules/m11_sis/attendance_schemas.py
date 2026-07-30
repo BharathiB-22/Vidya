@@ -64,8 +64,9 @@ class FacultyDayOut(BaseModel):
     on_date:  date
     weekday:  int   # 0=Monday..6=Sunday
     today:    list[FacultyDayClassOut]
-    # False when on_date is older than the configured edit window (or in the
-    # future): the day's classes are read-only and cannot be taken/edited.
+    # False when the day's classes are read-only: a future date, or a past date
+    # beyond the optional ATTENDANCE_EDIT_WINDOW_DAYS cap (off by default, so in
+    # a default deployment this is False only for future dates).
     editable: bool = True
 
 
@@ -154,8 +155,8 @@ class SessionOut(BaseModel):
     duration_minutes: Optional[int]
     topic_covered:    Optional[str]
     status:           str                  # OPEN | LOCKED
-    is_editable:      bool                 # computed: within the date edit window and OPEN
-    minutes_until_lock: Optional[int]      # countdown; None if not yet marked or locked
+    is_editable:      bool                 # computed: OPEN, not a future date, within any configured cap
+    minutes_until_lock: Optional[int]      # countdown; None when locked, expired, or no cap configured
     first_marked_at:  Optional[datetime]
     locked_at:        Optional[datetime]
     reopened_by:      Optional[UUID]

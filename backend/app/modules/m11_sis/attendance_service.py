@@ -5,9 +5,10 @@ Business rules (all per approved H55 policy decisions):
   - Faculty must hold an active PRIMARY or CO_FACULTY subject_assignment for the
     course in the semester that contains the target section. GUEST role cannot mark.
   - section.semester_id must match the assignment's semester_id (SECTION_MISMATCH).
-  - Edit window: date-based — today plus the previous
-    settings.ATTENDANCE_EDIT_WINDOW_DAYS days. Classes dated older than the
-    window (or in the future) are read-only. Count is configurable, not hardcoded.
+  - Date rules: a future date is never markable. Past dates are open by default;
+    settings.ATTENDANCE_EDIT_WINDOW_DAYS is an optional backward cap (0 = no
+    limit, the default) that a deployment can set to restore a rolling window.
+    Semester-boundary enforcement is deliberately NOT part of this rule yet.
   - edit_reason is mandatory on any modification after the first save.
   - Phase 1 MVP: only PRESENT/ABSENT are valid statuses.
   - Shortage warning notification fires once per student per (course, section)
@@ -88,17 +89,45 @@ async def _resolve_dean_scope(
 # ---------------------------------------------------------------------------
 
 def is_within_edit_window(session_date: date) -> bool:
-    """Is a class on ``session_date`` still within the take/edit window?
+    """May a class on ``session_date`` be taken or edited?
 
-    The window is date-based: today plus the previous
-    ``settings.ATTENDANCE_EDIT_WINDOW_DAYS`` days. Future dates are never editable.
-    Anything older than the window is read-only (a Dean/Admin override may layer
-    on top later). The day count is configuration, never hardcoded here.
+    Two independent rules, and only the first is absolute:
+
+    * **A future date is never markable.** Attendance records what happened, so
+      a class that has not been held yet cannot have a register. This holds
+      regardless of configuration.
+    * **Past dates are open by default.** ``ATTENDANCE_EDIT_WINDOW_DAYS`` is an
+      optional backward cap; at its default of 0 there is no backward limit and
+      any past teaching date may be marked. A positive value restores a rolling
+      window (7 reproduces the historical behaviour exactly).
+
+    The backward cap defaults to off because a hard 7-day limit had no override
+    path: attendance that was genuinely late — a timetable published mid-term, a
+    register corrected after an audit, a faculty member back from leave — simply
+    could not be entered by anyone, at any role.
     """
     today = date.today()
     if session_date > today:
         return False
-    return (today - session_date).days <= settings.ATTENDANCE_EDIT_WINDOW_DAYS
+    max_days = settings.ATTENDANCE_EDIT_WINDOW_DAYS
+    if max_days <= 0:
+        return True
+    return (today - session_date).days <= max_days
+
+
+def _window_error_message(session_date: date) -> str:
+    """Why ``session_date`` was refused, in the words the faculty needs.
+
+    A future date and an over-old date are rejected by the same check but are
+    different mistakes: one is never permitted, the other is a configured cap the
+    institution can change.
+    """
+    if session_date > date.today():
+        return "Attendance cannot be marked for a future date."
+    return (
+        f"Attendance can only be taken for today and the previous "
+        f"{settings.ATTENDANCE_EDIT_WINDOW_DAYS} days."
+    )
 
 
 def is_editable(session: SisAttendanceSession) -> bool:
@@ -110,10 +139,17 @@ def is_editable(session: SisAttendanceSession) -> bool:
 
 def minutes_until_lock(session: SisAttendanceSession) -> Optional[int]:
     """Minutes remaining until the date window closes (midnight after the last
-    editable day). None once locked or already outside the window."""
+    editable day).
+
+    None when there is nothing to count down to: the session is locked, it is
+    already outside the window, or — the default — no backward cap is configured
+    at all, in which case the session never expires on its own.
+    """
     if session.status == SessionStatus.LOCKED:
         return None
     if not is_within_edit_window(session.session_date):
+        return None
+    if settings.ATTENDANCE_EDIT_WINDOW_DAYS <= 0:
         return None
     last_day = session.session_date + timedelta(days=settings.ATTENDANCE_EDIT_WINDOW_DAYS)
     close_at = datetime(last_day.year, last_day.month, last_day.day, tzinfo=timezone.utc) + timedelta(days=1)
@@ -480,10 +516,7 @@ class AttendanceService:
     ) -> SessionOut:
         if not is_within_edit_window(body.session_date):
             raise AttendanceServiceError(
-                "EDIT_WINDOW_EXPIRED",
-                f"Attendance can only be taken for today and the previous "
-                f"{settings.ATTENDANCE_EDIT_WINDOW_DAYS} days.",
-                403,
+                "EDIT_WINDOW_EXPIRED", _window_error_message(body.session_date), 403,
             )
         section_id, semester_id = await _resolve_session_class(body, actor_id, db)
 

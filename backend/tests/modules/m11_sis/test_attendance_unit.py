@@ -321,16 +321,19 @@ def test_service_read_methods_are_async():
         assert inspect.iscoroutinefunction(method), f"AttendanceService.{m} must be async"
 
 
-def test_edit_window_hours_constant():
-    from app.modules.m11_sis.attendance_service import ATTENDANCE_EDIT_WINDOW_HOURS
-    assert ATTENDANCE_EDIT_WINDOW_HOURS == 48
+def test_edit_window_default_has_no_backward_cap():
+    """The default deployment places no limit on how far back attendance goes."""
+    from app.config import settings
+    assert settings.ATTENDANCE_EDIT_WINDOW_DAYS == 0
 
 
 def test_is_editable_locked_session():
+    from datetime import date as _date
     from app.modules.m11_sis.attendance_service import is_editable
 
     class _S:
         status = "LOCKED"
+        session_date = _date.today()
         first_marked_at = None
         reopened_at = None
 
@@ -338,10 +341,12 @@ def test_is_editable_locked_session():
 
 
 def test_is_editable_unmarked_open_session():
+    from datetime import date as _date
     from app.modules.m11_sis.attendance_service import is_editable
 
     class _S:
         status = "OPEN"
+        session_date = _date.today()
         first_marked_at = None
         reopened_at = None
 
@@ -750,45 +755,60 @@ def test_shortage_helper_null_pct_maps_to_zero():
     assert out.attendance_pct == 0.0
 
 
-def test_is_editable_open_session_within_window():
-    from datetime import datetime, timedelta, timezone
-    from app.modules.m11_sis.attendance_service import is_editable
+def _open_session_on(day):
+    """A minimal OPEN session dated `day` — the only input is_editable reads."""
     from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
     session = SisAttendanceSession()
     session.status = SessionStatus.OPEN
-    session.first_marked_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    session.session_date = day
+    session.first_marked_at = None
     session.reopened_at = None
-    assert is_editable(session) is True
+    return session
+
+
+def test_is_editable_todays_session():
+    from datetime import date
+    from app.modules.m11_sis.attendance_service import is_editable
+    assert is_editable(_open_session_on(date.today())) is True
 
 
 def test_is_editable_locked_session_returns_false():
+    from datetime import date
+    from app.modules.m11_sis.attendance_models import SessionStatus
     from app.modules.m11_sis.attendance_service import is_editable
-    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
-    session = SisAttendanceSession()
+    session = _open_session_on(date.today())
     session.status = SessionStatus.LOCKED
-    session.first_marked_at = None
-    session.reopened_at = None
     assert is_editable(session) is False
 
 
-def test_is_editable_open_session_past_48h_window():
-    from datetime import datetime, timedelta, timezone
+def test_is_editable_old_session_allowed_by_default():
+    """Phase 1: no backward cap, so a months-old class stays markable."""
+    from datetime import date, timedelta
     from app.modules.m11_sis.attendance_service import is_editable
-    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
-    session = SisAttendanceSession()
-    session.status = SessionStatus.OPEN
-    session.first_marked_at = datetime.now(timezone.utc) - timedelta(hours=49)
-    session.reopened_at = None
-    assert is_editable(session) is False
+    assert is_editable(_open_session_on(date.today() - timedelta(days=120))) is True
 
 
-def test_is_editable_reopened_session_uses_reopened_at():
-    from datetime import datetime, timedelta, timezone
+def test_is_editable_future_session_always_rejected():
+    """The one date rule no configuration may relax."""
+    from datetime import date, timedelta
     from app.modules.m11_sis.attendance_service import is_editable
-    from app.modules.m11_sis.attendance_models import SisAttendanceSession, SessionStatus
-    session = SisAttendanceSession()
-    session.status = SessionStatus.OPEN
-    session.first_marked_at = datetime.now(timezone.utc) - timedelta(hours=50)
-    # Reopened 1 hour ago — should be editable again
-    session.reopened_at = datetime.now(timezone.utc) - timedelta(hours=1)
-    assert is_editable(session) is True
+    assert is_editable(_open_session_on(date.today() + timedelta(days=1))) is False
+
+
+def test_backward_cap_still_honoured_when_configured(monkeypatch):
+    """A deployment can restore the old rolling window with a positive cap."""
+    from datetime import date, timedelta
+    from app.config import settings
+    from app.modules.m11_sis.attendance_service import is_within_edit_window
+    monkeypatch.setattr(settings, "ATTENDANCE_EDIT_WINDOW_DAYS", 7)
+    assert is_within_edit_window(date.today() - timedelta(days=3)) is True
+    assert is_within_edit_window(date.today() - timedelta(days=30)) is False
+    # Future stays rejected under a cap too.
+    assert is_within_edit_window(date.today() + timedelta(days=1)) is False
+
+
+def test_minutes_until_lock_none_without_cap():
+    """No cap means there is nothing to count down to."""
+    from datetime import date
+    from app.modules.m11_sis.attendance_service import minutes_until_lock
+    assert minutes_until_lock(_open_session_on(date.today())) is None

@@ -136,7 +136,15 @@ export function ExtraClassDialog({
 
           <div>
             <label className="block text-xs text-gray-500 mb-1">Date</label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            {/* Past dates are unrestricted — an extra class may be recorded long
+                after it was held. `max` mirrors the server's one hard rule: a
+                class that has not happened yet cannot have a register. */}
+            <Input
+              type="date"
+              value={date}
+              max={todayISO()}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </div>
         </div>
 
