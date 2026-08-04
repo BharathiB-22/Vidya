@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Library, Search, MessageCircle, Send } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Library, Search } from 'lucide-react'
 import * as learningPackageApi from '@/lib/api/learningPackage'
 import type { PackageItem } from '@/types/learningPackage'
+import { NotebookQA } from '@/components/NotebookQA'
 import { UnitSelector } from '../UnitSelector'
 import type { SubjectTabProps } from './types'
 
@@ -16,18 +17,10 @@ const FILTERS: { key: string; label: string; match: (i: PackageItem) => boolean 
   { key: 'DOWNLOADS', label: 'Downloads', match: (i) => !!i.url },
 ]
 
-interface QATurn {
-  question: string
-  answer: string
-}
-
 export function LearningMaterialsTab({ subject }: SubjectTabProps) {
   const [unit, setUnit] = useState<number | null>(subject.units[0]?.unit_number ?? null)
   const [filter, setFilter] = useState('ALL')
   const [search, setSearch] = useState('')
-  const [question, setQuestion] = useState('')
-  const [sessionId, setSessionId] = useState<string | undefined>()
-  const [turns, setTurns] = useState<QATurn[]>([])
 
   const { data: pkgList, isLoading: isListLoading } = useQuery({
     queryKey: ['student-learning-packages', subject.syllabus_id, unit],
@@ -48,15 +41,6 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
     const active = FILTERS.find((f) => f.key === filter) ?? FILTERS[0]
     return list.filter((i: PackageItem) => active.match(i) && (!q || i.title.toLowerCase().includes(q)))
   }, [items, filter, search])
-
-  const askMutation = useMutation({
-    mutationFn: () => learningPackageApi.askQuestion(pkg!.id, question, sessionId),
-    onSuccess: (res) => {
-      setTurns((t) => [...t, { question, answer: res.answer }])
-      setSessionId(res.session_id)
-      setQuestion('')
-    },
-  })
 
   if (!subject.syllabus_id) {
     return (
@@ -143,43 +127,11 @@ export function LearningMaterialsTab({ subject }: SubjectTabProps) {
             </div>
           )}
 
-          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-            <h3 className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
-              <MessageCircle className="h-3.5 w-3.5" /> Notebook Q&amp;A
-            </h3>
-            {turns.length > 0 && (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {turns.map((t, i) => (
-                  <div key={i} className="text-sm">
-                    <p className="font-medium text-gray-800">{t.question}</p>
-                    <p className="text-gray-600 mt-0.5">{t.answer}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                if (question.trim()) askMutation.mutate()
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Ask a question about this unit's materials…"
-                className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                type="submit"
-                disabled={askMutation.isPending || !question.trim()}
-                className="px-3 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-40 flex items-center gap-1.5 text-sm"
-              >
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            </form>
-          </div>
+          {/* Same Notebook Q&A panel the faculty workspace uses — session
+              history, cited sources, an explicit "indexing pending" state and
+              visible errors. All three endpoints it calls (/qa/sessions,
+              /qa/sessions/{id}, /ask) are enrollment-gated STUDENT-allowed. */}
+          <NotebookQA packageId={pkg.id} qdrantIndexed={pkg.qdrant_indexed} />
         </>
       )}
     </div>

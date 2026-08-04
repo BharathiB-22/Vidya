@@ -152,29 +152,38 @@ export function NotebookQA({
   const bottomRef                             = useRef<HTMLDivElement>(null)
 
   // ── Data queries ──────────────────────────────────────────────────────────
-  const { data: sessions, isLoading: sessionsLoading } = useQASessions(packageId)
-  const { data: sessionData, isLoading: sessionLoading } = useQASession(
-    packageId,
-    activeSessionId ?? '',
-  )
+  const { data: sessions, isLoading: sessionsLoading, isError: sessionsError } =
+    useQASessions(packageId)
+  const { data: sessionData, isLoading: sessionLoading, isError: sessionError } =
+    useQASession(packageId, activeSessionId ?? '')
   const askMutation = useAskQuestion(packageId)
 
   // ── Initialization: pick up most-recent session ───────────────────────────
+  // History is a convenience, not a precondition: if the session queries fail
+  // we still initialize, so the composer stays usable instead of being locked
+  // behind a permanent "Loading session…" state.
   useEffect(() => {
     if (initialized) return
     if (sessionsLoading) return
-    if (!sessions) return
+    if (sessionsError || !sessions) {
+      setInitialized(true)
+      return
+    }
     if (sessions.length > 0) {
       setActiveSessionId(sessions[0].id)
     } else {
       setInitialized(true)
     }
-  }, [sessions, sessionsLoading, initialized])
+  }, [sessions, sessionsLoading, sessionsError, initialized])
 
   useEffect(() => {
     if (initialized) return
     if (!activeSessionId) return
     if (sessionLoading) return
+    if (sessionError) {
+      setInitialized(true)
+      return
+    }
     if (sessionData) {
       setMessages(
         sessionData.messages.map((m) => ({
@@ -186,7 +195,7 @@ export function NotebookQA({
       )
       setInitialized(true)
     }
-  }, [sessionData, sessionLoading, activeSessionId, initialized])
+  }, [sessionData, sessionLoading, sessionError, activeSessionId, initialized])
 
   // ── Auto-scroll on new message ────────────────────────────────────────────
   useEffect(() => {

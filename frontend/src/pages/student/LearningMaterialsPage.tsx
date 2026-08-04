@@ -90,7 +90,7 @@ export default function LearningMaterialsPage() {
             <section key={g.subject.course_id} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
               <button
                 type="button"
-                onClick={() => navigate(`/student/subjects/${g.subject.course_id}`)}
+                onClick={() => navigate(`/student/subjects/${g.subject.course_id}?tab=learning-materials`)}
                 className="w-full text-left px-5 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors"
               >
                 <span className="text-sm font-semibold text-gray-800">{g.subject.course_title}</span>
@@ -101,7 +101,7 @@ export default function LearningMaterialsPage() {
                   <button
                     key={pkg.id}
                     type="button"
-                    onClick={() => navigate(`/student/subjects/${g.subject.course_id}`)}
+                    onClick={() => navigate(`/student/subjects/${g.subject.course_id}?tab=learning-materials`)}
                     className="w-full text-left px-5 py-3 hover:bg-gray-50 transition-colors flex items-center justify-between gap-4"
                   >
                     <span className="text-sm text-gray-700">Unit {pkg.unit_number}</span>

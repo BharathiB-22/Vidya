@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen } from 'lucide-react'
 import { PageShell } from '@/components/shell/PageShell'
@@ -10,7 +10,15 @@ import { SUBJECT_TABS } from '@/components/student/subjects/tabRegistry'
 
 export default function SubjectDetailsPage() {
   const { courseId } = useParams<{ courseId: string }>()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [searchParams] = useSearchParams()
+  // ?tab=<key> lets other pages deep-link straight to a tab (e.g. the
+  // Learning Materials list linking into the Notebook Q&A panel).
+  const [activeTab, setActiveTab] = useState(() => {
+    const requested = searchParams.get('tab')
+    return requested && SUBJECT_TABS.some((t) => t.key === requested)
+      ? requested
+      : 'overview'
+  })
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['subject-detail', courseId],
